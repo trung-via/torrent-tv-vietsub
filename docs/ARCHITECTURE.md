@@ -1,4 +1,4 @@
-# Architecture v2 — OMP-based client + Windows/NAS TorrServer
+# Architecture v2.1 — OMP-based client + dedicated project runner
 
 **DECIDED_PRODUCT_DIRECTION:** Human chọn OMP (ADR-0002, 2026-10-25).  
 **UNVERIFIED_IMPLEMENTATION:** chưa import/build mã OMP, chưa chạy APK/TV/TorrServer thật.
@@ -22,6 +22,25 @@
                                         -> VlcEngine fallback (ASS/SSA/errors)
                                         -> audio/subtitle selection, SRT/VTT
 ```
+
+## Development execution boundary (`DECIDED` / `UNVERIFIED`)
+
+```text
+AIOS-renew canonical governance (authoring/admission — only if authenticated)
+                      |  dispatch bridge: UNVERIFIED
+                      v
+Torrent TV Vietsub's OWN dedicated runner (registration/online: UNVERIFIED)
+                      |
+                      v
+Torrent TV Vietsub's OWN isolated Git workspace
+                      |
+                      +-- OMP source/build/test/APK evidence
+                      +-- Git remote: trung-via/torrent-tv-vietsub (PRIVATE)
+
+AIOS-renew runner / Runtime checkout / .git/aios journals: NOT A FALLBACK
+```
+
+Repo/workspace/runner riêng là quyết định Human, không phải bằng chứng máy runner đã cài/online. Không giả định chung máy vật lý hoặc riêng máy vật lý khi chưa có xác nhận; yêu cầu là tách runner identity, working directory, quyền và dữ liệu Runtime. Không tự bật workflow, cài runner/service, nạp secrets, mở firewall hoặc dùng runner `AIOS-renew` để lách admission.
 
 ## Boundaries (`DECIDED`)
 

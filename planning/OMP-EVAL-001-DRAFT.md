@@ -3,7 +3,7 @@
 **Status:** DRAFT ONLY — NOT_CANONICAL / NOT_INGRESSED / NOT_DISPATCHED  
 **Human decision:** 2026-10-25 (OMP platform, **retain website torrent sources**).  
 **Target:** `trung-via/torrent-tv-vietsub` PRIVATE, independent of `AIOS-renew`.  
-**Authority:** `docs/PROJECT_CONTRACT.md` v1.1, ADR-0001, ADR-0002, PRD v3.  
+**Authority:** `docs/PROJECT_CONTRACT.md` v1.2, ADR-0001, ADR-0002, ADR-0003, PRD v3.1.  
 **Upstream audit snapshot:** `spacesarmat/omp@52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f`; recheck actual ref, LICENSE and submodule SHA before execution.
 
 ## Objective
@@ -12,15 +12,15 @@ Chứng minh nền tảng OMP đủ điều kiện để nhập vào repo sản 
 
 ## Phase A — authority & evidence (read-only)
 
-1. Fresh AIOS Brain Sync từ canonical `AIOS-renew` main/NEXT; xác thực cross-repo, executor, task admission, review. Không phân bổ ID từ alias.
-2. Chứng minh isolated workspace chỉ cho app repo; snapshot OMP latest/main + pin submodule `android/vendor/2160player`, license/third-party dependency provenance.
+1. Fresh AIOS Brain Sync từ canonical `AIOS-renew` main/NEXT **nếu dùng tuyến AIOS**, xác thực cross-repo, executor, task admission, review; xác thực chính xác đường dispatch đến runner riêng của Torrent TV Vietsub, **không tự thay bằng runner AIOS**. Không phân bổ ID từ alias.
+2. Chứng minh **dedicated self-hosted runner của app** và isolated Git workspace chỉ cho app repo: registration/labels, host identity, online status, root path, quyền vào target Git remote, tách biệt runner/worktree/Runtime state của `AIOS-renew`; nếu chưa đủ chứng cứ `DEDICATED_RUNNER_UNVERIFIED` và không dispatch. Snapshot OMP latest/main + pin submodule `android/vendor/2160player`, license/third-party dependency provenance.
 3. Inventory website source adapters và user-configured Jackett/Prowlarr/TorrServer; không disable, không thêm crawler trái phép, không buộc paid OMP billing để tìm website.
 4. Read-only review URL credential flow, manifest permissions, boot receiver, hidden background monitoring, OMP paid/bot/VPS integration.
 5. Không clone nếu quyền/working tree/target root chưa rõ; không chạm `AIOS-renew`.
 
 ## Phase B — isolated build (chỉ khi authorized)
 
-- Clean clone pinned OMP + `git submodule update --init --recursive` trong workspace độc lập; không import source vào `main`.
+- Chỉ sau runner readiness/authority gate: clean clone pinned OMP + `git submodule update --init --recursive` **trên dedicated app runner và workspace độc lập**; không import source vào `main`. Không dùng runner AIOS làm fallback.
 - Run `npm ci`, targeted unit tests, `npm run build:mobile`, Android Gradle `assembleDebug testDebugUnitTest` hoặc lệnh tương đương từ upstream khi version đã xác minh.
 - Report Node/Java/Android SDK versions, build outputs, APK checksum, fail logs sanitized. Không bật CI/workflows hoặc secrets tự động.
 - Smoke mock/offline TorrServer, player/track/subtitle parsing, website source search UI preserving adapter inventory with legal fixture/test data.
@@ -36,7 +36,8 @@ Chứng minh nền tảng OMP đủ điều kiện để nhập vào repo sản 
 
 | ID | Evidence |
 |---|---|
-| AC1 | Fresh AIOS canonical auth proof or explicit `BLOCKED` |
+| AC1 | Fresh AIOS canonical auth proof (khi dùng AIOS) and exact authorized dispatch to dedicated target runner, or explicit `BLOCKED` |
+| AC1R | Dedicated app runner GitHub registration/labels/online + isolated workspace/root/credentials evidence; otherwise `DEDICATED_RUNNER_UNVERIFIED` |
 | AC2 | Pinned OMP SHA and 2160 submodule SHA, clean isolated worktree |
 | AC3 | npm/TypeScript + Kotlin/Gradle test results; APK debug SHA if build succeeds |
 | AC4 | Website source UI retained; valid legal-source smoke; no paid billing requirement for core website search |
@@ -47,7 +48,7 @@ Chứng minh nền tảng OMP đủ điều kiện để nhập vào repo sản 
 
 ## Stop conditions
 
-- Invalid canonical cross-repo admission, target workspace isolation uncertain.
+- Invalid canonical cross-repo admission, dedicated target runner unverified/offline, dispatch routing to AIOS-renew runner, or target workspace isolation uncertain.
 - GPL/dependency provenance mismatch, secret in logs/repo, unauthorized site scraping/access/DRM bypass or prohibited network change.
 - Build/toolchain blocker; TV firmware incompatible without Human-approved fallback.
 - Would require disabling OMP website source search as a blanket policy, contrary to latest Human direction: escalate a scoped conflict instead.

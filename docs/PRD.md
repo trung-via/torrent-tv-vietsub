@@ -1,8 +1,8 @@
-# Torrent TV Vietsub — PRD v3 (OMP-based / Windows–NAS)
+# Torrent TV Vietsub — PRD v3.1 (OMP-based / dedicated runner)
 
 **Ngày cập nhật:** 2026-10-25  
 **Status:** Human-approved product direction; implementation, real device and real server UNVERIFIED.  
-**Authority:** `docs/PROJECT_CONTRACT.md` v1.1 + ADR-0001/ADR-0002. Thay cho PRD v2 đề xuất Kotlin + Compose for TV app từ đầu.
+**Authority:** `docs/PROJECT_CONTRACT.md` v1.2 + ADR-0001/ADR-0002/ADR-0003. Thay cho PRD v2 đề xuất Kotlin + Compose for TV app từ đầu.
 
 ## 1. Mục tiêu
 
@@ -15,6 +15,7 @@ Xây trên OMP upstream một ứng dụng xem video gia đình cho Android TV/G
 - **DECIDED:** TorrServer Windows PC / NAS riêng, LAN trusted; PC/NAS luôn cần bật khi xem. Không fork engine hay bundle TorrServer binary vào APK.
 - **DECIDED:** giữ OMP library, watch history, resume, multiple series/episodes, D-pad, native player, track selection và những tính năng player đã có.
 - **DECIDED:** ưu tiên Việt: UI `vi`; track `vi/vie`, SRT/VTT UTF-8; đảm bảo fallback nếu không có tiếng Việt.
+- **DECIDED:** repo GitHub PRIVATE, **Git workspace độc lập và dedicated self-hosted runner riêng cho Torrent TV Vietsub**; không dùng runner/Runtime workspace của `AIOS-renew` như môi trường mặc định. Tuyến điều phối AIOS đến runner này phải được xác minh riêng, chưa mặc định là hoạt động.
 - **DECIDED:** không đưa billing/paid OMP infrastructure, bot/VPS, tự động theo dõi nền, phone-local TorrServer hoặc TV autostart vào đường mặc định P0. Tách theo dependency, không phá tìm kiếm website. Phone remote/UI có sẵn có thể giữ; không xây companion app mới.
 - **PROPOSED P2:** Windows/NAS có thể tạo Vietsub/thuyết minh bằng ASR → dịch/QA → TTS → đồng bộ/mix/mux, chỉ opt-in và có quyền với nội dung.
 
@@ -31,6 +32,7 @@ Xây trên OMP upstream một ứng dụng xem video gia đình cho Android TV/G
 
 | Workstream | Acceptance |
 |---|---|
+| Infrastructure | Runner self-hosted **riêng của dự án** có registration/labels, isolated workspace, Git remote và permissions được kiểm chứng; runner readiness có evidence hoặc `DEDICATED_RUNNER_UNVERIFIED` |
 | OMP upstream | Commit/submodule/dep lock, build sạch npm/Gradle và APK debug SHA; license GPL provenance |
 | Search sources | Website adapters upstream còn trong code và được gọi từ UI; kiểm chứng với nguồn/fixture hợp lệ; không buộc đăng ký dịch vụ OMP trả phí |
 | TorrServer | Local LAN configuration, API/seek/player verified thật hoặc `REAL_SERVER_UNVERIFIED` |
@@ -80,7 +82,7 @@ Pin upstream OMP và submodule riêng; không tuyên bố snapshot audit là bui
 - **Nguồn torrent:** giữ website search, nhưng kết quả/indexer có thể chứa nội dung không được phép, site có login/captcha hoặc không hoạt động; không bypass truy cập hoặc cam kết mọi nguồn hợp pháp.
 - **Runtime:** TV Redmi nội địa chưa chắc cùng Google TV quốc tế; 4K/HEVC/HDR/audio/subtitle cần test thật.
 - **Testing:** unit/mock PASS không thay thế TV/server thật. Negative tests server offline/auth/timeout/peers/decoder/subtitles và search source failures.
-- **Governance:** `OMP-EVAL-001` chỉ là planning alias. AIOS canonical author/dispatch cần fresh Brain Sync + authorization, target cross-repo isolation và review.
+- **Governance:** `OMP-EVAL-001` chỉ là planning alias. AIOS canonical author/dispatch cần fresh Brain Sync + authorization, target cross-repo isolation **và xác thực tuyến tới runner riêng**, cùng review. Không tự chuyển tác vụ qua AIOS runner khi chưa hỗ trợ dispatch riêng.
 
 ## 9. Roadmap / next
 
