@@ -1,3 +1,9 @@
+# SUPERSEDED — historical planning only
+
+> **2026-10-25:** Human approved OMP-based architecture and retention of website torrent search; this original Kotlin/Compose-shell plan is **NOT to be executed**. See [ADR-0002](../docs/DECISIONS/ADR-0002-omp-baseline.md) and [OMP-EVAL-001-DRAFT.md](OMP-EVAL-001-DRAFT.md). This alias never became a canonical AIOS TASK.
+
+---
+
 # AIOS — FIRST TASK AUTHORING DRAFT: External Repo + Device/Server Feasibility
 
 **Date:** 2026-10-15  

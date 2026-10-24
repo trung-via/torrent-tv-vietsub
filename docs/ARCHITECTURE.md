@@ -1,29 +1,51 @@
-# Architecture v1 — DECIDED client/server, API details UNVERIFIED
+# Architecture v2 — OMP-based client + Windows/NAS TorrServer
+
+**DECIDED_PRODUCT_DIRECTION:** Human chọn OMP (ADR-0002, 2026-10-25).  
+**UNVERIFIED_IMPLEMENTATION:** chưa import/build mã OMP, chưa chạy APK/TV/TorrServer thật.
 
 ```text
-Phone / PC user input (magnet/.torrent from content with access rights)
-          |
-          v
-TorrServer web UI/API on Windows default, NAS optional
-  - peer discovery + piece/cache management
-  - expose HTTP video stream
-          | trusted home LAN
-          v
-Android TV app (if device firmware supports APK)
-  server setup & connectivity
-  StreamEngine interface -> TorrServerAdapter -> typed failures
-  Media3 ExoPlayer -> track selectors -> subtitle renderer
-  remote/D-pad focus and Back navigation
+[Người dùng] 
+  |-- thêm magnet/.torrent thủ công qua OMP UI hoặc TorrServer Web UI
+  |-- tìm kiếm theo yêu cầu: OMP website source adapters / configured Jackett/Prowlarr/TorrServer
+  |                                     (chỉ nội dung/nguồn được phép)
+  v
+[OMP TypeScript/Preact TV + phone UI, Capacitor/WebView]
+  |-- Library, series, history, watch progress, D-pad/phone remote
+  |-- src/api/torrserver.ts (LAN client)
+  |-- src/player/nativePlayer.ts -> native bridge
+  v
+[Windows default / NAS optional TorrServer] ------ trusted LAN HTTP media -------+
+  | metadata, pieces/cache, API /echo /torrents /stream                         |
+  | server ON while viewing                                                    v
+                                      [Android PlayerActivity / PlayerSession]
+                                        -> Engine2160 (2160 Player + Media3)
+                                        -> VlcEngine fallback (ASS/SSA/errors)
+                                        -> audio/subtitle selection, SRT/VTT
 ```
 
-## Strict seams
+## Boundaries (`DECIDED`)
 
-- `StreamEngine` returns normalized video file descriptors + playable stream handles + typed failures, never internal TorrServer schema to UI.
-- Adapter uses configurable endpoint, timeout, cancellation and authentication handling. Wire routes (`/echo`, `/torrents`, `/stream`, `/play`) are **candidates only**, NOT contractual until real version probe and fixtures.
-- Video streams should support seek/HTTP Range where real upstream supports it. Probe with fixture before PASS.
-- Embedded Vietsub or sidecar UTF-8 SRT/VTT; image-based subs and complex ASS require future viability tests.
-- Transcode/remux only if native playback is insufficient AND the server has measured capacity.
+- UI giữ Preact/TypeScript; Android playback dùng Kotlin, Media3/2160 Player và VLC. **Không có yêu cầu rewrite sang Compose** ở P0.
+- Website source adapters `src/sources/*` được giữ và có thể tìm theo yêu cầu người dùng; không xóa/tắt vì audit; không vận hành index phim lậu hoặc crawler vi phạm quyền, không bypass login/captcha/DRM.
+- TorrServer riêng trên Windows/NAS; không vendor binary hay BitTorrent engine trong APK. Existing OMP phone-local TorrServer không cần thiết trong đường chuẩn.
+- Việc giữ OMP phone UI/remote không đồng nghĩa phải viết companion app mới. Billing/backends/bot/monitor nền/autostart upstream được audit và cô lập khỏi MVP **sau** kiểm chứng dependency.
+- Chưa chốt commit production, dependency lock hoặc stream wire contract. Audit snapshot OMP: `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f`; clone + submodule `android/vendor/2160player` phải pin riêng khi feasibility.
 
-## Hardware compatibility
+## Vietnamese seams
 
-Redmi A Pro 55 (China HyperOS) and Xiaomi TV A Pro 55 2026 (global Google TV) may differ. Gather exact `Settings > About` model/build, API/ABI, ADB/install permission, codec/remote behavior. Fallback to dedicated Google TV / Android TV box with Human approval; do not root TV.
+- `src/i18n/{ru,en,index}.ts` + Android native `I18n.kt` hiện phục vụ ru/en: mở rộng từ điển `vi`, giữ placeholders/plural/format và test.
+- `src/lib/tracks.ts`, `DubMatch.kt`, `trackPrefs.ts`, `src/store/settings.ts`: nhận diện `vi/vie/vietnamese`, ưu tiên Việt khi track có thật, nhớ lựa chọn, fallback rõ.
+- `src/lib/episodes.ts`, `src/player/queue.ts`, `Engine2160.kt` và `VlcEngine.kt`: sidecar `.srt/.vtt` Unicode; ASS/SSA qua VLC nếu phù hợp; PGS và typesetting phải kiểm tra thực tế.
+- **P2/AI:** Windows/NAS ASR/dịch/QA/TTS/căn thời gian; thực nghiệm mux hoặc external-audio synchronization trước khi coi là supported. Không thêm AI agent/backend vào TV APK.
+
+## Security gates
+
+- `src/api/torrserver.ts` có `videoSrc()` đưa userinfo vào URL; Android native/VLC có đường nhận URL này. Không phát hành khi chưa audit log/redirect/trace/backup và phương án hạn chế lộ credentials.
+- Search websites có điều khoản truy cập và tài khoản khác nhau. Chỉ gọi nguồn bằng hành động chủ động, che secret/passkey; không tự crawl trong nền.
+- LAN trusted. Không tự mở WAN/UPnP/router/Windows service/firewall/autostart. Check manifest quyền/receivers sau khi cô lập module.
+
+## Device/server gates
+
+- Ghi model/firmware/API/ABI thật; Redmi nội địa không mặc định giống Xiaomi Google TV.
+- Nếu không hỗ trợ APK: `DEVICE_BLOCKED`, hỏi Human về TV box; không root/circumvent.
+- Thử media hợp pháp qua TorrServer Windows thật, seek/HTTP Range, media codec/audio, Vietsub/remote. Mock không chứng minh `REAL_TV_PASS` hay `REAL_SERVER_PASS`.
