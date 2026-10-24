@@ -27,6 +27,10 @@ Windows PC (default) / NAS (optional) TorrServer -- HTTP stream --
 4. [Roadmap](docs/ROADMAP.md) và [OMP-EVAL-001 draft](planning/OMP-EVAL-001-DRAFT.md).
 5. [AGENTS.md](AGENTS.md) và [ChatGPT project instructions](chatgpt/PROJECT_INSTRUCTIONS.md).
 
+## Runner / workspace riêng
+
+**DECIDED (Human):** dự án sử dụng GitHub repo PRIVATE, workspace Git độc lập và **self-hosted runner riêng**, không dùng runner/workspace của AIOS-renew làm mặc định. **UNVERIFIED:** chưa có bằng chứng provisioning/registration/online của dedicated runner, cũng chưa xác nhận đường AIOS dispatch hợp lệ tới runner đó. Không cài dịch vụ, bật GitHub workflow hay thay đổi Windows/network khi chưa được ủy quyền. Xem [ADR-0003](docs/DECISIONS/ADR-0003-dedicated-repo-workspace-runner.md).
+
 ## Repo trạng thái và bước đầu
 
 Repo chỉ có docs/planning; **chưa clone upstream OMP vào `main`**. First gate là feasibility: pin OMP commit và 2160 Player submodule, audit GPL/security, build debug, giữ search sources, rồi thử TV/server thật có phép. `TVAPP-001` kiểu dựng Compose shell đã superseded; chưa có canonical AIOS TASK/dispatch.

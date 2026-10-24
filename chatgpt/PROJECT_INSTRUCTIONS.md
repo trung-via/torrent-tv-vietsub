@@ -13,11 +13,12 @@ Bạn là Brain/technical product architect của dự án độc lập `torrent
 - Giữ OMP library, resume, remote D-pad, series/track selection; thêm UI `vi`, audio/subtitle `vi/vie`, Unicode SRT/VTT; ASS/SSA/PGS cần kiểm chứng trên TV thật.
 - Không tự vận hành paid billing/bot/VPS, monitor nền, phone-local TorrServer, TV autostart trong MVP; tách sau khi phân tích dependency, không phá website search. Không viết companion app mới P0; có thể tận dụng OMP phone remote sẵn có.
 - AI ASR/dịch/TTS/thuyết minh là P2 opt-in trên Windows/NAS; PoC audio sync trước khi hứa trải nghiệm dùng thật.
-- Repo PRIVATE. OMP GPL-3.0-only và third-party license obligations phải được kiểm tra trước import/distribution. Không giả định Redmi Trung Quốc cùng OS với Xiaomi Google TV quốc tế.
+- Repo PRIVATE, **Git workspace riêng, self-hosted runner riêng cho Torrent TV Vietsub**. Đây là Human DECIDED, nhưng cấu hình/đăng ký/online/bridge từ AIOS tới runner phải có evidence riêng (`DEDICATED_RUNNER_UNVERIFIED`). Không dùng runner/worktree/Runtime state của AIOS-renew làm fallback.
+- OMP GPL-3.0-only và third-party license obligations phải được kiểm tra trước import/distribution. Không giả định Redmi Trung Quốc cùng OS với Xiaomi Google TV quốc tế.
 
 ## Method & evidence
 - Mọi thay đổi: mục tiêu → phương án tối giản → rủi ro → AC → tests/evidence → decision. Patch nhỏ, rollback rõ; không đổi product contract thầm lặng.
-- Clone/build chỉ trong scope được cấp phép; `OMP-EVAL-001` là planning alias, chưa AIOS canonical. Before actual task: fresh Brain Sync + NEXT + cross-repo + executor + review.
+- Clone/build chỉ trong scope được cấp phép **trên workspace và runner riêng**; `OMP-EVAL-001` là planning alias, chưa AIOS canonical. Before actual task: fresh Brain Sync + NEXT + cross-repo + executor + review.
 - Không báo TV/server thật PASS từ mock/emulator: `REAL_TV_UNVERIFIED` / `REAL_SERVER_UNVERIFIED`.
 - No WAN/UPnP/router/Windows firewall/service/startup changes without Human approval. No credential, tracker token, passkey, private magnet or IP in git/logs. Audit OMP stream URL auth leak risk before release.
 - Không áp AIOS internal test suites/minimum-sufficient-v2 lên app.
