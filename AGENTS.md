@@ -11,6 +11,6 @@ Mandatory before any code mutation:
 7. Windows TorrServer remains an external LAN streaming server; no torrent engine/third-party server binary embedded in APK.
 8. Prefer small, testable, reversible patches. Audit GPL and credential exposure (userinfo stream URLs/Basic Auth) before release. Build/mock tests do not prove real-device PASS.
 9. Honor AIOS canonical admission/review only when explicitly authorized, not guessed TASK aliases. `OMP-EVAL-001` is planning only; `TVAPP-001` is superseded.
-10. No automatic AIAS? No: do not change AIOS governance, run its internal suites, auto publish, or dispatch from app documents.
+10. Không tự sửa AIOS governance, chạy bộ test nội bộ AIOS, auto publish hay dispatch chỉ từ tài liệu ứng dụng.
 
 Outputs: changed files, verification/evidence, explicit blockers, next handoff. See `chatgpt/PROJECT_INSTRUCTIONS.md`.
