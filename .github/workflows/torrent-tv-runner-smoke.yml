@@ -1,0 +1,62 @@
+name: Torrent TV - Dedicated Runner Smoke
+
+# Manual only: no push, PR, schedule or AIOS-initiated trigger.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dedicated-runner-smoke:
+    name: Verify Torrent TV runner
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 5
+    steps:
+      - name: Verify runner identity and isolated work directory
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub') {
+            throw 'STOP: unexpected repository'
+          }
+          if ($env:RUNNER_NAME -cne 'torrent-tv-vietsub-win') {
+            throw 'STOP: unexpected runner identity'
+          }
+          if ($env:RUNNER_OS -cne 'Windows') {
+            throw 'STOP: not a Windows runner'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RUNNER_WORKSPACE)) {
+            throw 'STOP: runner workspace unavailable'
+          }
+          $allowedRoot = [System.IO.Path]::GetFullPath('C:\TOOL\TorrentTV-Runner\_work').TrimEnd('\') + '\'
+          $actualWork = [System.IO.Path]::GetFullPath($env:RUNNER_WORKSPACE).TrimEnd('\') + '\'
+          if (-not $actualWork.StartsWith($allowedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw 'STOP: work directory is outside dedicated Torrent TV runner'
+          }
+          Write-Host 'PASS: expected repository, runner identity and dedicated runner workspace'
+
+      - name: Checkout only Torrent TV repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact repository checkout and project contract
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actualHead = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actualHead -cne $env:GITHUB_SHA) {
+            throw 'STOP: checkout commit mismatch'
+          }
+          $originUrl = (git remote get-url origin).Trim()
+          if ($LASTEXITCODE -ne 0 -or
+              $originUrl -notmatch '^https://github\.com/trung-via/torrent-tv-vietsub(?:\.git)?/?$') {
+            throw 'STOP: checkout remote does not match Torrent TV repo'
+          }
+          if (-not (Test-Path 'docs/PROJECT_CONTRACT.md') -or
+              -not (Test-Path 'docs/DECISIONS/ADR-0003-dedicated-repo-workspace-runner.md')) {
+            throw 'STOP: canonical app documents missing'
+          }
+          Write-Host 'PASS: exact checkout commit, repository remote and app contract'
