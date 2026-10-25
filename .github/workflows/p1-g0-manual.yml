@@ -18,7 +18,7 @@ jobs:
       - name: Checkout exact trusted G0 source snapshot
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
         with:
-          ref: b15f755ef1d4e125e12ecf6c29e239752552cfa6
+          ref: 0eb1e20cbc8fc055f1cebe63882bfd67ffa3baeb
           persist-credentials: false
           fetch-depth: 1
 
@@ -26,7 +26,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $pin = 'b15f755ef1d4e125e12ecf6c29e239752552cfa6'
+          $pin = '0eb1e20cbc8fc055f1cebe63882bfd67ffa3baeb'
           $actual = (git -C "$env:GITHUB_WORKSPACE" rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -cne $pin) {
             throw 'STOP: G0 application-source SHA mismatch'
