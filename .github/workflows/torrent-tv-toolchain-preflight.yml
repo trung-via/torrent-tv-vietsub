@@ -13,6 +13,60 @@ jobs:
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 5
     steps:
+      - name: Discover installed tools and expose them inside this job only
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
+              $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
+              $env:RUNNER_OS -cne 'Windows') {
+            throw 'STOP: unexpected repository or runner'
+          }
+          $expected = [IO.Path]::GetFullPath('C:\TOOL\TorrentTV-Runner\_work').TrimEnd('\') + '\'
+          $actual = [IO.Path]::GetFullPath($env:RUNNER_WORKSPACE).TrimEnd('\') + '\'
+          if (-not $actual.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'STOP: unexpected workspace'
+          }
+
+          # These writes are limited to GitHub Actions ephemeral GITHUB_PATH/GITHUB_ENV files,
+          # not Windows machine/user environment, services, or other runners.
+          $nodeDir = 'C:\Program Files\nodejs'
+          if (Test-Path (Join-Path $nodeDir 'node.exe') -PathType Leaf) {
+            Add-Content -LiteralPath $env:GITHUB_PATH -Value $nodeDir -Encoding utf8
+            Write-Host 'FOUND: machine-scope Node.js install'
+          } else {
+            Write-Host 'MISSING: machine-scope Node.js install'
+          }
+
+          $jdkBase = 'C:\Program Files\Eclipse Adoptium'
+          $jdkDir = if (Test-Path $jdkBase -PathType Container) {
+            Get-ChildItem -LiteralPath $jdkBase -Directory -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -like 'jdk-21*' -and
+                              (Test-Path (Join-Path $_.FullName 'bin\javac.exe')) } |
+              Sort-Object Name -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if ($jdkDir) {
+            Add-Content -LiteralPath $env:GITHUB_PATH -Value (Join-Path $jdkDir 'bin') -Encoding utf8
+            Add-Content -LiteralPath $env:GITHUB_ENV -Value "JAVA_HOME=$jdkDir" -Encoding utf8
+            Write-Host 'FOUND: Temurin JDK 21 install'
+          } else {
+            Write-Host 'MISSING: Temurin JDK 21 install'
+          }
+
+          $sdkDir = 'C:\TOOL\Android-SDK'
+          $sdkManagerPath = Join-Path $sdkDir 'cmdline-tools\latest\bin\sdkmanager.bat'
+          if (Test-Path $sdkManagerPath -PathType Leaf) {
+            Add-Content -LiteralPath $env:GITHUB_ENV -Value "ANDROID_HOME=$sdkDir" -Encoding utf8
+            Add-Content -LiteralPath $env:GITHUB_ENV -Value "ANDROID_SDK_ROOT=$sdkDir" -Encoding utf8
+            Add-Content -LiteralPath $env:GITHUB_PATH -Value (Join-Path $sdkDir 'cmdline-tools\latest\bin') -Encoding utf8
+            Add-Content -LiteralPath $env:GITHUB_PATH -Value (Join-Path $sdkDir 'platform-tools') -Encoding utf8
+            Add-Content -LiteralPath $env:GITHUB_PATH -Value (Join-Path $sdkDir 'build-tools\37.0.0') -Encoding utf8
+            Write-Host 'FOUND: dedicated Android SDK install'
+          } else {
+            Write-Host 'MISSING: dedicated Android SDK command-line tools'
+          }
+
       - name: Inventory Node, JDK, Android SDK and Gradle
         shell: powershell
         run: |
@@ -35,6 +89,7 @@ jobs:
               return @{ Present = $false; Detail = 'Not on service PATH' }
             }
             try {
+              $ErrorActionPreference = 'Continue' # java -version writes to stderr on success
               $output = & $command.Source @arguments 2>&1 | Out-String
               $exitCode = $LASTEXITCODE
               $lines = @($output -split '\r?\n' | Where-Object { $_.Trim() -ne '' })
@@ -110,6 +165,7 @@ jobs:
             "**Result: $readiness**",
             '',
             'This read-only preflight does NOT validate OMP-specific required versions, license, Gradle wrapper, Android build, TV or TorrServer.',
+            'Job-local PATH/ANDROID_HOME/JAVA_HOME are set for this diagnostic run only; machine environment and services are unchanged.',
             'A successful Actions job means inspection ran; it does not mean all dependencies are installed.'
           )
           $summary | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
