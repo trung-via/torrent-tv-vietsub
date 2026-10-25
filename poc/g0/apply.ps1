@@ -17,10 +17,23 @@ if ($env:GITHUB_ACTIONS -eq 'true') {
       $env:RUNNER_OS -cne 'Windows') {
     throw 'STOP: not the dedicated Torrent TV GitHub Actions runner'
   }
-  $workspace = [IO.Path]::GetFullPath($env:RUNNER_WORKSPACE).TrimEnd('\') + '\'
-  $root = [IO.Path]::GetFullPath($OmpRoot).TrimEnd('\') + '\'
-  if (-not $root.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'STOP: OMP source is outside the dedicated runner workspace'
+  # RUNNER_WORKSPACE holds the app checkout; RUNNER_TEMP is a sibling under
+  # the same dedicated root and contains this run's disposable OMP clone.
+  $dedicated = [IO.Path]::GetFullPath('C:\TOOL\TorrentTV-Runner\_work').TrimEnd('\') + '\'
+  foreach ($location in @($env:RUNNER_WORKSPACE, $env:RUNNER_TEMP)) {
+    if (-not $location) { throw 'STOP: dedicated workspace/temp path is missing' }
+    $locationRoot = [IO.Path]::GetFullPath($location).TrimEnd('\') + '\'
+    if (-not $locationRoot.StartsWith($dedicated, [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'STOP: runner workspace/temp escapes the dedicated Torrent TV root'
+    }
+  }
+  if (-not $env:GITHUB_RUN_ID -or -not $env:GITHUB_RUN_ATTEMPT) {
+    throw 'STOP: missing run identity'
+  }
+  $expected = [IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP "p1-g0-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT")).TrimEnd('\')
+  $actual = [IO.Path]::GetFullPath($OmpRoot).TrimEnd('\')
+  if (-not $actual.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'STOP: OMP source must be this run''s disposable G0 clone inside RUNNER_TEMP'
   }
 }
 $repoRoot = (& git -C $OmpRoot rev-parse --show-toplevel)
