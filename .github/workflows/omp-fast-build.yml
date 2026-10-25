@@ -1,0 +1,154 @@
+name: Torrent TV - OMP Fast Debug Build
+
+# Opt-in only. Uses the dedicated Torrent TV self-hosted runner, not AIOS.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build pinned OMP debug APK (Windows)
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Guard runner and configure job-local toolchain
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
+              $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
+              $env:RUNNER_OS -cne 'Windows') {
+            throw 'STOP: wrong GitHub repository or runner'
+          }
+          $expected = [IO.Path]::GetFullPath('C:\TOOL\TorrentTV-Runner\_work').TrimEnd('\') + '\'
+          $actual = [IO.Path]::GetFullPath($env:RUNNER_WORKSPACE).TrimEnd('\') + '\'
+          $tempPath = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+          if (-not $actual.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase) -or
+              -not $tempPath.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'STOP: not inside dedicated Torrent TV runner workspace'
+          }
+
+          $nodeDir = 'C:\Program Files\nodejs'
+          $adoptium = 'C:\Program Files\Eclipse Adoptium'
+          $sdk = 'C:\TOOL\Android-SDK'
+          if (-not (Test-Path (Join-Path $nodeDir 'node.exe') -PathType Leaf)) {
+            throw 'BLOCKED: machine-scope Node.js 24 not found'
+          }
+          function Find-Jdk([string]$prefix) {
+            Get-ChildItem -LiteralPath $adoptium -Directory -ErrorAction Stop |
+              Where-Object { $_.Name -like "$prefix*" -and
+                              (Test-Path (Join-Path $_.FullName 'bin\javac.exe') -PathType Leaf) } |
+              Sort-Object Name -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          $jdk21 = Find-Jdk 'jdk-21'
+          $jdk17 = Find-Jdk 'jdk-17'
+          if (-not $jdk21 -or -not $jdk17) {
+            throw 'BLOCKED: JDK 21 and JDK 17 must both be visible to service'
+          }
+          foreach ($file in @(
+              "$sdk\platforms\android-37.0\android.jar",
+              "$sdk\build-tools\36.0.0\aapt2.exe",
+              "$sdk\cmdline-tools\latest\bin\android.exe")) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw "BLOCKED: SDK file not accessible to runner: $file"
+            }
+          }
+          # GitHub Actions ephemeral per-job env/path only. Do not mutate host PATH/services.
+          Add-Content -LiteralPath $env:GITHUB_PATH -Encoding utf8 -Value $nodeDir
+          Add-Content -LiteralPath $env:GITHUB_PATH -Encoding utf8 -Value (Join-Path $jdk21 'bin')
+          Add-Content -LiteralPath $env:GITHUB_PATH -Encoding utf8 -Value "$sdk\platform-tools"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "JAVA_HOME=$jdk21"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "JAVA_HOME_17_X64=$jdk17"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "ANDROID_HOME=$sdk"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "ANDROID_SDK_ROOT=$sdk"
+          $work = Join-Path $env:RUNNER_TEMP "omp-fast-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $work) {
+            throw 'STOP: this attempt workspace already exists; manual inspection required'
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "OMP_WORK=$work"
+          Write-Host 'PASS: dedicated runner and basic JDK17/JDK21/SDK file access'
+
+      - name: Clone pinned OMP and recursive 2160player submodule
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $omp = '52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f'
+          $player = '6ba6edd39f5d986ddfae29b5425b8ac0b319844e'
+          git -c core.longpaths=true clone --no-checkout https://github.com/spacesarmat/omp.git "$env:OMP_WORK"
+          if ($LASTEXITCODE -ne 0) { throw 'OMP clone failed' }
+          git -C "$env:OMP_WORK" checkout --detach $omp
+          if ($LASTEXITCODE -ne 0) { throw 'OMP checkout failed' }
+          git -C "$env:OMP_WORK" -c core.longpaths=true submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'OMP submodule initialization failed' }
+          $actualOmp = (git -C "$env:OMP_WORK" rev-parse HEAD).Trim()
+          $actualPlayer = (git -C "$env:OMP_WORK\android\vendor\2160player" rev-parse HEAD).Trim()
+          if ($actualOmp -cne $omp -or $actualPlayer -cne $player) {
+            throw 'STOP: pinned upstream/submodule SHA mismatch'
+          }
+          Write-Host "Pinned OMP: $actualOmp"
+          Write-Host "Pinned player: $actualPlayer"
+
+      - name: Install locked npm dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location "$env:OMP_WORK"
+          try {
+            npm.cmd ci --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { throw "npm ci failed: $LASTEXITCODE" }
+          }
+          finally { Pop-Location }
+
+      - name: Build web UI and sync Android project
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location "$env:OMP_WORK"
+          try {
+            npm.cmd run android:sync
+            if ($LASTEXITCODE -ne 0) { throw "android:sync failed: $LASTEXITCODE" }
+          }
+          finally { Pop-Location }
+
+      - name: Assemble debug APK and run Android unit tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location "$env:OMP_WORK\android"
+          try {
+            .\gradlew.bat -Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64 assembleDebug testDebugUnitTest --no-daemon --console plain
+            if ($LASTEXITCODE -ne 0) { throw "Gradle build/tests failed: $LASTEXITCODE" }
+          }
+          finally { Pop-Location }
+
+      - name: Check APK artifacts and compute SHA-256
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:OMP_WORK 'android\app\build\outputs\apk\debug'
+          $apks = @(Get-ChildItem -LiteralPath $out -Filter '*.apk' -File -ErrorAction Stop)
+          if ($apks.Count -eq 0) { throw 'BLOCKED: no debug APK produced' }
+          $lines = @('# OMP fast debug APK', '', 'Pinned OMP: 52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f', '', '| APK | SHA-256 |', '| --- | --- |')
+          $shaFile = Join-Path $out 'SHA256SUMS.txt'
+          $checksums = @()
+          foreach ($apk in $apks) {
+            $sha = (Get-FileHash -LiteralPath $apk.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $checksums += "$sha  $($apk.Name)"
+            $lines += "| $($apk.Name) | \`$sha\` |"
+            Write-Host "APK $($apk.Name) SHA256=$sha"
+          }
+          $checksums | Out-File -LiteralPath $shaFile -Encoding ascii
+          $lines | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      - name: Upload debug APKs and checksum (private Actions artifact)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: omp-debug-apk
+          path: |
+            ${{ runner.temp }}/omp-fast-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/*.apk
+            ${{ runner.temp }}/omp-fast-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
