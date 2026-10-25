@@ -24,7 +24,7 @@ if ($env:GITHUB_ACTIONS -eq 'true') {
   }
 }
 $repoRoot = (& git -C $OmpRoot rev-parse --show-toplevel)
-if ($LASTEXITCODE -ne 0 -or [IO.Path]::GetFullPath($repoRoot).TrimEnd('\') -cne
+if ($LASTEXITCODE -ne 0 -or [IO.Path]::GetFullPath($repoRoot).TrimEnd('\') -ne
     [IO.Path]::GetFullPath($OmpRoot).TrimEnd('\')) {
   throw 'STOP: OmpRoot must be exactly the pinned OMP git root'
 }
