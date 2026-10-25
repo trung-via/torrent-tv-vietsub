@@ -2,7 +2,7 @@
 
 **Ngày:** 2026-10-25  
 **Status:** `DRAFT_ONLY / NOT_CANONICAL / NOT_DISPATCHED / E2E_UNVERIFIED`  
-**Authority:** Human approved ADR-0006, Contract/PRD in Draft PR #10; chưa được quyền merge hoặc thay đổi Windows/TV/AIOS tự động.
+**Authority:** ADR-0006 đã merge qua PR #10; Human chốt acceptance P1a ngày 2026-10-25 theo [P1A-ACCEPTANCE-CRITERIA-20261025.md](P1A-ACCEPTANCE-CRITERIA-20261025.md). Không tự merge/dispatch hoặc thay đổi Windows/TV/AIOS.
 
 ## Mục tiêu
 
