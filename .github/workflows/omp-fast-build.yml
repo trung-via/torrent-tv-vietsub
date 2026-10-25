@@ -124,9 +124,27 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          # Configure Gradle's documented toolchain setting in the dedicated
+          # Torrent TV runner cache (GRADLE_USER_HOME), never in machine settings.
+          # Avoid forwarding -D/-P through Windows PowerShell + gradlew.bat:
+          # runs 40156676950 and 40157771076 both parsed the suffix as a task.
+          $propertyFile = Join-Path $env:GRADLE_USER_HOME 'gradle.properties'
+          $toolchainSetting = 'org.gradle.java.installations.fromEnv=JAVA_HOME_17_X64'
+          $existing = @()
+          if (Test-Path -LiteralPath $propertyFile -PathType Leaf) {
+            $existing = @(Get-Content -LiteralPath $propertyFile |
+              Where-Object { $_ -match '^\s*org\.gradle\.java\.installations\.fromEnv\s*=' })
+          }
+          if ($existing.Count -gt 1 -or
+              ($existing.Count -eq 1 -and $existing[0].Trim() -cne $toolchainSetting)) {
+            throw 'STOP: conflicting Gradle JDK toolchain setting in dedicated cache'
+          }
+          if ($existing.Count -eq 0) {
+            Add-Content -LiteralPath $propertyFile -Value $toolchainSetting -Encoding ascii
+          }
           Push-Location "$env:OMP_WORK\android"
           try {
-            .\gradlew.bat -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64 assembleDebug testDebugUnitTest --no-daemon --console plain
+            .\gradlew.bat assembleDebug testDebugUnitTest --no-daemon --console plain
             if ($LASTEXITCODE -ne 0) { throw "Gradle build/tests failed: $LASTEXITCODE" }
           }
           finally { Pop-Location }
