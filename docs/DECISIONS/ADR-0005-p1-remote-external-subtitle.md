@@ -1,31 +1,41 @@
-# ADR-0005 — P1 nạp phụ đề rời bằng remote TV
+# ADR-0005 — P1 chọn phụ đề rời bằng remote, ưu tiên Windows SMB
 
 **Ngày:** 2026-10-25
-**Trạng thái:** DECIDED_PRODUCT_SCOPE / PROPOSED_IMPLEMENTATION / REAL_TV_UNVERIFIED
+**Trạng thái:** DECIDED_PRODUCT_SCOPE / PROPOSED_IMPLEMENTATION / REAL_SMB_TV_UNVERIFIED
 
-## Quyết định Human
-Human đồng ý P1 và yêu cầu có thể thêm file SRT bằng remote trên Redmi TV. P1 sẽ hỗ trợ SRT/VTT rời ngoài torrent; không cần điện thoại. File phải tồn tại trên USB hoặc bộ nhớ TV trước khi remote có thể chọn. Giữ OMP + VLC, không thay TorrServer hay mở cổng LAN mới.
+## Authority: quyết định Human mới nhất
 
-## UX
-1. Khi OMP VLC đang phát, remote Up > Subtitles > Thêm phụ đề từ file.
-2. Chọn USB hoặc Downloads nếu được hệ thống cung cấp, D-pad/OK/Back để duyệt.
-3. Chọn SRT/VTT UTF-8, validate file và sao chép vào app-private storage, bật track.
-4. Bật/tắt/đổi phụ đề, chỉnh offset, nhớ theo local server profile + torrent infohash + file index.
-5. Khi file mới nằm trên Windows, người dùng chép trước qua USB hoặc ADB; truyền file bằng điện thoại sẽ xây sau và tái dùng luồng import, không làm phụ thuộc P1.
+- Ban đầu Human phê duyệt P1 thêm SRT/VTT ngoài torrent bằng remote, nguồn USB hoặc bộ nhớ TV.
+- Human sau đó đồng ý **ưu tiên thư mục SMB chỉ đọc trên laptop Windows TorrServer**, thay USB thành fallback. Quyết định mới supersede thứ tự nguồn, không hủy đường USB/TV.
+- Phê duyệt chức năng SMB **không** tự động phê duyệt bật Windows File Sharing, port 445, thay đổi Windows Firewall, Windows services hoặc tài khoản/credential. Các cấu hình trên host Windows cần Human phê duyệt cụ thể trước.
 
-## Phương án tối giản (PROPOSED)
-- Dùng Android Storage Access Framework ACTION_OPEN_DOCUMENT, cấp quyền trên file do người dùng chọn, tránh MANAGE_EXTERNAL_STORAGE.
-- Redmi HyperOS có thể không có DocumentsUI hoặc picker không tương thích remote: trước khi xây, chạy device probe; fallback giao diện duyệt trong vùng import app quản lý, với đường copy file được phép qua USB/ADB; không quét toàn bộ bộ nhớ.
-- Tái dùng OMP VlcEngine với libVLC addSlave hiện có; song nạp SRT mới khi video đang phát và content/file URI là UNVERIFIED và phải thử PoC.
-- Không thêm backend/DB/Windows service, không sửa firewall, không mở WAN/UPnP. Không tiết lộ torrent/private path/token vào log/Git.
+## UX mong muốn
 
-## Acceptance
-- AC-1: nhập SRT và VTT UTF-8 bằng remote (D-pad, OK, Back) trên Redmi HyperOS thật từ nguồn đã có sẵn.
-- AC-2: giữ dấu tiếng Việt, bật/tắt, chuyển lại track nhúng, chỉnh offset, không sai mapping phim/tập.
-- AC-3: video/audio VLC vẫn hoạt động, pause/seek/resume và đóng/mở lại đúng track đã chọn.
-- AC-4: file lỗi, không tồn tại, USB tháo, picker không có, không đủ quyền: báo lỗi dễ hiểu; fallback không yêu cầu quyền đọc toàn bộ ổ.
-- AC-5: không làm thay đổi TorrServer hoặc quy định AIOS; mock test không thay evidence trên TV thật.
+1. Phát bằng OMP VLC -> remote D-pad Up -> Subtitles -> Thêm phụ đề -> Laptop Windows.
+2. TV hiển thị danh sách thư mục/file từ một share đã cấu hình, giới hạn đuôi SRT/VTT; D-pad/OK/Back chọn file movie.vi.srt.
+3. OMP sao chép file vào app-private storage, kiểm tra UTF-8/định dạng/dung lượng, gắn đúng media hiện tại qua libVLC và chọn track.
+4. Nhớ lựa chọn theo local server profile + torrent infohash + file index, có offset và bật/tắt track; không gắn nhầm tập.
+5. Khi SMB không khả dụng, người dùng chuyển sang nguồn USB/TV local (SAF hoặc app-managed fallback).
+6. Phụ đề AI ở giai đoạn sau xuất ra cùng thư mục Windows; điện thoại tương lai có thể dùng chung luồng chọn file.
 
-**Stop:** Khi SAF không khả dụng và fallback app-managed không hoạt động trên TV thật, dừng và xin Human chọn đường chuyển file phù hợp. Trạng thái REMOTE_SRT_IMPORT_UNVERIFIED.
+## Phương án tối giản (PROPOSED, chưa code)
 
-**Scope integration:** AI Vietsub tương lai tạo file .vi.srt để nạp qua cùng luồng, phone remote tương lai chọn/gửi file; thuyết minh phải dùng PoC audio riêng.
+- Tích hợp SMB client Android trong OMP và trình duyệt bằng remote; ưu tiên SMB2/3, cấm SMB1/guest. Không giả định Android SAF tự hỗ trợ mạng SMB. Chọn thư viện sau khi kiểm tra license, APK size và khả năng chạy trên Redmi HyperOS.
+- Chỉ cấp quyền vào một thư mục riêng (ví dụ: TorrentTV-Subtitles) qua account Windows chuyên dụng read-only; giới hạn cả share permissions và NTFS permissions, không chia sẻ cả ổ đĩa/Administrator.
+- Android lưu secrets trong secure storage/Keystore, không hardcode trong APK/repo/URL hoặc ghi vào log, có chức năng xóa/cập nhật credential; tên/địa chỉ share có thể thay đổi.
+- Dùng đường nạp SRT nội bộ của OMP; source pinned có libVLC addSlave cho phụ đề trong queue khi khởi động. Bổ sung tệp ngay trong lúc phát phải PoC thực tế, không coi là PASS từ source audit.
+- Không dựng HTTP backend/router/DB mới, không thay TorrServer, không mở WAN/UPnP, không chạy quét SMB nền.
+
+## Acceptance criteria
+
+- AC-1: Redmi TV thật dùng remote duyệt đúng share SMB2/3 và chọn SRT/VTT; không guest và không SMB1; cấu hình Windows đã được Human đồng ý trước.
+- AC-2: Vietnamese Unicode hiển thị đúng bằng VLC, tiếng còn hoạt động, pause/seek/resume và mở lại đúng track cho đúng phim/tập.
+- AC-3: Không thể ghi/xóa file trên laptop từ SMB account read-only; không lộ secrets; path traversal và file hỏng được xử lý.
+- AC-4: Các trường hợp sai mật khẩu, thiếu quyền, laptop offline, mạng rớt, file bị xóa, sai encoding, quá dung lượng có lỗi dễ hiểu; fallback USB/TV.
+- AC-5: Test source/unit/mock tách riêng E2E trên Redmi thật; không được báo REAL_SMB_TV_PASS trước khi có evidence.
+
+## Stop / status
+
+SMB client thiếu hỗ trợ an toàn/đụng license, hoặc cần SMB1/guest/port WAN hay sửa firewall chưa phê duyệt => STOP/BLOCKED, xin Human quyết định. Trạng thái hiện tại: SMB_SRT_UNVERIFIED.
+
+PR này là docs-only và Draft, không thực thi trên laptop/TV, không liên quan AIOS dispatch/runner. PR #9 AI Vietsub thay đổi cùng docs nên cần reconcile trước khi merge.

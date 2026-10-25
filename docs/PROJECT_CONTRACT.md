@@ -25,7 +25,7 @@
 10. **AIOS & repo:** app chạy độc lập với AIOS runtime, không thêm DB/router/orchestrator AIOS. GitHub repo `trung-via/torrent-tv-vietsub` PRIVATE, độc lập `AIOS-renew`. Không tự chuyển public, ký APK, publish hoặc dispatch TASK.
 11. **Execution isolation — quyết định Human nhắc lại ngày 2026-10-25:** dự án có **Git repository riêng, Git workspace/worktree riêng và self-hosted runner RIÊNG, dành cho Torrent TV Vietsub**. Không mặc định mượn runner, workspace, thư mục Runtime, locks, journals hoặc credentials của `AIOS-renew`. AIOS có thể giữ authority điều phối theo canonical hiện hành, nhưng việc admission/dispatch phải chứng minh tuyến đến **runner của repo ứng dụng**; không thay runner riêng bằng AIOS runner khi thiếu proof.
 
-12. **P1 - External Vietsub qua remote (Human approved 2026-10-25):** OMP VLC phải cho phép dùng remote Redmi TV chọn và nhập SRT/VTT UTF-8 rời ngoài torrent từ file đã có trên USB/bộ nhớ TV; bật/tắt, offset và nhớ theo đúng phim/tập. UI và lựa chọn file là mục tiêu DECIDED, nhưng Android SAF/file picker, USB và VLC load runtime trên HyperOS chưa được kiểm chứng. Không yêu cầu điện thoại hoặc quyền truy cập toàn bộ bộ nhớ; phương án fallback và acceptance xem ADR-0005. Không giả định remote tự lấy file từ laptop.
+12. **P1 - External Vietsub qua remote (Human approved 2026-10-25; SMB priority approved in follow-up):** OMP VLC cho phép dùng remote Redmi TV chọn SRT/VTT UTF-8 ngoài torrent; **ưu tiên SMB read-only từ laptop Windows đang chạy TorrServer**, USB/bộ nhớ TV làm fallback. TV cần trình duyệt SMB tích hợp OMP, nạp file đã chọn vào app-private storage qua VLC, hỗ trợ bật/tắt/offset và nhớ theo phim/tập. Đường SMB trên firmware Redmi HyperOS và load phụ đề VLC runtime đều **UNVERIFIED**. **Đồng ý tính năng không phải đồng ý tự bật Windows File Sharing, mở port 445, sửa firewall/tài khoản/dịch vụ**; thay đổi hệ thống đòi hỏi phê duyệt Human riêng. SMB2/3, không guest/SMB1, account riêng read-only; chi tiết ADR-0005.
 
 ## C2 — Chưa được xác minh (`UNVERIFIED`)
 
@@ -42,7 +42,7 @@
 ## C3 — Scope và mốc
 
 - **P0 / Feasibility & usable fork:** upstream pinned snapshot và submodule, license/inventory/security audit, build APK debug; kiểm tra firmware/device gate; TorrServer Windows LAN; player/remote/resume; UI tiếng Việt, `vi/vie` + SRT/VTT có dấu; **giữ nguồn tìm website, manual magnet/.torrent và tìm kiếm người dùng chủ động**; test mock + test thật tách bạch.
-- **P1 / Local experience:** nâng cấp UX Việt, reconnect, subtitle rời ngoài torrent nếu cần, quản lý track theo series, kiểm soát thông tin nhạy cảm; xem xét giữ/đơn giản hóa phone remote sẵn có; release chỉ khi Human duyệt.
+- **P1 / Local experience:** **DECIDED SMB read-only ưu tiên** cho phụ đề rời và chọn bằng remote TV, USB/TV local fallback, quản lý offset/track theo phim, Việt hóa và reconnect; SMB share/Windows Firewall/tài khoản chỉ thay đổi sau Human approval riêng. Phone remote là giai đoạn sau; release chỉ khi Human duyệt.
 - **P2 / AI opt-in:** pipeline Windows/NAS ASR → dịch Việt → QA → TTS → align/mix/mux; PoC 1 đoạn video legal trước tự động hóa. Không thực hiện nền khi chưa phê duyệt.
 - **Out of scope:** hệ thống tìm kiếm/chia sẻ phim vi phạm quyền do dự án tự vận hành; scraping không có quyền, bypass DRM/paywall/chống truy cập; WAN public/UPnP; root TV; tự động transcode mọi định dạng; gói TorrServer vào APK; xây lại UI native Compose trong P0; commercial OMP billing infrastructure.
 
@@ -81,6 +81,7 @@ Windows PC / NAS TorrServer  ---- HTTP LAN media stream ----> TV / Vietsub
 - **AC-SERVER:** health/list/play/seek/Range thử với TorrServer thật và media legal; thiếu thực nghiệm => `REAL_SERVER_UNVERIFIED`.
 - **AC-TV:** APK install/launch/D-pad/player trên đúng TV/box thật và ABI/firmware có bằng chứng; thiếu => `REAL_TV_UNVERIFIED` / `DEVICE_BLOCKED`.
 - **AC-VI:** UI tiếng Việt không lỗi dấu; track `vi/vie` được nhận và chọn đúng; SRT/VTT UTF-8 đồng bộ; ASS/PGS chỉ PASS khi test thật.
+- **AC-P1-SMB (UNVERIFIED):** sau khi SMB read-only được Human cấu hình riêng, TV Redmi thật dùng D-pad duyệt SRT/VTT qua SMB2/3 không guest, chọn/nạp vào VLC, đúng dấu Việt, audio còn tiếng, pause/seek/resume, nhớ đúng phim/tập; lỗi server offline/sai mật khẩu/thiếu quyền/file hỏng có thông báo và fallback USB/TV. Không lộ mật khẩu/log, không mở WAN/UPnP, không tự thay Windows Firewall.
 - **AC-RELEASE:** Human duyệt licensing, dữ liệu, chữ ký, rollback; không auto-production.
 
 ## C7 — Authority & quản trị thay đổi
