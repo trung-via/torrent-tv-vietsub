@@ -39,3 +39,14 @@
 **STOP:** SHA, license, dirty worktree, disallowed executor, unavailable VLC, unsafe credentials/logs, unexpectedly required Windows/TV configuration, or any pressure to claim `EXTERNAL_SRT_E2E_PASS` from this G0 patch.
 
 Rollback the disposable worktree (prefer discard), or restore the one modified `PlayerActivity.kt` and remove only the two G0 Kotlin source-set files plus debug SRT asset. Nothing in `main` is changed by this branch.
+
+## G0 runner build handoff — prepared, NOT executed
+
+- `poc/g0/build-on-runner.ps1` is the **manual, fail-closed runner build script**. It checks exact GitHub Actions app repo/runner identity, workspace isolation, clean app checkout, pinned OMP+2160 source, SDK/JDK/toolchain, and invokes `apply.ps1` + `verify.ps1` before npm/Gradle. It writes `SHA256SUMS.txt` and a sanitized `P1-G0-BUILD-EVIDENCE.txt`, and verifies the debug APK contains the SRT fixture. It never installs on TV or changes Windows machine-scoped settings.
+- `poc/g0/manual-workflow.template.yml` is a **non-active workflow template** deliberately outside `.github/workflows/`. It references immutable app patch source commit `8bcd3cbc2890a2d0d9ce449f24171b4e0813422b` so later documentation edits cannot silently alter the executable code. It requires a separately authorized, manual-only `workflow_dispatch` workflow on the default branch to run.
+- When an authorized operator adds the template under `.github/workflows/p1-g0-manual.yml` on `main`, they can go to **GitHub → Actions → Torrent TV - P1 G0 Manual Debug Build → Run workflow**. It should publish only a private 7-day APK/checksum/evidence artifact. **This repository tool connection cannot dispatch Actions directly; no run is triggered by adding this template.**
+- No trigger for `push`, `pull_request`, `schedule` or `workflow_run` is included. The existing `omp-fast-build.yml` still builds the unmodified OMP upstream and must **not** be mistaken for a G0 build.
+- For manual execution inside a confirmed dedicated GitHub Actions job after checkout of the pinned PR #11 code: `powershell -NoProfile -File .\poc\g0\build-on-runner.ps1 -AppRepoRoot $env:GITHUB_WORKSPACE`. Running from an ordinary shell must stop. Never bypass its preflight to claim PASS.
+- After the job finishes, verify exact commit + SHA256 evidence and inspect any failure traces (redact credential-bearing URLs). Real-TV G0 remains `UNVERIFIED` until an authorized Redmi test. G1 arbitrary-file import remains not implemented.
+
+**Stop conditions:** runner offline, branch/head drift, missing/changed license or pins, Gradle/toolchain mismatch, failed artifact asset inspection, exposed secrets, unauthorized CI/Windows changes. Do not auto-merge PR #11, enable continuous CI, bypass AIOS governance or infer TV PASS from compile success.
