@@ -1,0 +1,15 @@
+1
+00:00:02,000 --> 00:00:05,000
+Kiểm thử phụ đề tiếng Việt trên Redmi TV.
+
+2
+00:00:06,000 --> 00:00:09,000
+Đường, Trường, Nguyễn — ă, â, ê, ô, ơ, ư, đ.
+
+3
+00:00:10,000 --> 00:00:13,000
+Tạm dừng, tua tới, tua lùi và tiếp tục phát.
+
+4
+00:00:14,000 --> 00:00:17,000
+Đây là file thử SRT rời, không nằm trong torrent.
