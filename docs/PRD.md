@@ -1,8 +1,8 @@
-# Torrent TV Vietsub — PRD v3.1 (OMP-based / dedicated runner)
+# Torrent TV Vietsub — PRD v3.2-P1-PROPOSED (OMP-based / dedicated runner)
 
 **Ngày cập nhật:** 2026-10-25  
 **Status:** Human-approved product direction; implementation, real device and real server UNVERIFIED.  
-**Authority:** `docs/PROJECT_CONTRACT.md` v1.2 + ADR-0001/ADR-0002/ADR-0003. Thay cho PRD v2 đề xuất Kotlin + Compose for TV app từ đầu.
+**Authority:** `docs/PROJECT_CONTRACT.md` v1.3 proposed in PR #10 + ADR-0001/ADR-0002/ADR-0003/ADR-0006 (ADR-0005 là lịch sử SMB-first đã superseded một phần). Thay cho PRD v2 đề xuất Kotlin + Compose for TV app từ đầu.
 
 ## 1. Mục tiêu
 
@@ -46,7 +46,9 @@ Trong P0 không viết lại player, không xây AI thuyết minh, không tự m
 ## 5. P1 — Dùng thường ngày
 
 - Tối ưu dịch tiếng Việt, font, subtitle offset/size, bản audio tiếng Việt được nhớ theo phim/series.
-- Nạp external SRT/VTT ngoài torrent nếu có nhu cầu; kiểm thử ASS/SSA và PGS riêng.
+- **DECIDED P1a, phân tầng bằng chứng theo V1 audit:** G0 chỉ PoC VLC render một SRT UTF-8 self-authored từ debug asset vào app-private, khai báo lúc mở phim, đo tiếng Việt Unicode + D-pad + audio + seek trên Redmi thật (`LOCAL_SRT_RENDER_PASS` nếu đủ proof). G1 là thử **file ngoài APK** với track/media binding, lỗi, seek/resume và persistence qua reopen không có debug re-injection (`EXTERNAL_SRT_E2E_PASS` chỉ sau proof riêng). G2 hot-add, G3 sync theo clip/cue kiểm soát và G4 release isolation được báo độc lập. Trước test thực: `UNVERIFIED`; chưa xây SMB/phone transport.
+- **PROPOSED P1b:** sau P1a, thử/so sánh Android local file picker/USB, Windows SMB read-only, điện thoại và phương án ít hạ tầng hơn; lựa chọn default UX/transport do Human quyết định sau evidence. Remote vẫn điều khiển phát và chọn track; không bắt buộc duyệt file Windows bằng remote trong P1a. **SMB-first và SMB Android client ở ADR-0005 đã được Human rút khỏi baseline P1** (ADR-0006), không tự tạo Windows share/Firewall/backend.
+- Kiểm thử ASS/SSA và PGS riêng; phone gửi file từ LAN là nhánh sau khi đường nạp SRT hoạt động.
 - Củng cố LAN reconnect/error UX và phone-to-TV remote vốn có trong OMP; không thêm app mobile mới nếu chưa có bằng chứng.
 - Giữ tìm torrent website; dependency isolation và policy quyền truy cập/credential rõ ràng.
 - Release APK chỉ sau license/security check, TV thật, Human approval.

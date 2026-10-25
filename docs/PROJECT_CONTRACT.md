@@ -1,10 +1,10 @@
-# PROJECT CONTRACT v1.2 — Torrent TV Vietsub (OMP-based, independent runner)
+# PROJECT CONTRACT v1.3-PROPOSED — Torrent TV Vietsub (OMP-based, independent runner)
 
 **Repo:** `trung-via/torrent-tv-vietsub` (PRIVATE, đã tạo)  
 **Product:** Torrent TV Vietsub — AIOS  
 **Ngày khởi tạo:** 2026-10-15 · **Human change approval:** 2026-10-25  
 **Trạng thái:** `DECIDED_PRODUCT_DIRECTION / IMPLEMENTATION_UNVERIFIED` — Human chọn kế thừa OMP, **giữ tìm torrent qua website**; chưa clone/build APK trên target repo, chưa nghiệm thu TV/server thật.  
-**ADR:** [ADR-0001](DECISIONS/ADR-0001-client-server.md) (Windows/NAS vẫn giữ), [ADR-0002](DECISIONS/ADR-0002-omp-baseline.md) (chuyển client sang OMP), [ADR-0003](DECISIONS/ADR-0003-dedicated-repo-workspace-runner.md) (repo/workspace/runner riêng).  
+**ADR:** [ADR-0001](DECISIONS/ADR-0001-client-server.md) (Windows/NAS vẫn giữ), [ADR-0002](DECISIONS/ADR-0002-omp-baseline.md) (chuyển client sang OMP), [ADR-0003](DECISIONS/ADR-0003-dedicated-repo-workspace-runner.md) (repo/workspace/runner riêng), [ADR-0005](DECISIONS/ADR-0005-p1-remote-external-subtitle.md) (lịch sử chọn SMB), [ADR-0006](DECISIONS/ADR-0006-p1-source-agnostic-external-subtitle.md) (Human điều chỉnh P1, thay ưu tiên SMB).  
 **Ranh giới:** Contract sản phẩm này không thay canonical authority, admission, executor, review hoặc publish của `AIOS-renew`.
 
 ## C0 — North Star
@@ -25,6 +25,8 @@
 10. **AIOS & repo:** app chạy độc lập với AIOS runtime, không thêm DB/router/orchestrator AIOS. GitHub repo `trung-via/torrent-tv-vietsub` PRIVATE, độc lập `AIOS-renew`. Không tự chuyển public, ký APK, publish hoặc dispatch TASK.
 11. **Execution isolation — quyết định Human nhắc lại ngày 2026-10-25:** dự án có **Git repository riêng, Git workspace/worktree riêng và self-hosted runner RIÊNG, dành cho Torrent TV Vietsub**. Không mặc định mượn runner, workspace, thư mục Runtime, locks, journals hoặc credentials của `AIOS-renew`. AIOS có thể giữ authority điều phối theo canonical hiện hành, nhưng việc admission/dispatch phải chứng minh tuyến đến **runner của repo ứng dụng**; không thay runner riêng bằng AIOS runner khi thiếu proof.
 
+12. **P1 — External SRT/VTT source-agnostic (Human approval 2026-10-25, sau architecture audit):** mục tiêu P1 là **OMP VLC nạp, hiển thị, bật/tắt và quản lý phụ đề SRT/VTT UTF-8 rời ngoài torrent, đúng phim/tập và không mất tiếng khi seek/resume**. Đường lấy file (bộ nhớ TV/ADB thử nghiệm, Android picker/USB, SMB Windows, điện thoại hoặc đường khác) **chưa được chọn làm default**. SMB từng được Human đồng ý ở ADR-0005 nhưng nay được chuyển thành **ứng viên chờ feasibility + quyết định Human sau PoC**, không còn là yêu cầu P1 mặc định; ADR-0006 supersedes phần SMB-first/remote-file-browser của ADR-0005. Remote vẫn dùng để bật/chọn track trong player; không bắt buộc dùng remote để duyệt thư mục ngoài TV trong P1a. Không mở Windows share, SMB port/Firewall, dịch vụ, WAN hoặc thêm backend tùy ý.
+
 ## C2 — Chưa được xác minh (`UNVERIFIED`)
 
 - Fork/clone OMP kèm Git submodule `android/vendor/2160player`, pin commit, build debug/CI và dependency/license provenance trên target toolchain.
@@ -40,7 +42,7 @@
 ## C3 — Scope và mốc
 
 - **P0 / Feasibility & usable fork:** upstream pinned snapshot và submodule, license/inventory/security audit, build APK debug; kiểm tra firmware/device gate; TorrServer Windows LAN; player/remote/resume; UI tiếng Việt, `vi/vie` + SRT/VTT có dấu; **giữ nguồn tìm website, manual magnet/.torrent và tìm kiếm người dùng chủ động**; test mock + test thật tách bạch.
-- **P1 / Local experience:** nâng cấp UX Việt, reconnect, subtitle rời ngoài torrent nếu cần, quản lý track theo series, kiểm soát thông tin nhạy cảm; xem xét giữ/đơn giản hóa phone remote sẵn có; release chỉ khi Human duyệt.
+- **P1a / External subtitle capability:** phân biệt G0 (render SRT trong vùng app-private từ fixture chỉ dành cho debug) và G1 (nhập file độc lập APK, quản lý/lưu lựa chọn theo phim/tập). G0 không chứng minh G1, hot-add, đồng bộ lời thoại hoặc persistence. **P1b / UX transport:** sau G1, đánh giá local picker/USB, SMB, phone hoặc cách khác; Human chọn default. Không thêm backend/Windows share lúc làm PoC.
 - **P2 / AI opt-in:** pipeline Windows/NAS ASR → dịch Việt → QA → TTS → align/mix/mux; PoC 1 đoạn video legal trước tự động hóa. Không thực hiện nền khi chưa phê duyệt.
 - **Out of scope:** hệ thống tìm kiếm/chia sẻ phim vi phạm quyền do dự án tự vận hành; scraping không có quyền, bypass DRM/paywall/chống truy cập; WAN public/UPnP; root TV; tự động transcode mọi định dạng; gói TorrServer vào APK; xây lại UI native Compose trong P0; commercial OMP billing infrastructure.
 
@@ -79,6 +81,9 @@ Windows PC / NAS TorrServer  ---- HTTP LAN media stream ----> TV / Vietsub
 - **AC-SERVER:** health/list/play/seek/Range thử với TorrServer thật và media legal; thiếu thực nghiệm => `REAL_SERVER_UNVERIFIED`.
 - **AC-TV:** APK install/launch/D-pad/player trên đúng TV/box thật và ABI/firmware có bằng chứng; thiếu => `REAL_TV_UNVERIFIED` / `DEVICE_BLOCKED`.
 - **AC-VI:** UI tiếng Việt không lỗi dấu; track `vi/vie` được nhận và chọn đúng; SRT/VTT UTF-8 đồng bộ; ASS/PGS chỉ PASS khi test thật.
+- **AC-P1A-G0-RENDER (UNVERIFIED):** SRT UTF-8 tự tạo ở debug asset được chép vào app-private và khai báo trước khi mở VLC; kiểm Redmi thật: chữ Việt có dấu, chọn/tắt track bằng D-pad, hình/tiếng và seek. Chỉ được ghi `LOCAL_SRT_RENDER_PASS` nếu có real-TV evidence; không suy ra nhập file tùy ý, hot-add, đồng bộ lời thoại, persistence hay P1a E2E.
+- **AC-P1A-G1-IMPORT (UNVERIFIED):** một file `.srt/.vtt` **không đóng gói trong APK** được nhập qua kênh thử hợp lệ, gắn đúng phim/tập, off/embedded (nếu có), pause/seek/resume, xử lý lỗi file/quyền và mở lại mà không tự chèn fixture. Chỉ kết luận `EXTERNAL_SRT_E2E_PASS` khi có đủ evidence thực Redmi; không yêu cầu SMB/phone làm đường mặc định.
+- **AC-P1B-CHOICE (PROPOSED):** so sánh các đường nhập phụ đề sau P1a về độ tiện dùng bằng remote/phone, phạm vi quyền, chi phí, bảo mật và compatibility; lựa chọn default do Human phê duyệt riêng. Không mở Windows share/Firewall hay thay ứng dụng ngoài quyền được cấp.
 - **AC-RELEASE:** Human duyệt licensing, dữ liệu, chữ ký, rollback; không auto-production.
 
 ## C7 — Authority & quản trị thay đổi
