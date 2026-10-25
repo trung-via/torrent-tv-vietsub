@@ -69,6 +69,13 @@ jobs:
             throw 'STOP: this attempt workspace already exists; manual inspection required'
           }
           Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "OMP_WORK=$work"
+          # Cache paths stay under dedicated runner workspace, never the service profile.
+          $cacheRoot = Join-Path $env:RUNNER_WORKSPACE '_omp-fast-cache'
+          $gradleCache = Join-Path $cacheRoot 'gradle'
+          $npmCache = Join-Path $cacheRoot 'npm'
+          New-Item -ItemType Directory -Force -Path $gradleCache, $npmCache | Out-Null
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "GRADLE_USER_HOME=$gradleCache"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "NPM_CONFIG_CACHE=$npmCache"
           Write-Host 'PASS: dedicated runner and basic JDK17/JDK21/SDK file access'
 
       - name: Clone pinned OMP and recursive 2160player submodule
@@ -137,7 +144,7 @@ jobs:
           foreach ($apk in $apks) {
             $sha = (Get-FileHash -LiteralPath $apk.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             $checksums += "$sha  $($apk.Name)"
-            $lines += "| $($apk.Name) | \`$sha\` |"
+            $lines += "| $($apk.Name) | $sha |"
             Write-Host "APK $($apk.Name) SHA256=$sha"
           }
           $checksums | Out-File -LiteralPath $shaFile -Encoding ascii
