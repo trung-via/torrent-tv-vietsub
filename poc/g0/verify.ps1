@@ -16,7 +16,10 @@ if (-not $release.Contains('PlayRequest = r') -or $release.Contains('Uri.fromFil
 if (-not (Test-Path -LiteralPath $asset -PathType Leaf) -or
     (Test-Path -LiteralPath $releaseAsset)) { throw 'debug asset isolation failed' }
 $fixtureText = Get-Content -LiteralPath $asset -Raw -Encoding UTF8
-if (-not $fixtureText.Contains('Đường, Trường, Nguyễn')) { throw 'UTF-8 test fixture invalid' }
+# Windows PowerShell 5.1 reads BOM-less .ps1 as the active ANSI codepage.
+# Build the Unicode sentinel from ASCII-only code points; the fixture is decoded as UTF-8 above.
+$expectedUnicode = -join ([char[]]@(0x0110, 0x01B0, 0x1EDD, 0x006E, 0x0067, 0x002C, 0x0020, 0x0054, 0x0072, 0x01B0, 0x1EDD, 0x006E, 0x0067, 0x002C, 0x0020, 0x004E, 0x0067, 0x0075, 0x0079, 0x1EC5, 0x006E))
+if (-not $fixtureText.Contains($expectedUnicode)) { throw 'UTF-8 test fixture invalid' }
 & git -C $OmpRoot diff --check
 if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed' }
 Write-Host 'STATIC_CHECK_PASS: expected pinned patch structure and debug/release source-set split.'
