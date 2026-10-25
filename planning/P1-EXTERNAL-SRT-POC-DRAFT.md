@@ -17,16 +17,16 @@ Chứng minh app OMP-derived chạy VLC trên Redmi HyperOS có thể nạp **m�
 
 ## Scope file tối thiểu (PROPOSED, chỉ sau source import & authorization)
 
-- `android/app/src/main/java/com/spacesarmat/omp/player/VlcEngine.kt`: PoC libVLC `addSlave` với URI an toàn local, không hỏng audio.
-- `android/app/src/main/java/com/spacesarmat/omp/player/PlayerEngine.kt` và `PlayerActivity.kt`: bridge tối thiểu và lựa chọn track nếu cần; không xây file browser production.
+- `android/app/src/main/java/com/spacesarmat/omp/player/PlayerActivity.kt`: tạo fixture ở app-private storage trong bản debug và đưa `SubFile` vào queue item hiện tại trước `PlayerSession.load()`, qua luồng đã có. `VlcEngine.kt`: **đánh giá trước, chỉ sửa nếu đường addSlave predeclared thất bại hoặc cần hot-add sau PoC đầu tiên**.
+- `android/app/src/main/java/com/spacesarmat/omp/player/PlayerEngine.kt`, `PlayerSession.kt`: chỉ sửa khi có bằng chứng cần mở bridge/track state; không xây file browser production.
 - `src/player/nativePlayer.ts`/track preferences **chỉ khi bắt buộc** cho bridge/state.
 - Android/unit fixtures + report kiểm thử app; không thêm `android/.../smb/*`, service/router/DB, không chỉnh TorrServer, Windows Firewall hoặc AIOS.
 - Thiết kế storage mapping `serverProfile+infohash+fileIndex` nếu cần; không lưu credential/media vào repo.
 
 ## PoC / Verification theo thứ tự
 
-1. Chọn một fixture video được phép và SRT tiếng Việt UTF-8 do người dùng cung cấp/tự tạo. Copy SRT tới bộ nhớ TV bằng ADB trong phiên test có quyền; nếu unavailable, ghi blocker và trình cách thay thế.
-2. Trong OMP VLC, gọi đường import ở runtime hoặc nạp external subtitle lúc mở media, ghi rõ biến thể đã PASS; nếu cần reload bảo toàn time/track.
+1. Chọn một fixture video hợp pháp; dùng `fixtures/p1-vietsub-utf8.srt` của repo để tạo **debug-only Android asset**, chép nội bộ vào `filesDir` rồi thêm vào queue item khi mở VLC. Đây là phụ đề thử hiển thị dấu, không chứng minh khớp lời thoại. Nếu muốn thử SRT bất kỳ từ máy tính, ADB là bước kiểm chứng độc lập sau với quyền TV; không phụ thuộc ADB để chạy PoC đầu tiên.
+2. Kiểm thử trước đường **external subtitle khai báo khi mở media** nhờ `QueueItem.subtitles` → `VlcEngine.addSlave`. Nếu PASS, mới thử addSlave sau khi phát/hot-add; hai biến thể có kết quả/evidence riêng. Nếu cần reload, bảo toàn time/track và không mất tiếng.
 3. Thử hiện Unicode, off / embedded / external, D-pad, audio, play/pause, seek tiến/lùi, resume/reopen, chuyển episode khác.
 4. Negative tests: file missing, corrupt/invalid timestamps, permissions denied, file too large, wrong encoding. Không crash hoặc lộ tên/secret.
 5. Thu evidence: Git SHA, APK SHA256, Gradle/test result, firmware/API/ABI, ảnh/video remote & text có dấu, test-case matrix. Mock PASS ≠ Redmi PASS.
@@ -37,7 +37,7 @@ Chứng minh app OMP-derived chạy VLC trên Redmi HyperOS có thể nạp **m�
 - AC-2: D-pad track choice, seek, pause/resume, đúng media key; fallback gốc khi tắt.
 - AC-3: file lỗi/permission đều báo lỗi rõ; regression source search/player không phá.
 - AC-4: report `EXTERNAL_SRT_E2E_PASS` hoặc `EXTERNAL_SRT_E2E_UNVERIFIED/BLOCKED` trung thực theo evidence.
-- STOP: không có source/import/license approval, thiếu runner verification khi cần, AIOS authority unresolved, hoặc phải mở hệ thống/network/SMB để làm test. Không auto-dispatch/merge/release.
+- STOP: không có source/import/license approval, thiếu runner verification khi cần, AIOS authority unresolved, hoặc phải mở hệ thống/network/SMB để làm test. Nếu PoC predeclared local SRT thất bại, ghi nguyên nhân/stacktrace sạch thay vì âm thầm mở SMB. Không auto-dispatch/merge/release.
 
 ## Sau PoC
 
