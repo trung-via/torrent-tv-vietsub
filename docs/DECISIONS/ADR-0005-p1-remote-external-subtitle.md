@@ -1,9 +1,11 @@
 # ADR-0005 — P1 chọn phụ đề rời bằng remote, ưu tiên Windows SMB
 
 **Ngày:** 2026-10-25
-**Trạng thái:** DECIDED_PRODUCT_SCOPE / PROPOSED_IMPLEMENTATION / REAL_SMB_TV_UNVERIFIED
+**Trạng thái:** HISTORICAL_DECISION / SMB_FIRST_SUPERSEDED_BY_ADR_0006 / NO_IMPLEMENTATION
 
-## Authority: quyết định Human mới nhất
+**Lưu ý lịch sử (2026-10-25):** Human sau architecture audit đã rút SMB-first khỏi baseline P1. [ADR-0006](ADR-0006-p1-source-agnostic-external-subtitle.md) là quyết định mới nhất; ADR-0005 giữ lại nguyên bối cảnh SMB trước đó để đối chiếu, **không được dùng làm authority triển khai SMB hoặc mở Windows share**.
+
+## Authority: quyết định Human tại thời điểm lập ADR-0005 (nay có quyết định mới)
 
 - Ban đầu Human phê duyệt P1 thêm SRT/VTT ngoài torrent bằng remote, nguồn USB hoặc bộ nhớ TV.
 - Human sau đó đồng ý **ưu tiên thư mục SMB chỉ đọc trên laptop Windows TorrServer**, thay USB thành fallback. Quyết định mới supersede thứ tự nguồn, không hủy đường USB/TV.

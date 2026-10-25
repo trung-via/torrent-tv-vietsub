@@ -1,3 +1,5 @@
+> **SUPERSEDED FOR IMPLEMENTATION — 2026-10-25:** Đây là bản lập kế hoạch SMB-first lịch sử. Human đã phê duyệt strategy review mới theo [ADR-0006](../docs/DECISIONS/ADR-0006-p1-source-agnostic-external-subtitle.md); **không triển khai kế hoạch SMB này như P1 default**. Tham chiếu [P1-EXTERNAL-SRT-POC-DRAFT.md](P1-EXTERNAL-SRT-POC-DRAFT.md) cho PoC trước khi chọn transport. Không xóa nội dung cũ để bảo toàn lịch sử.
+
 # P1-SMB-SRT — Kế hoạch triển khai phụ đề rời qua Windows SMB
 
 **Ngày:** 2026-10-25  

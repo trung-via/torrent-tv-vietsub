@@ -1,10 +1,10 @@
-# PROJECT CONTRACT v1.2 — Torrent TV Vietsub (OMP-based, independent runner)
+# PROJECT CONTRACT v1.3-PROPOSED — Torrent TV Vietsub (OMP-based, independent runner)
 
 **Repo:** `trung-via/torrent-tv-vietsub` (PRIVATE, đã tạo)  
 **Product:** Torrent TV Vietsub — AIOS  
 **Ngày khởi tạo:** 2026-10-15 · **Human change approval:** 2026-10-25  
 **Trạng thái:** `DECIDED_PRODUCT_DIRECTION / IMPLEMENTATION_UNVERIFIED` — Human chọn kế thừa OMP, **giữ tìm torrent qua website**; chưa clone/build APK trên target repo, chưa nghiệm thu TV/server thật.  
-**ADR:** [ADR-0001](DECISIONS/ADR-0001-client-server.md) (Windows/NAS vẫn giữ), [ADR-0002](DECISIONS/ADR-0002-omp-baseline.md) (chuyển client sang OMP), [ADR-0003](DECISIONS/ADR-0003-dedicated-repo-workspace-runner.md) (repo/workspace/runner riêng).  
+**ADR:** [ADR-0001](DECISIONS/ADR-0001-client-server.md) (Windows/NAS vẫn giữ), [ADR-0002](DECISIONS/ADR-0002-omp-baseline.md) (chuyển client sang OMP), [ADR-0003](DECISIONS/ADR-0003-dedicated-repo-workspace-runner.md) (repo/workspace/runner riêng), [ADR-0005](DECISIONS/ADR-0005-p1-remote-external-subtitle.md) (lịch sử chọn SMB), [ADR-0006](DECISIONS/ADR-0006-p1-source-agnostic-external-subtitle.md) (Human điều chỉnh P1, thay ưu tiên SMB).  
 **Ranh giới:** Contract sản phẩm này không thay canonical authority, admission, executor, review hoặc publish của `AIOS-renew`.
 
 ## C0 — North Star
@@ -25,7 +25,7 @@
 10. **AIOS & repo:** app chạy độc lập với AIOS runtime, không thêm DB/router/orchestrator AIOS. GitHub repo `trung-via/torrent-tv-vietsub` PRIVATE, độc lập `AIOS-renew`. Không tự chuyển public, ký APK, publish hoặc dispatch TASK.
 11. **Execution isolation — quyết định Human nhắc lại ngày 2026-10-25:** dự án có **Git repository riêng, Git workspace/worktree riêng và self-hosted runner RIÊNG, dành cho Torrent TV Vietsub**. Không mặc định mượn runner, workspace, thư mục Runtime, locks, journals hoặc credentials của `AIOS-renew`. AIOS có thể giữ authority điều phối theo canonical hiện hành, nhưng việc admission/dispatch phải chứng minh tuyến đến **runner của repo ứng dụng**; không thay runner riêng bằng AIOS runner khi thiếu proof.
 
-12. **P1 - External Vietsub qua remote (Human approved 2026-10-25; SMB priority approved in follow-up):** OMP VLC cho phép dùng remote Redmi TV chọn SRT/VTT UTF-8 ngoài torrent; **ưu tiên SMB read-only từ laptop Windows đang chạy TorrServer**, USB/bộ nhớ TV làm fallback. TV cần trình duyệt SMB tích hợp OMP, nạp file đã chọn vào app-private storage qua VLC, hỗ trợ bật/tắt/offset và nhớ theo phim/tập. Đường SMB trên firmware Redmi HyperOS và load phụ đề VLC runtime đều **UNVERIFIED**. **Đồng ý tính năng không phải đồng ý tự bật Windows File Sharing, mở port 445, sửa firewall/tài khoản/dịch vụ**; thay đổi hệ thống đòi hỏi phê duyệt Human riêng. SMB2/3, không guest/SMB1, account riêng read-only; chi tiết ADR-0005.
+12. **P1 — External SRT/VTT source-agnostic (Human approval 2026-10-25, sau architecture audit):** mục tiêu P1 là **OMP VLC nạp, hiển thị, bật/tắt và quản lý phụ đề SRT/VTT UTF-8 rời ngoài torrent, đúng phim/tập và không mất tiếng khi seek/resume**. Đường lấy file (bộ nhớ TV/ADB thử nghiệm, Android picker/USB, SMB Windows, điện thoại hoặc đường khác) **chưa được chọn làm default**. SMB từng được Human đồng ý ở ADR-0005 nhưng nay được chuyển thành **ứng viên chờ feasibility + quyết định Human sau PoC**, không còn là yêu cầu P1 mặc định; ADR-0006 supersedes phần SMB-first/remote-file-browser của ADR-0005. Remote vẫn dùng để bật/chọn track trong player; không bắt buộc dùng remote để duyệt thư mục ngoài TV trong P1a. Không mở Windows share, SMB port/Firewall, dịch vụ, WAN hoặc thêm backend tùy ý.
 
 ## C2 — Chưa được xác minh (`UNVERIFIED`)
 
@@ -42,7 +42,7 @@
 ## C3 — Scope và mốc
 
 - **P0 / Feasibility & usable fork:** upstream pinned snapshot và submodule, license/inventory/security audit, build APK debug; kiểm tra firmware/device gate; TorrServer Windows LAN; player/remote/resume; UI tiếng Việt, `vi/vie` + SRT/VTT có dấu; **giữ nguồn tìm website, manual magnet/.torrent và tìm kiếm người dùng chủ động**; test mock + test thật tách bạch.
-- **P1 / Local experience:** **DECIDED SMB read-only ưu tiên** cho phụ đề rời và chọn bằng remote TV, USB/TV local fallback, quản lý offset/track theo phim, Việt hóa và reconnect; SMB share/Windows Firewall/tài khoản chỉ thay đổi sau Human approval riêng. Phone remote là giai đoạn sau; release chỉ khi Human duyệt.
+- **P1a / External subtitle capability:** PoC tối thiểu với SRT/VTT UTF-8 được đưa sẵn lên TV qua ADB/test fixture hợp pháp; nạp được vào OMP VLC, bật/tắt/chọn track, seek/resume và mapping phim/tập; không SMB/backend hoặc phone file transport ở P1a. **P1b / UX transport decision:** sau PoC, đánh giá local picker/USB, SMB, phone và phương án tối giản khác theo thao tác người dùng, bảo mật, khả năng firmware và chi phí; Human chọn default riêng. Tiếp tục Việt hóa, reconnect, duy trì OMP website search; release chỉ khi Human duyệt.
 - **P2 / AI opt-in:** pipeline Windows/NAS ASR → dịch Việt → QA → TTS → align/mix/mux; PoC 1 đoạn video legal trước tự động hóa. Không thực hiện nền khi chưa phê duyệt.
 - **Out of scope:** hệ thống tìm kiếm/chia sẻ phim vi phạm quyền do dự án tự vận hành; scraping không có quyền, bypass DRM/paywall/chống truy cập; WAN public/UPnP; root TV; tự động transcode mọi định dạng; gói TorrServer vào APK; xây lại UI native Compose trong P0; commercial OMP billing infrastructure.
 
@@ -81,7 +81,8 @@ Windows PC / NAS TorrServer  ---- HTTP LAN media stream ----> TV / Vietsub
 - **AC-SERVER:** health/list/play/seek/Range thử với TorrServer thật và media legal; thiếu thực nghiệm => `REAL_SERVER_UNVERIFIED`.
 - **AC-TV:** APK install/launch/D-pad/player trên đúng TV/box thật và ABI/firmware có bằng chứng; thiếu => `REAL_TV_UNVERIFIED` / `DEVICE_BLOCKED`.
 - **AC-VI:** UI tiếng Việt không lỗi dấu; track `vi/vie` được nhận và chọn đúng; SRT/VTT UTF-8 đồng bộ; ASS/PGS chỉ PASS khi test thật.
-- **AC-P1-SMB (UNVERIFIED):** sau khi SMB read-only được Human cấu hình riêng, TV Redmi thật dùng D-pad duyệt SRT/VTT qua SMB2/3 không guest, chọn/nạp vào VLC, đúng dấu Việt, audio còn tiếng, pause/seek/resume, nhớ đúng phim/tập; lỗi server offline/sai mật khẩu/thiếu quyền/file hỏng có thông báo và fallback USB/TV. Không lộ mật khẩu/log, không mở WAN/UPnP, không tự thay Windows Firewall.
+- **AC-P1A-SRT (UNVERIFIED):** trên Redmi HyperOS thật với OMP-derived APK được build hợp lệ, nạp một file `.vi.srt` UTF-8 **ngoài torrent** (fixture chép trước lên TV bằng ADB/test), hiện đúng tiếng Việt; chuyển track rời/nhúng/tắt; giữ hình và tiếng VLC, seek/pause/resume/mở lại không nhầm phụ đề phim/tập. Các lỗi file hỏng, encoding, thiếu quyền có thông báo; báo `EXTERNAL_SRT_E2E_UNVERIFIED` đến khi có evidence thực. **Không yêu cầu SMB, duyệt file Windows hoặc phone transport để tính PASS P1a.**
+- **AC-P1B-CHOICE (PROPOSED):** so sánh các đường nhập phụ đề sau P1a về độ tiện dùng bằng remote/phone, phạm vi quyền, chi phí, bảo mật và compatibility; lựa chọn default do Human phê duyệt riêng. Không mở Windows share/Firewall hay thay ứng dụng ngoài quyền được cấp.
 - **AC-RELEASE:** Human duyệt licensing, dữ liệu, chữ ký, rollback; không auto-production.
 
 ## C7 — Authority & quản trị thay đổi
