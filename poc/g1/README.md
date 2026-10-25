@@ -32,6 +32,14 @@ GitHub G0 built an SRT *from the APK asset*. Human ADB evidence separately prove
 
 A single source call-site is modified: `session.load(r, next)` → `session.load(P1G1SubtitleProbe.prepare(this, r), next)`. Refuses to overwrite the existing G0 seam or any dirty OMP clone. Do not apply this patch atop G0; use fresh, clean, disposable pinned OMP checkout. The app repo `main` remains docs-first.
 
+## Manual-only G1b runner build handoff (2026-10-26; not executed)
+
+- `poc/g1/build-on-runner.ps1` reuses the proven bounded G0 build route on the **dedicated Torrent TV Windows runner only**: exact clean app checkout, pinned OMP/2160, per-run disposable clone, G1 apply+static verify, npm sync, Gradle `assembleDebug testDebugUnitTest`.
+- It **rejects** either `assets/p1-g1-external.vi.srt` or the legacy G0 fixture being bundled in a G1b debug APK. Outputs APKs, `SHA256SUMS.txt` and a sanitized `P1-G1B-BUILD-EVIDENCE.txt` to a private, short-lived artifact. The Windows-transferred G1 file is NOT copied into the build.
+- Execution requires a separately accepted manual-only workflow on `main`, pinned to an **immutable reviewed G1b code SHA**, with `contents: read` and the dedicated `self-hosted,Windows,X64,torrent-tv-vietsub` runner. A workflow in a Draft PR **does not mean a run occurred**. Human must explicitly decide whether to merge the workflow and trigger it; no `push`/`pull_request`/`schedule` trigger.
+- Build success is `G1B_BUILD_PASS` only. It is NOT a real-TV VLC render or release isolation PASS. On device, first confirm the ADB-transferred SRT still exists and matches Windows SHA256; package install may preserve/replace app data depending on conditions.
+- **Stop conditions:** any SHA drift, run on an AIOS runner, missing app-specific runner, mixed G0/G1 patches, source/license issues, unexpected bundled SRT, changed Windows machine config, leaked URL/secret, or failure to inspect private APK artifact. Do not dispatch AIOS, auto-merge, install or release.
+
 ## Build/hardware verification handoff (not authorized by this file)
 
 1. Fresh-check app repo Git SHA, G1 draft PR head/base, OMP/submodule pins, source/license/security, dedicated runner registration/isolation and human execution rights. Never fall back to the `AIOS-renew` runner or assume a canonical AIOS dispatch route.
