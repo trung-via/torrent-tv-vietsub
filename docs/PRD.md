@@ -1,8 +1,8 @@
-# Torrent TV Vietsub — PRD v3.1 (OMP-based / dedicated runner)
+# Torrent TV Vietsub — PRD v3.2 (OMP-based / dedicated runner)
 
 **Ngày cập nhật:** 2026-10-25  
 **Status:** Human-approved product direction; implementation, real device and real server UNVERIFIED.  
-**Authority:** `docs/PROJECT_CONTRACT.md` v1.2 + ADR-0001/ADR-0002/ADR-0003. Thay cho PRD v2 đề xuất Kotlin + Compose for TV app từ đầu.
+**Authority:** `docs/PROJECT_CONTRACT.md` v1.3 (proposed on this branch) + ADR-0001/ADR-0002/ADR-0003/ADR-0004. Thay cho PRD v2 đề xuất Kotlin + Compose for TV app từ đầu.
 
 ## 1. Mục tiêu
 
@@ -17,7 +17,7 @@ Xây trên OMP upstream một ứng dụng xem video gia đình cho Android TV/G
 - **DECIDED:** ưu tiên Việt: UI `vi`; track `vi/vie`, SRT/VTT UTF-8; đảm bảo fallback nếu không có tiếng Việt.
 - **DECIDED:** repo GitHub PRIVATE, **Git workspace độc lập và dedicated self-hosted runner riêng cho Torrent TV Vietsub**; không dùng runner/Runtime workspace của `AIOS-renew` như môi trường mặc định. Tuyến điều phối AIOS đến runner này phải được xác minh riêng, chưa mặc định là hoạt động.
 - **DECIDED:** không đưa billing/paid OMP infrastructure, bot/VPS, tự động theo dõi nền, phone-local TorrServer hoặc TV autostart vào đường mặc định P0. Tách theo dependency, không phá tìm kiếm website. Phone remote/UI có sẵn có thể giữ; không xây companion app mới.
-- **PROPOSED P2:** Windows/NAS có thể tạo Vietsub/thuyết minh bằng ASR → dịch/QA → TTS → đồng bộ/mix/mux, chỉ opt-in và có quyền với nội dung.
+- **DECIDED feature request (2026-10-25):** bổ sung **AI Vietsub tự động** theo yêu cầu người dùng. **PROPOSED implementation P2:** Windows/NAS tạo `.vi.srt`/`.vi.vtt` từ phụ đề gốc hoặc ASR → dịch Việt → QA/timestamp; chưa triển khai và không chạy nền. Thuyết minh audio/TTS tiếp tục là PoC tùy chọn, sau Vietsub.
 
 ## 3. Người dùng và hành trình
 
@@ -51,11 +51,22 @@ Trong P0 không viết lại player, không xây AI thuyết minh, không tự m
 - Giữ tìm torrent website; dependency isolation và policy quyền truy cập/credential rõ ràng.
 - Release APK chỉ sau license/security check, TV thật, Human approval.
 
-## 6. P2 — AI Vietsub / Thuyết minh (opt-in)
+## 6. P2 — AI Vietsub tự động / Thuyết minh (opt-in)
 
-- PoC 1 video tự tạo/open-license trên Windows/NAS: text/subtitle source → dịch/hiệu đính → giọng TTS Việt → align timestamps, thử mux audio track rồi phát qua OMP.
-- Nếu cần voice-over trên nền âm thanh gốc, khảo sát mixing/ducking/delay và sync khi pause/seek trước khi sản phẩm hóa.
-- Chi phí, tài nguyên và chất lượng dịch/đọc cần đo; không ghi dữ liệu riêng tư vào repo, không tự chạy background.
+**Mục tiêu được Human yêu cầu:** người dùng chọn phim trong OMP/companion, bấm **Tạo Vietsub bằng AI**, sau khi hoàn thành có track `.vi.srt` hoặc `.vi.vtt` để bật trên VLC; tự dùng lại bản đã tạo cho lần xem sau. Không tạo phụ đề tự động khi duyệt thư viện/chạy torrent.
+
+**Luồng dự kiến (PROPOSED, chưa triển khai):**
+1. **Ưu tiên existing Vietsub** (track nhúng hoặc SRT/VTT rời), không chạy AI khi đã dùng được.
+2. **Có SRT/VTT nguồn nhưng chưa có Việt:** dịch theo cue, giữ mốc thời gian, QA thuật ngữ/ngắt dòng → `.vi.srt` UTF-8.
+3. **Không có chữ nguồn:** tách audio từ nội dung được phép truy cập trên Windows/NAS → ASR đa ngôn ngữ sinh lời thoại/mốc thời gian → dịch Việt → QA đồng bộ → `.vi.srt`/VTT.
+4. **Playback:** nạp track vào VLC qua cơ chế external subtitle riêng cho đúng torrent+file index. Khâu nhập SRT rời từ ngoài torrent hiện **chưa có E2E**; phải làm/test trước khi gọi tính năng thành công.
+5. **Điện thoại (sau):** dùng kênh ghép nối remote OMP sẵn có để chọn phim, yêu cầu tạo, xem trạng thái và bật track; không gửi media lớn qua JSON control server. PoC đầu dùng CLI Windows, chưa mở listener/API/background service.
+
+**Ranh giới:** chạy theo thao tác opt-in; local-first; đánh giá CPU/GPU và model/license thực tế trước khi chốt. Nếu muốn dùng cloud ASR/translation, cần phê duyệt riêng về chi phí và dữ liệu upload. Không thêm DB/router/backend mới vào MVP, không chỉnh Windows Firewall/router/service.
+
+**Acceptance PoC:** ít nhất một clip hợp pháp có lời thoại và một fixture có SRT nguồn; SRT/VTT UTF-8 parse được, cues có timestamp hợp lệ, review tiếng Việt và sync; VLC trên Redmi TV bật/tắt/seek/phát lại không lệch bất thường; báo riêng thời gian xử lý CPU/GPU và `AI_VIETSUB_UNVERIFIED` đến khi test thật.
+
+**Thuyết minh (sau AI Vietsub):** PoC TTS/voice-over riêng, khảo sát thay track hoặc mix/duck, căn thời gian, sync khi Pause/Seek. Không gộp vào việc hoàn thành Vietsub. Tham chiếu [ADR-0004](DECISIONS/ADR-0004-ai-vietsub-on-demand.md).
 
 ## 7. Technical inventory và vị trí thay đổi
 
