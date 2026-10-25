@@ -29,7 +29,7 @@ P1a xác nhận OMP-derived VLC đọc được **SRT rời ngoài torrent và n
 
 - **VISUAL_UNICODE_OBSERVED (chỉ mức ảnh tĩnh):** ảnh TV thể hiện các chuỗi tiếng Việt có dấu như `Tạm dừng, tua tới, tua lùi và tiếp tục phát.` và `Đường, Trường, Nguyễn — ă, â, ê, ô, ơ, ư, đ.`. Nhìn thấy dấu; chữ có cảm nhận hơi mỏng.
 - Ảnh **không tự chứng minh** ứng dụng/build nào phát, engine VLC, file SRT nằm ở đâu, G0/G1, playback audio, D-pad, seek/resume, cue sync, subtitle source hoặc firmware/API/ABI. Không chép ảnh nhà/TV có phản chiếu hay metadata nhạy cảm vào repository. Nếu muốn dùng làm proof chính thức, cần xác lập provenance/test case và redact phù hợp.
-- **UX_STYLE_DEFERRED:** không yêu cầu tăng font-weight, chọn font mới, outline/shadow/background hay tinh chỉnh kích cỡ để tính P1a PASS. Chỉ giữ tiêu chí tối thiểu: text rõ glyph và đủ đọc, không mất/cắt nội dung. Nếu phát hiện chữ thực tế không thể đọc được thì ghi UX defect; lỗi kiểu chữ mỏng đơn thuần **không chặn chức năng**.
+- **UX_STYLE_DEFERRED:** không yêu cầu tăng font-weight, chọn font mới, outline/shadow/background hay tinh chỉnh kích cỡ để tính P1a PASS. Chỉ giữ tiêu chí tối thiểu: text rõ glyph và đủ đọc, không mất/cắt nội dung. Nếu phát hiện chữ thực tế không thể đọc được thì ghi UX defect; lỗi kiểu chữ mỏng đơn thuần **không chặn chức năng**. Các hạng mục được tách tại [Subtitle styling UX backlog](P1A-SUBTITLE-STYLE-UX-BACKLOG.md), không phải acceptance bổ sung.
 
 ## Điều kiện dừng và bàn giao
 
