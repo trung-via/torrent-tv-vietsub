@@ -1,0 +1,117 @@
+name: Torrent TV - Windows Toolchain Preflight
+
+# Explicit human dispatch only. Diagnostic only: no installers, build, writes to host or AIOS.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  toolchain-inventory:
+    name: Inspect dedicated Windows runner toolchain
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 5
+    steps:
+      - name: Inventory Node, JDK, Android SDK and Gradle
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
+              $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
+              $env:RUNNER_OS -cne 'Windows') {
+            throw 'STOP: unexpected repository or runner'
+          }
+          $expected = [IO.Path]::GetFullPath('C:\TOOL\TorrentTV-Runner\_work').TrimEnd('\') + '\'
+          $actual = [IO.Path]::GetFullPath($env:RUNNER_WORKSPACE).TrimEnd('\') + '\'
+          if (-not $actual.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'STOP: job not in dedicated Torrent TV runner workspace'
+          }
+
+          function Inspect-Tool([string]$commandName, [string[]]$arguments) {
+            $command = Get-Command $commandName -ErrorAction SilentlyContinue |
+                       Select-Object -First 1
+            if ($null -eq $command) {
+              return @{ Present = $false; Detail = 'Not on service PATH' }
+            }
+            try {
+              $output = & $command.Source @arguments 2>&1 | Out-String
+              $exitCode = $LASTEXITCODE
+              $lines = @($output -split '\r?\n' | Where-Object { $_.Trim() -ne '' })
+              $first = if ($lines.Count -gt 0) { $lines[0].Trim() } else { 'No version text' }
+              $first = $first.Replace('|', '/')
+              if ($first.Length -gt 140) { $first = $first.Substring(0, 140) }
+              if ($exitCode -ne 0) {
+                return @{ Present = $false; Detail = 'Found but version command failed' }
+              }
+              return @{ Present = $true; Detail = $first }
+            }
+            catch {
+              return @{ Present = $false; Detail = 'Found but could not execute' }
+            }
+          }
+
+          $node = Inspect-Tool 'node.exe' @('--version')
+          $npm = Inspect-Tool 'npm.cmd' @('--version')
+          $java = Inspect-Tool 'java.exe' @('-version')
+          $javac = Inspect-Tool 'javac.exe' @('-version')
+          $gradle = Inspect-Tool 'gradle.bat' @('--version')
+          $sdkmanager = Inspect-Tool 'sdkmanager.bat' @('--version')
+          $adb = Inspect-Tool 'adb.exe' @('version')
+
+          $sdkRoot = @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME) |
+                     Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) } |
+                     Select-Object -First 1
+          $platforms = @()
+          $buildTools = @()
+          $cmdlineTools = @()
+          $platformTools = $false
+          if ($sdkRoot) {
+            $p = Join-Path $sdkRoot 'platforms'
+            $b = Join-Path $sdkRoot 'build-tools'
+            $c = Join-Path $sdkRoot 'cmdline-tools'
+            $pt = Join-Path $sdkRoot 'platform-tools'
+            if (Test-Path $p) { $platforms = @(Get-ChildItem $p -Directory | Select-Object -ExpandProperty Name) }
+            if (Test-Path $b) { $buildTools = @(Get-ChildItem $b -Directory | Select-Object -ExpandProperty Name) }
+            if (Test-Path $c) { $cmdlineTools = @(Get-ChildItem $c -Directory | Select-Object -ExpandProperty Name) }
+            $platformTools = Test-Path $pt
+          }
+
+          function Status([bool]$found) { if ($found) { 'FOUND' } else { 'MISSING' } }
+          function Names([object[]]$items) { if ($items.Count) { $items -join ', ' } else { 'None' } }
+
+          $rows = @(
+            "| Component | Result | Detail |",
+            "| --- | --- | --- |",
+            "| Node.js | $(Status $node.Present) | $($node.Detail) |",
+            "| npm | $(Status $npm.Present) | $($npm.Detail) |",
+            "| Java runtime | $(Status $java.Present) | $($java.Detail) |",
+            "| JDK compiler (javac) | $(Status $javac.Present) | $($javac.Detail) |",
+            "| Android SDK root (ANDROID_SDK_ROOT / ANDROID_HOME) | $(Status ([bool]$sdkRoot)) | Environment configuration and directory only |",
+            "| Android platforms | $(Status ($platforms.Count -gt 0)) | $(Names $platforms) |",
+            "| Android build-tools | $(Status ($buildTools.Count -gt 0)) | $(Names $buildTools) |",
+            "| Android platform-tools | $(Status $platformTools) | Directory in SDK root |",
+            "| Android cmdline-tools | $(Status ($cmdlineTools.Count -gt 0)) | $(Names $cmdlineTools) |",
+            "| sdkmanager on PATH | $(Status $sdkmanager.Present) | $($sdkmanager.Detail) |",
+            "| adb on PATH | $(Status $adb.Present) | $($adb.Detail) |",
+            "| Global Gradle (optional; wrapper preferred) | $(Status $gradle.Present) | $($gradle.Detail) |"
+          )
+          $basicReady = $node.Present -and $npm.Present -and $java.Present -and
+                        $javac.Present -and [bool]$sdkRoot -and
+                        ($platforms.Count -gt 0) -and ($buildTools.Count -gt 0)
+          $readiness = if ($basicReady) { 'BASIC_PREREQUISITES_FOUND' } else { 'MISSING_PREREQUISITES' }
+          $summary = @(
+            '## Torrent TV Windows toolchain inventory',
+            '',
+            'Runner: torrent-tv-vietsub-win (dedicated Windows service context)',
+            '',
+            $rows,
+            '',
+            "**Result: $readiness**",
+            '',
+            'This read-only preflight does NOT validate OMP-specific required versions, license, Gradle wrapper, Android build, TV or TorrServer.',
+            'A successful Actions job means inspection ran; it does not mean all dependencies are installed.'
+          )
+          $summary | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          $rows | ForEach-Object { Write-Host $_ }
+          Write-Host "Preflight result: $readiness"
