@@ -25,6 +25,8 @@
 10. **AIOS & repo:** app chạy độc lập với AIOS runtime, không thêm DB/router/orchestrator AIOS. GitHub repo `trung-via/torrent-tv-vietsub` PRIVATE, độc lập `AIOS-renew`. Không tự chuyển public, ký APK, publish hoặc dispatch TASK.
 11. **Execution isolation — quyết định Human nhắc lại ngày 2026-10-25:** dự án có **Git repository riêng, Git workspace/worktree riêng và self-hosted runner RIÊNG, dành cho Torrent TV Vietsub**. Không mặc định mượn runner, workspace, thư mục Runtime, locks, journals hoặc credentials của `AIOS-renew`. AIOS có thể giữ authority điều phối theo canonical hiện hành, nhưng việc admission/dispatch phải chứng minh tuyến đến **runner của repo ứng dụng**; không thay runner riêng bằng AIOS runner khi thiếu proof.
 
+12. **P1 - External Vietsub qua remote (Human approved 2026-10-25):** OMP VLC phải cho phép dùng remote Redmi TV chọn và nhập SRT/VTT UTF-8 rời ngoài torrent từ file đã có trên USB/bộ nhớ TV; bật/tắt, offset và nhớ theo đúng phim/tập. UI và lựa chọn file là mục tiêu DECIDED, nhưng Android SAF/file picker, USB và VLC load runtime trên HyperOS chưa được kiểm chứng. Không yêu cầu điện thoại hoặc quyền truy cập toàn bộ bộ nhớ; phương án fallback và acceptance xem ADR-0005. Không giả định remote tự lấy file từ laptop.
+
 ## C2 — Chưa được xác minh (`UNVERIFIED`)
 
 - Fork/clone OMP kèm Git submodule `android/vendor/2160player`, pin commit, build debug/CI và dependency/license provenance trên target toolchain.

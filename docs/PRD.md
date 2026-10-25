@@ -46,7 +46,8 @@ Trong P0 không viết lại player, không xây AI thuyết minh, không tự m
 ## 5. P1 — Dùng thường ngày
 
 - Tối ưu dịch tiếng Việt, font, subtitle offset/size, bản audio tiếng Việt được nhớ theo phim/series.
-- Nạp external SRT/VTT ngoài torrent nếu có nhu cầu; kiểm thử ASS/SSA và PGS riêng.
+- **DECIDED P1 (2026-10-25):** sử dụng remote TV để nhập SRT/VTT UTF-8 ngoài torrent đã có sẵn trong USB/Downloads; UX Player (Up) > Subtitles > Thêm phụ đề từ file > chọn nguồn/tệp > bật Vietsub. Ưu tiên Android SAF ACTION_OPEN_DOCUMENT; fallback đọc file từ vùng import do app quản lý nếu Redmi HyperOS thiếu picker. Copy URI được chọn vào app-private storage, nạp vào OMP VLC, lưu lựa chọn theo phim/tập và cho chỉnh offset. Chưa triển khai/test thật; không thêm backend/DB hoặc đọc toàn bộ bộ nhớ.
+- Kiểm thử ASS/SSA và PGS riêng; phone gửi file từ LAN là nhánh sau khi đường nạp SRT hoạt động.
 - Củng cố LAN reconnect/error UX và phone-to-TV remote vốn có trong OMP; không thêm app mobile mới nếu chưa có bằng chứng.
 - Giữ tìm torrent website; dependency isolation và policy quyền truy cập/credential rõ ràng.
 - Release APK chỉ sau license/security check, TV thật, Human approval.
