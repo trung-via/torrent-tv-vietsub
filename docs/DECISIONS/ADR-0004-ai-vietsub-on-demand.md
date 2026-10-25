@@ -65,3 +65,7 @@ Windows/NAS on-demand tool (PoC: CLI, no background daemon)
 - `PROPOSED`: local-first pipeline, model/tool choices, flow phone/TV, UI, metadata format và AC.
 - `UNVERIFIED`: Windows model performance, bản dịch, imports SRT rời, phone TV E2E.
 - **Next:** external SRT import proof → Windows offline/consented PoC source-subtitle translation → ASR PoC → UI phone/TV; Human review PR trước merge. Không tạo AIOS canonical TASK hay dispatch từ ADR này.
+
+## Compatibility with P1a source-agnostic audit (reconciliation 2026-10-25)
+
+ADR-0006 và `planning/P1-V1-AUDIT-FINDINGS.md` quyết định kiểm chứng P1a theo gate G0..G4. Mục tiêu **AI Vietsub P2** trong ADR-0004 vẫn giữ nguyên, nhưng **không** suy tính năng phát file `.vi.srt` người dùng/AI tạo từ G0: G0 chỉ render SRT fixture trong debug APK; G1 phải chứng minh nhập file **ngoài APK**, đúng media và resume trên Redmi thật. PoC dịch timed SRT offline có thể chạy độc lập khi được ủy quyền; full TV E2E cần G1. Kênh chuyển file (SMB, picker/USB, phone) chưa chốt và phải theo Human decision ở P1b; ADR-0004 không cấp quyền chọn/triển khai giao thức, mở Windows Firewall hoặc chạy AI nền.
