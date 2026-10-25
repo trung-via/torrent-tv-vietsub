@@ -126,7 +126,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Push-Location "$env:OMP_WORK\android"
           try {
-            .\gradlew.bat -Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64 assembleDebug testDebugUnitTest --no-daemon --console plain
+            .\gradlew.bat -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64 assembleDebug testDebugUnitTest --no-daemon --console plain
             if ($LASTEXITCODE -ne 0) { throw "Gradle build/tests failed: $LASTEXITCODE" }
           }
           finally { Pop-Location }
