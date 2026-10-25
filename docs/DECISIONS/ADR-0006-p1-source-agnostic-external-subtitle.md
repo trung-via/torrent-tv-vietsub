@@ -51,3 +51,13 @@
 `BLOCKED`: official AIOS author/dispatch cho tới khi có admission và exact repo/runner route evidence.
 
 **PR #9** về AI Vietsub tiếp tục Draft; cùng sửa Contract/PRD/Roadmap nên phải reconcile trước merge.
+## Human approval + V1-method findings follow-up — 2026-10-25
+
+Human đồng ý hướng PR #10 với điều kiện không bỏ qua **F-01…F-04** của V1-method desk audit. Phạm vi sản phẩm P1a source-agnostic và P1b chưa chọn transport vẫn giữ nguyên. Xem `planning/P1-V1-AUDIT-FINDINGS.md` và `planning/P1-EXTERNAL-SRT-POC-DRAFT.md`.
+
+- **F-01:** Debug APK fixture render chỉ kiểm G0 `LOCAL_SRT_RENDER`; G1 external file thật độc lập, G2 hot-add có evidence riêng. Không gộp thành `EXTERNAL_SRT_E2E_PASS`.
+- **F-02:** Bốn cue Unicode tự tạo không chứng minh hội thoại đúng thời gian. G3 sync dùng clip/mốc riêng; thử media key, đổi tập và reopen khi không còn test injection để tránh false persistence PASS.
+- **F-03:** Debug-only source set/asset, default OFF, kiểm bản release không có fixture/hook; rollback rõ, không thêm behavior production mặc định.
+- **F-04:** Repo target `main` còn docs-first, upstream build và runner smoke chỉ là historical proofs; source/license/import, runner/AIOS authority, build và TV thật phải qua gate riêng.
+
+Đây là **desk audit V1-method**, không phải V1 authenticated AIOS canonical RESULT, không là Reviewer PASS; phê duyệt PR không cấp quyền tự dispatch/merge bỏ review hoặc sửa Windows/TV.

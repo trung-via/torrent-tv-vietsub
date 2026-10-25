@@ -23,22 +23,30 @@ Chứng minh app OMP-derived chạy VLC trên Redmi HyperOS có thể nạp **m�
 - Android/unit fixtures + report kiểm thử app; không thêm `android/.../smb/*`, service/router/DB, không chỉnh TorrServer, Windows Firewall hoặc AIOS.
 - Thiết kế storage mapping `serverProfile+infohash+fileIndex` nếu cần; không lưu credential/media vào repo.
 
-## PoC / Verification theo thứ tự
+## Evidence gates sau V1-method audit — không gộp PASS
 
-1. Chọn một fixture video hợp pháp; dùng `fixtures/p1-vietsub-utf8.srt` của repo để tạo **debug-only Android asset**, chép nội bộ vào `filesDir` rồi thêm vào queue item khi mở VLC. Đây là phụ đề thử hiển thị dấu, không chứng minh khớp lời thoại. Nếu muốn thử SRT bất kỳ từ máy tính, ADB là bước kiểm chứng độc lập sau với quyền TV; không phụ thuộc ADB để chạy PoC đầu tiên.
-2. Kiểm thử trước đường **external subtitle khai báo khi mở media** nhờ `QueueItem.subtitles` → `VlcEngine.addSlave`. Nếu PASS, mới thử addSlave sau khi phát/hot-add; hai biến thể có kết quả/evidence riêng. Nếu cần reload, bảo toàn time/track và không mất tiếng.
-3. Thử hiện Unicode, off / embedded / external, D-pad, audio, play/pause, seek tiến/lùi, resume/reopen, chuyển episode khác.
-4. Negative tests: file missing, corrupt/invalid timestamps, permissions denied, file too large, wrong encoding. Không crash hoặc lộ tên/secret.
-5. Thu evidence: Git SHA, APK SHA256, Gradle/test result, firmware/API/ABI, ảnh/video remote & text có dấu, test-case matrix. Mock PASS ≠ Redmi PASS.
+- **G0: LOCAL_SRT_RENDER** — debug-only SRT asset → app-private → predeclared current `QueueItem.subtitles` before opening VLC; tiếng Việt đúng dấu, D-pad on/off, VLC hình/tiếng, pause/seek. Chỉ chứng minh render local trên Redmi thật; không chứng minh import tùy ý, hot-add, hội thoại đồng bộ hay ghi nhớ.
+- **G1: EXTERNAL_SRT_IMPORT** — file không đóng gói trong APK được đưa vào TV bằng kênh thử hợp pháp (ADB nếu được phép); nạp đúng phim/tập, track off/embedded nếu mẫu có, lỗi file và quyền, pause/seek/resume, persistence qua reopen **không có test injection**. Chỉ G1 đủ chứng cứ thực mới cho `EXTERNAL_SRT_E2E_PASS`.
+- **G2: LIVE_ADD** — thử nạp sau khi phim đang chạy và reload preserving position/audio nếu cần; không gộp với G0/G1.
+- **G3: SYNC** — dùng video kiểm soát với cue khớp timestamp; 4 cue trong fixture chỉ kiểm glyph/cú pháp, không khớp lời thoại của video tùy ý.
+- **G4: RELEASE_ISOLATION** — debug fixture/hook không xuất hiện hoặc không thể kích hoạt trong bản release; phải kiểm kết quả đóng gói/variant.
+
+## Verification theo thứ tự
+
+1. Xác thực OMP/submodule/license và điều kiện runner; không coi build upstream là bản fork P1. Chuẩn bị debug-only fixture tự tạo, chọn video hợp pháp để kiểm cue tại các mốc 2–17 giây, với track tiếng Việt được gắn **chỉ cho item hiện tại** và test injection mặc định OFF.
+2. G0: thử local URI, bật/tắt track bằng D-pad, dấu Unicode, VLC audio, pause/seek. Nếu track không hiện, ghi lỗi/trace đã redacted; không tự mở SMB hay thêm backend.
+3. G1: thử `.srt/.vtt` không nằm trong APK, gắn đúng media key (server profile + infohash + file index); đổi tập/reopen với debug injection OFF, thử track nhúng nếu video có; không gán nhầm file.
+4. G2/G3 riêng: hot-add và sync chỉ sau khi có cơ sở test phù hợp, không biến chúng thành điều kiện ẩn của G0.
+5. Negative: G0 asset missing/malformed không crash; G1 file không tồn tại, lỗi encoding/timestamp, quá lớn, permission denied báo lỗi an toàn. Không log magnet/passkey/URL chứa credentials.
+6. Thu bằng chứng tách biệt theo từng gate: main/branch/upstream SHA, APK SHA256, variant, TV firmware/API/ABI, Gradle/test, thao tác D-pad và ảnh/video test hợp pháp đã redact. Mock/build PASS không thay real-TV proof.
 
 ## AC và Stop
 
-- AC-1: SRT rời được OMP VLC dùng trên Redmi thật với tiếng Việt đúng dấu và audio nghe được.
-- AC-2: D-pad track choice, seek, pause/resume, đúng media key; fallback gốc khi tắt.
-- AC-3: file lỗi/permission đều báo lỗi rõ; regression source search/player không phá.
-- AC-4: report `EXTERNAL_SRT_E2E_PASS` hoặc `EXTERNAL_SRT_E2E_UNVERIFIED/BLOCKED` trung thực theo evidence.
-- STOP: không có source/import/license approval, thiếu runner verification khi cần, AIOS authority unresolved, hoặc phải mở hệ thống/network/SMB để làm test. Nếu PoC predeclared local SRT thất bại, ghi nguyên nhân/stacktrace sạch thay vì âm thầm mở SMB. Không auto-dispatch/merge/release.
-
+- **AC-G0:** Chỉ kết luận `LOCAL_SRT_RENDER_PASS` sau khi Android debug APK trên Redmi thật hiển thị track Unicode và giữ VLC audio/seek; nếu thiếu chứng cứ `UNVERIFIED`.
+- **AC-G1:** Chỉ kết luận `EXTERNAL_SRT_E2E_PASS` sau khi file ngoài APK hoạt động trên Redmi thật với media binding, track/off, lỗi, resume/reopen không injection; không lấy G0 thay.
+- **AC-G2/G3:** hot-add và sync phải có matrix/evidence riêng; thử embedded switching khi video fixture có embedded track.
+- **AC-G4:** release không chứa hoặc không thể bật fixture/hook debug, không sinh hành vi tự chèn phụ đề.
+- **STOP:** không có quyền source/import/runner, chưa xác minh AIOS canonical route khi cần, cần tự sửa SMB/Windows/firewall/TV, license blocker hay test có nguy cơ lộ secret. Không auto-dispatch, merge hay release.
 ## Sau PoC
 
 P1b đo và so sánh local picker/USB, SMB read-only, phone file transfer, phương án ít hạ tầng hơn; Human quyết định nguồn nhập ưu tiên sau. AI Vietsub P2 tạo `.vi.srt` tái dùng importer; TTS audio là PoC khác.
@@ -87,3 +95,7 @@ P1b đo và so sánh local picker/USB, SMB read-only, phone file transfer, phư�
 ### Stop / safe boundary
 
 No source mutation in `main` or upstream during this docs/fixture preparation. OMP source import/fork provenance, isolated workspace and required authorization must precede actual patch/build. GitHub workflow rerun, self-hosted runner commands, sideload, ADB access, Windows changes and AIOS dispatch are **not** authorized by this planning note. Keep PR #9/#10 Draft and reconcile overlapping docs before any merge.
+
+## V1 findings applicability / supersession
+
+Đọc `planning/P1-V1-AUDIT-FINDINGS.md` trước khi giao executor. Phần source-audit supplement phía trên/bên dưới chỉ mô tả **candidate HOW**; nếu wording cũ nói nạp fixture, hot-add, reopen hoặc media mapping là cùng một phép thử PASS, các gate G0–G4 mới **supersede**. Ưu tiên debug-only source set; guard `debuggable` đơn lẻ không thay được kiểm tra release artifact.
