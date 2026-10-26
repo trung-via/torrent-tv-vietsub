@@ -50,6 +50,21 @@ The patched script now uses `Invoke-AdbCaptured -Argv @( ... )` for **both** rea
 
 **Mandatory new-version gate:** download the script again from this PR's *current* head; give the new download a distinct filename so it cannot be confused with the previous `-FIXED.ps1`. A mere local rename does not update its contents. The new script must contain exactly one `function Invoke-AdbCaptured` and two `Invoke-AdbCaptured -Argv` calls. Run the PowerShell `ParseFile` gate on that **new path** and require `G1D_UX_PS_PARSE_PASS_NO_ADB_RUN`, then run **only** `-Phase Preflight`. Do not invoke `InstallKeepData` before all four Preflight markers have been reviewed. Windows parser and runtime remain **UNVERIFIED** until Human supplies new logs.
 
+## Human registry read evidence / guard correction (2026-10-26)
+
+The same Redmi reported the following read-only probes for `shared_prefs/p1-g1c-subtitles.xml`:
+
+- `run-as ... test -e` exit **0**, `test -f` exit **0**, but `test -r` exit **1**.
+- `run-as ... id`: UID/GID `10049:10049`. The XML and `shared_prefs` directory have the **same** owner and SELinux MCS category as the `run-as` identity.
+- XML `ls -ld` / `stat`: regular file, 622 bytes, mode `660`, owner `10049:10049`; directory mode `771`. SELinux label `u:object_r:app_data_file:s0:c49,c256,c512,c768` for both.
+- **Direct `run-as ... sha256sum shared_prefs/p1-g1c-subtitles.xml` exit 0** with stdout suppressed. `ls -ldZ` also exit 0.
+
+This verifies the XML can actually be **read** by `run-as` despite `test -r` returning false. The original Preflight registry guard `Test-AppFile AND Test-AppReadable` was therefore a false negative on this TV. The scoped fix requires the XML to be a **regular file** (`Test-AppFile`) and then immediately invokes the existing `Hash-App`, which fails closed on any actual read/hash error. It never prints XML content or checksums to the console; the SHA256 value is used to enforce registry byte-for-byte preservation across the installation. Original SRT readable/expected-SHA checks, downloaded old/new APK digests, installed old/new APK digest/signature, device identity, marker absence, and typed install confirmation are all unchanged.
+
+**No chmod/chown/restorecon/registry rewrite/re-registration** is appropriate based on these permissions. The file's internal selection semantics are not proven by the read/hash check alone and still require actual TV smoke tests.
+
+**Next:** download the new script from the **current exact PR #31 commit**, save under a fresh Windows filename distinct from both prior `FIXED` and `ADB-FIX` versions. Check the source includes `function Invoke-AdbCaptured`, the `Hash-App` registry gate, and no `Test-AppReadable $registry` guard. Run the **non-executing PowerShell ParseFile check** again on the actual downloaded path, then **only read-only `Preflight`**. Require all four PASS markers before proceeding to review. **Do not run `InstallKeepData` yet.** Windows runtime on this revised commit remains unverified.
+
 ## Human-run commands — chạy Preflight trước
 
 Sau khi tải artifact ZIP, giải nén rồi tự xác định đúng đường dẫn file APK ARM32 đã tải (ví dụ biến dưới đây; đổi path nếu vị trí khác):
