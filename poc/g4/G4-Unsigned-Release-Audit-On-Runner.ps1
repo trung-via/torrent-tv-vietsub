@@ -56,12 +56,30 @@ function Find-Jdk([string]$prefix) {
 $j21 = Find-Jdk 'jdk-21'
 $j17 = Find-Jdk 'jdk-17'
 $analyzer = "$sdk\cmdline-tools\latest\bin\apkanalyzer.bat"
-$signer = "$sdk\build-tools\36.0.0\apksigner.bat"
-foreach ($f in @("$node\node.exe",$j21,$j17,$analyzer,$signer,
-                "$sdk\platforms\android-37.0\android.jar")) {
-    if (-not $f -or -not (Test-Path -LiteralPath $f -PathType Leaf)) {
-        throw 'BLOCKED: Node, JDK or APK inspection tool missing'
+$buildToolsRoot = Join-Path $sdk 'build-tools'
+if (-not (Test-Path -LiteralPath $buildToolsRoot -PathType Container)) {
+    throw 'BLOCKED: Android SDK build-tools directory missing'
+}
+$signerCandidates = @(Get-ChildItem -LiteralPath $buildToolsRoot -Directory -ErrorAction Stop |
+    Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'apksigner.bat') -PathType Leaf } |
+    Sort-Object Name -Descending)
+if ($signerCandidates.Count -lt 1) {
+    throw 'BLOCKED: apksigner.bat missing from installed Android SDK build-tools'
+}
+$signer = Join-Path $signerCandidates[0].FullName 'apksigner.bat'
+$checks = @(
+    @{ Name='NODE'; Path=(Join-Path $node 'node.exe'); Kind='Leaf' },
+    @{ Name='JDK21'; Path=$j21; Kind='Container' },
+    @{ Name='JDK17'; Path=$j17; Kind='Container' },
+    @{ Name='APK_ANALYZER'; Path=$analyzer; Kind='Leaf' },
+    @{ Name='APK_SIGNER'; Path=$signer; Kind='Leaf' },
+    @{ Name='ANDROID_37_JAR'; Path=(Join-Path $sdk 'platforms\android-37.0\android.jar'); Kind='Leaf' }
+)
+foreach ($item in $checks) {
+    if (-not $item.Path -or -not (Test-Path -LiteralPath $item.Path -PathType $item.Kind)) {
+        throw ('BLOCKED: G4 prerequisite ' + $item.Name + ' missing or wrong file type')
     }
+    Write-Host ('G4_PREREQ_' + $item.Name + '_PASS')
 }
 $env:JAVA_HOME = $j21
 $env:JAVA_HOME_17_X64 = $j17
@@ -124,7 +142,7 @@ $edited = $src.Replace($hits[0].Value,$replacement)
 if ($edited -ceq $src -or $edited.Contains('gradle.taskGraph.whenReady')) {
     throw 'STOP: unsigned build exception failed'
 }
-[IO.File]::WriteAllText($gradleFile,$edited,(New-Object Text.UTF8Encoding($false)))
+[IO.File]::WriteAllText($gradleFile,$edited,([Text.UTF8Encoding]::new($false)))
 & git -C $omp diff --check
 if ($LASTEXITCODE -ne 0) { throw 'STOP: diff whitespace check failed' }
 $diff = @(& git -C $omp diff -- 'android/app/build.gradle')
