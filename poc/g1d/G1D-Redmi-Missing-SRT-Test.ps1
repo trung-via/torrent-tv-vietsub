@@ -29,10 +29,10 @@ if (-not (Test-Path -LiteralPath $adb -PathType Leaf)) {
 $rawDevices = @(& $adb devices -l)
 if ($LASTEXITCODE -ne 0) { throw 'STOP: adb devices failed' }
 $attached = @($rawDevices | Where-Object { $_ -match '^\s*\S+\s+(device|offline|unauthorized)\b' })
-if ($attached.Count -ne 1 -or $attached[0] -notmatch '^\s*(\S+)\s+device\b') {
-    throw 'STOP: expected exactly one authorized connected ADB device'
-}
-$serial = $Matches[1]
+if ($attached.Count -ne 1) { throw 'STOP: expected exactly one connected ADB device' }
+$deviceMatch = [regex]::Match($attached[0], '^\s*(\S+)\s+device\b')
+if (-not $deviceMatch.Success) { throw 'STOP: expected an authorized ADB device' }
+$serial = $deviceMatch.Groups[1].Value
 
 $model = (& $adb -s $serial shell getprop ro.product.model | Out-String).Trim()
 $api = (& $adb -s $serial shell getprop ro.build.version.sdk | Out-String).Trim()
@@ -49,6 +49,15 @@ function Test-AppFile([string]$relative) {
     if ($result -eq 1) { return $false }
     throw 'STOP: app-private run-as file test failed'
 }
+function Test-AppEntry([string]$relative) {
+    # Test for files OR directories, so a pre-existing backup directory cannot
+    # silently redirect mv into a different location.
+    & $adb -s $serial shell run-as $pkg test -e $relative
+    $result = $LASTEXITCODE
+    if ($result -eq 0) { return $true }
+    if ($result -eq 1) { return $false }
+    throw 'STOP: app-private entry test failed'
+}
 function Assert-RemoteDigest([string]$relative) {
     $raw = @(& $adb -s $serial shell run-as $pkg sha256sum $relative)
     if ($LASTEXITCODE -ne 0) { throw 'STOP: app-private SHA256 command failed' }
@@ -63,7 +72,7 @@ function Assert-Baseline {
     if (-not (Test-AppFile $registry)) { throw 'STOP: existing G1c registry missing' }
     if (Test-AppFile $marker) { throw 'STOP: pending G1c registration marker' }
     if (Test-AppFile $g1bMarker) { throw 'STOP: pending legacy G1b marker' }
-    if (Test-AppFile $backup) {
+    if (Test-AppEntry $backup) {
         throw 'STOP: G1d backup already exists; use Restore, NEVER overwrite it'
     }
     if (-not (Test-AppFile $original)) { throw 'STOP: original SRT missing; do not stage' }
@@ -74,7 +83,7 @@ function Assert-StagedMissing {
     if (-not (Test-AppFile $registry)) { throw 'STOP: saved registry missing' }
     if (Test-AppFile $marker) { throw 'STOP: unexpected G1c marker; Restore is still available' }
     if (Test-AppFile $g1bMarker) { throw 'STOP: unexpected G1b marker; Restore is still available' }
-    if (Test-AppFile $original) { throw 'STOP: original SRT still present' }
+    if (Test-AppEntry $original) { throw 'STOP: original SRT still present' }
     if (-not (Test-AppFile $backup)) { throw 'STOP: protected G1d backup is missing' }
     Assert-RemoteDigest $backup
     Write-Host 'G1D_MISSING_FILE_STAGED'
@@ -108,7 +117,7 @@ switch ($Phase) {
         } catch {
             # Roll back only if we can prove the protected backup is intact.
             $stageReason = $_.Exception.Message
-            if (-not (Test-AppFile $original) -and (Test-AppFile $backup)) {
+            if (-not (Test-AppEntry $original) -and (Test-AppFile $backup)) {
                 Assert-RemoteDigest $backup
                 & $adb -s $serial shell run-as $pkg mv $backup $original
                 if ($LASTEXITCODE -eq 0) {
@@ -128,19 +137,19 @@ switch ($Phase) {
     }
     'Restore' {
         # Recovery does NOT depend on APK path, registry presence or marker state.
-        if (Test-AppFile $original) {
+        if (Test-AppEntry $original) {
             throw 'STOP: original path occupied; do not overwrite or delete either file'
         }
         if (-not (Test-AppFile $backup)) { throw 'STOP: protected backup missing' }
         Assert-RemoteDigest $backup
         $yes = Read-Host 'Type RESTORE G1D SRT to restore the exact original independent SRT'
         if ($yes -cne 'RESTORE G1D SRT') { throw 'STOP: restore not approved' }
-        if (Test-AppFile $original) { throw 'STOP: original path appeared unexpectedly' }
+        if (Test-AppEntry $original) { throw 'STOP: original path appeared unexpectedly' }
         Assert-RemoteDigest $backup
         & $adb -s $serial shell run-as $pkg mv $backup $original
         if ($LASTEXITCODE -ne 0) { throw 'STOP: restore rename failed; preserve backup and investigate' }
         Assert-RemoteDigest $original
-        if (Test-AppFile $backup) { throw 'STOP: backup still present after restore' }
+        if (Test-AppEntry $backup) { throw 'STOP: backup still present after restore' }
         Write-Host 'G1D_ORIGINAL_SRT_RESTORED_HASH_PASS'
         Write-Host 'NEXT: open SAME film A via VLC without Register; verify G1c track and Vietnamese cues restored'
     }
