@@ -42,6 +42,14 @@ if ($parseErrors.Count -ne 0) {
 
 Only after this exact parse gate prints `G1D_UX_PS_PARSE_PASS_NO_ADB_RUN`, run `-Phase Preflight` and send the complete sanitized output. **Do not run InstallKeepData just because parsing succeeds**. Source audit and parser PASS are separate from device baseline verification. Never use `Unblock-File` to suppress the warning instead of checking the source.
 
+## WinPS5 ADB stderr hotfix (2026-10-26)
+
+Human ran a parser-PASS script, reconnected to the Redmi after its IP changed, then ran read-only `Preflight`. It printed `G1D_UX_REDMI_ARM32_DEVICE_PASS`. ADB **pulled 64,780,933 bytes** of the installed package, but Windows PowerShell 5.1 treated normal `adb pull` progress on stderr as terminating `NativeCommandError` under global `ErrorActionPreference='Stop'`. The pull itself is read-only on TV. **No installed APK SHA or registry/SRT check completed; Preflight remains BLOCKED; no install was invoked.**
+
+The patched script now uses `Invoke-AdbCaptured -Argv @( ... )` for **both** read-only `adb pull` and later consent-gated `adb install -r`. Only the native ADB invocation temporarily sets `ErrorActionPreference='Continue'` to collect stderr progress, restoring the original preference in `finally`. Exit code, installed APK path/package/cert/SHA256, checksum and registry guards remain mandatory; no debug setting, data clearing, root access or signature bypass has been added.
+
+**Mandatory new-version gate:** download the script again from this PR's *current* head; give the new download a distinct filename so it cannot be confused with the previous `-FIXED.ps1`. A mere local rename does not update its contents. The new script must contain exactly one `function Invoke-AdbCaptured` and two `Invoke-AdbCaptured -Argv` calls. Run the PowerShell `ParseFile` gate on that **new path** and require `G1D_UX_PS_PARSE_PASS_NO_ADB_RUN`, then run **only** `-Phase Preflight`. Do not invoke `InstallKeepData` before all four Preflight markers have been reviewed. Windows parser and runtime remain **UNVERIFIED** until Human supplies new logs.
+
 ## Human-run commands — chạy Preflight trước
 
 Sau khi tải artifact ZIP, giải nén rồi tự xác định đúng đường dẫn file APK ARM32 đã tải (ví dụ biến dưới đây; đổi path nếu vị trí khác):
