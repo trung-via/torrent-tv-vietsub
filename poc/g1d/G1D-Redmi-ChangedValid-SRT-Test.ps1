@@ -14,6 +14,10 @@ $original = 'files/p1-g1-external.vi.srt'
 $backup = 'files/p1-g1-external.vi.srt.g1d-changed-backup'
 $discard = 'files/p1-g1-external.vi.srt.g1d-changed-discard'
 $oldBackup = 'files/p1-g1-external.vi.srt.g1d-backup'
+$priorUtf8Backup = 'files/p1-g1-external.vi.srt.g1d-utf8-backup'
+$priorUtf8Discard = 'files/p1-g1-external.vi.srt.g1d-utf8-discard'
+$priorSyntaxBackup = 'files/p1-g1-external.vi.srt.g1d-syntax-backup'
+$priorSyntaxDiscard = 'files/p1-g1-external.vi.srt.g1d-syntax-discard'
 $remoteFixture = '/data/local/tmp/p1-g1d-changedvalid-20261026.bin'
 $registry = 'shared_prefs/p1-g1c-subtitles.xml'
 $marker = 'files/p1-g1c.register'
@@ -96,7 +100,7 @@ function Require-Registry {
 }
 function Require-Baseline {
   Require-Registry
-  foreach ($p in @($backup,$discard,$oldBackup)) {
+  foreach ($p in @($backup,$discard,$oldBackup,$priorUtf8Backup,$priorUtf8Discard,$priorSyntaxBackup,$priorSyntaxDiscard)) {
     if (Test-AppEntry $p) { throw 'STOP: protected backup/discard path occupied' }
   }
   if (-not (Test-AppFile $original)) { throw 'STOP: original SRT missing' }
