@@ -14,8 +14,8 @@ import java.security.MessageDigest
  * (saved server profile ID, torrent hash, file index), then reattach on reopen
  * with the registration marker OFF. No URL, credentials or raw hash is stored.
  *
- * A registered association is not proof that VLC persisted the user's track
- * selection; that separate AC is still UNVERIFIED.
+ * SEL-01 PoC: saves native user-selected G1c ON/OFF per exact media key.
+ * Does not infer ON from track presence and does not affect other media.
  */
 internal object P1G1CSubtitleRegistry {
     private const val FLAG = "p1-g1c.register"
@@ -55,6 +55,38 @@ internal object P1G1CSubtitleRegistry {
         return digest(bytes)
     }
 
+    /**
+     * Called only from the existing PlayerSession.Ui.trackChosen callback.
+     * Do not treat track availability as an explicit ON choice.
+     * "other" clears an older G1c selection without overriding embedded tracks.
+     */
+    fun noteTrackChoice(context: Context, r: PlayRequest?, index: Int, choice: TrackChoice) {
+        if (choice.audio || r == null || r.engine != EngineMode.VLC) return
+        val item = r.queue.getOrNull(index) ?: return
+        val mediaKey = key(r.serverProfileId, item.hash, item.fileIndex) ?: return
+        try {
+            val file = File(context.filesDir, FILE_NAME)
+            // Reject any unrelated or spoofed subtitle label in the queue.
+            val uri = Uri.fromFile(file).toString()
+            if (item.subtitles.none { it.label == LABEL && it.url == uri }) return
+            val checksum = checkedFileDigest(file) ?: return
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (prefs.getString(mediaKey, null) != checksum) return
+
+            val value = when {
+                choice.off -> "off"
+                choice.label == LABEL -> "on"
+                else -> "other"
+            }
+            // Separate from the existing content-hash association value.
+            prefs.edit().putString("selection.$mediaKey", value).commit()
+        } catch (_: IOException) {
+            // Retain existing choice. A read failure must not interrupt playback.
+        } catch (_: java.nio.charset.CharacterCodingException) {
+        } catch (_: SecurityException) {
+        }
+    }
+
     fun prepare(context: Context, r: PlayRequest): PlayRequest {
         if (r.engine != EngineMode.VLC || r.index !in r.queue.indices) return r
         try {
@@ -91,7 +123,20 @@ internal object P1G1CSubtitleRegistry {
                 ))
                 found = true
             }
-            return if (found) r.copy(queue = changed) else r
+            if (!found) return r
+            val withSubs = r.copy(queue = changed)
+            val selected = changed[r.index]
+            val selectedKey = key(r.serverProfileId, selected.hash, selected.fileIndex) ?: return withSubs
+            val uri = Uri.fromFile(file).toString()
+            if (selected.subtitles.none { it.label == LABEL && it.url == uri }) return withSubs
+
+            // Only explicit choices for this precise, verified media can win.
+            // Use an exact title-only pick: no language fallback onto episode B.
+            return when (prefs.getString("selection.$selectedKey", null)) {
+                "on" -> withSubs.copy(subPick = listOf(TrackPick(label = LABEL)), subtitlesOn = true)
+                "off" -> withSubs.copy(subPick = listOf(TrackPick(off = true)), subtitlesOn = false)
+                else -> withSubs
+            }
         } catch (_: IOException) {
             return r
         } catch (_: java.nio.charset.CharacterCodingException) {
