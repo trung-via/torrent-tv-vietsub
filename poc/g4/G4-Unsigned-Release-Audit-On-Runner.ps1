@@ -229,5 +229,11 @@ foreach ($apk in $apks) {
 }
 $hashLines | Out-File -LiteralPath (Join-Path $out 'SHA256SUMS-G4.txt') -Encoding ascii
 $report | Out-File -LiteralPath (Join-Path $out 'G4-UNSIGNED-AUDIT-EVIDENCE.txt') -Encoding utf8
+# GitHub's powershell shell exits using $LASTEXITCODE. The last native tool
+# is apksigner verify, which MUST fail for the intentionally unsigned APK.
+# Only after all APKs are verified and evidence is written, normalize that
+# expected unsigned-signature exit code to zero. Any earlier exception/STOP
+# still leaves the job failed.
+$global:LASTEXITCODE = 0
 Write-Host 'G4_UNSIGNED_AUDIT_BINARY_INSPECTION_PASS'
 Write-Host 'G4_UNSIGNED_ARTIFACT_ONLY_NOT_PRODUCTION_OR_TV_PASS'
