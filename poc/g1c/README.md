@@ -29,6 +29,7 @@
 - `poc/g1c/P1G1CSubtitleRegistry.release.kt` — no-op release class.
 - `poc/g1c/apply.ps1` — pinned clean OMP+submodule preflight, narrowly patches four known upstream files, copies only the two source-set helpers. **No build**.
 - `poc/g1c/verify.ps1` — structural checks and `git diff --check`, not compiler or device proof.
+- `poc/g1c/build-on-runner.ps1` — reuses proven dedicated Torrent TV Windows runner toolchain, clones immutable OMP/2160 to `RUNNER_TEMP/p1-g1c-RUN_ID-ATTEMPT`, applies G1c in the **clean disposable checkout**, runs TypeScript compile in `npm run android:sync` + Android `assembleDebug testDebugUnitTest`, inspects each APK's ZIP entries for absence of external/legacy SRT assets, emits SHA256SUMS and sanitized evidence; only invoked by a separately reviewed **manual workflow**, never automatically.
 
 `apply.ps1` must run only on a new disposable clean upstream worktree (not layered atop previously patched G0/G1b OMP); G1b's PoC still exists separately in PR #17, with distinct filename, label and marker.
 
