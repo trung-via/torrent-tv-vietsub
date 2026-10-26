@@ -281,7 +281,23 @@ function Stage-Case($cfg) {
                 throw 'STOP: synthetic remote fixture push/hash failed'
             }
             Require-PinnedInstalledApk
-            Require-CleanBaseline
+            # The synthetic remote path is now legitimately occupied. Recheck
+            # the entire app-private baseline and all OTHER remote paths.
+            $null = Hash-Registry
+            Require-NoMarkers
+            foreach ($path in $protected) {
+                if (Test-AppEntry $path) { throw 'STOP: backup/fixture unexpectedly staged' }
+            }
+            if (-not (Test-AppFile $original)) { throw 'STOP: original SRT missing' }
+            Require-AppHash $original $expectedSrt
+            foreach ($path in $remotePaths) {
+                if ($path -cne $cfg.Remote -and (Test-RemoteEntry $path)) {
+                    throw 'STOP: unrelated remote synthetic fixture appeared'
+                }
+            }
+            if ((Hash-Remote $cfg.Remote) -cne $cfg.Digest) {
+                throw 'STOP: just-pushed synthetic fixture changed'
+            }
             if ((Hash-Registry) -cne $registryBefore) {
                 throw 'STOP: G1c registry changed before protected rename'
             }
