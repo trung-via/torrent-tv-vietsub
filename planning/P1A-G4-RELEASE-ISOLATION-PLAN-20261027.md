@@ -47,3 +47,22 @@ The audited candidate source has two build-variant helpers:
 - If a build is later authorized, run **once** and collect combined source/binary/test results. Do not create extra ChatGPT gates between harmless in-job read-only inspection steps. STOP immediately on runner identity/workspace drift, wrong commit, impure clone, unexpected signing/publishing attempt, source-set leakage, asset debug content or inability to prove binary variant.
 - Do not auto-dispatch, schedule, merge, sign, publish, switch TV player, access LAN private media, alter firewall/router or change AIOS-renew.
 - Keep stacked PRs #29/#31/#32/#33/#34 Draft/unmerged until separate Human review. Product-level release requires other Contract gates besides G4, including source license attribution, authentication/privacy, server, player and TV acceptance.
+
+## Source audit finding — Release build signing hard gate (2026-10-27)
+
+**Observed from the exact pinned OMP upstream** at commit `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f`, file `android/app/build.gradle` blob `d0c7a13bf8ad5108e4b82d5bbac8ffd7d522b429`:
+
+- `signingConfigs.release` reads `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` only when `ANDROID_KEYSTORE_FILE` exists as an environment variable (source lines 45–53).
+- `buildTypes.release` chooses that signing config if `ANDROID_KEYSTORE_FILE` is set. **Otherwise it installs a `gradle.taskGraph.whenReady` guard which explicitly throws for tasks whose name contains `release`** (source lines 83–92). Consequently, an unsigned `assembleRelease` in the pristine pinned upstream checkout is intentionally **BLOCKED**; Gradle's ordinary unsigned-release output behavior does not apply here.
+- The existing authorized PR29 build and GitHub manual workflow are `assembleDebug` only. Re-running them would not answer G4.
+- Human authorized one G4 release-artifact build/inspection on the dedicated runner **with no signing, TV install, merge or release**. This does **not** authorize injecting a production keystore, substituting the debug keystore, overwriting the signing policy, or creating a misleading signed release. No G4 build/dispatch was performed.
+
+**Current state:** `G4_SOURCE_RELEASE_NOOP_OBSERVED / G4_UNSIGNED_RELEASE_BUILD_BLOCKED_BY_UPSTREAM_SIGNING_POLICY / RELEASE_APK_NOT_BUILT / G4_BINARY_ISOLATION_UNVERIFIED`.
+
+**Two distinct follow-on decisions, only one needed to continue:**
+
+A. **Recommended for forensic testing only, requires explicit new Human approval:** implement a narrowly-scoped, hash-anchored **temporary modification of `buildTypes.release` in a disposable OMP checkout on the dedicated runner**. That modification removes only the task-graph requirement for a release signing key and leaves the actual `src/release` source set, `minifyEnabled`, packaging, flags, app ID and dependencies unchanged. Verify exact old Gradle anchor and full diff, fail if the real keystore environment is present, build **unsigned** `assembleRelease` and inspect APK assets/dex/manifest; never sign, install, publish, distribute or use it as a shipping release. Record that this is an **unsigned audit variant with one build-configuration exception**, not an unmodified production release, and keep G4 production-equivalence caveat explicit. Obtain a new Human approval before authoring/running this deviation; existing G4 approval covers only the build/inspection in the previously described untouched signing policy.
+
+B. Preserve upstream Gradle as-is and stop G4 artifact build as `BLOCKED`; a later Human decision may provide proper signing infrastructure for a separate production release gate, but **none is requested or assumed** now.
+
+The existing manual workflow `.github/workflows/p1-g1d-ux-pr29-manual.yml` is already present on `main`, but it builds debug only. GitHub supports manually selecting a Draft branch version of a default-branch workflow. Any future G4 branch should add an explicit one-run confirmation and exact runner/branch/source guards; merely selecting main workflow's current debug build is not a G4 build. No workflow branch mutation or dispatch is needed to record the blocker.
