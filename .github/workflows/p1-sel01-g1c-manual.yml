@@ -41,6 +41,6 @@ jobs:
           path: |
             ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/*.apk
             ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS.txt
-            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/P1-SEL01_G1C-BUILD-EVIDENCE.txt
+            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/P1-G1C-BUILD-EVIDENCE.txt
           if-no-files-found: error
           retention-days: 7
