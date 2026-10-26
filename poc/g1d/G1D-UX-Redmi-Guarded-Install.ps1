@@ -118,8 +118,12 @@ function Read-AppBaseline {
     throw 'STOP: original SRT not a readable regular file'
   }
   if ((Hash-App $srt) -cne $srtSha) { throw 'STOP: original SRT SHA256 mismatch' }
-  if (-not (Test-AppFile $registry) -or -not (Test-AppReadable $registry)) {
-    throw 'STOP: saved G1c registry missing/unreadable'
+  # On this Android 11 TV, run-as test -r reports false for the
+  # app-owned mode-660 XML even though run-as sha256sum reads it.
+  # Require a real regular file, then prove real read access via SHA256.
+  # Hash-App fails closed on read errors and never prints XML or keys.
+  if (-not (Test-AppFile $registry)) {
+    throw 'STOP: saved G1c registry missing or not a regular file'
   }
   return (Hash-App $registry)
 }
