@@ -61,11 +61,13 @@ if (-not $release.Contains('fun noteTrackChoice(') -or
 }
 # Native player must display the warning after load() hides the prior toast.
 $loadAt = $activity.IndexOf('private fun load(r: PlayRequest')
+if ($loadAt -lt 0) { throw 'STOP: native player load entry missing' }
 $sessionAt = $activity.IndexOf('session.load(g1cPrepared.request, next)', $loadAt)
+if ($sessionAt -lt 0) { throw 'STOP: prepared request not passed to session' }
 $hideAt = $activity.IndexOf('hideMessage()', $sessionAt)
+if ($hideAt -lt 0) { throw 'STOP: native toast reset missing' }
 $showAt = $activity.IndexOf('g1cPrepared.warning?.let { showMessage(it, true) }', $hideAt)
-if ($loadAt -lt 0 -or $sessionAt -le $loadAt -or $hideAt -le $sessionAt -or
-    $showAt -le $hideAt) {
+if ($showAt -lt 0 -or $showAt -le $hideAt) {
     throw 'STOP: subtitle UX warning not ordered after session load and toast reset'
 }
 # A warning cannot be returned merely because any SRT file was invalid:
