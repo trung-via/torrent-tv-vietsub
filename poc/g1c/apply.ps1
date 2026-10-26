@@ -67,7 +67,7 @@ function ReplaceOnce([string]$source, [string]$old, [string]$new) {
 }
 $nl = [Environment]::NewLine
 
-# Preflight all 4 texts before mutating the disposable worktree.
+# Preflight all 4 texts before mutating the disposable worktree; UX notice only after hideMessage().
 $a = [IO.File]::ReadAllText($tsClient)
 $a = ReplaceOnce $a 'export interface ServerConfig {' ('export interface ServerConfig {'+$nl+'  id?: string;')
 $a = ReplaceOnce $a '  readonly baseUrl: string;' ('  readonly baseUrl: string;'+$nl+'  readonly profileId?: string;')
@@ -78,7 +78,8 @@ $c = [IO.File]::ReadAllText($ktNative)
 $c = ReplaceOnce $c '    val testPx: Int = 0,' ('    val testPx: Int = 0,'+$nl+'    val serverProfileId: String? = null,')
 $c = ReplaceOnce $c '                testPx = o.optInt("testPx", 0),' ('                testPx = o.optInt("testPx", 0),'+$nl+'                serverProfileId = o.optString("serverProfileId").ifEmpty { null },')
 $d = [IO.File]::ReadAllText($ktActivity)
-$d = ReplaceOnce $d '        session.load(r, next)' '        session.load(P1G1CSubtitleRegistry.prepare(this, r), next)'
+$d = ReplaceOnce $d '        session.load(r, next)' ('        val g1cPrepared = P1G1CSubtitleRegistry.prepare(this, r)'+$nl+'        session.load(g1cPrepared.request, next)')
+$d = ReplaceOnce $d '        setDonate(r.donate)' ('        setDonate(r.donate)'+$nl+'        g1cPrepared.warning?.let { showMessage(it, true) }')
 $d = ReplaceOnce $d '    override fun trackChosen(choice: TrackChoice) {' ('    override fun trackChosen(choice: TrackChoice) {'+$nl+'        if (!closedSent && ::session.isInitialized) P1G1CSubtitleRegistry.noteTrackChoice(this, session.request, index(), choice)')
 if ($d.Contains('P1G0SubtitleProbe') -or $d.Contains('P1G1SubtitleProbe')) {
     throw 'STOP: cannot layer G1c over G0/G1b patched player'
