@@ -1,0 +1,46 @@
+# Human approved activation scope 2026-10-26; dispatch remains manual and opt-in.
+# Exact reviewed app source SHA, dedicated Torrent TV runner, private 7-day artifact.
+# No push/pull_request/schedule/workflow_run trigger, no ADB/TV/AIOS steps.
+name: Torrent TV - P1 G1c Manual Debug Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  g1c:
+    name: Build G1c external SRT probe on dedicated Windows runner
+    if: github.repository == 'trung-via/torrent-tv-vietsub'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact reviewed G1c source snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: 620db2fb5aa89ccb8da67af82f4ab271862ce366
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify immutable G1c source and run isolated build
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pin = '620db2fb5aa89ccb8da67af82f4ab271862ce366'
+          $actual = (git -C "$env:GITHUB_WORKSPACE" rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $pin) {
+            throw 'STOP: G1c source SHA mismatch'
+          }
+          .\poc\g1c\build-on-runner.ps1 -AppRepoRoot "$env:GITHUB_WORKSPACE"
+
+      - name: Upload G1c debug APK and sanitized evidence privately
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
+        with:
+          name: p1-g1c-debug-apk
+          path: |
+            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/*.apk
+            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS.txt
+            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/P1-G1C-BUILD-EVIDENCE.txt
+          if-no-files-found: error
+          retention-days: 7
