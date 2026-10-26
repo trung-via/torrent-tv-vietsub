@@ -1,0 +1,56 @@
+# G4 one-shot unsigned forensic audit. This Draft branch carries G4 workflow
+# at the SAME PATH as already-manual PR29 debug workflow existing on main.
+# No PR/push/schedule/workflow_run triggers. No signing, TV, release, merge.
+name: Torrent TV - G4 UNSIGNED Release Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type G4_UNSIGNED_AUDIT_ONCE (no signing or TV)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  g4:
+    name: Isolated unsigned G4 binary scan (not release)
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/poc/p1a-g4-unsigned-release-audit-20261027' && inputs.confirmation == 'G4_UNSIGNED_AUDIT_ONCE'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout immutable G4 audit source and pinned PR29 patch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned
+        with:
+          ref: 3999f542db06d9281888e326e70b43c27183862f
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Run approved unsigned release-variant audit (no keys, no TV)
+        shell: powershell
+        env:
+          G4_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:G4_CONFIRMATION -cne 'G4_UNSIGNED_AUDIT_ONCE' -or
+              $env:GITHUB_REF -cne 'refs/heads/poc/p1a-g4-unsigned-release-audit-20261027' -or
+              $env:GITHUB_WORKFLOW_REF -cne 'trung-via/torrent-tv-vietsub/.github/workflows/p1-g1d-ux-pr29-manual.yml@refs/heads/poc/p1a-g4-unsigned-release-audit-20261027') {
+            throw 'STOP: incorrect G4 human confirmation or workflow ref'
+          }
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g4\G4-Unsigned-Release-Audit-On-Runner.ps1') `
+            -AppRepoRoot $env:GITHUB_WORKSPACE `
+            -SourceCommit '3999f542db06d9281888e326e70b43c27183862f'
+          if (-not $?) { throw 'STOP: G4 script failed' }
+
+      - name: Upload unsigned audit artifact privately (7-day expiry)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2 pinned
+        with:
+          name: g4-unsigned-audit-pr29
+          path: |
+            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/release/*.apk
+            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/release/SHA256SUMS-G4.txt
+            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/release/G4-UNSIGNED-AUDIT-EVIDENCE.txt
+          if-no-files-found: error
+          retention-days: 7
