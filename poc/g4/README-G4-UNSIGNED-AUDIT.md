@@ -14,7 +14,7 @@
 
 On `main`, GitHub already has the **same path** `.github/workflows/p1-g1d-ux-pr29-manual.yml`, containing the original **PR29 debug workflow**. This Draft branch adds a different **G4-only manual workflow at that path**, locked to **the one Draft branch** `poc/p1a-g4-unsigned-release-audit-20261027`. GitHub workflow dispatch supports choosing a branch for a workflow that exists in `main`; do not choose `main` or you will run the older debug workflow instead.
 
-At the time of creating this script, the immutable checkout of `poc/g4/G4-Unsigned-Release-Audit-On-Runner.ps1` is commit `8f9126cc4e8a4cb033be903709213c5ff9e2b5d1`; workflow uses pinned checkout of exactly that source. PR #36 workflow branch HEAD should be checked immediately before dispatch for unexpected drift.
+At the time of creating this script, the immutable checkout of `poc/g4/G4-Unsigned-Release-Audit-On-Runner.ps1` is commit `3999f542db06d9281888e326e70b43c27183862f`; workflow uses pinned checkout of exactly that source. PR #36 workflow branch HEAD should be checked immediately before dispatch for unexpected drift.
 
 **Human GitHub UI — one authorized run only:**
 
@@ -61,6 +61,16 @@ Both logs passed `G4_PR29_SOURCE_BLOBS_PASS` and then stopped with `BLOCKED: Nod
 
 Static investigation of the original script found an unconditional preflight bug: it assigned JDK21/JDK17 **folder paths** and subsequently tested those with `Test-Path -PathType Leaf` (**file-only**) instead of `Container` (folder). Thus the old code would fail even with properly installed JDKs. It also hard-coded `build-tools/36.0.0/apksigner.bat` instead of resolving `apksigner.bat` from installed build-tools. Historical dedicated runner preflight [run #40154251565](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/40154251565) documented Android build-tools **37.0.0** plus Node and JDK.
 
-This Draft fixes **both** issues: JDK dirs checked as `Container`, file executables as `Leaf`, installed build-tools searched for `apksigner.bat`, individual `G4_PREREQ_<NAME>_PASS` output and explicit missing component STOP. It also switches UTF-8 output construction to PowerShell 5.1-compatible `[Text.UTF8Encoding]::new($false)`. The workflow now checks out the repair at `8f9126cc4e8a4cb033be903709213c5ff9e2b5d1`.
+This Draft fixes **both** issues: JDK dirs checked as `Container`, file executables as `Leaf`, installed build-tools searched for `apksigner.bat`, individual `G4_PREREQ_<NAME>_PASS` output and explicit missing component STOP. It also switches UTF-8 output construction to PowerShell 5.1-compatible `[Text.UTF8Encoding]::new($false)`. The workflow now checks out the repair at `3999f542db06d9281888e326e70b43c27183862f`.
 
 **No new runner execution has happened after this repair.** Do not retry failed runs because they use the old immutable checkout. If the Human approves a new invocation, dispatch a NEW run from this same G4 branch only once and read its result; if a different missing tool is named, diagnose it before any further runs. Never self-install SDK/JDK, change Windows services, dispatch AIOS, use `main`, or treat a prerequisite BLOCKED as an APK G4 failure.
+
+## 2026-10-27 incident: run #40377067773
+
+[Run #40377067773](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/40377067773) checked out the repaired source. PR29 blob pins and all runner toolchain preflight markers PASS. Its approved disposable Gradle signing guard exception PASS; actual `assembleRelease` **BUILD SUCCESSFUL in 5m 14s**, then `G4_UNSIGNED_AUDIT_BINARY_INSPECTION_PASS` and `G4_UNSIGNED_ARTIFACT_ONLY_NOT_PRODUCTION_OR_TV_PASS` were printed.
+
+**Actions FAIL after script PASS:** the forensic `apksigner verify` must reject the deliberately unsigned APK with a nonzero exit code. Although the helper evaluated this as intended, it left PowerShell `$LASTEXITCODE` nonzero. GitHub Actions propagated that exit at the end of the step, so upload-artifact was skipped; GitHub reports **zero uploaded artifacts**.
+
+**Source-only repair:** new helper pin `3999f542db06d9281888e326e70b43c27183862f` clears `$global:LASTEXITCODE` only after all APK inspections and report/checksum writes have succeeded; errors before that still STOP. G4 branch workflow now pins the revised helper. **Not rerun**. One more runner invocation is not warranted merely to re-prove Gradle or the binary checks; a downloadable artifact remains unavailable from GitHub.
+
+**Bounded result:** `G4_UNSIGNED_AUDIT_BINARY_PASS_LOGGED / G4_JOB_EXIT_FALSE_FAILURE / PRIVATE_ARTIFACT_NOT_UPLOADED / PRODUCTION_RELEASE_G4_UNVERIFIED`. No TV install, signing or publish.
