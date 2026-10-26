@@ -32,7 +32,7 @@ $shaObj = [Security.Cryptography.SHA256]::Create()
 try { $fixtureSha = -join ($shaObj.ComputeHash($fixtureBytes) | ForEach-Object { $_.ToString('x2') }) }
 finally { $shaObj.Dispose() }
 # Self-check: strict UTF-8 must decode, and the actual native cue signature must NOT match.
-$syntaxStrict = [Text.SYNTAXEncoding]::new($false, $true)
+$syntaxStrict = [Text.UTF8Encoding]::new($false, $true)
 $fixtureText = $syntaxStrict.GetString($fixtureBytes)
 $validCuePattern = '(?m)^\d{1,6}\r?\n\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}'
 if ($fixtureBytes.Length -gt 256 -or $fixtureText -notmatch '00:00:00\.000 --> 00:00:02\.000' -or
