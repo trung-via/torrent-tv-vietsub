@@ -26,13 +26,25 @@ foreach ($entry in @(
     @($debug, 'prefs.edit().putString(registrationKey, checksum).commit()'),
     @($debug, 'if (prefs.getString(mediaKey, null) != currentChecksum) continue'),
     @($debug, 'if (!marker.delete()) return r'),
-    @($debug, 'CodingErrorAction.REPORT')
+    @($debug, 'CodingErrorAction.REPORT'),
+    @($activity, 'P1G1CSubtitleRegistry.noteTrackChoice(this, session.request, index(), choice)'),
+    @($debug, 'fun noteTrackChoice(context: Context, r: PlayRequest?, index: Int, choice: TrackChoice)'),
+    @($debug, 'if (prefs.getString(mediaKey, null) != checksum) return'),
+    @($debug, 'choice.off -> "off"'),
+    @($debug, 'choice.label == LABEL -> "on"'),
+    @($debug, 'putString("selection.$mediaKey", value)'),
+    @($debug, 'prefs.getString("selection.$selectedKey", null)'),
+    @($debug, 'TrackPick(label = LABEL)'),
+    @($debug, 'TrackPick(off = true)'),
+    @($debug, 'selected.subtitles.none { it.label == LABEL && it.url == uri }'),
+    @($debug, 'if (!found) return r')
 )) {
     if (-not $entry[0].Contains($entry[1])) {
         throw "STOP: missing G1c safety guard: $($entry[1])"
     }
 }
-if (-not $release.Contains('PlayRequest = r') -or
+if (-not $release.Contains('fun noteTrackChoice(') -or
+    -not $release.Contains('PlayRequest = r') -or
     $release.Contains('getSharedPreferences') -or $release.Contains('Uri.fromFile')) {
     throw 'STOP: G1c release is not no-op'
 }

@@ -20,7 +20,7 @@
 3. **Wrong episode:** queue entries lacking a matching association receive no G1c `SubFile`. Different fileIndex, torrent hash or server profile must not inherit it. A changed/missing/corrupt SRT is rejected safely.
 4. **Storage:** `SharedPreferences` only, no backend/DB, SMB, phone, network changes, broad Android storage permission or source file packed into APK. Persistent keys are SHA256 of structured identity and values are SRT SHA256; raw hash, stream URL, magnet and credential are never persisted/logged by this registry. **One external file path is supported** for this bounded test; changing that file invalidates an earlier association by content hash.
 5. **Debug/release isolation:** `src/debug` registry does all reads/writes; `src/release` is no-op. The minimal ID wire-field exists in both variants but release has no SRT-association behavior. G4 still requires release binary artifact inspection.
-6. **Track selection not solved:** saved **association** does not necessarily preserve whether this external track was selected or OFF by the user. This is a bounded **G1c mapping** experiment, not yet complete G1c acceptance or `EXTERNAL_SRT_E2E_PASS`. Test ON/OFF state restoration separately; do not force English/other tracks or auto-enable subtitles without proof.
+6. **SEL-01 correction proposed (not yet built):** on explicit native `trackChosen` events, save `on`/`off`/`other` under `selection.` + exact hashed media key only if the independent SRT and its G1c association still match. When reopening that exact media with VLC, `on` injects an exact label-only subtitle `TrackPick` with `subtitlesOn=true`, `off` injects an OFF pick with `subtitlesOn=false`, and `other` retains OMP's normal selection. Never infer ON from the track merely existing; do not apply this stored choice to different `fileIndex`/hash/server profile. Earlier Human-tested `SEL-01 ON=FAIL` applies to prior APK; the proposed fix is **BUILD_UNVERIFIED / REAL_TV_UNVERIFIED**, not a PASS. Native UI callback remains upstream; release helper is no-op.
 7. **No production importer:** registration is ADB/debug-only, not an in-app subtitle picker. G1d error UX, multi-file real usage, BTv2 and VTT remain separately scoped.
 
 ## Files in this repo
@@ -44,7 +44,11 @@
 | MAP-03 | Same torrent, **different fileIndex** → no SRT inheritance | Wrong-episode |
 | MAP-04 | Different torrent hash / server profile → no SRT inheritance | Wrong-title/server |
 | MAP-05 | Missing, modified, invalid encoding or malformed SRT → safe fallback, no crash | Negative; no promised UX yet |
-| SEL-01 | Remember exact selected external track vs OFF across restart, including embedded if available | **NOT IMPLEMENTED / BLOCKED_FOR_FULL_G1C** |
+| SEL-01a | On registered A, manually select G1c ON; reopen A with marker OFF: G1c must be **selected** and visible, not just present in menu | SEL-01 proposed patch; **BUILD/TV UNVERIFIED** |
+| SEL-01b | Select OFF on A; reopen A: OFF remains selected (existing Human PASS must not regress) | Regression; **NEW_APK UNVERIFIED** |
+| SEL-01c | Change to a valid embedded/other subtitle on A; reopen A: G1c must not be forced ON | If embedded available; otherwise N/A |
+| SEL-01d | From registered A to unregistered B (same torrent with different fileIndex), B must have no G1c track and must not have A's ON applied | Wrong-episode; NEW_APK UNVERIFIED |
+| SEL-01e | Missing, corrupt or changed SRT / mismatched server profile → no G1c selection override | Fail-closed; NEW_APK UNVERIFIED |
 | AV-01 | Play/pause, seek ±, resume, picture/audio, remote controls | AC-04/05 real Redmi |
 | REL-01 | Release build no debug registry behavior or fixture | G4 separate |
 
@@ -56,4 +60,4 @@ Every test reports PASS / FAIL / UNVERIFIED or NOT_APPLICABLE with source SHA, A
 - Future build requires a separate manual-only, pin-reviewed GitHub Actions workflow with app-runner authorization (existing G1b workflow on main remains **pinned to G1b**; do not reuse it to claim G1c). No automatic dispatch, merging or official AIOS task.
 - Rollback: discard disposable patched OMP tree; keep G1c PR Draft. A real-world uninstall or data clear would delete `SharedPreferences`; do not do either without Human authorization.
 
-**Decision needed for completion:** after media-bound reopen is demonstrated, implement/verify exact selection restoration (external ↔ OFF ↔ embedded) before declaring full G1c or G1 E2E PASS. Typeface styling remains deferred.
+**SEL-01 is only patch-prepared:** pinned OMP Kotlin/TypeScript compilation, dedicated-runner build, real Redmi ON→reopen and OFF regression, wrong-episode, missing SRT and embedded-switch tests are required before completion. Typeface styling remains deferred.
