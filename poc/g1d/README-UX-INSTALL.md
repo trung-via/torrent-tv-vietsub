@@ -22,6 +22,26 @@ Tải từ Draft PR chứa tài liệu này file `poc/g1d/G1D-UX-Redmi-Guarded-I
 - `VerifyInstalled` chỉ đọc: kiểm đúng APK mới đã cài, SRT gốc SHA256, registry hiện có, marker/backup OFF. Chạy được sau khi Install thành công mà không cần old APK local.
 - **Quan trọng**: Nếu Android/ADB không cho pull APK đang cài, script sẽ chặn cài đặt thay vì đoán. Nếu lỗi sau `adb install -r`, **không chạy lại cài đặt mù**, không tự uninstall/rollback: giữ app data và gửi log STOP đã redacted để xử lý.
 
+## Hotfix PowerShell parser — required before any Preflight (2026-10-26)
+
+An earlier version of the Draft script was **invalid PowerShell source**: the `Read-InstalledApkSha` regular expression was truncated and the tail duplicated. A Human `ParserError` was reported before PowerShell executed the script; **no ADB command or APK installation occurred** in that invocation. The checked-in repaired script is **185 lines**, has exactly one `Read-InstalledApkSha` and one `switch ($Phase)` entry, and fixes the complete installed APK path regex. Source structure reviewed; **Windows PowerShell 5.1 runtime parse is still UNVERIFIED until the Human parser gate below succeeds**.
+
+**Mandatory:** Delete/rename your locally cached **broken** script, download the repaired file from the latest commit on this Draft PR (do not reuse the old Downloads script), and **parse it without executing**:
+
+```powershell
+$uxInstall = "$env:USERPROFILE\Downloads\G1D-UX-Redmi-Guarded-Install.ps1"
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($uxInstall, [ref]$tokens, [ref]$parseErrors) | Out-Null
+if ($parseErrors.Count -ne 0) {
+  $parseErrors | Select-Object Message, Extent
+  throw 'STOP: G1D UX script parse failed. No Preflight or install.'
+}
+'G1D_UX_PS_PARSE_PASS_NO_ADB_RUN'
+```
+
+Only after this exact parse gate prints `G1D_UX_PS_PARSE_PASS_NO_ADB_RUN`, run `-Phase Preflight` and send the complete sanitized output. **Do not run InstallKeepData just because parsing succeeds**. Source audit and parser PASS are separate from device baseline verification. Never use `Unblock-File` to suppress the warning instead of checking the source.
+
 ## Human-run commands — chạy Preflight trước
 
 Sau khi tải artifact ZIP, giải nén rồi tự xác định đúng đường dẫn file APK ARM32 đã tải (ví dụ biến dưới đây; đổi path nếu vị trí khác):
