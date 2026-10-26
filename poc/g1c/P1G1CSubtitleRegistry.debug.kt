@@ -22,6 +22,10 @@ internal object P1G1CSubtitleRegistry {
     private const val FILE_NAME = "p1-g1-external.vi.srt"
     private const val PREFS = "p1-g1c-subtitles"
     private const val LABEL = "P1 G1c - Saved SRT"
+    // Localized Vietnamese for this bounded debug-only PoC; release has no warning copy.
+    private const val SRT_UNAVAILABLE = "Phụ đề rời đã lưu không khả dụng. Kiểm tra file SRT."
+
+    internal data class Prepared(val request: PlayRequest, val warning: String? = null)
     private const val MAX_BYTES = 256 * 1024L
     private val serverIdPattern = Regex("[A-Za-z0-9_-]{1,80}")
     private val torrentHashPattern = Regex("[a-fA-F0-9]{40}")
@@ -87,27 +91,47 @@ internal object P1G1CSubtitleRegistry {
         }
     }
 
-    fun prepare(context: Context, r: PlayRequest): PlayRequest {
-        if (r.engine != EngineMode.VLC || r.index !in r.queue.indices) return r
+    /**
+     * A warning is specific to the current media and explicit ON selection.
+     * Never warn for an unregistered item, selected OFF/OTHER, missing identity,
+     * or initial registration; never turn subtitle errors into playback errors.
+     */
+    fun prepare(context: Context, r: PlayRequest): Prepared {
+        if (r.engine != EngineMode.VLC || r.index !in r.queue.indices) return Prepared(r)
         try {
             val file = File(context.filesDir, FILE_NAME)
             val marker = File(context.filesDir, FLAG)
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val current = r.queue[r.index]
             val registrationKey = key(r.serverProfileId, current.hash, current.fileIndex)
+            val registering = marker.isFile
 
-            // One-shot explicit registration. Always consume to prevent a future
-            // wrong movie from claiming a stale marker. Fail closed on missing ID.
-            if (marker.isFile) {
-                if (!marker.delete()) return r
+            // One-shot registration behavior is unchanged; no warning on this path.
+            if (registering) {
+                if (!marker.delete()) return Prepared(r)
                 val checksum = if (registrationKey == null) null else checkedFileDigest(file)
-                if (checksum == null || registrationKey == null) return r
-                if (!prefs.edit().putString(registrationKey, checksum).commit()) return r
+                if (checksum == null || registrationKey == null) return Prepared(r)
+                if (!prefs.edit().putString(registrationKey, checksum).commit()) return Prepared(r)
             }
 
-            // With marker now OFF, only exact keys can restore. Revalidate
-            // external bytes on each open; an overwritten/missing SRT is ignored.
-            val currentChecksum = checkedFileDigest(file) ?: return r
+            // Only a saved, explicitly selected ON association on the current
+            // media is eligible. The expected checksum is never logged or shown.
+            val savedChecksum = registrationKey?.let { prefs.getString(it, null) }
+            val warnEligible = !registering && savedChecksum != null &&
+                prefs.getString("selection.$registrationKey", null) == "on"
+
+            // A damaged/unreadable file can fail decoding or I/O. Keep fail-closed,
+            // but preserve enough local state to show a *generic* player notice.
+            val currentChecksum = try {
+                checkedFileDigest(file)
+            } catch (_: IOException) {
+                null
+            } catch (_: SecurityException) {
+                null
+            }
+            val warning = if (warnEligible && savedChecksum != currentChecksum) SRT_UNAVAILABLE else null
+            if (currentChecksum == null) return Prepared(r, warning)
+
             val changed = r.queue.toMutableList()
             var found = false
             for (i in changed.indices) {
@@ -123,26 +147,27 @@ internal object P1G1CSubtitleRegistry {
                 ))
                 found = true
             }
-            if (!found) return r
+            if (!found) return Prepared(r, warning)
             val withSubs = r.copy(queue = changed)
             val selected = changed[r.index]
-            val selectedKey = key(r.serverProfileId, selected.hash, selected.fileIndex) ?: return withSubs
+            val selectedKey = key(r.serverProfileId, selected.hash, selected.fileIndex)
+                ?: return Prepared(withSubs, warning)
             val uri = Uri.fromFile(file).toString()
-            if (selected.subtitles.none { it.label == LABEL && it.url == uri }) return withSubs
+            if (selected.subtitles.none { it.label == LABEL && it.url == uri }) {
+                return Prepared(withSubs, warning)
+            }
 
-            // Only explicit choices for this precise, verified media can win.
-            // Use an exact title-only pick: no language fallback onto episode B.
-            return when (prefs.getString("selection.$selectedKey", null)) {
+            // SEL-01 track-choice persistence remains unchanged.
+            val selectedRequest = when (prefs.getString("selection.$selectedKey", null)) {
                 "on" -> withSubs.copy(subPick = listOf(TrackPick(label = LABEL)), subtitlesOn = true)
                 "off" -> withSubs.copy(subPick = listOf(TrackPick(off = true)), subtitlesOn = false)
                 else -> withSubs
             }
+            return Prepared(selectedRequest, warning)
         } catch (_: IOException) {
-            return r
-        } catch (_: java.nio.charset.CharacterCodingException) {
-            return r
+            return Prepared(r)
         } catch (_: SecurityException) {
-            return r
+            return Prepared(r)
         }
     }
 }
