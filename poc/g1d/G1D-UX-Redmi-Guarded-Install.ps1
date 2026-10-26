@@ -123,6 +123,25 @@ function Read-AppBaseline {
   }
   return (Hash-App $registry)
 }
+
+# ADB writes successful progress to stderr in Windows PowerShell 5.1.
+# Capture only this known native-program behavior without weakening the
+# global Stop preference. ADB's actual exit code and artifact hashes still
+# determine success. Never echo command output (may contain private paths).
+function Invoke-AdbCaptured([string[]]$Argv) {
+  $priorPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $combined = @(& $adb @Argv 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $priorPreference
+  }
+  return @{
+    ExitCode = $exitCode
+    Text = (($combined | ForEach-Object { [string]$_ }) -join ' ')
+  }
+}
 function Read-InstalledApkSha {
   $paths = @(& $adb -s $serial shell pm path $pkg)
   if ($LASTEXITCODE -ne 0) { throw 'STOP: pm path failed' }
@@ -133,8 +152,8 @@ function Read-InstalledApkSha {
   $remote = $parsed.Groups[1].Value
   $tmp = Join-Path $env:TEMP ('g1d-ux-base-' + [Guid]::NewGuid().ToString('N') + '.apk')
   try {
-    $pullLog = @(& $adb -s $serial pull $remote $tmp 2>&1)
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tmp -PathType Leaf)) {
+    $pull = Invoke-AdbCaptured @('-s', $serial, 'pull', $remote, $tmp)
+    if ($pull.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $tmp -PathType Leaf)) {
       throw 'STOP: installed APK could not be pulled read-only'
     }
     if ((Read-PackageName $tmp) -cne $pkg) { throw 'STOP: installed package name mismatch' }
@@ -163,10 +182,10 @@ switch ($Phase) {
     if ($answer -cne 'INSTALL G1D UX KEEP DATA') { throw 'STOP: install not approved at device gate' }
     $againPrefs = Check-Device $oldSha
     if ($againPrefs -cne $beforePrefs) { throw 'STOP: registry changed before installation' }
-    $output = @(& $adb -s $serial install -r $NewApkPath 2>&1)
-    $ok = $LASTEXITCODE -eq 0 -and (($output -join ' ') -match '(^|\s)Success(\s|$)')
+    $install = Invoke-AdbCaptured @('-s', $serial, 'install', '-r', $NewApkPath)
+    $ok = $install.ExitCode -eq 0 -and ($install.Text -match '(^|\s)Success(\s|$)')
     if (-not $ok) {
-      $reason = [regex]::Match(($output -join ' '), 'INSTALL_FAILED_[A-Z0-9_]+')
+      $reason = [regex]::Match($install.Text, 'INSTALL_FAILED_[A-Z0-9_]+')
       if ($reason.Success) { throw ('STOP: adb install -r failed: ' + $reason.Value) }
       throw 'STOP: adb install -r failed; do not uninstall or clear data'
     }
