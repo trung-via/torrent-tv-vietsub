@@ -69,7 +69,7 @@ function Mode-App([string]$p) {
   if ($LASTEXITCODE -ne 0) { throw 'STOP: app-private stat failed' }
   $mode = ($out | Out-String).Trim()
   if ($mode -notmatch '^[0-7]{1,4}$') { throw 'STOP: unexpected app-private POSIX mode' }
-  return $mode.TrimStart('0').PadLeft(1,'0')
+  return ([int]::Parse($mode)).ToString()
 }
 function Hash-App([string]$p) {
   $out = @(& $adb -s $serial shell run-as $pkg sha256sum $p)
