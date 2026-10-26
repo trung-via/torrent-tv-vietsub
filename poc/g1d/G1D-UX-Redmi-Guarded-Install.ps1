@@ -128,59 +128,7 @@ function Read-InstalledApkSha {
   if ($LASTEXITCODE -ne 0) { throw 'STOP: pm path failed' }
   $paths = @($paths | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^package:' })
   if ($paths.Count -ne 1) { throw 'STOP: installed package is split or not found' }
-  $parsed = [regex]::Match($paths[0], '^package:(/.+/base\.apk)
-  $tmp = Join-Path $env:TEMP ('g1d-ux-base-' + [Guid]::NewGuid().ToString('N') + '.apk')
-  try {
-    $pullLog = @(& $adb -s $serial pull $remote $tmp 2>&1)
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tmp -PathType Leaf)) {
-      throw 'STOP: installed APK could not be pulled read-only'
-    }
-    if ((Read-PackageName $tmp) -cne $pkg) { throw 'STOP: installed package name mismatch' }
-    if ((Read-Certificate $tmp) -cne $newCert) { throw 'STOP: installed package signature mismatch' }
-    return (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
-  } finally {
-    if (Test-Path -LiteralPath $tmp -PathType Leaf) { Remove-Item -LiteralPath $tmp -Force }
-  }
-}
-function Check-Device([string]$expectedSha) {
-  $installedSha = Read-InstalledApkSha
-  if ($installedSha -cne $expectedSha) { throw 'STOP: installed APK does not match pinned expected build' }
-  return (Read-AppBaseline)
-}
-switch ($Phase) {
-  'Preflight' {
-    $prefs = Check-Device $oldSha
-    Write-Host 'G1D_UX_OLD_INSTALLED_SHA_CERT_PASS'
-    Write-Host 'G1D_UX_SRT_AND_REGISTRY_PREFLIGHT_PASS'
-    Write-Host 'G1D_UX_INSTALL_PREFLIGHT_READ_ONLY_TV_PASS'
-  }
-  'InstallKeepData' {
-    $beforePrefs = Check-Device $oldSha
-    Write-Host 'G1D_UX_INSTALL_PINS_AND_DATA_PREFLIGHT_PASS'
-    $answer = Read-Host 'CLOSE VLC PLAYER. Type INSTALL G1D UX KEEP DATA to run adb install -r'
-    if ($answer -cne 'INSTALL G1D UX KEEP DATA') { throw 'STOP: install not approved at device gate' }
-    $againPrefs = Check-Device $oldSha
-    if ($againPrefs -cne $beforePrefs) { throw 'STOP: registry changed before installation' }
-    $output = @(& $adb -s $serial install -r $NewApkPath 2>&1)
-    $ok = $LASTEXITCODE -eq 0 -and (($output -join ' ') -match '(^|\s)Success(\s|$)')
-    if (-not $ok) {
-      $reason = [regex]::Match(($output -join ' '), 'INSTALL_FAILED_[A-Z0-9_]+')
-      if ($reason.Success) { throw ('STOP: adb install -r failed: ' + $reason.Value) }
-      throw 'STOP: adb install -r failed; do not uninstall or clear data'
-    }
-    Write-Host 'G1D_UX_ADB_INSTALL_R_SUCCESS_NOT_TV_UX_PASS'
-    $afterPrefs = Check-Device $newSha
-    if ($afterPrefs -cne $beforePrefs) {
-      throw 'STOP: registry changed after install; preserve app data and investigate'
-    }
-    Write-Host 'G1D_UX_INSTALLED_NEW_SHA_CERT_AND_DATA_PRESERVED_PASS_NOT_TV_UX_PASS'
-  }
-  'VerifyInstalled' {
-    $prefs = Check-Device $newSha
-    Write-Host 'G1D_UX_VERIFY_NEW_INSTALLED_SHA_CERT_AND_SRT_REGISTRY_PASS_NOT_TV_UX_PASS'
-  }
-}
-)
+  $parsed = [regex]::Match($paths[0], '^package:(/.+/base\.apk)$')
   if (-not $parsed.Success) { throw 'STOP: installed APK base path layout differs from reviewed path' }
   $remote = $parsed.Groups[1].Value
   $tmp = Join-Path $env:TEMP ('g1d-ux-base-' + [Guid]::NewGuid().ToString('N') + '.apk')
