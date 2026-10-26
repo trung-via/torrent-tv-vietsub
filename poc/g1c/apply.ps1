@@ -79,6 +79,7 @@ $c = ReplaceOnce $c '    val testPx: Int = 0,' ('    val testPx: Int = 0,'+$nl+'
 $c = ReplaceOnce $c '                testPx = o.optInt("testPx", 0),' ('                testPx = o.optInt("testPx", 0),'+$nl+'                serverProfileId = o.optString("serverProfileId").ifEmpty { null },')
 $d = [IO.File]::ReadAllText($ktActivity)
 $d = ReplaceOnce $d '        session.load(r, next)' '        session.load(P1G1CSubtitleRegistry.prepare(this, r), next)'
+$d = ReplaceOnce $d '    override fun trackChosen(choice: TrackChoice) {' ('    override fun trackChosen(choice: TrackChoice) {'+$nl+'        if (!closedSent && ::session.isInitialized) P1G1CSubtitleRegistry.noteTrackChoice(this, session.request, index(), choice)')
 if ($d.Contains('P1G0SubtitleProbe') -or $d.Contains('P1G1SubtitleProbe')) {
     throw 'STOP: cannot layer G1c over G0/G1b patched player'
 }
