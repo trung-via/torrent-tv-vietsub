@@ -46,7 +46,7 @@ foreach ($entry in @(
     @($debug, 'prefs.getString("selection.$registrationKey", null) == "on"'),
     @($debug, 'val warning = if (warnEligible && savedChecksum != currentChecksum) SRT_UNAVAILABLE else null'),
     @($debug, 'if (currentChecksum == null) return Prepared(r, warning)'),
-    @($debug, 'Phụ đề rời đã lưu không khả dụng. Kiểm tra file SRT.')
+    @($debug, 'private const val SRT_UNAVAILABLE = "')
 )) {
     if (-not $entry[0].Contains($entry[1])) {
         throw "STOP: missing G1c safety guard: $($entry[1])"
@@ -55,7 +55,7 @@ foreach ($entry in @(
 if (-not $release.Contains('fun noteTrackChoice(') -or
     -not $release.Contains('Prepared(r)') -or
     $release.Contains('getSharedPreferences') -or $release.Contains('Uri.fromFile') -or
-    $release.Contains('SRT_UNAVAILABLE') -or $release.Contains('Phụ đề') -or
+    $release.Contains('SRT_UNAVAILABLE') -or $release.Contains('FILE_NAME') -or
     $release.Contains('filesDir')) {
     throw 'STOP: G1c release is not no-op'
 }
