@@ -152,7 +152,7 @@ function Read-InstalledApkSha {
   $remote = $parsed.Groups[1].Value
   $tmp = Join-Path $env:TEMP ('g1d-ux-base-' + [Guid]::NewGuid().ToString('N') + '.apk')
   try {
-    $pull = Invoke-AdbCaptured @('-s', $serial, 'pull', $remote, $tmp)
+    $pull = Invoke-AdbCaptured -Argv @('-s', $serial, 'pull', $remote, $tmp)
     if ($pull.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $tmp -PathType Leaf)) {
       throw 'STOP: installed APK could not be pulled read-only'
     }
@@ -182,7 +182,7 @@ switch ($Phase) {
     if ($answer -cne 'INSTALL G1D UX KEEP DATA') { throw 'STOP: install not approved at device gate' }
     $againPrefs = Check-Device $oldSha
     if ($againPrefs -cne $beforePrefs) { throw 'STOP: registry changed before installation' }
-    $install = Invoke-AdbCaptured @('-s', $serial, 'install', '-r', $NewApkPath)
+    $install = Invoke-AdbCaptured -Argv @('-s', $serial, 'install', '-r', $NewApkPath)
     $ok = $install.ExitCode -eq 0 -and ($install.Text -match '(^|\s)Success(\s|$)')
     if (-not $ok) {
       $reason = [regex]::Match($install.Text, 'INSTALL_FAILED_[A-Z0-9_]+')
