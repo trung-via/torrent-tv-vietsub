@@ -14,7 +14,7 @@
 
 On `main`, GitHub already has the **same path** `.github/workflows/p1-g1d-ux-pr29-manual.yml`, containing the original **PR29 debug workflow**. This Draft branch adds a different **G4-only manual workflow at that path**, locked to **the one Draft branch** `poc/p1a-g4-unsigned-release-audit-20261027`. GitHub workflow dispatch supports choosing a branch for a workflow that exists in `main`; do not choose `main` or you will run the older debug workflow instead.
 
-At the time of creating this script, the immutable checkout of `poc/g4/G4-Unsigned-Release-Audit-On-Runner.ps1` is commit `7a5f19ea73d0071a5773c94e30e8861c1c8a5fbe`; workflow uses pinned checkout of exactly that source. PR #36 workflow branch HEAD should be checked immediately before dispatch for unexpected drift.
+At the time of creating this script, the immutable checkout of `poc/g4/G4-Unsigned-Release-Audit-On-Runner.ps1` is commit `8f9126cc4e8a4cb033be903709213c5ff9e2b5d1`; workflow uses pinned checkout of exactly that source. PR #36 workflow branch HEAD should be checked immediately before dispatch for unexpected drift.
 
 **Human GitHub UI — one authorized run only:**
 
@@ -49,3 +49,18 @@ G4_UNSIGNED_ARTIFACT_ONLY_NOT_PRODUCTION_OR_TV_PASS
 After success, the private GitHub artifact `g4-unsigned-audit-pr29` contains the **unsigned test APKs**, `SHA256SUMS-G4.txt` and `G4-UNSIGNED-AUDIT-EVIDENCE.txt`; retention **7 days**. It is not installable/release-ready and must never be redistributed as a production APK.
 
 **STOP conditions:** runner/path/branch drift, incompatible toolchain or PowerShell parse error, signing env/secret present, Gradle diff mismatch, release compilation failure, manifest debuggable, release helper not provably no-op, debug SRT/marker present in APK, APK unexpectedly signed, artifact missing. If stopped, preserve existing TV app/SRT and report the run link; do **not** rerun automatically or fall back to debug. Real release production-equivalence and G4 shipping approval remain separate.
+
+## Failed runner attempts and targeted fix (2026-10-27)
+
+The Human ran the manual G4 action twice on the original pinned branch/head:
+
+- [Run #40375155558](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/40375155558): FAILURE.
+- [Run #40375407588](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/40375407588): FAILURE.
+
+Both logs passed `G4_PR29_SOURCE_BLOBS_PASS` and then stopped with `BLOCKED: Node, JDK or APK inspection tool missing` at line 63 of the initial audit script. This happened **before the OMP clone, Gradle modification or release assembly**; no release APK was built or TV changed.
+
+Static investigation of the original script found an unconditional preflight bug: it assigned JDK21/JDK17 **folder paths** and subsequently tested those with `Test-Path -PathType Leaf` (**file-only**) instead of `Container` (folder). Thus the old code would fail even with properly installed JDKs. It also hard-coded `build-tools/36.0.0/apksigner.bat` instead of resolving `apksigner.bat` from installed build-tools. Historical dedicated runner preflight [run #40154251565](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/40154251565) documented Android build-tools **37.0.0** plus Node and JDK.
+
+This Draft fixes **both** issues: JDK dirs checked as `Container`, file executables as `Leaf`, installed build-tools searched for `apksigner.bat`, individual `G4_PREREQ_<NAME>_PASS` output and explicit missing component STOP. It also switches UTF-8 output construction to PowerShell 5.1-compatible `[Text.UTF8Encoding]::new($false)`. The workflow now checks out the repair at `8f9126cc4e8a4cb033be903709213c5ff9e2b5d1`.
+
+**No new runner execution has happened after this repair.** Do not retry failed runs because they use the old immutable checkout. If the Human approves a new invocation, dispatch a NEW run from this same G4 branch only once and read its result; if a different missing tool is named, diagnose it before any further runs. Never self-install SDK/JDK, change Windows services, dispatch AIOS, use `main`, or treat a prerequisite BLOCKED as an APK G4 failure.
