@@ -61,3 +61,11 @@ Human đồng ý hướng PR #10 với điều kiện không bỏ qua **F-01…F
 - **F-04:** Repo target `main` còn docs-first, upstream build và runner smoke chỉ là historical proofs; source/license/import, runner/AIOS authority, build và TV thật phải qua gate riêng.
 
 Đây là **desk audit V1-method**, không phải V1 authenticated AIOS canonical RESULT, không là Reviewer PASS; phê duyệt PR không cấp quyền tự dispatch/merge bỏ review hoặc sửa Windows/TV.
+
+## Human chốt acceptance P1a; style hoãn lại — 2026-10-25
+
+**DECIDED:** Tuân theo [P1A acceptance criteria](../../planning/P1A-ACCEPTANCE-CRITERIA-20261025.md): đúng Unicode và khả năng đọc tối thiểu, đường nạp SRT rời G1, D-pad subtitle track, VLC audio/seek/resume, mapping phim/tập, negative test. Không dùng ảnh tĩnh để báo G0/G1 PASS.
+
+**DEFERRED:** font-weight/bold, viền/shadow, font family, subtitle background và fine-tuning size thuộc UX backlog sau P1a; không chặn nghiệm thu chỉ vì nét chữ hơi mỏng. Nếu mất dấu, clipping hoặc không thể đọc thì vẫn là lỗi chức năng/khả năng sử dụng cần xử lý.
+
+**PROOF BOUNDARIES UNCHANGED:** G0 fixture debug-only ≠ G1 SRT ngoài APK; G2 hot-add, G3 sync, G4 release isolation báo riêng; không tự công bố production-ready. Không thay đổi SMB-first supersession, AI P2 hoặc quyền AIOS.

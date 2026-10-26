@@ -2,7 +2,7 @@
 
 **Ngày:** 2026-10-25  
 **Status:** `DRAFT_ONLY / NOT_CANONICAL / NOT_DISPATCHED / E2E_UNVERIFIED`  
-**Authority:** Human approved ADR-0006, Contract/PRD in Draft PR #10; chưa được quyền merge hoặc thay đổi Windows/TV/AIOS tự động.
+**Authority:** ADR-0006 đã merge qua PR #10; Human chốt acceptance P1a ngày 2026-10-25 theo [P1A-ACCEPTANCE-CRITERIA-20261025.md](P1A-ACCEPTANCE-CRITERIA-20261025.md). Không tự merge/dispatch hoặc thay đổi Windows/TV/AIOS.
 
 ## Mục tiêu
 
@@ -94,7 +94,14 @@ P1b đo và so sánh local picker/USB, SMB read-only, phone file transfer, phư�
 
 ### Stop / safe boundary
 
-No source mutation in `main` or upstream during this docs/fixture preparation. OMP source import/fork provenance, isolated workspace and required authorization must precede actual patch/build. GitHub workflow rerun, self-hosted runner commands, sideload, ADB access, Windows changes and AIOS dispatch are **not** authorized by this planning note. Keep PR #9/#10 Draft and reconcile overlapping docs before any merge.
+No source mutation in `main` or upstream during this docs/fixture preparation. OMP source import/fork provenance, isolated workspace and required authorization must precede further patch/build. No new workflow dispatch, runner command, sideload, ADB, Windows change or AIOS dispatch is authorized by this planning note. **PR #10 đã MERGED** (`13215e600f37d7312a97550234edf2a3e8602fa4`); **PR #9 và PR #15 đang Draft** tại lần đối chiếu 2026-10-25. Reconcile các thay đổi Contract/AC của PR #15 với PR #9 **trước khi xét merge PR #9**; không tự merge bất kỳ PR nào.
+
+## Fresh-check G0 build evidence — 2026-10-25 (không phải TV PASS)
+
+- `main@963f2773a2becfadcb8811b9a33f56c62eb20e00` (PR #14, pinned G0 manual workflow); bảng `Immutable evidence` phía trên là **snapshot tại source audit trước đó**, không phải HEAD mới nhất.
+- GitHub Actions [run #40207544777](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/40207544777): `workflow_dispatch` trên runner riêng hoàn tất thành công; job log thể hiện `:app:assembleDebug`, `:app:testDebugUnitTest`, `BUILD SUCCESSFUL`, patch G0 và debug SRT asset verification. Artifact riêng tư `p1-g0-debug-apk` (ID `12604476138`) đã upload; APK SHA256 bên trong artifact vẫn cần đối chiếu trước sideload.
+- Chỉ ghi `G0_BUILD_PASS` cho run/build này. **`LOCAL_SRT_RENDER_UNVERIFIED`, `EXTERNAL_SRT_E2E_UNVERIFIED`, `REAL_TV_UNVERIFIED`, `REAL_SERVER_UNVERIFIED`**; không suy từ CI success ra G0/G1 real-TV, G2 hot-add, G3 sync hoặc G4 release isolation.
+- P1a AC được chốt ở [P1A-ACCEPTANCE-CRITERIA-20261025.md](P1A-ACCEPTANCE-CRITERIA-20261025.md); subtitle style riêng tại [UX backlog](P1A-SUBTITLE-STYLE-UX-BACKLOG.md), không chặn P1a.
 
 ## V1 findings applicability / supersession
 
