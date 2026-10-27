@@ -39,7 +39,7 @@ $dirty = @(& git -C $AppRepoRoot status --porcelain --untracked-files=all)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
     throw 'STOP: app source checkout must be clean'
 }
-foreach ($name in @('apply.ps1','verify.ps1','P1ProductionSubtitles.kt')) {
+foreach ($name in @('apply.ps1','verify.ps1','P1ProductionSubtitles.kt','P1ProductionSubtitlesTest.kt')) {
     $file = Join-Path $AppRepoRoot ('poc\g1-prod\' + $name)
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw 'STOP: required G1 Production source missing'

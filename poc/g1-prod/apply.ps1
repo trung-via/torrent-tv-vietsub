@@ -41,13 +41,17 @@ $paths = @(
  'src/api/torrserver.ts',
  'src/player/nativePlayer.ts',
  'android/app/src/main/java/com/spacesarmat/omp/player/NativePlayer.kt',
- 'android/app/src/main/java/com/spacesarmat/omp/player/PlayerActivity.kt'
+ 'android/app/src/main/java/com/spacesarmat/omp/player/PlayerActivity.kt',
+ 'android/app/src/main/java/com/spacesarmat/omp/player/EngineSwitcher.kt',
+ 'android/app/src/main/java/com/spacesarmat/omp/player/PlayerSession.kt'
 )
 $blobs = @(
  'a5019bcd5d801643194217289b705dabed280aeb',
  '3e5a69c47e68298135d88d902d2121292dee4bbd',
  '2b3a6ddb3a573849e860a734e4ec9c6505a20740',
- '8cb9598156b396ef49723275a7a847e75b7a36dd'
+ '8cb9598156b396ef49723275a7a847e75b7a36dd',
+ 'f23785f5b140a4c3a086f107c86bdb3d233e9814',
+ '58a42a629c28643f608db1141397bbe40c62cf8f'
 )
 $src = @()
 for ($i=0; $i -lt $paths.Count; $i++) {
@@ -60,12 +64,19 @@ for ($i=0; $i -lt $paths.Count; $i++) {
 }
 $helper = Join-Path $PSScriptRoot 'P1ProductionSubtitles.kt'
 $dest = Join-Path $OmpRoot 'android/app/src/main/java/com/spacesarmat/omp/player/P1ProductionSubtitles.kt'
-if (-not (Test-Path -LiteralPath $helper -PathType Leaf) -or (Test-Path -LiteralPath $dest)) {
+$test = Join-Path $PSScriptRoot 'P1ProductionSubtitlesTest.kt'
+$testDest = Join-Path $OmpRoot 'android/app/src/test/java/com/spacesarmat/omp/player/P1ProductionSubtitlesTest.kt'
+if (-not (Test-Path -LiteralPath $helper -PathType Leaf) -or (Test-Path -LiteralPath $dest) -or
+    -not (Test-Path -LiteralPath $test -PathType Leaf) -or (Test-Path -LiteralPath $testDest)) {
     throw 'STOP: production source helper absent or duplicate'
 }
 $helperHash = (& git -C $AppRepoRoot hash-object -- $helper | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $helperHash -cne 'f243cabcb236d1ec1ab1255cfb3e923ffe447b2a') {
+if ($LASTEXITCODE -ne 0 -or $helperHash -cne 'cdcfecced9325ef7cc5ac60f0168c625050b27ec') {
     throw 'STOP: source helper blob pin incorrect'
+}
+$testHash = (& git -C $AppRepoRoot hash-object -- $test | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $testHash -cne '2665cd890036d43d13c8c64bce6ff61702d65f12') {
+    throw 'STOP: G1 Production unit test blob pin incorrect'
 }
 function Once([string]$s,[string]$old,[string]$replacement) {
     if (-not $s.Contains($old) -or $s.IndexOf($old) -ne $s.LastIndexOf($old)) {
@@ -156,16 +167,32 @@ $pickerMethod = @'
 '@
 $d = Once $d '    private fun openChapters(item: Int, now: Long) {' (
     $pickerMethod+'    private fun openChapters(item: Int, now: Long) {')
+$d = Once $d '        if (!switcher.goTo(i)) return' (
+    '        val itemTransition = if (P1ProductionSubtitles.hasAnySaved(this, req))'+$nl+
+    '            P1ProductionSubtitles.forItem(this, session.request, i, req.subPick) else null'+$nl+
+    '        if (!switcher.goTo(i, itemTransition?.picks)) return')
+$d = Once $d '        if (undoStart != null) hideMessage()' (
+    '        if (undoStart != null) hideMessage()'+$nl+
+    '        itemTransition?.warning?.let { showMessage(it, true) }')
+$e = Once $src[4] '    fun goTo(i: Int): Boolean {' (
+    '    fun goTo(i: Int, subtitlePicksForItem: List<TrackPick>? = null): Boolean {')
+$e = Once $e '        session.goTo(i, next)' '        session.goTo(i, next, subtitlePicksForItem)'
+$f = Once $src[5] '    fun goTo(i: Int, next: PlayerEngine? = null): Boolean {' (
+    '    fun goTo(i: Int, next: PlayerEngine? = null, subtitlePicksForItem: List<TrackPick>? = null): Boolean {')
+$f = Once $f '        pendingSub = carried?.second?.takeIf { it.external == null }' (
+    '        pendingSub = if (subtitlePicksForItem != null) null else carried?.second?.takeIf { it.external == null }'+$nl+
+    '        if (subtitlePicksForItem != null) subPicks = subtitlePicksForItem')
 if ($d.Contains('P1G1CSubtitleRegistry') -or $d.Contains('P1G0SubtitleProbe')) {
     throw 'STOP: cannot stack production source over debug PoC'
 }
 # All patch anchors checked before writing: disposable OMP checkout only.
 $utf8 = [Text.UTF8Encoding]::new($false)
-$patched = @($a,$b,$c,$d)
+$patched = @($a,$b,$c,$d,$e,$f)
 for ($i=0; $i -lt $paths.Count; $i++) {
     [IO.File]::WriteAllText((Join-Path $OmpRoot $paths[$i]),$patched[$i],$utf8)
 }
 Copy-Item -LiteralPath $helper -Destination $dest
+Copy-Item -LiteralPath $test -Destination $testDest
 & git -C $OmpRoot diff --check
 if ($LASTEXITCODE -ne 0) { throw 'STOP: patch diff failed' }
 Write-Host 'G1PROD_SOURCE_PATCH_APPLIED_NOT_BUILT_OR_TV_PASS'

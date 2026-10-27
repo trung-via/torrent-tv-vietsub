@@ -7,14 +7,20 @@ $OmpRoot = (Resolve-Path -LiteralPath $OmpRoot).Path
 $main = Join-Path $OmpRoot 'android\app\src\main\java\com\spacesarmat\omp\player'
 $helperPath = Join-Path $main 'P1ProductionSubtitles.kt'
 $activityPath = Join-Path $main 'PlayerActivity.kt'
+$sessionPath = Join-Path $main 'PlayerSession.kt'
+$switcherPath = Join-Path $main 'EngineSwitcher.kt'
+$testPath = Join-Path $OmpRoot 'android\app\src\test\java\com\spacesarmat\omp\player\P1ProductionSubtitlesTest.kt'
 $nativePath = Join-Path $main 'NativePlayer.kt'
 $clientPath = Join-Path $OmpRoot 'src\api\torrserver.ts'
 $pagePath = Join-Path $OmpRoot 'src\player\nativePlayer.ts'
-foreach ($path in @($helperPath,$activityPath,$nativePath,$clientPath,$pagePath)) {
+foreach ($path in @($helperPath,$activityPath,$nativePath,$clientPath,$pagePath,$sessionPath,$switcherPath,$testPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'STOP: missing production source file' }
 }
 $helper = [IO.File]::ReadAllText($helperPath)
 $activity = [IO.File]::ReadAllText($activityPath)
+$sessionSource = [IO.File]::ReadAllText($sessionPath)
+$switcherSource = [IO.File]::ReadAllText($switcherPath)
+$unitSource = [IO.File]::ReadAllText($testPath)
 $native = [IO.File]::ReadAllText($nativePath)
 $client = [IO.File]::ReadAllText($clientPath)
 $page = [IO.File]::ReadAllText($pagePath)
@@ -32,12 +38,21 @@ $assertions = @(
     @($helper, 'it.label == LABEL && it.url != expectedUri'),
     @($helper, 'if (!currentTrusted) return Prepared(base, warning)'),
     @($helper, 'fun prepare(ctx: Context, r: PlayRequest): Prepared'),
+    @($helper, 'internal fun detectedExtension(bytes: ByteArray): String?'),
+    @($helper, 'internal fun transitionPicks('),
+    @($helper, 'fun forItem(ctx: Context, r: PlayRequest?, i: Int, fallback: List<TrackPick>): ItemTransition'),
     @($activity, 'ActivityResultContracts.OpenDocument()'),
     @($activity, 'P1ProductionSubtitles.importSelected(applicationContext, uri, r, idx)'),
     @($activity, 'P1ProductionSubtitles.removeSaved(this, session.request, i)'),
     @($activity, 'val production = P1ProductionSubtitles.prepare(this, r)'),
     @($activity, 'session.load(production.request, next)'),
     @($activity, 'P1ProductionSubtitles.noteTrackChoice(this, session.request, index(), choice)'),
+    @($activity, 'P1ProductionSubtitles.forItem(this, session.request, i, req.subPick)'),
+    @($activity, 'switcher.goTo(i, itemTransition?.picks)'),
+    @($sessionSource, 'if (subtitlePicksForItem != null) subPicks = subtitlePicksForItem'),
+    @($switcherSource, 'session.goTo(i, next, subtitlePicksForItem)'),
+    @($unitSource, 'fun episodeTransitionsCannotInheritProductionOnOrOff()'),
+    @($unitSource, 'fun sessionAppliesEachEpisodeChoiceWithoutDroppingResume()'),
     @($native, 'serverProfileId = o.optString("serverProfileId").ifEmpty { null }'),
     @($page, 'this.client?.profileId ? { serverProfileId: this.client.profileId }'),
     @($client, 'this.profileId = typeof cfg.id')

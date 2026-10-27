@@ -8,6 +8,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
+import java.nio.charset.CharacterCodingException
 import java.security.MessageDigest
 import java.util.Locale
 
@@ -43,20 +44,63 @@ internal object P1ProductionSubtitles {
             hash.lowercase(Locale.ROOT) + "\u0000" + fileIndex).toByteArray(Charsets.UTF_8))
     }
 
-    private fun validate(bytes: ByteArray): Validated? {
+    /** Pure parser boundary shared with JVM unit tests. No Android context or provider required. */
+    internal fun detectedExtension(bytes: ByteArray): String? {
         if (bytes.isEmpty() || bytes.size > MAX) return null
-        val text = Charsets.UTF_8.newDecoder()
-            .onMalformedInput(CodingErrorAction.REPORT)
-            .onUnmappableCharacter(CodingErrorAction.REPORT)
-            .decode(ByteBuffer.wrap(bytes)).toString().removePrefix("\uFEFF")
+        val text = try {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes)).toString().removePrefix("\uFEFF")
+        } catch (_: CharacterCodingException) { return null }
         if ('\u0000' in text) return null
-        val ext = when {
+        return when {
             (text.startsWith("WEBVTT\n") || text.startsWith("WEBVTT\r\n")) &&
                 vttRx.containsMatchIn(text) -> "vtt"
             srtRx.containsMatchIn(text) -> "srt"
-            else -> return null
+            else -> null
         }
-        return Validated(ext, sha(bytes))
+    }
+
+    private fun validate(bytes: ByteArray): Validated? =
+        detectedExtension(bytes)?.let { Validated(it, sha(bytes)) }
+
+    /** Never let the preceding episode's production ON/OFF choice decide this episode. */
+    internal fun transitionPicks(
+        selection: String?, trusted: Boolean, fallback: List<TrackPick>,
+    ): List<TrackPick> = when (selection) {
+        "on" -> if (trusted) listOf(TrackPick(label = LABEL)) else fallback
+        "off" -> listOf(TrackPick(off = true))
+        else -> fallback
+    }
+
+    data class ItemTransition(val picks: List<TrackPick>, val warning: String? = null)
+
+    fun hasAnySaved(ctx: Context, r: PlayRequest): Boolean =
+        r.engine == EngineMode.VLC && r.queue.indices.any { hasSaved(ctx, r, it) }
+
+    /** Re-evaluate the target item before goTo opens it; only ON requires a verified file. */
+    fun forItem(ctx: Context, r: PlayRequest?, i: Int, fallback: List<TrackPick>): ItemTransition {
+        val k = mediaKey(r, i) ?: return ItemTransition(fallback)
+        val p = prefs(ctx)
+        val stored = p.getString("sha.$k", null) ?: return ItemTransition(fallback)
+        val choice = p.getString("selection.$k", null)
+        if (choice != "on") return ItemTransition(transitionPicks(choice, false, fallback))
+        val ext = p.getString("ext.$k", null)
+        if (!digestRx.matches(stored) || ext !in listOf("srt", "vtt")) {
+            return ItemTransition(fallback, WARNING)
+        }
+        val v = Validated(ext!!, stored)
+        val saved = file(ctx, k, v)
+        val item = r?.queue?.getOrNull(i) ?: return ItemTransition(fallback, WARNING)
+        val expectedUri = Uri.fromFile(saved).toString()
+        val trusted = try {
+            saved.isFile && saved.canRead() && saved.length() in 1L..MAX.toLong() &&
+                validate(saved.readBytes()) == v &&
+                item.subtitles.any { it.label == LABEL && it.url == expectedUri } &&
+                item.subtitles.none { it.label == LABEL && it.url != expectedUri }
+        } catch (_: Exception) { false }
+        return ItemTransition(transitionPicks(choice, trusted, fallback), if (trusted) null else WARNING)
     }
 
     private fun folder(ctx: Context) = File(ctx.filesDir, FOLDER)
