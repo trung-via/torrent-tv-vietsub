@@ -75,7 +75,7 @@ if ($LASTEXITCODE -ne 0 -or $helperHash -cne 'cdcfecced9325ef7cc5ac60f0168c62505
     throw 'STOP: source helper blob pin incorrect'
 }
 $testHash = (& git -C $AppRepoRoot hash-object -- $test | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $testHash -cne '2665cd890036d43d13c8c64bce6ff61702d65f12') {
+if ($LASTEXITCODE -ne 0 -or $testHash -cne '1316e3d71034c7b43f57f93a25f3d894773b878b') {
     throw 'STOP: G1 Production unit test blob pin incorrect'
 }
 function Once([string]$s,[string]$old,[string]$replacement) {

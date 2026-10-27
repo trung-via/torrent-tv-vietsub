@@ -89,7 +89,7 @@ class P1ProductionSubtitlesTest {
         engine.positionMs = 55_000
         engine.durationMs = 500_000
         session.goTo(1, subtitlePicksForItem = listOf(TrackPick(off = true)))
-        engine.subs = listOf(EngineTrack("subB", "en", "Other"))
+        engine.subs = listOf(EngineTrack("subB", "en", "Other", selected = true))
         engine.listener?.onTracksChanged()
         assertNull(engine.selectedSubId)
         assertEquals(120_000L, engine.opened.last().second)
