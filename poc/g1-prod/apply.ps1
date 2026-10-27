@@ -95,7 +95,7 @@ $picker = @'
         val r = session.request ?: return@registerForActivityResult
         val idx = index()
         if (P1ProductionSubtitles.mediaKey(r, idx) != key) {
-            showMessage("Đã đổi phim: không nhập phụ đề.", true)
+            showMessage("\u0110\u00e3 \u0111\u1ed5i phim: kh\u00f4ng nh\u1eadp ph\u1ee5 \u0111\u1ec1.", true)
             return@registerForActivityResult
         }
         Thread {
@@ -104,8 +104,8 @@ $picker = @'
             } catch (_: Exception) { false }
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) showMessage(
-                    if (saved) "Đã lưu Vietsub. Mở lại phim để sử dụng."
-                    else "Không thể đọc file SRT/VTT UTF-8.", !saved
+                    if (saved) "\u0110\u00e3 l\u01b0u Vietsub. M\u1edf l\u1ea1i phim \u0111\u1ec3 s\u1eed d\u1ee5ng."
+                    else "Kh\u00f4ng th\u1ec3 \u0111\u1ecdc file SRT/VTT UTF-8.", !saved
                 )
             }
         }.start()
@@ -123,12 +123,12 @@ $d = Once $d '    override fun trackChosen(choice: TrackChoice) {' (
 $menu = @'
         val prodKey = P1ProductionSubtitles.mediaKey(session.request, i)
         if (prodKey != null) {
-            add("Chọn SRT/VTT rời...", "P1.1") { pickSidecar() }
+            add("Ch\u1ecdn SRT/VTT r\u1eddi...", "P1.1") { pickSidecar() }
             if (P1ProductionSubtitles.hasSaved(this, session.request, i)) {
-                add("Xóa SRT/VTT đã lưu", "P1.2") {
+                add("X\u00f3a SRT/VTT \u0111\u00e3 l\u01b0u", "P1.2") {
                     if (i == index() && P1ProductionSubtitles.mediaKey(session.request, i) == prodKey &&
                         P1ProductionSubtitles.removeSaved(this, session.request, i)) {
-                        showMessage("Đã xóa. Mở lại phim để áp dụng.", false)
+                        showMessage("\u0110\u00e3 x\u00f3a. M\u1edf l\u1ea1i phim \u0111\u1ec3 \u00e1p d\u1ee5ng.", false)
                     }
                 }
             }
@@ -142,20 +142,20 @@ $pickerMethod = @'
     private fun pickSidecar() {
         pendingSidecarKey = P1ProductionSubtitles.mediaKey(session.request, index())
         if (pendingSidecarKey == null) {
-            showMessage("Chọn VLC và phim TorrServer có mã nhận dạng.", true)
+            showMessage("Ch\u1ecdn VLC v\u00e0 phim TorrServer c\u00f3 m\u00e3 nh\u1eadn d\u1ea1ng.", true)
             return
         }
         try {
             sidecarPicker.launch(arrayOf("text/plain", "text/vtt", "application/x-subrip", "*/*"))
         } catch (_: Exception) {
             pendingSidecarKey = null
-            showMessage("Thiết bị không mở được trình chọn file.", true)
+            showMessage("Thi\u1ebft b\u1ecb kh\u00f4ng m\u1edf \u0111\u01b0\u1ee3c tr\u00ecnh ch\u1ecdn file.", true)
         }
     }
 
 '@
-$d = Once $d '    /** «Главы»: «время · название», the current one checked; a choice seeks to its start. */' (
-    $pickerMethod+'    /** «Главы»: «время · название», the current one checked; a choice seeks to its start. */')
+$d = Once $d '    private fun openChapters(item: Int, now: Long) {' (
+    $pickerMethod+'    private fun openChapters(item: Int, now: Long) {')
 if ($d.Contains('P1G1CSubtitleRegistry') -or $d.Contains('P1G0SubtitleProbe')) {
     throw 'STOP: cannot stack production source over debug PoC'
 }
