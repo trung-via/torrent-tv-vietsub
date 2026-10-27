@@ -23,7 +23,7 @@ jobs:
       - name: Checkout immutable reviewed G1 Production build source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
         with:
-          ref: a1c71a6856de1e1f38d190eb9f80d5e799f089d5
+          ref: 401f5bbda871e5ad96b39b83d750a6b3fbc56c7d
           persist-credentials: false
           fetch-depth: 1
 
@@ -40,7 +40,7 @@ jobs:
           }
           & (Join-Path $env:GITHUB_WORKSPACE 'poc\g1-prod\build-on-runner.ps1') `
             -AppRepoRoot $env:GITHUB_WORKSPACE `
-            -SourceCommit 'a1c71a6856de1e1f38d190eb9f80d5e799f089d5'
+            -SourceCommit '401f5bbda871e5ad96b39b83d750a6b3fbc56c7d'
           if (-not $?) { throw 'STOP: G1 Production build did not pass' }
 
       - name: Upload private Debug APK SHA256 and build proof (7 days)
