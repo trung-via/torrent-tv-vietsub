@@ -6,6 +6,14 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $OmpRoot = (Resolve-Path -LiteralPath $OmpRoot).Path
 $AppRepoRoot = (Resolve-Path -LiteralPath $AppRepoRoot).Path
+if ((Split-Path -Path $OmpRoot -Leaf) -notlike 'p1-g1-prod-*') {
+    throw 'STOP: apply only to a dedicated disposable p1-g1-prod-* checkout'
+}
+if (-not [IO.Path]::GetFullPath($AppRepoRoot).TrimEnd('\').Equals(
+        [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')).TrimEnd('\'),
+        [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'STOP: script repository root does not match reviewed source tree'
+}
 if ($env:GITHUB_ACTIONS -eq 'true') {
     if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
         $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
