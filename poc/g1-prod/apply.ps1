@@ -56,7 +56,7 @@ if (-not (Test-Path -LiteralPath $helper -PathType Leaf) -or (Test-Path -Literal
     throw 'STOP: production source helper absent or duplicate'
 }
 $helperHash = (& git -C $AppRepoRoot hash-object -- $helper | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $helperHash -cne '3f8e9bc25ae9eef89f5cd09ece81aa8454ce6a83') {
+if ($LASTEXITCODE -ne 0 -or $helperHash -cne '2752a172812db8bf01f8c27e47a66eeeb07e9725') {
     throw 'STOP: source helper blob pin incorrect'
 }
 function Once([string]$s,[string]$old,[string]$replacement) {
@@ -87,7 +87,7 @@ $picker = @'
         val r = session.request ?: return@registerForActivityResult
         val idx = index()
         if (P1ProductionSubtitles.mediaKey(r, idx) != key) {
-            showMessage("Da doi phim: khong nhap phu de.", true)
+            showMessage("Đã đổi phim: không nhập phụ đề.", true)
             return@registerForActivityResult
         }
         Thread {
@@ -96,8 +96,8 @@ $picker = @'
             } catch (_: Exception) { false }
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) showMessage(
-                    if (saved) "Da luu Vietsub. Mo lai phim de su dung."
-                    else "Khong the doc file SRT/VTT UTF-8.", !saved
+                    if (saved) "Đã lưu Vietsub. Mở lại phim để sử dụng."
+                    else "Không thể đọc file SRT/VTT UTF-8.", !saved
                 )
             }
         }.start()
@@ -115,12 +115,12 @@ $d = Once $d '    override fun trackChosen(choice: TrackChoice) {' (
 $menu = @'
         val prodKey = P1ProductionSubtitles.mediaKey(session.request, i)
         if (prodKey != null) {
-            add("Chon SRT/VTT roi...", "P1.1") { pickSidecar() }
+            add("Chọn SRT/VTT rời...", "P1.1") { pickSidecar() }
             if (P1ProductionSubtitles.hasSaved(this, session.request, i)) {
-                add("Xoa SRT/VTT da luu", "P1.2") {
+                add("Xóa SRT/VTT đã lưu", "P1.2") {
                     if (i == index() && P1ProductionSubtitles.mediaKey(session.request, i) == prodKey &&
                         P1ProductionSubtitles.removeSaved(this, session.request, i)) {
-                        showMessage("Da xoa. Mo lai phim de ap dung.", false)
+                        showMessage("Đã xóa. Mở lại phim để áp dụng.", false)
                     }
                 }
             }
@@ -134,14 +134,14 @@ $pickerMethod = @'
     private fun pickSidecar() {
         pendingSidecarKey = P1ProductionSubtitles.mediaKey(session.request, index())
         if (pendingSidecarKey == null) {
-            showMessage("Chon VLC va phim TorrServer co ma nhan dang.", true)
+            showMessage("Chọn VLC và phim TorrServer có mã nhận dạng.", true)
             return
         }
         try {
             sidecarPicker.launch(arrayOf("text/plain", "text/vtt", "application/x-subrip", "*/*"))
         } catch (_: Exception) {
             pendingSidecarKey = null
-            showMessage("Thiet bi khong mo duoc trinh chon file.", true)
+            showMessage("Thiết bị không mở được trình chọn file.", true)
         }
     }
 
