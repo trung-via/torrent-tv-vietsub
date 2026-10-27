@@ -16,8 +16,8 @@ internal object P1ProductionSubtitles {
     private const val PREFS = "p1-production-subtitles"
     private const val FOLDER = "p1-production-subtitles"
     private const val MAX = 256 * 1024
-    private const val LABEL = "Vietsub - Saved Sidecar"
-    private const val WARNING = "Phu de roi da luu khong kha dung. Kiem tra file SRT/VTT."
+    private const val LABEL = "Vietsub rời (đã lưu)"
+    private const val WARNING = "Phụ đề rời đã lưu không khả dụng. Kiểm tra file SRT/VTT."
     private val profileRx = Regex("[A-Za-z0-9_-]{1,80}")
     private val hashRx = Regex("[0-9a-fA-F]{40}")
     private val digestRx = Regex("[0-9a-f]{64}")
