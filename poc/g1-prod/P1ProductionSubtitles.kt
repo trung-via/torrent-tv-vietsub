@@ -153,6 +153,7 @@ internal object P1ProductionSubtitles {
         val p = prefs(ctx)
         val queue = r.queue.toMutableList()
         var modified = false
+        var currentTrusted = false
         var warning: String? = null
         for (i in queue.indices) {
             val k = mediaKey(r, i) ?: continue
@@ -169,16 +170,24 @@ internal object P1ProductionSubtitles {
                 if (i == r.index && p.getString("selection.$k", null) == "on") warning = WARNING
                 continue
             }
-            if (queue[i].subtitles.none { it.label == LABEL }) {
+            val expectedUri = Uri.fromFile(f).toString()
+            // Reject a subtitle from a torrent/page that impersonates our label
+            // but points to a different URL. The file URI must match exactly.
+            if (queue[i].subtitles.any { it.label == LABEL && it.url != expectedUri }) {
+                if (i == r.index && p.getString("selection.$k", null) == "on") warning = WARNING
+                continue
+            }
+            if (queue[i].subtitles.none { it.label == LABEL && it.url == expectedUri }) {
                 queue[i] = queue[i].copy(subtitles = queue[i].subtitles +
-                    SubFile(Uri.fromFile(f).toString(), LABEL, v.ext, "vi"))
+                    SubFile(expectedUri, LABEL, v.ext, "vi"))
                 modified = true
             }
+            if (i == r.index) currentTrusted = true
         }
-        if (!modified && warning == null) return Prepared(r)
+        if (!modified && warning == null && !currentTrusted) return Prepared(r)
         val base = if (modified) r.copy(queue = queue) else r
         val k = mediaKey(r, r.index) ?: return Prepared(base, warning)
-        if (base.queue[r.index].subtitles.none { it.label == LABEL }) return Prepared(base, warning)
+        if (!currentTrusted) return Prepared(base, warning)
         val result = when (p.getString("selection.$k", null)) {
             "on" -> base.copy(subPick = listOf(TrackPick(label = LABEL)), subtitlesOn = true)
             "off" -> base.copy(subPick = listOf(TrackPick(off = true)), subtitlesOn = false)
