@@ -44,3 +44,28 @@ The importer is a new draft implementation, **not yet compiled or manually teste
 Review source and pin all commits; if accepted, **separately authorize one build+test batch** on the dedicated app runner. Only after a compile PASS may Human try the resulting APK on Redmi, following a guarded keep-data install that **does not overwrite the existing PR29 debug APK without explicit authorization**. If file picker is unavailable, do not modify Windows shares/firewall or silently broaden permissions; return a P1b transport-choice proposal instead.
 
 **Stop:** no PR merge, GitHub Actions dispatch, Windows/TV/ADB state changes, credential collection, automatic file transfer, production APK or G1 overall E2E PASS within this Draft.
+
+## Human one-run Debug build authorization and manual dispatch (2026-10-27)
+
+After the source-only Draft PR #38 was prepared, Human expressly answered **"ok đồng ý"** to the proposed **one G1 Production `assembleDebug testDebugUnitTest` batch on the dedicated app runner**. This approves the scoped build/check on the isolated worktree, **not TV installation, app-data migration, Release signing, merge or publication**.
+
+**Implementation prepared, not dispatched:** Branch-only GitHub Actions variant at the **existing** default-branch workflow path `.github/workflows/p1-g1d-ux-pr29-manual.yml`. The source on the G1 branch is G1 Production, while **the same path on `main` remains the old PR29 Debug build**. The workflow requires `workflow_dispatch` from `feature/g1-production-sidecar-picker-20261027`, exact input `BUILD_G1_PROD_DEBUG_ONCE` and exact self-hosted Windows runner identity `torrent-tv-vietsub-win`; only checkout of the reviewed immutable app source commit `a1c71a6856de1e1f38d190eb9f80d5e799f089d5`, not the current moving head.
+
+The pinned `poc/g1-prod/build-on-runner.ps1` uses a fresh `p1-g1-prod-<run-id>-<attempt>` disposable OMP checkout under that runner's temp directory, verifies OMP/submodule SHAs, calls `apply.ps1` (four upstream blobs + helper hash) then `verify.ps1`, performs `npm ci`, `npm run android:sync`, and `android/gradlew.bat assembleDebug testDebugUnitTest --no-daemon --console plain`. It inspects ZIP assets to reject G0/G1c fixture leaks, writes SHA256SUMS and limited provenance, and uploads `g1-production-debug-apk` **privately for seven days**. No ADB, install, signing, release, service or firewall change, AIOS dispatch or merge.
+
+**One Human action in GitHub UI:**
+
+1. Open [existing manual Actions workflow](https://github.com/trung-via/torrent-tv-vietsub/actions/workflows/p1-g1d-ux-pr29-manual.yml).
+2. Choose **Run workflow → Use workflow from → `feature/g1-production-sidecar-picker-20261027`**. Do **not** select `main`, whose content is the old PR29 build.
+3. For the `confirmation` input enter exactly `BUILD_G1_PROD_DEBUG_ONCE`. If the UI instead asks for `BUILD_PR29_ONCE`, stop: wrong branch.
+4. Click Run workflow **once**. Share only the run URL and PASS/FAIL/BLOCKED status. Do not rerun blindly on failure. The chat's GitHub connection does **not** expose a `workflow_dispatch` operation, so source preparation is not a claim that a job was actually triggered.
+
+Alternatively, the Human may execute the equivalent one-run GitHub CLI command on an authenticated, authorized workstation:
+
+```powershell
+gh workflow run p1-g1d-ux-pr29-manual.yml --repo trung-via/torrent-tv-vietsub --ref feature/g1-production-sidecar-picker-20261027 -f confirmation=BUILD_G1_PROD_DEBUG_ONCE
+```
+
+**Required evidence:** log markers `G1PROD_RUNNER_AND_POWERSHELL_PARSE_GUARDS_PASS`, `G1PROD_PINNED_OMP_SUBMODULE_PASS`, `G1PROD_STATIC_SOURCE_GUARDS_PASS_NOT_COMPILATION_OR_TV_PASS`, `G1PROD_DEBUG_BUILD_AND_UNIT_TEST_PASS_NOT_REAL_TV_PASS`, and `G1PROD_DEBUG_APK_HASH_AND_ASSET_GUARDS_PASS` plus private APK SHA256 and GitHub run ID. Any run FAIL/BLOCKED is *not* compile PASS; do not claim new product G1 acceptance until an independently authorized keep-data TV run.
+
+**Status as of source preparation:** `HUMAN_G1PROD_SINGLE_DEBUG_BUILD_APPROVED / MANUAL_WORKFLOW_PREPARED / BUILD_NOT_STARTED / TV_UNCHANGED`.
