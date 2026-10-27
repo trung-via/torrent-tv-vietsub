@@ -16,7 +16,7 @@ permissions:
 jobs:
   g1-prod:
     name: G1 Production source guard plus Debug/unit tests (dedicated runner)
-    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/g1-production-sidecar-picker-20261027' && inputs.confirmation == 'BUILD_G1_PROD_DEBUG_ONCE'
+    if: github.event.repository.private == true && github.repository == 'trung-via/torrent-tv-vietsub' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/g1-production-sidecar-picker-20261027' && inputs.confirmation == 'BUILD_G1_PROD_DEBUG_ONCE'
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
@@ -43,7 +43,7 @@ jobs:
             -SourceCommit '401f5bbda871e5ad96b39b83d750a6b3fbc56c7d'
           if (-not $?) { throw 'STOP: G1 Production build did not pass' }
 
-      - name: Upload private Debug APK SHA256 and build proof (7 days)
+      - name: Upload Debug APK SHA256 and build proof (private repo only, 7 days)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
         with:
           name: g1-production-debug-apk
