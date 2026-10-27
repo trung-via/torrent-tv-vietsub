@@ -112,7 +112,7 @@ $picker = @'
     }
 '@
 $d = Once $d '    private lateinit var req: PlayRequest' (
-    '    private lateinit var req: PlayRequest'+$nl+$picker.TrimEnd([char]13,[char]10))
+    '    private lateinit var req: PlayRequest'+$nl+$picker.TrimEnd([char[]]@(13,10)))
 $d = Once $d '        session.load(r, next)' (
     '        val production = P1ProductionSubtitles.prepare(this, r)'+$nl+'        session.load(production.request, next)')
 $d = Once $d '        setDonate(r.donate)' (
@@ -136,7 +136,7 @@ $menu = @'
 '@
 $d = Once $d '        add(I18n.s("player.subsRow", "v" to sSel.label), "AD01.3") { openSubsList() }' (
     '        add(I18n.s("player.subsRow", "v" to sSel.label), "AD01.3") { openSubsList() }'+$nl+
-    $menu.TrimEnd([char]13,[char]10))
+    $menu.TrimEnd([char[]]@(13,10)))
 $pickerMethod = @'
     /** Launches the user-facing Android file picker; never auto-imports torrent files. */
     private fun pickSidecar() {
