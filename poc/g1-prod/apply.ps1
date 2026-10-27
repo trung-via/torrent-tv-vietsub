@@ -26,17 +26,32 @@ if ($env:GITHUB_ACTIONS -eq 'true') {
         throw 'STOP: expected disposable runner-temp source'
     }
 }
+# Git for Windows may print C:/... while Resolve-Path emits C:\...
+# Normalize only separators and trailing separators; keep all pinned/clean checks fail-closed.
 $root = (& git -C $OmpRoot rev-parse --show-toplevel | Out-String).Trim()
-$omp = (& git -C $OmpRoot rev-parse HEAD | Out-String).Trim()
-$sub = (& git -C (Join-Path $OmpRoot 'android\vendor\2160player') rev-parse HEAD | Out-String).Trim()
-$dirty = @(& git -C $OmpRoot status --porcelain --untracked-files=all)
-if (-not $root.Equals($OmpRoot,[StringComparison]::OrdinalIgnoreCase) -or
-    $omp -cne '52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f' -or
-    $sub -cne '6ba6edd39f5d986ddfae29b5425b8ac0b319844e' -or
-    $dirty.Count -ne 0 -or
-    -not (Test-Path -LiteralPath (Join-Path $OmpRoot 'LICENSE') -PathType Leaf)) {
-    throw 'STOP: source pins, Git root, license or clean worktree incorrect'
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($root)) {
+    throw 'STOP: failed to resolve upstream Git root'
 }
+$normalizedRoot = [IO.Path]::GetFullPath($root.Replace('/', '\')).TrimEnd([char[]]@(92,47))
+$normalizedExpectedRoot = [IO.Path]::GetFullPath($OmpRoot).TrimEnd([char[]]@(92,47))
+if (-not $normalizedRoot.Equals($normalizedExpectedRoot,[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'STOP: Git root does not match disposable upstream checkout'
+}
+$omp = (& git -C $OmpRoot rev-parse HEAD | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $omp -cne '52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f') {
+    throw 'STOP: pinned OMP commit mismatch'
+}
+$sub = (& git -C (Join-Path $OmpRoot 'android\vendor\2160player') rev-parse HEAD | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $sub -cne '6ba6edd39f5d986ddfae29b5425b8ac0b319844e') {
+    throw 'STOP: pinned 2160player submodule commit mismatch'
+}
+$dirty = @(& git -C $OmpRoot status --porcelain --untracked-files=all)
+if ($LASTEXITCODE -ne 0) { throw 'STOP: upstream Git status failed' }
+if ($dirty.Count -ne 0) { throw 'STOP: disposable OMP worktree not clean' }
+if (-not (Test-Path -LiteralPath (Join-Path $OmpRoot 'LICENSE') -PathType Leaf)) {
+    throw 'STOP: pinned OMP license absent'
+}
+Write-Host 'G1PROD_NORMALIZED_UPSTREAM_ROOT_AND_CLEAN_PINS_PASS'
 $paths = @(
  'src/api/torrserver.ts',
  'src/player/nativePlayer.ts',
