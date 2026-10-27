@@ -1,14 +1,12 @@
-# Manual-only build gate for Human-approved PR #29 G1d UX.
-# Does NOT trigger on push, pull_request, schedule, or workflow_run.
-# Prepared as a Draft; manually dispatchable only after separate Human
-# approval to put this workflow file onto the repository default branch.
-name: Torrent TV - G1d UX PR29 Manual Debug Build
+# Manual G1 Production build on Draft branch only; same path on main is PR29.
+# No push, PR, schedule, workflow_run, merge, Release, install or ADB.
+name: Torrent TV - G1 Production Manual Debug Build
 
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'Enter BUILD_PR29_ONCE to acknowledge this single authorized build'
+        description: 'Type BUILD_G1_PROD_DEBUG_ONCE (no TV install, no Release)'
         required: true
         type: string
 
@@ -16,81 +14,42 @@ permissions:
   contents: read
 
 jobs:
-  g1d-ux:
-    name: Pinned PR29 debug on dedicated Torrent TV runner
-    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event_name == 'workflow_dispatch'
+  g1-prod:
+    name: G1 Production source guard plus Debug/unit tests (dedicated runner)
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/g1-production-sidecar-picker-20261027' && inputs.confirmation == 'BUILD_G1_PROD_DEBUG_ONCE'
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
-      - name: Checkout immutable reviewed PR29 source
+      - name: Checkout immutable reviewed G1 Production build source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
         with:
-          ref: dc62b0aaebea2d6abf55e98a0e9b6d6171e36a92
+          ref: b09bc6b61b5104cd200936752c2ca624148ac65d
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Guard manual consent, source commit and dedicated runner
+      - name: Execute single approved isolated Debug build and tests
         shell: powershell
         env:
           BUILD_CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $expectedSource = 'dc62b0aaebea2d6abf55e98a0e9b6d6171e36a92'
-          if ($env:BUILD_CONFIRMATION -cne 'BUILD_PR29_ONCE') {
-            throw 'STOP: explicit single-build confirmation absent'
+          if ($env:BUILD_CONFIRMATION -cne 'BUILD_G1_PROD_DEBUG_ONCE' -or
+              $env:GITHUB_REF -cne 'refs/heads/feature/g1-production-sidecar-picker-20261027' -or
+              $env:GITHUB_WORKFLOW_REF -cne 'trung-via/torrent-tv-vietsub/.github/workflows/p1-g1d-ux-pr29-manual.yml@refs/heads/feature/g1-production-sidecar-picker-20261027') {
+            throw 'STOP: wrong G1 Production manual input, branch or workflow'
           }
-          if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
-              $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
-              $env:RUNNER_OS -cne 'Windows' -or
-              $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') {
-            throw 'STOP: incorrect repository, runner or event'
-          }
-          if (-not $env:RUNNER_WORKSPACE -or -not $env:RUNNER_TEMP -or
-              -not $env:GITHUB_RUN_ID -or -not $env:GITHUB_RUN_ATTEMPT) {
-            throw 'STOP: missing isolated runner environment'
-          }
-          $allowed = [IO.Path]::GetFullPath('C:\TOOL\TorrentTV-Runner\_work').TrimEnd('\') + '\'
-          foreach ($dir in @($env:RUNNER_WORKSPACE,$env:RUNNER_TEMP)) {
-            $resolved = [IO.Path]::GetFullPath($dir).TrimEnd('\') + '\'
-            if (-not $resolved.StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) {
-              throw 'STOP: not inside dedicated application runner workspace'
-            }
-          }
-          $actual = (& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $actual -cne $expectedSource) {
-            throw 'STOP: source does not match Human-reviewed PR29 commit'
-          }
-          $dirty = @(& git -C $env:GITHUB_WORKSPACE status --porcelain --untracked-files=all)
-          if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
-            throw 'STOP: expected clean PR29 checkout'
-          }
-          foreach ($file in @(
-            'poc\g1c\P1G1CSubtitleRegistry.debug.kt',
-            'poc\g1c\P1G1CSubtitleRegistry.release.kt',
-            'poc\g1c\apply.ps1',
-            'poc\g1c\verify.ps1',
-            'poc\g1c\build-on-runner.ps1'
-          )) {
-            if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE $file) -PathType Leaf)) {
-              throw 'STOP: missing pinned G1d UX build input'
-            }
-          }
-          Write-Host 'G1D_UX_PR29_COMMIT_AND_RUNNER_PREFLIGHT_PASS'
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g1-prod\build-on-runner.ps1') `
+            -AppRepoRoot $env:GITHUB_WORKSPACE `
+            -SourceCommit 'b09bc6b61b5104cd200936752c2ca624148ac65d'
+          if (-not $?) { throw 'STOP: G1 Production build did not pass' }
 
-      - name: Apply G1d UX patch in isolated pinned OMP and build debug APK
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g1c\build-on-runner.ps1') -AppRepoRoot $env:GITHUB_WORKSPACE
-          if (-not $?) { throw 'STOP: PR29 gated build script reported failure' }
-
-      - name: Upload debug APK, SHA256SUMS and sanitized evidence privately
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Upload private Debug APK SHA256 and build proof (7 days)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
         with:
-          name: p1-g1d-ux-pr29-debug-apk
+          name: g1-production-debug-apk
           path: |
-            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/*.apk
-            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS.txt
-            ${{ runner.temp }}/p1-g1c-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/P1-G1C-BUILD-EVIDENCE.txt
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/*.apk
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS-G1PROD.txt
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/G1PROD-BUILD-EVIDENCE.txt
           if-no-files-found: error
           retention-days: 7
