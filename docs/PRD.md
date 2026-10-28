@@ -25,7 +25,7 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 
 **Hành trình North Star P2/P3 (PROPOSED):** mô tả nội dung bằng ngôn ngữ tự nhiên → search adapters trả candidates có nguồn và metadata → lọc dung lượng/độ phân giải/seeders/codec/audio → giải thích bất định (“2K”/seeds) → người dùng duyệt bản → gateway riêng Torrent TV yêu cầu TorrServer thêm torrent và điều khiển TV → báo kết quả/trạng thái hoặc rollback.
 
-**Hành trình AI P4/P5 (PROPOSED):** người dùng opt-in cho media có quyền → xử lý ASR/dịch/QA tạo `.vi.srt` → kiểm tra thời gian và hiển thị → tùy chọn TTS/align/mix/mux audio Việt → xem trước và đo sync, seek, chi phí. Không bắt buộc real-time.
+**Hành trình AI P2-AISUB/P4/P5:** mục tiêu Human là tạo Vietsub theo yêu cầu, ưu tiên dịch timed SRT/VTT theo cue, rồi mới ASR→dịch/QA khi thiếu text. P2-AISUB PoC CLI có thể làm độc lập Gateway; P4 kết nối bản đã tạo với OMP sau G1, P5 mới là TTS/voice-over. Không bắt buộc real-time.
 
 ## 4. Yêu cầu theo phase
 
@@ -33,9 +33,10 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 | --- | --- | --- |
 | P0 Foundation | OMP provenance/build, runner riêng, Windows TorrServer, manual magnet, D-pad/player, Vietsub cơ bản | Build hash + legal fixture + real TV/server evidence độc lập |
 | P1 Daily use | SRT/VTT ngoài torrent, track binding, reopen, lỗi, UX transport | G0 render ≠ G1 external import ≠ G2 hot-add ≠ G3 sync ≠ G4 release |
-| P2 Search intelligence | Legal source adapters, metadata, filter/rank, manual confirmation | Candidate source proof, no unauthorized crawling, negative tests |
+| P2-SOURCE Search intelligence | Legal source adapters, metadata, filter/rank, manual confirmation | Candidate source proof, no unauthorized crawling, negative tests |
+| P2-AISUB AI Vietsub (Human goal; PR #9 still Draft) | Offline timed SRT/VTT cue translation first; ASR→MT/QA if missing text, opt-in Windows/NAS CLI | Two lawful fixtures; cue timing/QA and resource proof; TV E2E depends on G1 |
 | P3 Agent control | Local gateway riêng, permission, TV pairing/play/status, ChatGPT integration optional | Real E2E source→confirmation→TorrServer→TV, auth/audit |
-| P4 AI Vietsub | ASR/translation/QA offline opt-in, subtitle output | Chất lượng Việt, cue timing, provenance, consent, measured cost |
+| P4 AI Vietsub integration | Bind the P2-AISUB generated SRT/VTT to correct OMP TV media via verified P1a-G1 | Real Redmi import, selected track auto-render, persistence/seek and cue timing |
 | P5 AI voice-over | TTS/align/ducking/mix/mux, optional external audio | Audio sync, pause/seek, resource/latency/cost PoC; real-time riêng |
 
 ## 5. Acceptance chi tiết
@@ -93,6 +94,12 @@ Không tự vận hành kho phim lậu, bypass DRM/paywall/captcha, root TV, m�
 - TorrServer: upstream ngoài APK; wire schema và version deployed phải probe, xem `TORRSERVER_INTERFACE.md`.
 - GitHub Actions và runner: thuộc repo Torrent TV; có thể kế thừa **mẫu** từ AIOS sau provenance/security/license review, không kế thừa AIOS authority.
 - P2/P3 gateway/source-ranking, P4/P5 AI worker: thiết kế mới của Torrent TV, chưa phải modules đã có.
+
+## 7a. Bằng chứng đối chiếu với Draft PR hiện có
+
+- PR #37: Human-reported P0 OMP/TorrServer Windows→Redmi video/audio/remote/seek/reopen smoke PASS, scope hẹp, không phủ toàn bộ G-TV/G-SERVER.
+- PR #38: Debug/unit Actions run 40533478080 SUCCESS, Human thử import SRT trên Redmi nhưng G1-SUB-01 (saved track không auto-render khi reopen) vẫn FAIL; tốc độ 2–3x G1-PLAY-01 là UNCONFIRMED, không sửa bằng giả định.
+- PR #9 giữ mục tiêu AI Vietsub on-demand P2 qua ADR-0004 chưa merge; PR #15 giữ P1 AC-01..08 và style deferred. Roadmap không được xóa các quyết định này.
 
 ## 8. Rủi ro và quyết định còn mở
 

@@ -10,9 +10,10 @@
 | P0c | TorrServer Windows/NAS LAN + Redmi TV: media legal, D-pad, play/seek/resume, Vietsub | P0b, device/server permission | G-SERVER + G-TV + G-VI độc lập |
 | P1a | External SRT/VTT capability: G0 debug fixture → G1 ngoài APK → G2 hot-add (nếu khả thi) → G3 sync → G4 release isolation | P0c/player proof | G1 E2E và từng gate riêng; không false PASS |
 | P1b | Chọn transport: Android picker/USB, SMB read-only, phone transfer hoặc khác | P1a G1 | Decision matrix + Human ADR; không tự mở SMB/firewall |
-| P2 | Lawful source search intelligence, metadata/filter/rank (resolution/size/seeds/codec/vi) | P0 + source/ToS proof | Search smoke + candidate confidence + explicit confirmation |
-| P3 | Torrent TV local gateway + TV pairing/control + optional ChatGPT interface | P2, real TV API proof, security review | Real E2E search→confirm→TorrServer→TV + negative tests |
-| P4 | Opt-in AI Vietsub offline: ASR/dịch/QA/SRT | P1, lawful media + compute | QA tiếng Việt, cue sync, provenance, measured cost |
+| P2-SOURCE | Lawful source search intelligence, metadata/filter/rank (resolution/size/seeds/codec/vi) | P0 + source/ToS proof | Search smoke + candidate confidence + explicit confirmation |
+| P2-AISUB | Human-decided on-demand Vietsub goal in Draft PR #9; translate timed SRT/VTT first, ASR→translation/QA if source text unavailable; offline local-first CLI | Licensed fixtures; no Gateway dependency, TV E2E requires P1a G1 | SRT/VTT UTF-8 cue QA, resource/cost/privacy and user opt-in |
+| P3 | Torrent TV local gateway + TV pairing/control + optional ChatGPT interface | P2-SOURCE, real TV API proof, security review | Real E2E search→confirm→TorrServer→TV + negative tests |
+| P4 | Integrate P2-AISUB Vietsub outputs into OMP TV UX (not a duplicate CLI PoC) | P1a-G1 real external subtitle import and rights/consent | Real Redmi selected track/reopen/seek/cue sync with generated SRT/VTT |
 | P5 | Opt-in AI voice-over: TTS/align/mix/mux; real-time feasibility separate | P4 + player/audio proof | Sync/seek/quality/latency/cost measured; no real-time claim without proof |
 
 ## Research-aligned incremental backlog (not dispatched)
@@ -25,9 +26,15 @@
 6. **R5 — Vietnamese:** embedded vi audio / P1 external SRT first; licensed multilingual ASR -> MT -> TTS -> duck/mix **batch**, test sync/seek/quality/privacy/cost. Gate G-AUDIO-BATCH.
 7. **R6 — Advanced optional:** rolling look-ahead 30–60s with seek/catch-up fallback; ChatGPT semantic MCP after official private connectivity/auth verification, no raw TorrServer /mcp; no realtime target. Gates G-ROLLING, G-MCP.
 
-**Recommended sequence:** OMP/direct play -> discovery/verifier -> Gateway/control -> existing VI audio + batch voice-over -> rolling -> optional ChatGPT MCP. Manual playback and existing P1 work do **not** require the optional AI layers.
+**Recommended sequence:** existing OMP/direct play -> P1 G1 real-TV repair -> P2-SOURCE verifier -> optional Gateway/control -> VI audio + batch voice-over -> optional rolling/ChatGPT MCP. P2-AISUB offline timed-subtitle translation can be separately scoped in parallel without Gateway, but TV E2E still depends on G1. Manual playback and P1 do not require AI layers.
 
 **Timeline caution:** Research estimated 6–10 weeks / 54–103 person-days for a broad POC *including development of a separate native TV app*. This estimate cannot be copied unchanged into the OMP-first project and is not a commitment. The 2–4-week POC below is a smaller playback-first slice only. See RESEARCH_ALIGNMENT_2026-10-28.md and proposed ADR-0008.
+
+## Current measured status — 2026-10-28
+
+- PR #37 Human Windows TorrServer → Redmi OMP playback smoke PASS for the tested setup. No need to repeat without changed environment.
+- PR #38 Debug/unit build PASS (Actions 40533478080), but real-TV external-SRT G1-SUB-01 is a confirmed blocker: track must be selected manually again after reopen. G1-PLAY-01 speed concern is UNCONFIRMED; do not add speculative rate fix.
+- Priorities: fix G1-SUB-01 with late-track regression test in PR #38, then independently approve build and Redmi acceptance. Keep PR #39 docs-only and PR #9/#15 decisions intact.
 
 ## Minimal playback-first PoC 2–4 tuần (PROPOSED, không cam kết)
 

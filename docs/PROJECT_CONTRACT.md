@@ -23,7 +23,7 @@ Xây dựng ứng dụng giải trí gia đình trên Android TV/Google TV tươ
 5. **Nguồn và tìm kiếm:** giữ khả năng tìm torrent qua website/source adapters của OMP, nhập magnet/.torrent thủ công và cấu hình indexer hợp lệ (ví dụ Jackett/Prowlarr nếu phù hợp). Chỉ thực hiện theo thao tác người dùng và quyền sử dụng/điều khoản từng nguồn. Không vận hành kho phim vi phạm bản quyền, crawler trái phép, vượt DRM, captcha, paywall hoặc hạn chế truy cập.
 6. **Trải nghiệm Việt:** giữ player, library, series, history, resume, remote D-pad/Back và chọn audio/subtitle; thêm UI tiếng Việt, nhận diện track `vi/vie/vietnamese` và SRT/VTT UTF-8. Track Việt phải có thật; không giả lập track.
 7. **P1 phụ đề ngoài torrent:** theo ADR-0006, chứng minh capability SRT/VTT ngoài APK và gắn đúng media trước khi chọn phương thức chuyển file. SMB, Android picker/USB và phone transfer đều là ứng viên, không có SMB-first mặc định.
-8. **AI media:** ASR, dịch, hiệu đính, TTS, căn thời gian và mix/mux là tính năng opt-in trên Windows/NAS sau PoC hợp pháp; không tự chạy nền, không cam kết audio thuyết minh đồng bộ hoặc real-time.
+8. **AI Vietsub theo yêu cầu là mục tiêu Human đã chọn:** Draft PR #9/ADR-0004 định nghĩa P2 offline local-first timed SRT/VTT translation → ASR fallback → QA → file tiếng Việt. Voice-over/TTS là capability riêng sau Vietsub, opt-in; không tự chạy nền, không cam kết real-time hay cloud upload.
 9. **Tách biệt quyền vận hành:** không tự bật GitHub workflow, cài/đổi runner service, sửa Windows Firewall/router/UPnP, mở WAN, root TV, ký/publish APK hoặc merge vào `main` khi chưa có phê duyệt tương ứng.
 10. **Release:** APK, tài liệu cài đặt, mã nguồn tương ứng, giấy phép và rollback do chính dự án quản lý; Human là người phê duyệt cuối cùng.
 
@@ -120,13 +120,20 @@ AIOS repositories ── optional audited source/template reference only
 
 Các gate độc lập: một job build PASS không chứng minh TV thật; demo agent không chứng minh voice-over real-time.
 
+## C6a — Bằng chứng hiện tại, không được gộp PASS
+
+- PR #37 có Human-reported P0 Windows TorrServer → OMP Redmi playback/seek/reopen smoke PASS ngày 2026-10-27 (issue comment 6444479305). Phạm vi này không chứng minh trọn G-SERVER/G-TV về version/auth/Range/codec/firmware.
+- PR #38: GitHub Actions run #40533478080 SUCCESS cho Debug + unit test và Human đã thử import SRT thật. Tuy nhiên G1-SUB-01 FAIL: file SRT đã lưu không tự render sau reopen cho đến khi chọn lại track. G1 E2E và release vẫn BLOCKED. G1-PLAY-01 về tốc độ phát đã được phân loại UNCONFIRMED; không tự thêm workaround.
+- PR #9 (ADR-0004 P2 AI Vietsub) và PR #15 (acceptance P1a) vẫn Draft; không merge/rebase tự động. Nghiệm thu AC-01..08, G0..G4, font/style deferred phải được giữ nguyên.
+
 ## C7 — Phân kỳ ưu tiên
 
 - **P0 — Foundation:** repo độc lập, workflow/runner audit, OMP feasibility/build, TorrServer Windows LAN và TV thật, manual magnet, player/remote/Vietsub cơ bản.
 - **P1 — Subtitle & daily use:** external SRT/VTT source-agnostic, persistence/UX, lựa chọn transport sau evidence, hardening.
-- **P2 — Search intelligence:** chỉ nguồn được phép, metadata/filter/quality ranking, confirm trước add torrent; không tự động hóa website trái phép.
-- **P3 — TV control:** local gateway, pairing/authorization, chọn media/play/pause/status qua API được kiểm chứng; ChatGPT integration là tùy chọn sau P0/P2.
-- **P4 — AI Vietsub:** ASR/translation/QA/subtitle offline opt-in, quyền và chi phí rõ.
+- **P2-SOURCE — Search intelligence:** chỉ nguồn được phép, metadata/filter/quality ranking, confirm trước add torrent; không tự động hóa website trái phép.
+- **P2-AISUB — AI Vietsub theo yêu cầu:** mục tiêu đã được Human xác định trong Draft ADR-0004/PR #9, PoC offline local-first trên Windows/NAS: có timed SRT/VTT thì dịch từng cue; thiếu timed text mới ASR → dịch/QA → SRT/VTT UTF-8. Không yêu cầu Gateway và không tự triển khai cloud. E2E TV phải qua P1a-G1.
+- **P3 — TV control:** local gateway, pairing/authorization, chọn media/play/pause/status qua API được kiểm chứng; ChatGPT integration tùy chọn sau P0/P2-SOURCE.
+- **P4 — Tích hợp AI Vietsub:** nối output P2-AISUB vào OMP TV/UX sau khi G1 external subtitle E2E đạt; không lặp lại offline PoC.
 - **P5 — AI voice-over:** TTS/align/mix/mux PoC trước, real-time chỉ là giả thuyết cần đo; không mặc định P0–P4 phụ thuộc P5.
 
 Roadmap là thứ tự phụ thuộc, không cam kết lịch/chi phí cho đến khi PoC và nghiên cứu có kết quả.
