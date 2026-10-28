@@ -1,4 +1,4 @@
-# Torrent TV Vietsub — PRD v4.0 (independent, OMP-based)
+# Torrent TV Vietsub — PRD v4.1 (independent, OMP-based, research-aligned)
 
 **Ngày:** 2026-10-28  
 **Status:** `DRAFT_FOR_PR_REVIEW`. Human đã chốt độc lập AIOS và hướng North Star AI Entertainment Agent; triển khai, hiệu năng và khả năng tương thích chưa tự động được xác minh.  
@@ -66,6 +66,23 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 - Chỉ media có quyền dịch/xử lý; consent và chi phí rõ; lưu/xóa file đầu ra có kiểm soát.
 - QA translation, timing, subtitle display; voice-over thử mux hoặc external audio với seek/pause và mixing. Không tuyên bố hỗ trợ thuyết minh thời gian thực trước benchmark.
 
+## 5a. Yêu cầu chức năng từ báo cáo (DRAFT, chưa có feature E2E)
+
+| ID | Capability | Acceptance evidence |
+| --- | --- | --- |
+| FR-INTENT | Structured PlaybackIntent với source, pixel-level resolution, size, seed metric, hard/preference, device, audio policy | 2K ambiguity được xử lý công khai; hard constraints không bị hạ |
+| FR-DISCOVERY | OMP website search giữ nguyên; Prowlarr/Torznab option, Jackett fallback | Lawful source allowlist và metadata provenance |
+| FR-VERIFY | Reported/scraped/connected seeder metrics, actual media file probe và observed buffer/rate | Không suy độ phân giải/codec từ release name; không gọi seed >=300 là guaranteed speed |
+| FR-SESSION | Gateway owned state machine, authorization, idempotency, confirmation, audit, typed errors | Test fail/retry/recover và stop/cleanup |
+| FR-READY | Direct-play first, readiness before play, remux/transcode only when needed | Legal fixture actual bitrate/rate/buffer/first frame measured |
+| FR-OMP-TV | OMP-based TV device pairing/token/session manifest and play/pause/seek/status | Real Redmi firmware and OMP native player evidence; ADB dev-only |
+| FR-AUDIO | Existing VI track first; external Vietsub; batch AI voice-over opt-in; rolling later | Licensed source, alignment/seek/quality/cost/privacy proof |
+| FR-MCP | Semantic ChatGPT→Gateway only, not TorrServer native /mcp | Official support/permission verification, auth, consent, no raw admin API |
+
+**Proposed REST sketch, not shipped:** POST /v1/media/search; POST /v1/candidates/{id}/verify; POST /v1/playback/sessions; POST /v1/playback/sessions/{id}/prepare; POST /v1/playback/sessions/{id}/play; POST /v1/playback/sessions/{id}/control; GET /v1/playback/sessions/{id}. Details and negative tests in the research alignment document.
+
+**SLO benchmarks only:** 30–60s buffer, >=1.5× average bitrate sustained rate, <15–30s first frame on healthy swarm, 0 rebuffer / 30min controlled fixture, <1s local command; not measured, not product promises.
+
 ## 6. Ngoài phạm vi / giới hạn
 
 Không tự vận hành kho phim lậu, bypass DRM/paywall/captcha, root TV, mở WAN/UPnP, viết BitTorrent engine, nhúng TorrServer binary, viết lại Compose UI trong P0, xây OMP paid billing/bot/VPS, tự động cài Windows service/firewall, đồng bộ AIOS runtime hoặc cho agent thực thi lệnh shell tùy ý. Release và thay đổi host cần Human phê duyệt.
@@ -79,7 +96,7 @@ Không tự vận hành kho phim lậu, bypass DRM/paywall/captcha, root TV, m�
 
 ## 8. Rủi ro và quyết định còn mở
 
-Firmware Redmi nội địa; API TorrServer; source terms; license GPL của OMP và dependencies; credential userinfo trong stream URL; seeders không chính xác; phụ đề rời/hot-add; TV pairing; chi phí/độ trễ voice-over. Tất cả cần proof, ADR và test riêng. Kết quả Deep Research khi hoàn tất sẽ được xem như **đầu vào review**, không tự ghi đè contract hoặc thay status UNVERIFIED.
+Firmware Redmi nội địa; API TorrServer; source terms; license GPL của OMP và dependencies; credential userinfo trong stream URL; seeders không chính xác; phụ đề rời/hot-add; TV pairing; chi phí/độ trễ voice-over. Tất cả cần proof, ADR và test riêng. Báo cáo Deep Research ngày 2026-10-28 đã hoàn thành và được đối chiếu tại RESEARCH_ALIGNMENT_2026-10-28.md. Định hướng ứng dụng native Kotlin mới trong báo cáo không thay thế quyết định OMP-first. Các tuyên bố upstream/vendor/firmware/chi phí và E2E vẫn UNVERIFIED.
 
 ## 9. Next
 

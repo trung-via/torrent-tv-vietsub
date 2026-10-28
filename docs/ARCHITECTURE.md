@@ -1,8 +1,8 @@
-# Architecture v3.0 — Torrent TV Vietsub độc lập AIOS
+# Architecture v3.1 — Torrent TV Vietsub độc lập AIOS, OMP-first & research-aligned
 
 **Ngày:** 2026-10-28  
 **Trạng thái:** `DRAFT_FOR_PR_REVIEW`; kiến trúc nền OMP + TorrServer và nguyên tắc độc lập AIOS đã được Human chọn. Các module agent/gateway/search ranking/AI voice-over là `PROPOSED`, chưa có E2E.  
-**Đọc cùng:** `PROJECT_CONTRACT.md`, `PRD.md`, ADR-0001/0002/0006/0007, `DEVELOPMENT_WORKFLOWS.md`.
+**Đọc cùng:** PROJECT_CONTRACT.md, PRD.md, ADR-0001/0002/0006/0007/0008, RESEARCH_ALIGNMENT_2026-10-28.md, DEVELOPMENT_WORKFLOWS.md.
 
 ## 1. Hai hệ thống hoàn toàn tách biệt
 
@@ -76,6 +76,34 @@ GitHub Actions là CI/CD; runner là executor do repo quản lý; gateway là ru
 **Contract candidates (đề xuất, không phải API đã có):** `SearchCandidate{sourceId,sourceTermsEvidence,title,resolutionRaw,width,height,sizeBytes,seedersReported,seedersObservedAt,codec,audioTracks,subtitleTracks,magnetRef}`; `PlayRequest{candidateId,fileId,deviceId,confirmedByUser}`; `PlaybackStatus{state,position,errorCode}`. Không đưa passkey, magnet hoặc token vào model context, logs, issue, PR.
 
 **Không được suy đoán:** “2K” có thể là 2560×1440 hoặc DCI 2048×1080; cần hỏi/cho user chọn tiêu chuẩn. Metadata indexer có thể sai. Chỉ xác minh độ phân giải/codec khi đọc metadata/container thực. Chỉ xác nhận peers/streamability sau TorrServer probe.
+
+## 2a. Thiết kế chi tiết từ Deep Research (PROPOSED, OMP adaptation)
+
+~~~text
+Optional ChatGPT / AI Intent
+   -> narrow semantic MCP tools (private connectivity to be verified)
+   -> Home Media Gateway: auth / policy / confirmation / sessions / audit / telemetry
+        |-- OMP source adapters + optional Prowlarr/Torznab, Jackett fallback
+        |-- Candidate Verifier (source, rights, seed observations, ffprobe)
+        |-- TorrServer on Windows/NAS LAN
+        |     |-- direct HTTP
+        |     '-- remux/HLS/transcode if deployed -gst supports it
+        |-- Vietnamese Audio Worker (optional licensed content; ASR/MT/TTS/mix)
+        '-- OMP TV session extension: device identity, token, manifest
+              -> OMP existing Preact/Capacitor UI + 2160/Media3/VLC
+~~~
+
+**Explicit conflict resolution:** the report proposes a separate native Kotlin+Media3 TV app. **Do not create it.** Use the existing native layers in OMP, after source audit and real Redmi firmware/device evidence. ADB is a development probe only; Cast Connect/DLNA are conditional fallback. Generic Xiaomi Google TV specs are not Redmi A Pro 55 China specs.
+
+**Playback Intent + Candidate:** clarify 2K with explicit pixel dimensions; differentiate hard constraints from preferences. Reported indexer seeders, tracker-scraped counts when supported, connected peers/seeders and throughput are distinct metrics with timestamps and provenance. ffprobe actual media file before claiming resolution/codec/audio. Untrusted release names must never serve as agent instructions.
+
+**FSM:** DISCOVERING → VERIFYING → PREPARING → BUFFERING → AUDIO_PREP (optional) → READY → PLAYING → DEGRADED/FAILED/STOPPED. Gateway owns control state but is not a replacement for TorrServer media plane. Idempotency, timeout, failure classes and cleanup are mandatory before any automated write operation.
+
+**Readiness:** research proposes a benchmark of initial buffer 30–60 seconds, observed rate window 10–20 seconds, sustained torrent rate about 1.5–2.0× average media bitrate. These are **POC targets, not measured guarantees**; include peak bitrate and device codec capability. Fallback must preserve hard requirements, with direct-play before remux/transcode.
+
+**Vietnamese:** prefer real embedded vi/vie track, then SRT/VTT; batch licensed AI voice-over (multilingual ASR → MT → timing rewrite → Vietnamese TTS → duck/mix) before optional 30–60s rolling look-ahead. Alternative audio/mix must be tested with the actual OMP player, including seek. Local/cloud processing opt-in and licensing/cost controls are separate gates.
+
+**Private control:** no ChatGPT → raw TorrServer native /mcp. TV receives opaque session ID/token, never raw magnet or Basic Auth (design target). Optional private MCP tunnel support and vendor capability claims from the report require current official verification before implementation.
 
 ## 3. Giao thức và trust boundaries
 

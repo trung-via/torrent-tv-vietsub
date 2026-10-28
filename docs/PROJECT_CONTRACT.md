@@ -1,4 +1,4 @@
-# PROJECT CONTRACT v2.0 — Torrent TV Vietsub (independent project)
+# PROJECT CONTRACT v2.1 — Torrent TV Vietsub (independent, OMP-first, research-aligned)
 
 **Ngày cập nhật:** 2026-10-28  
 **Trạng thái:** `DRAFT_FOR_PR_REVIEW` — Human đã quyết định tách hoàn toàn khỏi AIOS; nội dung tài liệu này chỉ trở thành baseline trên `main` sau khi PR được review/merge.  
@@ -12,7 +12,7 @@ Xây dựng ứng dụng giải trí gia đình trên Android TV/Google TV tươ
 
 **North Star được Human chấp thuận làm hướng nghiên cứu/phát triển, chưa phải tính năng đã nghiệm thu:** người dùng yêu cầu bằng ngôn ngữ tự nhiên, ví dụ “tìm video A khoảng 2K, 8–12 GB, seeders >= 300, phát trên TV, ưu tiên audio/thuyết minh tiếng Việt”; hệ thống chỉ tìm trong nguồn được phép, giải thích chất lượng dữ liệu và xin xác nhận trước khi thêm torrent hoặc chạy xử lý AI. Không cam kết tìm được bản phù hợp, số peer thực, điều khiển TV, hay thuyết minh thời gian thực trước PoC.
 
-Nghiên cứu chuyên sâu đã được yêu cầu nhưng **chưa được coi là kết quả kỹ thuật được xác minh** trong contract này. Mọi kết luận phụ thuộc API, firmware, giấy phép, hiệu năng hoặc chi phí phải được ghi bằng evidence và ADR bổ sung.
+**Báo cáo Deep Research ngày 2026-10-28 đã hoàn thành và được đối chiếu** tại RESEARCH_ALIGNMENT_2026-10-28.md, ADR-0008. Các module Gateway/Verifier/AI voice là kiến trúc được đề xuất, không phải code hay E2E đã hoàn tất. Báo cáo đề xuất app Kotlin/Media3 mới nhưng đề xuất ấy **không áp dụng**: Human đã chốt OMP-first.
 
 ## C1 — Quyết định đã chốt (DECIDED)
 
@@ -34,9 +34,19 @@ Nghiên cứu chuyên sâu đã được yêu cầu nhưng **chưa được coi 
 - **PROPOSED:** chọn nguồn hợp pháp, xếp hạng, xác nhận người dùng, đưa magnet vào TorrServer, điều khiển playback trên TV; chưa có E2E API/TV-control được nghiệm thu.
 - **UNVERIFIED:** commit/submodule OMP và GPL/dependency inventory khi nhập vào repo, Android build trên nhánh sản phẩm, bản firmware/API/ABI thực tế của Redmi, tương thích codec/seek, TorrServer deployed version/API/auth, kết nối LAN và external subtitle E2E.
 - **UNVERIFIED:** runner hiện tại có online/isolated đúng phiên làm việc hay không; file workflow chứa runner name/labels chỉ là cấu hình kỳ vọng. Đánh giá lại bằng run evidence theo từng đợt.
-- **UNVERIFIED:** kết quả Deep Research, chất lượng AI Vietsub/voice-over, latency/cost, năng lực Windows/NAS, khả năng ChatGPT truy cập local gateway theo cơ chế hỗ trợ thực tế.
+- **RESEARCH_REVIEWED / IMPLEMENTATION_UNVERIFIED:** nghiên cứu đã có nhưng upstream TorrServer -gst/native /mcp, private MCP tunnel, Redmi firmware, AI Vietsub/voice-over, vendor price, latency/cost và ChatGPT→Gateway vẫn cần evidence chính thức và/hoặc kiểm thực trên hệ thống.
 
 Không dùng trạng thái source-audit, mock, emulator hoặc workflow file tồn tại để tuyên bố `REAL_TV_PASS`, `REAL_SERVER_PASS`, `RUNNER_READY` hay `AGENT_E2E_PASS`.
+
+## C2a — Định hướng kỹ thuật áp dụng từ Deep Research
+
+1. **Control plane:** Optional Home Media Gateway riêng Torrent TV là owner của PlaybackIntent, verification, authorized source policy, confirmation, device/session identity, state machine, telemetry và audit. ChatGPT chỉ được gọi semantic actions; không kết nối raw TorrServer MCP/admin.
+2. **Discovery:** Giữ nguyên website/source adapters OMP và manual magnet; thêm Prowlarr/Torznab nếu hợp quyền và cần thiết, Jackett fallback. Torznab là giao thức, không phải nguồn nội dung.
+3. **Verification:** tách số seeders reported, scraped và connected (nguồn/timestamp khác nhau), đo rate/buffer; xác minh size/width/height/codec/audio bằng metadata và probe thật. Không suy nghĩa “2K” từ tên; hard constraints không được tự hạ.
+4. **Playback:** Gateway session states dự kiến DISCOVERING → VERIFYING → PREPARING → BUFFERING → AUDIO_PREP → READY → PLAYING → DEGRADED/FAILED/STOPPED. Direct HTTP first; remux/HLS/transcode chỉ khi TorrServer deployed build và hardware hỗ trợ.
+5. **TV:** nếu thật sự cần device control, mở rộng **OMP native playback components hiện có** với pairing và opaque session/manifest. ADB chỉ dev/test, Cast Connect khi firmware hỗ trợ; không build Kotlin/Compose app mới.
+6. **Tiếng Việt:** embedded vi/vie audio có thật trước, external SRT/VTT theo P1, AI voice-over opt-in theo thứ tự pre-generated batch → rolling look-ahead sau đo seek/sync/cost. Không mặc định dùng cloud ASR/MT/TTS và không chọn model/vendor chỉ từ báo cáo.
+7. **MCP connectivity:** outbound private MCP tunnel là research candidate, phải xác minh official support/entitlement/security. Không mở inbound WAN/port 8090 để kết nối ChatGPT. Xem RESEARCH_ALIGNMENT_2026-10-28.md và ADR-0008 (proposed).
 
 ## C3 — Ranh giới runtime
 
@@ -101,8 +111,11 @@ AIOS repositories ── optional audited source/template reference only
 | G-TV | Firmware/API/ABI thực, install, D-pad, play/pause/seek/resume/audio/subtitle | `REAL_TV_UNVERIFIED` |
 | G-VI | UI Việt, track vi/vie thật, SRT/VTT Unicode đúng phim/tập | `VIETSUB_UNVERIFIED` |
 | G-P1 | Tách G0 debug fixture render, G1 file ngoài APK và reopen, G2 hot-add, G3 sync, G4 release isolation; không gộp PASS | `EXTERNAL_SRT_E2E_UNVERIFIED` |
-| G-AGENT | Authorized source → metadata/filter → Human confirmation → TorrServer → TV playback/status trên thiết bị thật, có rollback | `AGENT_E2E_UNVERIFIED` |
-| G-VOICE | Clip hợp pháp; QA bản dịch, sync/seek/mix, tài nguyên và chi phí đo được | `VOICEOVER_UNVERIFIED` |
+| G-VERIFY | Lawful source → seeder provenance/scrape nếu hỗ trợ → actual media probe → measured throughput/buffer | CANDIDATE_VERIFICATION_UNVERIFIED |
+| G-GATEWAY | Session FSM, role/pairing, narrow operations, idempotency, audit, anti-SSRF/prompt-injection, rollback | GATEWAY_UNVERIFIED |
+| G-AGENT | Authorized source → metadata/filter → Human confirmation → TorrServer → **OMP** TV playback/status thật | AGENT_E2E_UNVERIFIED |
+| G-AUDIO-BATCH | Ưu tiên VI track thật; licensed audio → ASR/MT/TTS→duck/mix batch; seek/sync/cost/privacy QA | AUDIO_BATCH_UNVERIFIED |
+| G-VOICE | Rolling chỉ sau batch; look-ahead/seek/underrun/fallback và resource/latency measured, no realtime guarantee | VOICEOVER_UNVERIFIED |
 | G-RELEASE | License, secret audit, provenance, signed/reproducible artifact, Human approval | `RELEASE_BLOCKED` |
 
 Các gate độc lập: một job build PASS không chứng minh TV thật; demo agent không chứng minh voice-over real-time.
