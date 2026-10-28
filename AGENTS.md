@@ -1,17 +1,24 @@
-# Agent contract for `torrent-tv-vietsub` — OMP-based
+# Agent contract — Torrent TV Vietsub (independent)
 
-Mandatory before any code mutation:
+**Project identity:** `trung-via/torrent-tv-vietsub`, independent from AIOS. No AIOS canonical TASK, Brain Sync, NEXT, admission, executor, reviewer, dispatch, Runtime, runner or workspace.
 
-1. Read `docs/PROJECT_CONTRACT.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, and ADR-0001/ADR-0002/ADR-0003.
-2. Confirm target Git root, branch, upstream OMP commit and submodule pin; NEVER mutate `AIOS-renew` as part of this app task. **Use a dedicated Torrent TV Vietsub runner and isolated workspace, not AIOS-renew runner/worktree.** Independently verify runner identity/online status and lawful dispatch.
-3. Check actual file/repo state; mark TV/server results UNVERIFIED without real evidence.
-4. Operate only within authorized task scope. No implicit repo publishing, CI enabling, Windows firewall/services/startup changes, WAN exposure or credentials.
-5. Use **OMP TypeScript/Preact + Capacitor UI, Kotlin native 2160 Player/AndroidX Media3 and VLC** as the target baseline; NOT a new Compose for TV app in P0.
-6. **Retain OMP website torrent source-search adapters and user-configured legal sources**. Do not disable/remove them as a side effect of reducing paid-service/billing modules. Do not create unauthorized scrapers, run piracy catalogs, bypass DRM or collect passkeys.
-7. Windows TorrServer remains an external LAN streaming server; no torrent engine/third-party server binary embedded in APK.
-8. Prefer small, testable, reversible patches. Audit GPL and credential exposure (userinfo stream URLs/Basic Auth) before release. Build/mock tests do not prove real-device PASS.
-9. Honor AIOS canonical admission/review only when explicitly authorized, not guessed TASK aliases. `OMP-EVAL-001` is planning only; `TVAPP-001` is superseded.
-10. Không tự sửa AIOS governance, chạy bộ test nội bộ AIOS, auto publish hay dispatch chỉ từ tài liệu ứng dụng.
-11. If the dedicated runner/target workspace or cross-repo dispatch is not verified, return `DEDICATED_RUNNER_UNVERIFIED` / `BLOCKED` as applicable. Never silently fall back to the AIOS runner.
+## Mandatory before mutation
 
-Outputs: changed files, verification/evidence, explicit blockers, next handoff. See `chatgpt/PROJECT_INSTRUCTIONS.md`.
+1. Read `docs/PROJECT_CONTRACT.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/DEVELOPMENT_WORKFLOWS.md` and current ADRs, especially ADR-0001/0002/0006/0007. Check GitHub branch/commit and open Draft PRs; older uploaded snapshots are not authoritative.
+2. Confirm target repo/branch/worktree and task scope. Prefer branch + PR; no direct `main` rewrite, auto merge or publish. Do not modify `AIOS-renew` or other AIOS repos in this task.
+3. Use only Torrent TV GitHub Actions and dedicated self-hosted runner/workspace/credentials. Verify actual runner identity, labels, path and permissions before authorized run; never fallback to AIOS runner. Workflow YAML is not proof of online/pass.
+4. **Selective reuse only:** if copying code/script/workflow from AIOS, record exact source commit/path/license, file diff, security/secret review, dependencies, local adaptation and rollback. Do not import AIOS runtime, task transport or canonical governance.
+5. Keep OMP TypeScript/Preact + Capacitor UI and Android Kotlin native 2160 Player/Media3/VLC baseline. Windows/NAS TorrServer is external over trusted LAN. No Compose rewrite or torrent engine inside APK in P0.
+6. Preserve OMP website torrent source-search adapters and manual magnet/.torrent for **lawful/user-authorized sources**; do not add unauthorized scraping, piracy catalogs, DRM bypass or background crawling.
+7. Vietsub: UI `vi`, track `vi/vie`, UTF-8 SRT/VTT. Respect ADR-0006 G0/G1/G2/G3/G4 evidence split; no claim real TV/server PASS from source/mock.
+8. Agent/gateway/search ranking and AI voice-over are **proposed phased features**, not implemented capabilities. Require explicit confirmation for side effects, device pairing/auth, consent, legal media, cost and real E2E evidence.
+9. No implicit GitHub workflow execution, runner service install, Windows firewall/SMB/router/WAN change, TV root/ADB change, credential use, APK signing or release. Ask for operational approval when required.
+10. Audit GPL/license, OMP URL credential/userinfo leakage, secrets/logs and supply chain before import/distribution. Stop on unclear rights or environment.
+
+## Evidence labels
+
+`DECIDED`, `PROPOSED`, `UNVERIFIED`, `BLOCKED`. Use `BUILD_UNVERIFIED`, `RUNNER_UNVERIFIED`, `REAL_TV_UNVERIFIED`, `REAL_SERVER_UNVERIFIED`, `EXTERNAL_SRT_E2E_UNVERIFIED`, `AGENT_E2E_UNVERIFIED` when proof is missing.
+
+## Output
+
+Report changed files, diff intent, exact tests/evidence, blockers, compatibility with open PRs and next handoff. Do not invent workflow runs, successful builds or device results.

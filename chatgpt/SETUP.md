@@ -1,10 +1,11 @@
-# Tạo ChatGPT Project
+# Thiết lập ChatGPT Project — Torrent TV Vietsub
 
-1. Trong ChatGPT, chọn **Dự án mới / New project** ở thanh bên; tên: **Torrent TV Vietsub — AIOS**.
-2. Nếu có tùy chọn memory, chọn **Bộ nhớ chỉ dành cho dự án / Project-only** để cô lập khỏi các luồng AIOS và chat khác. Khi chọn chế độ này, phải tải/đính kèm các tài liệu dự án vào Project vì ChatGPT không tham chiếu các chat bên ngoài.
-3. Vào dấu ba chấm `•••` của Project -> **Cài đặt dự án / Project settings** -> **Instructions**. Dán toàn bộ file `chatgpt/PROJECT_INSTRUCTIONS.md`.
-4. Trong **Project sources**, thêm `docs/PROJECT_CONTRACT.md`, `docs/PRD.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md` và `planning/TVAPP-001-DRAFT.md` (có thể thêm files sau).
-5. Khi GitHub repo đã tạo, dùng liên kết GitHub của repo trong cuộc chat Project và gọi app GitHub (nếu đã kết nối) để kiểm tra commit/nhánh hiện hành trước việc sửa code. Tài liệu upload chỉ là snapshot, còn nguồn canonical của app là repo GitHub.
-6. Chat đầu tiên trong Project: "Đọc contract và PRD của dự án Torrent TV Vietsub. Kiểm tra GitHub repo ở nhánh main theo quyền truy cập, không dispatch AIOS. Báo các điểm DECIDED/UNVERIFIED và kế hoạch triển khai TVAPP-001."
+1. Tạo hoặc đổi tên Project thành **Torrent TV Vietsub** (bỏ hậu tố “— AIOS”). Project này quản lý sản phẩm độc lập.
+2. Trong Project settings → Instructions, dùng nội dung `chatgpt/PROJECT_INSTRUCTIONS.md`. Khi cần nguồn, ưu tiên repo GitHub `trung-via/torrent-tv-vietsub` và branch/commit thực, không coi file upload cũ là canonical.
+3. Thêm `docs/PROJECT_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/PRD.md`, `docs/ROADMAP.md`, `docs/SECURITY.md`, `docs/DEVELOPMENT_WORKFLOWS.md` và ADR-0007 vào Project sources nếu muốn dùng như tài liệu tham khảo.
+4. Các alias `OMP-EVAL-001`/`P1-G1` là backlog nội bộ Torrent TV, không phải TASK ID của AIOS. Không cấu hình AIOS Brain/dispatch hoặc chia sẻ runner/workspace/credentials.
+5. Nếu dùng GitHub integration, kiểm tra repository/branch/PR trước khi sửa; dùng PR review riêng của Torrent TV. Không tự bật Actions, điều khiển runner, Windows hay TV chỉ từ Project instructions.
 
-Không có API/connector hiện tại để tạo Project và ghi instructions tự động trong chính cuộc chat này; các bước giao diện cần người dùng thực hiện.
+**Ví dụ prompt mở đầu:** “Đọc contract và architecture hiện hành của Torrent TV Vietsub trên GitHub, kiểm tra Draft PR và các gate P0/P1. Không sử dụng AIOS runtime/dispatch; báo DECIDED/PROPOSED/UNVERIFIED và đề xuất PR nhỏ.”
+
+Việc đổi tên/thiết lập Project trong giao diện ChatGPT do người dùng thực hiện; tài liệu repo không tự đổi tên Project.

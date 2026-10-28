@@ -1,97 +1,86 @@
-# Torrent TV Vietsub — PRD v3.2-P1-PROPOSED (OMP-based / dedicated runner)
+# Torrent TV Vietsub — PRD v4.0 (independent, OMP-based)
 
-**Ngày cập nhật:** 2026-10-25  
-**Status:** Human-approved product direction; implementation, real device and real server UNVERIFIED.  
-**Authority:** `docs/PROJECT_CONTRACT.md` v1.3 proposed in PR #10 + ADR-0001/ADR-0002/ADR-0003/ADR-0006 (ADR-0005 là lịch sử SMB-first đã superseded một phần). Thay cho PRD v2 đề xuất Kotlin + Compose for TV app từ đầu.
+**Ngày:** 2026-10-28  
+**Status:** `DRAFT_FOR_PR_REVIEW`. Human đã chốt độc lập AIOS và hướng North Star AI Entertainment Agent; triển khai, hiệu năng và khả năng tương thích chưa tự động được xác minh.  
+**Authority:** `PROJECT_CONTRACT.md` v2.0 (sau merge), ADR-0001/0002/0006/0007; ADR-0005 chỉ là lịch sử SMB-first.
 
-## 1. Mục tiêu
+## 1. Sản phẩm và đối tượng
 
-Xây trên OMP upstream một ứng dụng xem video gia đình cho Android TV/Google TV với TorrServer Windows mặc định/NAS tùy chọn, hỗ trợ tìm torrent qua website theo yêu cầu người dùng, thêm magnet/.torrent, thư viện series, D-pad và Vietsub/track tiếng Việt. Chỉ sử dụng nguồn và nội dung được phép. Không biến app thành kho phim vi phạm quyền.
+Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google TV/Redmi tương thích, sử dụng TorrServer ngoài TV trên Windows PC/NAS, giữ trải nghiệm OMP và ưu tiên tiếng Việt. Nguồn nội dung phải có quyền sử dụng, kể cả khi truy vấn bằng website adapter/indexer. Dự án có repo, backlog, workflow và runner riêng, **không phải sản phẩm con hoặc agent của AIOS**.
 
-## 2. Quyết định sản phẩm
+**North Star:** người dùng có thể yêu cầu “tìm video A chất lượng khoảng 2K, 8–12 GB, seeders báo >= 300, phát lên TV, ưu tiên audio/thuyết minh tiếng Việt”; hệ thống giải thích kết quả/độ tin cậy, xin xác nhận trước hành động, phát và báo trạng thái. Đây là **mục tiêu trải nghiệm**, không phải acceptance P0 hay lời khẳng định API/voice-over hiện đã hoạt động.
 
-- **DECIDED:** tái sử dụng OMP TypeScript/Preact, Capacitor, Android Kotlin native player (2160 Player/Media3 + VLC). Không xây Compose for TV client mới ở P0.
-- **DECIDED:** giữ website torrent source adapters hiện có trong OMP; các nguồn tìm website và nguồn tự cấu hình hợp lệ (TorrServer/Jackett/Prowlarr) phải còn truy cập được từ UI. Tìm kiếm theo yêu cầu người dùng, không chạy crawler trái phép.
-- **DECIDED:** TorrServer Windows PC / NAS riêng, LAN trusted; PC/NAS luôn cần bật khi xem. Không fork engine hay bundle TorrServer binary vào APK.
-- **DECIDED:** giữ OMP library, watch history, resume, multiple series/episodes, D-pad, native player, track selection và những tính năng player đã có.
-- **DECIDED:** ưu tiên Việt: UI `vi`; track `vi/vie`, SRT/VTT UTF-8; đảm bảo fallback nếu không có tiếng Việt.
-- **DECIDED:** repo GitHub PRIVATE, **Git workspace độc lập và dedicated self-hosted runner riêng cho Torrent TV Vietsub**; không dùng runner/Runtime workspace của `AIOS-renew` như môi trường mặc định. Tuyến điều phối AIOS đến runner này phải được xác minh riêng, chưa mặc định là hoạt động.
-- **DECIDED:** không đưa billing/paid OMP infrastructure, bot/VPS, tự động theo dõi nền, phone-local TorrServer hoặc TV autostart vào đường mặc định P0. Tách theo dependency, không phá tìm kiếm website. Phone remote/UI có sẵn có thể giữ; không xây companion app mới.
-- **PROPOSED P2:** Windows/NAS có thể tạo Vietsub/thuyết minh bằng ASR → dịch/QA → TTS → đồng bộ/mix/mux, chỉ opt-in và có quyền với nội dung.
+## 2. Những gì đã quyết định
 
-## 3. Người dùng và hành trình
+- **Client/server:** OMP-derived Preact/Capacitor UI + Android Kotlin 2160 Player/Media3/VLC; TorrServer Windows (default) hoặc NAS (optional), LAN only, không nhúng torrent engine vào APK.
+- **Nguồn:** giữ OMP website search adapters, nhập magnet/.torrent và nguồn người dùng cấu hình hợp lệ; không vận hành piracy index/scraper trái phép, không bypass DRM/ToS.
+- **Player:** library, series, history, resume, remote D-pad, track audio/subtitle; Việt hóa UI, `vi/vie` và SRT/VTT UTF-8. Kiểm chứng Redmi thật trước PASS.
+- **P1:** external subtitle source-agnostic, capability trước transport; SMB/USB/phone chưa chọn default.
+- **Vận hành:** GitHub repo PRIVATE, dedicated runner/workspace/CI/release riêng. AIOS chỉ là nguồn tham khảo code/workflow sau audit; không có AIOS admission/dispatch/Brain/Runtime.
+- **AI:** Windows/NAS optional opt-in; Vietsub trước voice-over; consent, quyền sử dụng, QA, sync và cost gate.
 
-1. Cài OMP-derived APK trên TV/box tương thích; chỉ sau device gate xác minh model/API/ABI/remote.
-2. Cấu hình địa chỉ TorrServer Windows/NAS qua LAN. TV không phải nơi chạy torrent engine.
-3. Thêm magnet/.torrent qua OMP UI/web UI, **hoặc tìm qua website source** trong OMP rồi chọn nội dung có quyền sử dụng; chỉ khi nguồn/điều khoản cho phép.
-4. Duyệt thư viện, chọn phim/series/tập, resume và phát bằng native player.
-5. Ưu tiên tiếng Việt nếu có audio/sub track; chọn track, SRT/VTT Unicode, điều chỉnh hiển thị.
-6. Nếu lỗi: thông báo phân loại server/network/auth, metadata/peers, decoder/player/subtitles.
+## 3. Hành trình người dùng theo giai đoạn
 
-## 4. P0 — Feasibility & localized fork
+**Hành trình nền P0/P1:** cài APK tương thích → cấu hình TorrServer LAN → nhập magnet/.torrent hợp pháp hoặc chọn nguồn tìm website có quyền → chọn file/series → phát/tua/resume bằng D-pad → chọn track Việt hoặc external SRT/VTT → nhận lỗi có hướng xử lý.
 
-| Workstream | Acceptance |
-|---|---|
-| Infrastructure | Runner self-hosted **riêng của dự án** có registration/labels, isolated workspace, Git remote và permissions được kiểm chứng; runner readiness có evidence hoặc `DEDICATED_RUNNER_UNVERIFIED` |
-| OMP upstream | Commit/submodule/dep lock, build sạch npm/Gradle và APK debug SHA; license GPL provenance |
-| Search sources | Website adapters upstream còn trong code và được gọi từ UI; kiểm chứng với nguồn/fixture hợp lệ; không buộc đăng ký dịch vụ OMP trả phí |
-| TorrServer | Local LAN configuration, API/seek/player verified thật hoặc `REAL_SERVER_UNVERIFIED` |
-| Player | Giữ Engine2160+VLC, D-pad/Back, episode, pause/seek/resume |
-| Việt hóa | UI TS và Android native `vi`; track `vi/vie` và Vietsub UTF-8 `.srt/.vtt` trên fixture |
-| Security | Không leak credentials từ URL/Basic Auth/log/backup; review permissions và startup/monitor |
-| Device | TV/box install & playback evidence hoặc `REAL_TV_UNVERIFIED` / `DEVICE_BLOCKED` |
+**Hành trình North Star P2/P3 (PROPOSED):** mô tả nội dung bằng ngôn ngữ tự nhiên → search adapters trả candidates có nguồn và metadata → lọc dung lượng/độ phân giải/seeders/codec/audio → giải thích bất định (“2K”/seeds) → người dùng duyệt bản → gateway riêng Torrent TV yêu cầu TorrServer thêm torrent và điều khiển TV → báo kết quả/trạng thái hoặc rollback.
 
-Trong P0 không viết lại player, không xây AI thuyết minh, không tự mở mạng Internet public hoặc dùng test phim không có quyền.
+**Hành trình AI P4/P5 (PROPOSED):** người dùng opt-in cho media có quyền → xử lý ASR/dịch/QA tạo `.vi.srt` → kiểm tra thời gian và hiển thị → tùy chọn TTS/align/mix/mux audio Việt → xem trước và đo sync, seek, chi phí. Không bắt buộc real-time.
 
-## 5. P1 — Dùng thường ngày
+## 4. Yêu cầu theo phase
 
-- Tối ưu dịch tiếng Việt, font, subtitle offset/size, bản audio tiếng Việt được nhớ theo phim/series.
-- **DECIDED P1a, phân tầng bằng chứng theo V1 audit:** G0 chỉ PoC VLC render một SRT UTF-8 self-authored từ debug asset vào app-private, khai báo lúc mở phim, đo tiếng Việt Unicode + D-pad + audio + seek trên Redmi thật (`LOCAL_SRT_RENDER_PASS` nếu đủ proof). G1 là thử **file ngoài APK** với track/media binding, lỗi, seek/resume và persistence qua reopen không có debug re-injection (`EXTERNAL_SRT_E2E_PASS` chỉ sau proof riêng). G2 hot-add, G3 sync theo clip/cue kiểm soát và G4 release isolation được báo độc lập. Trước test thực: `UNVERIFIED`; chưa xây SMB/phone transport.
-- **PROPOSED P1b:** sau P1a, thử/so sánh Android local file picker/USB, Windows SMB read-only, điện thoại và phương án ít hạ tầng hơn; lựa chọn default UX/transport do Human quyết định sau evidence. Remote vẫn điều khiển phát và chọn track; không bắt buộc duyệt file Windows bằng remote trong P1a. **SMB-first và SMB Android client ở ADR-0005 đã được Human rút khỏi baseline P1** (ADR-0006), không tự tạo Windows share/Firewall/backend.
-- Kiểm thử ASS/SSA và PGS riêng; phone gửi file từ LAN là nhánh sau khi đường nạp SRT hoạt động.
-- Củng cố LAN reconnect/error UX và phone-to-TV remote vốn có trong OMP; không thêm app mobile mới nếu chưa có bằng chứng.
-- Giữ tìm torrent website; dependency isolation và policy quyền truy cập/credential rõ ràng.
-- Release APK chỉ sau license/security check, TV thật, Human approval.
+| Phase | Tính năng | Acceptance |
+| --- | --- | --- |
+| P0 Foundation | OMP provenance/build, runner riêng, Windows TorrServer, manual magnet, D-pad/player, Vietsub cơ bản | Build hash + legal fixture + real TV/server evidence độc lập |
+| P1 Daily use | SRT/VTT ngoài torrent, track binding, reopen, lỗi, UX transport | G0 render ≠ G1 external import ≠ G2 hot-add ≠ G3 sync ≠ G4 release |
+| P2 Search intelligence | Legal source adapters, metadata, filter/rank, manual confirmation | Candidate source proof, no unauthorized crawling, negative tests |
+| P3 Agent control | Local gateway riêng, permission, TV pairing/play/status, ChatGPT integration optional | Real E2E source→confirmation→TorrServer→TV, auth/audit |
+| P4 AI Vietsub | ASR/translation/QA offline opt-in, subtitle output | Chất lượng Việt, cue timing, provenance, consent, measured cost |
+| P5 AI voice-over | TTS/align/ducking/mix/mux, optional external audio | Audio sync, pause/seek, resource/latency/cost PoC; real-time riêng |
 
-## 6. P2 — AI Vietsub / Thuyết minh (opt-in)
+## 5. Acceptance chi tiết
 
-- PoC 1 video tự tạo/open-license trên Windows/NAS: text/subtitle source → dịch/hiệu đính → giọng TTS Việt → align timestamps, thử mux audio track rồi phát qua OMP.
-- Nếu cần voice-over trên nền âm thanh gốc, khảo sát mixing/ducking/delay và sync khi pause/seek trước khi sản phẩm hóa.
-- Chi phí, tài nguyên và chất lượng dịch/đọc cần đo; không ghi dữ liệu riêng tư vào repo, không tự chạy background.
+### P0: không làm giả evidence
 
-## 7. Technical inventory và vị trí thay đổi
+- OMP upstream và submodule `2160player` được pin SHA, license/dependencies audit, build clean TypeScript/Android, APK checksum.
+- Website source adapters vẫn truy cập được từ UI với test source/fixture hợp pháp; không buộc OMP billing để dùng core search.
+- TorrServer Windows/NAS thật: version, API/auth, stream/seek/Range, offline/timeout/no peers.
+- Redmi/TV thật: firmware/API/ABI, sideload/launch, remote D-pad/Back, codec, audio, subtitle Unicode, resume.
+- Runner workflow: exact repo/branch/runner/isolated workspace; test manual có ủy quyền. YAML tồn tại ≠ job PASS.
 
-```text
-OMP upstream (clone/submodule after authorization)
-  src/api/torrserver.ts
-  src/sources/*               # GIỮ website sources
-  src/i18n/*                  # thêm vi
-  src/lib/tracks.ts           # vi/vie + filename language aliases
-  src/player/trackPrefs.ts
-  src/player/nativePlayer.ts
-  android/app/.../player/     # 2160 Player/Media3 + VLC
-  android/vendor/2160player  # Git submodule
-Windows/NAS TorrServer       # external, not vendored
-docs/ + planning/            # contract, ADR, AC and evidence
-```
+### P1: external subtitle
 
-Pin upstream OMP và submodule riêng; không tuyên bố snapshot audit là build đã PASS. CI workflows, third-party ops và secret distribution phải được kiểm tra trước khi mang qua target.
+- G0 debug-only local fixture chứng minh VLC render tiếng Việt; không suy ra file ngoài APK.
+- G1 file SRT/VTT **ngoài APK**, đúng phim/tập, off/on, pause/seek/reopen, lỗi và persistence không có debug re-injection.
+- G2 hot-add, G3 sync với clip/cue chuẩn, G4 release không có debug fixture/hook: các gate riêng.
+- Chỉ sau capability chọn transport qua Android picker/USB, SMB read-only, phone transfer hoặc phương án khác; Human duyệt, không tự mở SMB/firewall.
 
-## 8. Rủi ro và verification
+### P2/P3: search/agent
 
-- **License:** OMP GPL-3.0-only; khi import mã hoặc phân phối APK phải giữ license/attribution và điều kiện cung cấp source tương ứng. Rà soát dependency và third-party notices.
-- **Security:** OMP `videoSrc()` hiện có thể gắn userinfo trong URL; đường native/VLC/WebView yêu cầu evidence không leak credential. Không log magnet/passkey/IP/secret.
-- **Nguồn torrent:** giữ website search, nhưng kết quả/indexer có thể chứa nội dung không được phép, site có login/captcha hoặc không hoạt động; không bypass truy cập hoặc cam kết mọi nguồn hợp pháp.
-- **Runtime:** TV Redmi nội địa chưa chắc cùng Google TV quốc tế; 4K/HEVC/HDR/audio/subtitle cần test thật.
-- **Testing:** unit/mock PASS không thay thế TV/server thật. Negative tests server offline/auth/timeout/peers/decoder/subtitles và search source failures.
-- **Governance:** `OMP-EVAL-001` chỉ là planning alias. AIOS canonical author/dispatch cần fresh Brain Sync + authorization, target cross-repo isolation **và xác thực tuyến tới runner riêng**, cùng review. Không tự chuyển tác vụ qua AIOS runner khi chưa hỗ trợ dispatch riêng.
+- “2K” phải định nghĩa rõ (ví dụ 2560×1440 hoặc DCI 2048×1080); candidate seeders do indexer báo có timestamp, không bảo đảm peers thật. Size/codec/resolution cần kiểm tra metadata thực.
+- Không có hành động add torrent, mở stream hoặc điều khiển thiết bị có side effect nếu thiếu xác nhận/permission; error typed và audit không lộ secret.
+- ChatGPT có thể là giao diện intent tùy chọn; gateway của Torrent TV là runtime độc lập. Không giả định ChatGPT có LAN access, không triển khai remote shell.
 
-## 9. Roadmap / next
+### P4/P5: media AI
 
-Tham chiếu `docs/ROADMAP.md`, `planning/OMP-EVAL-001-DRAFT.md`. Bước đầu tiên: read-only audit → authorized isolated clone/build → thử fixture hợp pháp → đề xuất nhập mã OMP qua PR. Không auto merge, release hoặc thay đổi `AIOS-renew`.
+- Chỉ media có quyền dịch/xử lý; consent và chi phí rõ; lưu/xóa file đầu ra có kiểm soát.
+- QA translation, timing, subtitle display; voice-over thử mux hoặc external audio với seek/pause và mixing. Không tuyên bố hỗ trợ thuyết minh thời gian thực trước benchmark.
 
-## 10. Tham chiếu upstream
+## 6. Ngoài phạm vi / giới hạn
 
-- https://github.com/spacesarmat/omp — OMP, audited commit `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f` (snapshot 2026-10-25).
-- https://github.com/spacesarmat/2160player — Git submodule/player.
-- https://github.com/YouROK/TorrServer — TorrServer streaming host.
+Không tự vận hành kho phim lậu, bypass DRM/paywall/captcha, root TV, mở WAN/UPnP, viết BitTorrent engine, nhúng TorrServer binary, viết lại Compose UI trong P0, xây OMP paid billing/bot/VPS, tự động cài Windows service/firewall, đồng bộ AIOS runtime hoặc cho agent thực thi lệnh shell tùy ý. Release và thay đổi host cần Human phê duyệt.
+
+## 7. Tech inventory / dependency
+
+- OMP: `src/api/torrserver.ts`, `src/sources/*`, `src/i18n/*`, `src/lib/tracks.ts`, `src/player/*`, Android player Kotlin, `android/vendor/2160player`. Audit snapshot trước đó `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f` không tự chứng minh build sản phẩm.
+- TorrServer: upstream ngoài APK; wire schema và version deployed phải probe, xem `TORRSERVER_INTERFACE.md`.
+- GitHub Actions và runner: thuộc repo Torrent TV; có thể kế thừa **mẫu** từ AIOS sau provenance/security/license review, không kế thừa AIOS authority.
+- P2/P3 gateway/source-ranking, P4/P5 AI worker: thiết kế mới của Torrent TV, chưa phải modules đã có.
+
+## 8. Rủi ro và quyết định còn mở
+
+Firmware Redmi nội địa; API TorrServer; source terms; license GPL của OMP và dependencies; credential userinfo trong stream URL; seeders không chính xác; phụ đề rời/hot-add; TV pairing; chi phí/độ trễ voice-over. Tất cả cần proof, ADR và test riêng. Kết quả Deep Research khi hoàn tất sẽ được xem như **đầu vào review**, không tự ghi đè contract hoặc thay status UNVERIFIED.
+
+## 9. Next
+
+Audit các Draft PR hiện có, không tự rebase/merge; kiểm chứng workflow/runner hiện hành; thực hiện PoC hợp pháp P0–P1 rồi đánh giá P2/P3. Mọi task là backlog **Torrent TV**, không có TASK ID hay dispatch của AIOS.
