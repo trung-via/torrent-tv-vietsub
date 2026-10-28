@@ -136,7 +136,7 @@ Các gate độc lập: một job build PASS không chứng minh TV thật; demo
 - **P4 — Tích hợp AI Vietsub:** nối output P2-AISUB vào OMP TV/UX sau khi G1 external subtitle E2E đạt; không lặp lại offline PoC.
 - **P5 — AI voice-over:** TTS/align/mix/mux PoC trước, real-time chỉ là giả thuyết cần đo; không mặc định P0–P4 phụ thuộc P5.
 
-Roadmap là thứ tự phụ thuộc, không cam kết lịch/chi phí cho đến khi PoC và nghiên cứu có kết quả.
+Roadmap thể hiện thứ tự phụ thuộc, không cam kết lịch/chi phí. Deep Research đã hoàn thành và được đối chiếu, nhưng ước tính trong báo cáo chưa được hiệu chỉnh cho OMP-first; thời lượng, tài nguyên và hiệu năng thực tế phải đo qua PoC có bằng chứng.
 
 ## C8 — Authority và quản trị thay đổi
 
