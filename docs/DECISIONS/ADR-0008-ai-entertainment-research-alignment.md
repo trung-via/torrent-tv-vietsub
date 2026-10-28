@@ -24,6 +24,8 @@ The research proposes ChatGPT -> Home Media Gateway -> Discovery/Verification ->
 - Report's new native player timeline/effort does not directly apply to OMP-first. Its proposed 6–10-week/54–103-person-day POC is not a project commitment.
 - Gates are G-OMP, G-SERVER, G-TV, G-P1, G-VERIFY, G-GATEWAY, G-AGENT, G-AUDIO-BATCH, G-ROLLING and G-MCP, with independent evidence.
 - This ADR is a **DRAFT proposal**, not an accepted implementation mandate; only existing Human-decided OMP/AIOS boundaries are binding.
+- Preserve Human-decided P2 on-demand AI Vietsub goal from Draft PR #9/ADR-0004: timed SRT/VTT cue translation first, ASR if no text, local-first CLI. P2-AISUB may proceed without Gateway; P4 denotes later OMP TV integration, and voice-over remains separate.
+- Preserve Draft PR #15 P1a acceptance AC-01..08 and G0–G4; PR #38 Debug/unit build PASS must not mask G1-SUB-01 real-TV auto-render FAIL. G1-PLAY-01 speed remains UNCONFIRMED.
 - Retain other Draft PRs. Do not merge PR #39, run workflows, install Prowlarr, open network ports, launch AI processing, or change source code under this docs update.
 
 ## Rollback

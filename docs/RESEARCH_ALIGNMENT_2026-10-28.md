@@ -124,6 +124,14 @@ Playback fallback: wait/increase buffer -> alternate lawful candidate -> lower b
 - Rights to stream, reproduce, translate and make derivative audio must be checked for media/fixture; BitTorrent protocol does not imply media is licensed. Cloud consent and retention are separate from copyright.
 - Use repo-specific PR/ADR/CI and explicit Human approvals. Do not turn on Windows services, runner jobs, server/network ports, AI audio or merges by editing docs.
 
+## Active Draft PR reconciliation (2026-10-28)
+
+- Draft PR #9 contains Human-decided AI Vietsub on-demand P2 feature goal; distinguish P2-AISUB offline PoC from P2-SOURCE search; P4 integrates output into OMP TV after P1a G1. Do not require Gateway for offline PoC.
+- Draft PR #15 preserves AC-01..08 / G0..G4, functionality-first subtitle acceptance and deferred font styling.
+- Draft PR #37 has Human-attested P0 Windows TorrServer→Redmi OMP playback/seek/reopen smoke PASS for its observed setup only; full G-SERVER/G-TV remains separately gated.
+- Draft PR #38 Actions run #40533478080 Debug/unit PASS, but on-TV G1-SUB-01 saved track auto-render after reopen remains FAIL. The speed concern G1-PLAY-01 was reclassified UNCONFIRMED; do not implement speculative workaround.
+- See planning/PR39-RECONCILIATION-20261028.md for merge-order and plugin drift review.
+
 ## Acceptance ordering
 
 G-DEV/G-OMP (pin OMP/submodule SHA, license, build, runner proof) -> G-SERVER/G-TV (actual TorrServer and exact Redmi firmware plus lawful direct playback/seek) -> G-P1 external Vietsub -> G-VERIFY (legal search, provenance/probe) -> G-GATEWAY (FSM/security) -> G-AGENT (authorized candidate + confirmed actual OMP TV session) -> G-AUDIO-BATCH (licensed voice-over QA) -> G-ROLLING + G-MCP (optional advanced gates). P1 and independent audio research can overlap without blocking manual playback.

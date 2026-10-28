@@ -70,7 +70,7 @@ GitHub Actions là CI/CD; runner là executor do repo quản lý; gateway là ru
 | Candidate evaluator | Resolution, size, codecs, seeds, source proof | PROPOSED; seeders là chỉ số báo cáo, không bảo đảm peers |
 | Torrent TV gateway | Narrow actions, confirmation, status, audit | PROPOSED; riêng repo/runtime Torrent TV, không AIOS |
 | TV-control adapter | Pair/launch/play/status trên thiết bị hỗ trợ | PROPOSED; lựa chọn ADB/Cast/native API sau test thật |
-| AI media worker | ASR, dịch, QA, TTS, align, mux/mix | P4/P5 opt-in, Windows/NAS, chưa hứa real-time |
+| AI Vietsub / media worker | P2-AISUB local-first offline timed subtitle translation/ASR/QA; P4 OMP TV integration; P5 TTS/align/mix | P2 feature goal Human-decided in Draft PR #9; implementation unverified |
 | Development workflows | lint/test/build/CI/artifact/release gates | GitHub Actions + dedicated runner; không AIOS |
 
 **Contract candidates (đề xuất, không phải API đã có):** `SearchCandidate{sourceId,sourceTermsEvidence,title,resolutionRaw,width,height,sizeBytes,seedersReported,seedersObservedAt,codec,audioTracks,subtitleTracks,magnetRef}`; `PlayRequest{candidateId,fileId,deviceId,confirmedByUser}`; `PlaybackStatus{state,position,errorCode}`. Không đưa passkey, magnet hoặc token vào model context, logs, issue, PR.
@@ -135,9 +135,10 @@ Optional ChatGPT / AI Intent
 | --- | --- | --- |
 | P0 | OMP build, legal fixture, TorrServer Windows LAN, D-pad, SRT/VTT | G-DEV/G-OMP/G-SERVER/G-TV/G-VI |
 | P1 | External SRT/VTT, đúng phim/tập, reopen; chọn transport sau PoC | G-P1 độc lập G0–G4 |
-| P2 | Lawful source search + metadata/filter/rank, manual confirmation | G-SOURCE, candidate audit, negative tests |
+| P2-SOURCE | Lawful source search + metadata/filter/rank, manual confirmation | G-SOURCE, candidate audit, negative tests |
+| P2-AISUB | Human-decided on-demand Vietsub goal (Draft PR #9); offline translate timed SRT/VTT first, ASR fallback | QA and resources on lawful clips; TV E2E after G1 |
 | P3 | Torrent TV gateway + TV control + optional ChatGPT tool | G-AGENT real E2E, pairing/security |
-| P4 | ASR/dịch/QA → Vietsub offline opt-in | sample QA + provenance/cost |
+| P4 | Optional integration of P2-AISUB Vietsub into OMP TV | G1 external-file import/track binding/seek/cue sync |
 | P5 | TTS/voice-over/mix/mux, real-time feasibility riêng | G-VOICE sync/seek/resource evidence |
 
 **PoC 2–4 tuần là kế hoạch đề xuất, không cam kết:** tuần 1 runner/build/device inventory; tuần 2 real TorrServer→TV + Vietnamese subtitle; tuần 3 legal-source candidate filter; tuần 4 optional gateway control prototype nếu hai gate đầu PASS. Nếu không có TV/server/quyền nguồn, báo BLOCKED và không nâng scope.
