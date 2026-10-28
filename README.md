@@ -1,41 +1,38 @@
 # Torrent TV Vietsub
 
-**Dự án độc lập — không thuộc AIOS.** Ứng dụng xem video gia đình trên Android TV/Google TV/Redmi tương thích, từ magnet/.torrent và các nguồn người dùng có quyền sử dụng; ưu tiên Vietsub, audio tiếng Việt và trải nghiệm remote.
+**Dự án độc lập với AIOS.** Ứng dụng xem video gia đình trên Android TV/Google TV/Redmi tương thích, sử dụng magnet/.torrent và các nguồn người dùng có quyền truy cập; ưu tiên Vietsub, audio tiếng Việt và remote D-pad.
 
-**Trạng thái:** GitHub repo PRIVATE. `main` hiện là baseline tài liệu OMP-based; các PoC và nhiều Draft PR có lịch sử riêng. Việc có workflow/PR không tự chứng minh APK, Redmi, TorrServer hoặc AI agent đã nghiệm thu. Hướng mới và tài liệu v2/v3/v4 đang ở PR review.
+## Kiến trúc được chọn: OMP-first
 
-## Kiến trúc sản phẩm
+**Tiếp tục phát triển trên mã nguồn OMP**, không viết lại ứng dụng bằng **Kotlin + Jetpack Compose + Media3**. OMP cung cấp UI TypeScript/Preact + Capacitor và các native player Kotlin/2160 Player/Media3/VLC *bên trong chính OMP*. Tùy biến OMP cho tiếng Việt, tìm kiếm nguồn hợp lệ, thư viện, resume, phụ đề và trải nghiệm TV.
 
 ```text
-TV/phone user ── OMP-derived UI (Preact/Capacitor)
-                       |    Android native 2160/Media3 + VLC
-                       |               ^
-                       v               | LAN media stream
-                 TorrServer Windows/NAS
-                       ^
-Optional Torrent TV gateway + allowed search/AI worker (future, opt-in)
+User / TV remote / phone
+            |
+  OMP-derived UI + native player (existing OMP stack)
+            |                         ^
+            v                         | HTTP stream on trusted LAN
+    TorrServer on Windows/NAS --------+
+            ^
+Optional Torrent TV search/gateway/AI worker
+(PROPOSED, opt-in; no AIOS runtime)
 ```
 
-- **Đã quyết định:** OMP baseline, Windows PC TorrServer mặc định/NAS tùy chọn, website torrent source adapters và manual magnet, D-pad/library/resume, tiếng Việt, P1 external SRT/VTT source-agnostic.
-- **North Star:** tìm/lọc nội dung hợp pháp theo yêu cầu tự nhiên, chọn bản phù hợp, phát lên TV, hỗ trợ AI Vietsub/thuyết minh theo opt-in. Gateway/TV control/AI voice-over **chưa được xác minh**, không mặc nhiên có trong MVP.
-- Không vận hành piracy catalog, crawler trái phép, DRM bypass, WAN-exposed TorrServer/gateway hoặc BitTorrent engine trong APK.
+Windows PC chạy TorrServer mặc định; NAS tùy chọn. TV là client, không nhúng torrent engine vào APK. Giữ OMP website torrent search adapters và nhập magnet/.torrent thủ công; chỉ dùng nguồn/media có quyền, không vận hành piracy catalog/crawler trái phép hoặc vượt DRM.
 
-## Dự án độc lập AIOS
+**North Star (đề xuất theo giai đoạn, chưa E2E):** lọc kết quả tìm kiếm hợp pháp theo chất lượng/dung lượng/metadata, xác nhận trước khi thêm torrent và phát lên TV; tùy chọn AI Vietsub/thuyết minh trên Windows/NAS sau PoC.
 
-Torrent TV sở hữu **Git repository, backlog/Issues, ADR/PR, GitHub Actions, self-hosted runner, workspace, credentials và release riêng**. Không sử dụng AIOS Brain Sync, TASK admission, executor, reviewer, dispatch, runtime hay runner. Chỉ được tham khảo/copy **từng thành phần mã nguồn hoặc mẫu workflow** từ AIOS sau khi kiểm tra commit/license/security và review PR; không có runtime dependency.
+## Phát triển hoàn toàn độc lập AIOS
 
-Xem [ADR-0007](docs/DECISIONS/ADR-0007-independent-project-and-selective-reuse.md) và [Development Workflows](docs/DEVELOPMENT_WORKFLOWS.md).
+Repo `trung-via/torrent-tv-vietsub` (PRIVATE) có GitHub Issues/PR/ADR, GitHub Actions, self-hosted runner, workspace, credentials, artifacts và release **riêng**. Không dùng AIOS Brain Sync, TASK/admission, dispatch, executor, review, runtime hoặc runner. Có thể **tái sử dụng chọn lọc** mã nguồn/mẫu GitHub Actions, runner guard, script từ AIOS sau kiểm tra provenance, license, secrets và PR review; không tạo phụ thuộc vận hành.
 
-## Tài liệu canonical sau khi merge
+## Tài liệu
 
-- [Project Contract](docs/PROJECT_CONTRACT.md): scope, quyền, gates, stop conditions.
-- [Architecture](docs/ARCHITECTURE.md): runtime/development plane và boundaries.
-- [PRD](docs/PRD.md), [Roadmap](docs/ROADMAP.md), [Security](docs/SECURITY.md).
-- [ADR-0001](docs/DECISIONS/ADR-0001-client-server.md), [ADR-0002](docs/DECISIONS/ADR-0002-omp-baseline.md), [ADR-0006](docs/DECISIONS/ADR-0006-p1-source-agnostic-external-subtitle.md), [ADR-0007](docs/DECISIONS/ADR-0007-independent-project-and-selective-reuse.md).
-- [OMP evaluation draft](planning/OMP-EVAL-001-DRAFT.md), [Agent instructions](AGENTS.md), [ChatGPT project instructions](chatgpt/PROJECT_INSTRUCTIONS.md).
+- [Project Contract v2.0](docs/PROJECT_CONTRACT.md), [Architecture v3.0](docs/ARCHITECTURE.md), [PRD v4.0](docs/PRD.md), [Roadmap v3.0](docs/ROADMAP.md).
+- [Development Workflows](docs/DEVELOPMENT_WORKFLOWS.md), [Security](docs/SECURITY.md), [ADR-0007 — Independence](docs/DECISIONS/ADR-0007-independent-project-and-selective-reuse.md).
+- [ADR-0001 — Windows/NAS](docs/DECISIONS/ADR-0001-client-server.md), [ADR-0002 — OMP](docs/DECISIONS/ADR-0002-omp-baseline.md), [ADR-0006 — external subtitle](docs/DECISIONS/ADR-0006-p1-source-agnostic-external-subtitle.md).
+- [OMP feasibility draft](planning/OMP-EVAL-001-DRAFT.md), [AGENTS.md](AGENTS.md), [ChatGPT instructions](chatgpt/PROJECT_INSTRUCTIONS.md).
 
-## First execution gate
+**Trạng thái:** `main` và nhiều Draft PR/PoC có lịch sử riêng; tài liệu mới ở PR review chưa đồng nghĩa code/build/TV/server/agent đã PASS. Kiểm tra commit, runner, real TV/server evidence trước kết luận. Không auto merge, trigger workflow, thay Windows/TV/network hay publish APK.
 
-Audit workflow/runner thật và các Draft PR đang mở; pin OMP/submodule, GPL/dependency/security review, clean build, thử media legal trên TorrServer Windows và TV Redmi thật. Chỉ chạy CI/ADB/install/release theo phê duyệt cụ thể; không auto merge, không sửa repo AIOS.
-
-**License:** OMP upstream được audit là GPL-3.0-only; xác minh license của mọi dependency và nghĩa vụ cung cấp source tương ứng trước khi phân phối APK. Repo PRIVATE không tự miễn nghĩa vụ GPL.
+**License:** audit OMP GPL-3.0-only, submodule và third-party licenses trước import/phân phối; repo PRIVATE không tự miễn nghĩa vụ GPL.

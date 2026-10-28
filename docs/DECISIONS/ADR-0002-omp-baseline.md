@@ -1,5 +1,8 @@
 # ADR-0002 — Chọn OMP làm nền tảng ứng dụng TV, giữ nguồn tìm torrent website
 
+> **Tái xác nhận 2026-10-28 (Human):** **OMP là codebase chính thức để tiếp tục phát triển Torrent TV Vietsub. Không xây lại ứng dụng Android TV mới bằng Kotlin + Jetpack Compose + Media3.** Kotlin/2160 Player/Media3/VLC chỉ là các native components đã có **bên trong OMP**. ADR-0007 xác định dự án độc lập hoàn toàn AIOS; phần AIOS (nếu có) chỉ là bối cảnh lịch sử.
+
+
 **Ngày:** 2026-10-25  
 **Status:** ACCEPTED — Human-approved product direction; technical feasibility UNVERIFIED  
 **Supersedes:** phần triển khai client Kotlin + Compose for TV mới của baseline v1; **không thay thế** ADR-0001 về Windows/NAS + TorrServer.

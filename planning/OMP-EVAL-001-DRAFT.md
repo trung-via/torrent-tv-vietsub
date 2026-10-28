@@ -1,48 +1,43 @@
-# OMP-EVAL-001 — Torrent TV internal feasibility task (DRAFT)
+# OMP-EVAL-001 — Feasibility task nội bộ Torrent TV (DRAFT)
 
-**Date:** 2026-10-28  
-**Status:** `DRAFT_ONLY / NOT_DISPATCHED`; planning alias nội bộ Torrent TV, **không phải AIOS TASK**.  
-**Target:** `trung-via/torrent-tv-vietsub` PRIVATE, dedicated runner/workspace, independent GitHub Actions.  
-**Authority:** `PROJECT_CONTRACT.md` v2.0 after merge, ADR-0001/0002/0006/0007, `DEVELOPMENT_WORKFLOWS.md`.  
-**Upstream audit snapshot (not build pin proof):** `spacesarmat/omp@52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f`; verify submodule/lockfiles/license again.
+**Status:** `DRAFT_ONLY / NOT_DISPATCHED` — alias backlog **Torrent TV**, không phải AIOS TASK.  
+**Target:** `trung-via/torrent-tv-vietsub` PRIVATE, GitHub Actions/runner/workspace riêng.  
+**Authority:** Project Contract v2.0 (sau merge), ADR-0001/0002/0006/0007, Development Workflows.  
+**Upstream audit snapshot:** `spacesarmat/omp@52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f` (không tự chứng minh build pin).
 
 ## Objective
 
-Đánh giá có bằng chứng việc sử dụng OMP làm nền tảng Torrent TV: build APK, website source search vẫn hoạt động với nguồn hợp pháp, player/remote/Vietsub, security/GPL, TorrServer Windows/NAS và Redmi TV thật. Không nhập mã upstream vào `main` trước khi có PR review.
+Chứng minh **OMP là nền tảng phát triển phù hợp** và giữ các tính năng website source search, native player 2160/Media3/VLC, Vietsub và remote; **không dựng lại app Kotlin + Compose + Media3**. Audit license/security, build debug, thử TorrServer Windows/NAS và Redmi TV thật bằng media hợp pháp.
 
-## A — Read-only audit (không cần AIOS)
+## A — Read-only audit
 
-1. Kiểm tra target repo/branch/open Draft PRs; xác minh runner riêng bằng GitHub registration, labels, online/run evidence, isolated workspace/permissions. Không dùng AIOS runner/worktree/credentials; không cần Brain Sync/NEXT/admission/dispatch.
-2. Audit source OMP commit, `2160player` submodule SHA, lockfiles, license/dependencies, billing/background modules, manifest, URL credentials và source adapters. Giữ website search; không gọi website không có quyền.
-3. Đối chiếu toolchain và các workflow đã có trong `.github/workflows/`; không tự chạy hoặc chỉnh service. Nếu copy pattern từ AIOS, phải có provenance/license/secret review và PR riêng.
-4. Xác minh scope, fixtures legal, thiết bị/host có thể test; ghi rõ những gì chưa có evidence.
+1. Xác minh repo/branch/SHA, Draft PRs, GitHub runner registration/online/labels/workspace isolation. Không cần AIOS Brain Sync/NEXT/admission/dispatch, không dùng AIOS runner.
+2. Pin OMP upstream commit, `android/vendor/2160player` submodule SHA, lockfiles, license/dependencies; inventory website adapters, user-configured sources, paid/bot/background modules và URL credentials.
+3. Audit workflow repo Torrent TV. Nếu tham khảo mã/mẫu AIOS, ghi commit/path/license và security review trước khi copy.
+4. Xác minh fixture hợp pháp, firmware/API/ABI Redmi, Windows TorrServer version/API, auth/stream/Range; ghi thiếu evidence là UNVERIFIED.
 
-## B — Isolated build (chỉ khi có approval)
+## B — Isolated build (only when authorized)
 
-- Clone OMP pinned + recursive submodules vào **workspace riêng của Torrent TV**, không import thẳng `main`; dùng runner đúng repo và trusted ref.
-- Chạy npm/TypeScript build/test và Android Gradle debug/test theo upstream đã xác minh; ghi versions, APK SHA, sanitized logs, failure taxonomy.
-- Smoke legal-source UI/search, manual magnet, player track parsing, server offline/timeout/auth, không dùng media không có quyền.
-- Nếu license/provenance/credential issue không thể giải quyết, STOP; không tự publish.
+- Clone pinned OMP + recursive submodule trên **runner/workspace riêng Torrent TV**, không import thẳng vào `main`.
+- Chạy npm/TypeScript, Capacitor/Android Gradle build/test theo upstream đã xác minh; lưu tool versions, APK SHA và logs đã redact.
+- Smoke UI/source search với legal fixture; manual magnet, track/Unicode, server offline/auth/no peers; không tự crawler hoặc publish.
+- STOP nếu license, provenance, secrets hoặc toolchain không an toàn.
 
-## C — Real device/server (chỉ khi được phép)
+## C — Real device/server (only when authorized)
 
-- Redmi model/firmware/API/ABI, sideload, D-pad/Back, player video/audio/seek/resume, Vietnamese UI/SRT.
-- Windows/NAS TorrServer deployed version/API, LAN health/list/stream/Range/auth/seek, legal media fixture.
-- P1 SRT external: theo ADR-0006, G0 debug render không phải G1 ngoài APK; hot-add, sync, release gate độc lập.
+- Redmi thật: install, D-pad/Back, video/audio/seek/resume, SRT/VTT tiếng Việt, external subtitle G0/G1/G2/G3/G4 tách riêng.
+- Windows/NAS TorrServer thật: version/API, legal fixture, stream/seek/Range/auth/offline.
+- Không báo PASS từ mock/build/PR tên “test”.
 
 ## Acceptance
 
 | Gate | Evidence |
 | --- | --- |
-| AC-DEV | Dedicated Torrent TV runner/workspace, repo-scoped GitHub Actions, no AIOS dependency; run ID nếu đã authorized |
-| AC-OMP | OMP/submodule pinned SHA, license inventory, clean build/tests, APK checksum |
-| AC-SOURCE | Website search adapters còn hoạt động trong UI với nguồn/fixture được phép |
-| AC-SEC | No secrets/userinfo leak; permissions, background/billing isolation review |
-| AC-SERVER | Real TorrServer Windows/NAS evidence hoặc `REAL_SERVER_UNVERIFIED` |
-| AC-TV | Real Redmi evidence hoặc `REAL_TV_UNVERIFIED` |
-| AC-P1 | External subtitle G0/G1/G2/G3/G4 riêng, không false PASS |
-| AC-CHANGE | Không auto merge, dispatch, publish, mở Windows service/firewall/SMB/WAN, không sửa AIOS |
+| DEV | Dedicated runner/workspace/CI của Torrent TV, không AIOS dependency; run ID nếu đã chạy |
+| OMP | Pin SHA/license, build/test/APK checksum, website search còn hoạt động |
+| SECURITY | Không leak secret/userinfo; kiểm manifest và dependency |
+| SERVER/TV | Real host/device logs/firmware hoặc `REAL_SERVER_UNVERIFIED`/`REAL_TV_UNVERIFIED` |
+| P1 | External SRT gates G0–G4 riêng |
+| CHANGE | Không auto merge/dispatch/publish, không sửa AIOS, Windows/TV/network |
 
-## Deliverables
-
-Report với source/commit, diff/provenance, build/test logs sanitized, license/security findings, legal source-search inventory, real TV/server matrix và đề xuất PR nhỏ. Chưa có evidence thì `UNVERIFIED`/`BLOCKED`; không hứa kết quả Deep Research chưa được công bố.
+**Deliverable:** evidence matrix, sanitized logs, licensing/security findings, legal source inventory, đề xuất PR nhỏ/rollback. Không tự chạy workflow hoặc cài TV từ tài liệu.

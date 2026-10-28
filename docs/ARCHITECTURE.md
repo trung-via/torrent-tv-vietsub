@@ -30,7 +30,9 @@ local gateway               |                   |
                      (ASR/translate/TTS/align/mux; Windows/NAS)
 ```
 
-**Đường P0:** OMP UI hoặc TorrServer Web UI nhập magnet/.torrent hợp pháp → TorrServer Windows/NAS → Android TV native player → track Việt/Vietsub. Website source search hiện có của OMP được giữ, nhưng test nguồn riêng theo điều khoản.
+**Quyết định client:** **OMP là application codebase chính thức**. Không triển khai một client Android TV mới theo hướng Kotlin + Compose + Media3. Kotlin/Media3/2160/VLC được nhắc trong sơ đồ là player components **nằm trong OMP**, không phải stack thay thế OMP.
+
+**Đường P0:** OMP UI hoặc TorrServer Web UI nhập magnet/.torrent hợp pháp → TorrServer Windows/NAS → Android TV native player thuộc OMP → track Việt/Vietsub. Website source search hiện có của OMP được giữ, nhưng test nguồn riêng theo điều khoản.
 
 **Đường North Star (chưa triển khai):** yêu cầu ngôn ngữ tự nhiên → agent nhận intent → gateway có auth → search nguồn cho phép → filter/rank candidates → Human xác nhận → thêm vào TorrServer → chọn file/play TV → trả status; AI Vietsub/voice-over là bước riêng, opt-in. ChatGPT không được coi là có quyền truy cập LAN trực tiếp.
 

@@ -12,7 +12,7 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 
 ## 2. Những gì đã quyết định
 
-- **Client/server:** OMP-derived Preact/Capacitor UI + Android Kotlin 2160 Player/Media3/VLC; TorrServer Windows (default) hoặc NAS (optional), LAN only, không nhúng torrent engine vào APK.
+- **Client/server (OMP FIRST):** dùng **OMP upstream làm codebase chính**, tùy biến Preact/Capacitor UI và native player **có sẵn bên trong OMP** (Kotlin/2160 Player/Media3/VLC); **không viết lại app mới bằng Kotlin + Jetpack Compose + Media3**. TorrServer Windows (default) hoặc NAS (optional), LAN only, không nhúng torrent engine vào APK.
 - **Nguồn:** giữ OMP website search adapters, nhập magnet/.torrent và nguồn người dùng cấu hình hợp lệ; không vận hành piracy index/scraper trái phép, không bypass DRM/ToS.
 - **Player:** library, series, history, resume, remote D-pad, track audio/subtitle; Việt hóa UI, `vi/vie` và SRT/VTT UTF-8. Kiểm chứng Redmi thật trước PASS.
 - **P1:** external subtitle source-agnostic, capability trước transport; SMB/USB/phone chưa chọn default.

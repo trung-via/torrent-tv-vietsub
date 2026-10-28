@@ -15,7 +15,7 @@ Dự án đã có GitHub repo riêng và các GitHub Actions thủ công. Tuy v�
 2. Không tạo liên kết phụ thuộc giữa Torrent TV và `AIOS-renew`: không gọi API, runner, workflow, secrets, journals, locks, workspace, router, canonical tasks hay dữ liệu AIOS. Không sửa repo AIOS khi làm việc trong repo này.
 3. Được phép **tham khảo hoặc copy thủ công từng phần** từ AIOS: YAML workflows, shell/PowerShell helper, mẫu CI, guard runner, checklist hoặc kiến trúc build. Mỗi lần phải ghi nguồn commit, license, diff, dependency, security review, adaptation và rollback trong PR.
 4. Self-hosted runner **riêng của Torrent TV** vẫn là quyết định bắt buộc; có thể đặt cùng host vật lý nếu isolation đủ, nhưng không dùng chung runner identity/worktree/cache/credentials/Runtime với AIOS. GitHub Actions phải repo-scoped, least-privilege, manual hoặc trusted PR-safe, không trigger từ AIOS.
-5. Product runtime chỉ có OMP-derived app, TorrServer Windows/NAS và các module Torrent TV được phê duyệt về sau (local gateway/AI worker). **Gateway không phải AIOS**.
+5. Product runtime dùng **OMP làm application codebase chính**, TorrServer Windows/NAS và các module Torrent TV được phê duyệt về sau (local gateway/AI worker). **Không phát triển lại client Kotlin + Compose + Media3**; Kotlin/Media3 trong tài liệu chỉ là native playback components của OMP. **Gateway không phải AIOS**.
 6. Mọi nghiên cứu về agent/voice-over/search là product roadmap có gate riêng, không mặc nhiên bật automation hay khai báo tính năng đã hoạt động.
 
 ## Consequences

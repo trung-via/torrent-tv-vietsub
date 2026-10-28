@@ -1,5 +1,8 @@
 # ADR-0006 — P1 source-agnostic external subtitle trước khi chọn cách chuyển file
 
+> **Current authority note (2026-10-28):** P1 source-agnostic/G0–G4 của ADR này vẫn giữ nguyên. Mọi tham chiếu bên dưới đến AIOS canonical admission/dispatch/runner chỉ là lịch sử và **được ADR-0007 supersede**. Torrent TV phát triển trên **OMP** (không viết lại Kotlin + Compose + Media3) và có workflow/runner riêng, độc lập AIOS.
+
+
 **Ngày:** 2026-10-25  
 **Trạng thái:** `ACCEPTED_PRODUCT_SCOPE / PROPOSED_IMPLEMENTATION / REAL_TV_E2E_UNVERIFIED`  
 **Authority:** Human đồng ý kết luận architecture audit: P1 nhận/hiển thị/quản lý SRT/VTT rời trước; SMB chỉ còn phương án ứng viên.  

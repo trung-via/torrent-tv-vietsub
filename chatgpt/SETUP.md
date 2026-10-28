@@ -1,11 +1,9 @@
 # Thiết lập ChatGPT Project — Torrent TV Vietsub
 
-1. Tạo hoặc đổi tên Project thành **Torrent TV Vietsub** (bỏ hậu tố “— AIOS”). Project này quản lý sản phẩm độc lập.
-2. Trong Project settings → Instructions, dùng nội dung `chatgpt/PROJECT_INSTRUCTIONS.md`. Khi cần nguồn, ưu tiên repo GitHub `trung-via/torrent-tv-vietsub` và branch/commit thực, không coi file upload cũ là canonical.
-3. Thêm `docs/PROJECT_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/PRD.md`, `docs/ROADMAP.md`, `docs/SECURITY.md`, `docs/DEVELOPMENT_WORKFLOWS.md` và ADR-0007 vào Project sources nếu muốn dùng như tài liệu tham khảo.
-4. Các alias `OMP-EVAL-001`/`P1-G1` là backlog nội bộ Torrent TV, không phải TASK ID của AIOS. Không cấu hình AIOS Brain/dispatch hoặc chia sẻ runner/workspace/credentials.
-5. Nếu dùng GitHub integration, kiểm tra repository/branch/PR trước khi sửa; dùng PR review riêng của Torrent TV. Không tự bật Actions, điều khiển runner, Windows hay TV chỉ từ Project instructions.
+1. Tạo hoặc đổi tên ChatGPT Project thành **Torrent TV Vietsub** (không có hậu tố “— AIOS”). Đây là dự án độc lập.
+2. Trong Project settings → Instructions, sử dụng `chatgpt/PROJECT_INSTRUCTIONS.md`.
+3. Trong Project sources, có thể thêm `docs/PROJECT_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/PRD.md`, `docs/ROADMAP.md`, `docs/SECURITY.md`, `docs/DEVELOPMENT_WORKFLOWS.md`, ADR-0002/0006/0007. Khi có quyền GitHub, ưu tiên branch/commit thực so với bản upload cũ.
+4. Workflow/runner/PR là của **Torrent TV**; không cấu hình AIOS Brain/TASK/dispatch hoặc dùng chung AIOS runner/credentials.
+5. Ví dụ prompt: “Đọc contract và architecture hiện hành của Torrent TV trên GitHub; giữ OMP làm codebase, không viết lại Kotlin + Compose + Media3; kiểm tra Draft PR và gate P0/P1; không dùng AIOS runtime/dispatch.”
 
-**Ví dụ prompt mở đầu:** “Đọc contract và architecture hiện hành của Torrent TV Vietsub trên GitHub, kiểm tra Draft PR và các gate P0/P1. Không sử dụng AIOS runtime/dispatch; báo DECIDED/PROPOSED/UNVERIFIED và đề xuất PR nhỏ.”
-
-Việc đổi tên/thiết lập Project trong giao diện ChatGPT do người dùng thực hiện; tài liệu repo không tự đổi tên Project.
+Việc đổi tên hoặc cấu hình Project trong giao diện ChatGPT do người dùng thực hiện; cập nhật tài liệu GitHub không tự đổi tên Project.
