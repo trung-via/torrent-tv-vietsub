@@ -15,3 +15,10 @@
 9. Audit GPL/dependencies, native stream URL credential leakage, CI logs và artifacts; không báo mock/build là `REAL_TV_PASS`/`REAL_SERVER_PASS`.
 
 **Output:** changed files, acceptance/evidence, explicit `DECIDED`/`PROPOSED`/`UNVERIFIED`/`BLOCKED`, risks, blockers, next handoff. Không tự nhận Deep Research, TV hoặc runner đã PASS nếu chưa có evidence.
+
+## Deep Research alignment — project engineering rules
+
+- Review docs/RESEARCH_ALIGNMENT_2026-10-28.md and proposed ADR-0008 for discovery, session Gateway, media verification and AI voice-over work. Research is not deployed evidence or acceptance of every technology suggestion.
+- **OMP-first outranks the report's separate Kotlin/Media3 app workstream**. Extend existing OMP Preact/Capacitor and 2160/Media3/VLC native layers only after actual source/device proof.
+- Keep manual playback and OMP website sources. Treat reported/scraped/connected seeders as separate observations, probe real media, prioritize embedded vi audio + external SRT/VTT, and batch licensed voice-over before rolling.
+- Do not expose native TorrServer /mcp/admin to ChatGPT, put credentials in TV URLs, open WAN, assume MCP tunnel entitlement or rely on AIOS admission/dispatch. Use Torrent TV PRs/review/CI and record measured gate evidence.

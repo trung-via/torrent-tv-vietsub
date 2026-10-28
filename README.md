@@ -36,3 +36,7 @@ Repo `trung-via/torrent-tv-vietsub` (PRIVATE) có GitHub Issues/PR/ADR, GitHub A
 **Trạng thái:** `main` và nhiều Draft PR/PoC có lịch sử riêng; tài liệu mới ở PR review chưa đồng nghĩa code/build/TV/server/agent đã PASS. Kiểm tra commit, runner, real TV/server evidence trước kết luận. Không auto merge, trigger workflow, thay Windows/TV/network hay publish APK.
 
 **License:** audit OMP GPL-3.0-only, submodule và third-party licenses trước import/phân phối; repo PRIVATE không tự miễn nghĩa vụ GPL.
+
+## AI Entertainment Agent research direction (not shipped)
+
+The completed 2026-10-28 Deep Research has been reconciled into [Research Alignment](docs/RESEARCH_ALIGNMENT_2026-10-28.md) and proposed [ADR-0008](docs/DECISIONS/ADR-0008-ai-entertainment-research-alignment.md). North Star: optional Torrent TV Gateway and lawful Discovery/Verification -> TorrServer Windows/NAS -> **OMP-based TV app**, existing Vietnamese track first, Vietsub, then opt-in batch AI voice-over and later rolling/MCP after evidence. No native Kotlin/Compose app rewrite, no AIOS dependency, no unverified E2E claims.

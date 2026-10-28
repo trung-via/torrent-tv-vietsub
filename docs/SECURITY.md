@@ -35,3 +35,15 @@
 - Test lỗi server offline/auth/no peers, stream/seek/Range, source failure, subtitle malformed/permission, TV pairing và agent confirmation bằng fixture hợp pháp.
 - Build/CI PASS không đồng nghĩa TV thật/server thật PASS. Ghi `REAL_TV_UNVERIFIED`, `REAL_SERVER_UNVERIFIED`, `AGENT_E2E_UNVERIFIED` nếu thiếu evidence.
 - STOP nếu thiếu license/quyền media, lộ secrets, phải bypass DRM/ToS, cần mở WAN/host service chưa được phép, dùng AIOS infrastructure hoặc phải báo mock như real E2E.
+
+## Deep Research gateway security baseline (PROPOSED; required before enablement)
+
+- **No direct ChatGPT -> TorrServer native MCP:** Gateway provides narrow semantic search/verify/prepare/play/status actions. Do not expose TorrServer admin, raw /mcp, raw tracker credentials, private magnet, shell_exec or arbitrary_http_get. Native TorrServer API and credentials remain LAN-only.
+- **Device pairing:** OMP-native integration only after Redmi/firmware gate; short pairing code confirmed in trusted UI, device identity in platform keystore when available, session-scoped short-lived tickets, auth manifest retrieval, token rotation/revocation. Do not put raw magnet or TorrServer Basic Auth into TV session packets.
+- **Untrusted data:** release names/indexer descriptions are NOT instructions. Sanitize source IDs, parse only structured metadata, block SSRF against localhost/private metadata/control interfaces, disallow arbitrary redirects, shell and URL execution; cap magnet length and metadata timeouts.
+- **Side effects:** add/prepare/play/stop/cleanup require scoped permissions, user confirmation according to action policy, idempotency/replay protection and sanitized audit logs. Indexer admin changes and deletion are privileged operations not available to end-user AI tools.
+- **Cloud AI:** explicit local_only / cloud_allowed / cloud_preferred processing policy, rights/consent, cost and retention limits. No silent audio upload; no unauthorized cloning of real actors' voices.
+- **Connectivity:** Secure MCP Tunnel claimed in Deep Research is a candidate pending verification of current official docs, account permissions and threat model. Never port-forward TorrServer 8090 or open public inbound gateway as a workaround.
+- **Attack tests:** forged device tickets, replayed sessions, indexer prompt injection, SSRF, playlist/stream URL userinfo leaks (including OMP native/VLC), auth failure, missing metadata/peers, cloud consent refusal and failure rollback.
+
+Reference: RESEARCH_ALIGNMENT_2026-10-28.md, proposed ADR-0008. This section does not activate a service or change Windows/TV/network security settings.
