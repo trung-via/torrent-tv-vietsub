@@ -1,5 +1,8 @@
 # ADR-0003 — Dedicated Git repository, workspace and self-hosted runner
 
+> **Superseded interpretation (Human 2026-10-28):** [ADR-0007](ADR-0007-independent-project-and-selective-reuse.md) thay thế toàn bộ giả định AIOS có thể là canonical admission/dispatch/runner bridge. **Torrent TV độc lập AIOS**, chỉ dùng GitHub Actions/runner/workspace/PR riêng; AIOS chỉ là nguồn tham khảo/copy mã hoặc mẫu workflow sau audit. Nội dung AIOS bên dưới là **lịch sử, không còn hiệu lực triển khai**. Quyết định runner/workspace riêng vẫn được giữ.
+
+
 **Decision:** ACCEPTED — reaffirmed directly by Human on 2026-10-25 in this project conversation.  
 **Implementation:** UNVERIFIED — repository exists; runner registration/online, workspace and dispatch bridge have not been independently proven.  
 **Scope:** infrastructure/execution for `trung-via/torrent-tv-vietsub`; complements ADR-0001 (Windows/NAS TorrServer) and ADR-0002 (OMP app).

@@ -1,40 +1,42 @@
-# Torrent TV Vietsub — AIOS
+# Torrent TV Vietsub
 
-Dự án phát video từ magnet/.torrent được phép sử dụng, Vietsub và ưu tiên audio tiếng Việt trên Redmi/Xiaomi A Pro 55 (2026) hoặc Android TV/Google TV box tương thích.
+**Dự án độc lập với AIOS.** Ứng dụng xem video gia đình trên Android TV/Google TV/Redmi tương thích, sử dụng magnet/.torrent và các nguồn người dùng có quyền truy cập; ưu tiên Vietsub, audio tiếng Việt và remote D-pad.
 
-**Trạng thái:** Repo GitHub PRIVATE, docs-first. Human đã phê duyệt **kiến trúc dựa trên OMP** ngày 2026-10-25; chưa import/build code OMP tại repo, chưa xác minh APK trên TV hoặc TorrServer thật.
+## Kiến trúc được chọn: OMP-first
 
-## Kiến trúc quyết định
+**Tiếp tục phát triển trên mã nguồn OMP**, không viết lại ứng dụng bằng **Kotlin + Jetpack Compose + Media3**. OMP cung cấp UI TypeScript/Preact + Capacitor và các native player Kotlin/2160 Player/Media3/VLC *bên trong chính OMP*. Tùy biến OMP cho tiếng Việt, tìm kiếm nguồn hợp lệ, thư viện, resume, phụ đề và trải nghiệm TV.
 
 ```text
-Phone/TV search (OMP website adapters, user-configured sources) or manual magnet/.torrent
-        |
-        v
-OMP TypeScript/Preact + Capacitor UI / Android native Kotlin
-        |                              |
-        | TorrServer LAN API           +-- Engine2160 (Media3) / VLC player + Vietsub
-        v                              ^
-Windows PC (default) / NAS (optional) TorrServer -- HTTP stream --
+User / TV remote / phone
+            |
+  OMP-derived UI + native player (existing OMP stack)
+            |                         ^
+            v                         | HTTP stream on trusted LAN
+    TorrServer on Windows/NAS --------+
+            ^
+Optional Torrent TV search/gateway/AI worker
+(PROPOSED, opt-in; no AIOS runtime)
 ```
 
-**Giữ chức năng tìm torrent qua website upstream OMP**; không tắt adapters vì quyết định fork. Chỉ dùng nguồn/nội dung được phép, không điều hành kho phim lậu/crawler trái phép hoặc vượt DRM. Không yêu cầu OMP paid billing/VPS/bot trong đường chuẩn của sản phẩm.
+Windows PC chạy TorrServer mặc định; NAS tùy chọn. TV là client, không nhúng torrent engine vào APK. Giữ OMP website torrent search adapters và nhập magnet/.torrent thủ công; chỉ dùng nguồn/media có quyền, không vận hành piracy catalog/crawler trái phép hoặc vượt DRM.
 
-## Đọc trước khi triển khai
+**North Star (đề xuất theo giai đoạn, chưa E2E):** lọc kết quả tìm kiếm hợp pháp theo chất lượng/dung lượng/metadata, xác nhận trước khi thêm torrent và phát lên TV; tùy chọn AI Vietsub/thuyết minh trên Windows/NAS sau PoC.
 
-1. [Project Contract v1.1](docs/PROJECT_CONTRACT.md): authority, phạm vi, compliance và acceptance.
-2. [ADR-0002](docs/DECISIONS/ADR-0002-omp-baseline.md): Human quyết định dùng OMP và giữ website search.
-3. [PRD v3](docs/PRD.md) và [Architecture v2](docs/ARCHITECTURE.md).
-4. [Roadmap](docs/ROADMAP.md) và [OMP-EVAL-001 draft](planning/OMP-EVAL-001-DRAFT.md).
-5. [AGENTS.md](AGENTS.md) và [ChatGPT project instructions](chatgpt/PROJECT_INSTRUCTIONS.md).
+## Phát triển hoàn toàn độc lập AIOS
 
-## Runner / workspace riêng
+Repo `trung-via/torrent-tv-vietsub` (PRIVATE) có GitHub Issues/PR/ADR, GitHub Actions, self-hosted runner, workspace, credentials, artifacts và release **riêng**. Không dùng AIOS Brain Sync, TASK/admission, dispatch, executor, review, runtime hoặc runner. Có thể **tái sử dụng chọn lọc** mã nguồn/mẫu GitHub Actions, runner guard, script từ AIOS sau kiểm tra provenance, license, secrets và PR review; không tạo phụ thuộc vận hành.
 
-**DECIDED (Human):** dự án sử dụng GitHub repo PRIVATE, workspace Git độc lập và **self-hosted runner riêng**, không dùng runner/workspace của AIOS-renew làm mặc định. **UNVERIFIED:** chưa có bằng chứng provisioning/registration/online của dedicated runner, cũng chưa xác nhận đường AIOS dispatch hợp lệ tới runner đó. Không cài dịch vụ, bật GitHub workflow hay thay đổi Windows/network khi chưa được ủy quyền. Xem [ADR-0003](docs/DECISIONS/ADR-0003-dedicated-repo-workspace-runner.md).
+## Tài liệu
 
-## Repo trạng thái và bước đầu
+- [Project Contract v2.0](docs/PROJECT_CONTRACT.md), [Architecture v3.0](docs/ARCHITECTURE.md), [PRD v4.0](docs/PRD.md), [Roadmap v3.0](docs/ROADMAP.md).
+- [Development Workflows](docs/DEVELOPMENT_WORKFLOWS.md), [Security](docs/SECURITY.md), [ADR-0007 — Independence](docs/DECISIONS/ADR-0007-independent-project-and-selective-reuse.md).
+- [ADR-0001 — Windows/NAS](docs/DECISIONS/ADR-0001-client-server.md), [ADR-0002 — OMP](docs/DECISIONS/ADR-0002-omp-baseline.md), [ADR-0006 — external subtitle](docs/DECISIONS/ADR-0006-p1-source-agnostic-external-subtitle.md).
+- [OMP feasibility draft](planning/OMP-EVAL-001-DRAFT.md), [AGENTS.md](AGENTS.md), [ChatGPT instructions](chatgpt/PROJECT_INSTRUCTIONS.md).
 
-Repo chỉ có docs/planning; **chưa clone upstream OMP vào `main`**. First gate là feasibility: pin OMP commit và 2160 Player submodule, audit GPL/security, build debug, giữ search sources, rồi thử TV/server thật có phép. `TVAPP-001` kiểu dựng Compose shell đã superseded; chưa có canonical AIOS TASK/dispatch.
+**Trạng thái:** `main` và nhiều Draft PR/PoC có lịch sử riêng; tài liệu mới ở PR review chưa đồng nghĩa code/build/TV/server/agent đã PASS. Kiểm tra commit, runner, real TV/server evidence trước kết luận. Không auto merge, trigger workflow, thay Windows/TV/network hay publish APK.
 
-## Quyền sử dụng / license
+**License:** audit OMP GPL-3.0-only, submodule và third-party licenses trước import/phân phối; repo PRIVATE không tự miễn nghĩa vụ GPL.
 
-OMP upstream là GPL-3.0-only; khi nhập source phải tuân thủ GPL và license của dependencies. Repo PRIVATE không miễn nghĩa vụ cung cấp mã nguồn tương ứng nếu phân phối APK. TorrServer dùng upstream bên ngoài, không bundle vào APK. Không thay đổi `AIOS-renew` hoặc tự kích hoạt workflow/release.
+## AI Entertainment Agent research direction (not shipped)
+
+The completed 2026-10-28 Deep Research has been reconciled into [Research Alignment](docs/RESEARCH_ALIGNMENT_2026-10-28.md) and proposed [ADR-0008](docs/DECISIONS/ADR-0008-ai-entertainment-research-alignment.md). North Star: optional Torrent TV Gateway and lawful Discovery/Verification -> TorrServer Windows/NAS -> **OMP-based TV app**, existing Vietnamese track first, Vietsub, then opt-in batch AI voice-over and later rolling/MCP after evidence. No native Kotlin/Compose app rewrite, no AIOS dependency, no unverified E2E claims.
