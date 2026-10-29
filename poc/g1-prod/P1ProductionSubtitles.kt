@@ -74,6 +74,21 @@ internal object P1ProductionSubtitles {
         else -> fallback
     }
 
+    /** Only the exact saved external sidecar can satisfy the persisted ON choice.
+     *  Null: ordinary OMP picks; -1: external VLC ES has not arrived yet.
+     *  Source ownership/digest validation remains in prepare(), not this pure test seam.
+     */
+    internal fun savedSidecarTrackIndex(
+        picks: List<TrackPick>, files: List<SubFile>, tracks: List<EngineTrack>,
+    ): Int? {
+        if (picks.size != 1 || picks[0] != TrackPick(label = LABEL)) return null
+        val matches = files.indices.filter { i ->
+            files[i].label == LABEL && files[i].url.startsWith("file://")
+        }
+        if (matches.size != 1) return null
+        return tracks.indexOfFirst { it.external == matches.single() }
+    }
+
     data class ItemTransition(val picks: List<TrackPick>, val warning: String? = null)
 
     fun hasAnySaved(ctx: Context, r: PlayRequest): Boolean =

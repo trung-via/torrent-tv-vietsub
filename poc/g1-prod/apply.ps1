@@ -86,11 +86,11 @@ if (-not (Test-Path -LiteralPath $helper -PathType Leaf) -or (Test-Path -Literal
     throw 'STOP: production source helper absent or duplicate'
 }
 $helperHash = (& git -C $AppRepoRoot hash-object -- $helper | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $helperHash -cne 'cdcfecced9325ef7cc5ac60f0168c625050b27ec') {
+if ($LASTEXITCODE -ne 0 -or $helperHash -cne '2732405d5b9ac2523e2b531815e6783803e14b7c') {
     throw 'STOP: source helper blob pin incorrect'
 }
 $testHash = (& git -C $AppRepoRoot hash-object -- $test | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $testHash -cne '1316e3d71034c7b43f57f93a25f3d894773b878b') {
+if ($LASTEXITCODE -ne 0 -or $testHash -cne 'f4b0a7dda39172f7b9171cb8b4022689018810c1') {
     throw 'STOP: G1 Production unit test blob pin incorrect'
 }
 function Once([string]$s,[string]$old,[string]$replacement) {
@@ -197,6 +197,12 @@ $f = Once $src[5] '    fun goTo(i: Int, next: PlayerEngine? = null): Boolean {' 
 $f = Once $f '        pendingSub = carried?.second?.takeIf { it.external == null }' (
     '        pendingSub = if (subtitlePicksForItem != null) null else carried?.second?.takeIf { it.external == null }'+$nl+
     '        if (subtitlePicksForItem != null) subPicks = subtitlePicksForItem')
+$f = Once $f ('                wantSub = false'+$nl+'                val n = DubMatch.pickSub(list, item()?.subtitles ?: emptyList(), subPicks)') (
+    '                val files = item()?.subtitles ?: emptyList()'+$nl+
+    '                val saved = P1ProductionSubtitles.savedSidecarTrackIndex(subPicks, files, list)'+$nl+
+    '                val n = saved ?: DubMatch.pickSub(list, files, subPicks)'+$nl+
+    '                if (saved != null && n < 0) return'+$nl+
+    '                wantSub = false')
 if ($d.Contains('P1G1CSubtitleRegistry') -or $d.Contains('P1G0SubtitleProbe')) {
     throw 'STOP: cannot stack production source over debug PoC'
 }

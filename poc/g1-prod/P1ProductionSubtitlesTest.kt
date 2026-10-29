@@ -68,6 +68,68 @@ class P1ProductionSubtitlesTest {
         assertEquals(baseline, P1ProductionSubtitles.transitionPicks(null, false, baseline))
     }
 
+    @Test fun savedSidecarWaitsForLateExternalTrackInsteadOfImpostorEmbeddedTrack() {
+        val engine = FakeEngine()
+        val ui = object : PlayerSession.Ui {
+            override fun changed() {}
+            override fun itemEnded() {}
+        }
+        val sidecar = SubFile("file:///app/a.srt", label, "srt", "vi")
+        val q = QueueItem("http://example.invalid/a", "A", "a".repeat(40), 0, listOf(sidecar), 0)
+        val session = PlayerSession(engine, ui)
+        session.load(request().copy(queue = listOf(q), subPick = listOf(TrackPick(label = label))))
+
+        // VLC initially reports embedded subtitles, including a misleading same-label title.
+        val embedded = EngineTrack("embedded", "vi", label)
+        engine.subs = listOf(embedded)
+        assertEquals(-1, P1ProductionSubtitles.savedSidecarTrackIndex(
+            listOf(TrackPick(label = label)), q.subtitles, engine.subs))
+        engine.listener!!.onTracksChanged()
+        assertEquals("unset", engine.selectedSubId)
+
+        // Once addSlave/mapExternal fires a later track event, select only that file.
+        engine.subs = listOf(embedded, EngineTrack("late", "vi", label, external = 0))
+        assertEquals(1, P1ProductionSubtitles.savedSidecarTrackIndex(
+            listOf(TrackPick(label = label)), q.subtitles, engine.subs))
+        engine.listener!!.onTracksChanged()
+        assertEquals("late", engine.selectedSubId)
+
+        // The one-shot automatic choice must not override a later manual selection.
+        engine.selectedSubId = "user-selected"
+        engine.listener!!.onTracksChanged()
+        assertEquals("user-selected", engine.selectedSubId)
+    }
+
+    @Test fun offAndOtherChoicesAreNotReappliedWhenSavedSidecarArrivesLate() {
+        val sidecar = SubFile("file:///app/a.srt", label, "srt", "vi")
+        val q = QueueItem("http://example.invalid/a", "A", "a".repeat(40), 0, listOf(sidecar), 0)
+        val expected = listOf(TrackPick(label = label))
+        assertNull(P1ProductionSubtitles.savedSidecarTrackIndex(
+            listOf(TrackPick(off = true)), q.subtitles, emptyList()))
+        assertNull(P1ProductionSubtitles.savedSidecarTrackIndex(
+            listOf(TrackPick(label = "Other")), q.subtitles, emptyList()))
+        assertNull(P1ProductionSubtitles.savedSidecarTrackIndex(
+            expected, emptyList(), emptyList()))
+
+        for (selected in listOf("off", "e0")) {
+            val engine = FakeEngine()
+            val ui = object : PlayerSession.Ui {
+                override fun changed() {}
+                override fun itemEnded() {}
+            }
+            val session = PlayerSession(engine, ui)
+            session.load(request().copy(queue = listOf(q), subPick = expected))
+            engine.subs = listOf(EngineTrack("embedded", "en", "Other"))
+            engine.listener!!.onTracksChanged() // saved ON remains pending
+            assertEquals("unset", engine.selectedSubId)
+            session.selectSub(selected) // explicit user choice wins
+            val userChoice = engine.selectedSubId
+            engine.subs = engine.subs + EngineTrack("late", "vi", label, external = 0)
+            engine.listener!!.onTracksChanged()
+            assertEquals(userChoice, engine.selectedSubId)
+        }
+    }
+
     @Test fun sessionAppliesEachEpisodeChoiceWithoutDroppingResume() {
         val engine = FakeEngine()
         val ui = object : PlayerSession.Ui {
