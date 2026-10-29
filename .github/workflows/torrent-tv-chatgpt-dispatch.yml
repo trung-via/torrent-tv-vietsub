@@ -1,0 +1,70 @@
+# Human-reviewed, allowlisted ChatGPT -> GitHub Actions bridge.
+# Install on the repository's DEFAULT branch (`main`) once.
+# This workflow executes no PR checkout or source code itself.
+name: Torrent TV - ChatGPT G1 Debug Dispatch Bridge
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: torrent-tv-chatgpt-g1-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch-reviewed-g1:
+    if: >-
+      ${{
+        github.repository == 'trung-via/torrent-tv-vietsub' &&
+        github.event.repository.private == true &&
+        github.actor == 'trung-via' &&
+        github.event.comment.author_association == 'OWNER' &&
+        github.event.issue.number == 38 &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.body == '/tv-action g1-prod-debug 75d88a38046b2d6e8e36b2d185bc93c14b7ea62c'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify exact reviewed PR revision and reject duplicate active build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo='trung-via/torrent-tv-vietsub'
+          branch='feature/g1-production-sidecar-picker-20261027'
+          expected_head='e9fca65a39a70ca4e91e7f2ad9fbafc75724136d'
+          expected_source='75d88a38046b2d6e8e36b2d185bc93c14b7ea62c'
+
+          actual_head="$(gh api "repos/$repo/pulls/38" --jq '.head.sha')"
+          [[ "$actual_head" == "$expected_head" ]] || {
+            echo 'BLOCKED: PR #38 head changed; review and update bridge first.'
+            exit 1
+          }
+          state="$(gh api "repos/$repo/pulls/38" --jq '.state')"
+          [[ "$state" == 'open' ]] || { echo 'BLOCKED: PR #38 is not open'; exit 1; }
+
+          # Verify that the already-reviewed manual workflow checks out the
+          # immutable source. This is an informational double-check; its own
+          # immutable checkout and event/branch/runner guards remain mandatory.
+          contents="$(gh api "repos/$repo/contents/.github/workflows/p1-g1d-ux-pr29-manual.yml?ref=$branch" --jq '.content' | base64 --decode)"
+          grep -Fq "ref: $expected_source" <<< "$contents" || {
+            echo 'BLOCKED: target workflow source pin drift.'
+            exit 1
+          }
+          active="$(gh run list --repo "$repo" --workflow p1-g1d-ux-pr29-manual.yml --branch "$branch" --limit 20 --json status --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested")] | length')"
+          [[ "$active" == '0' ]] || {
+            echo 'BLOCKED: another G1 Production build is queued or running.'
+            exit 1
+          }
+
+          gh workflow run p1-g1d-ux-pr29-manual.yml \
+            --repo "$repo" \
+            --ref "$branch" \
+            -f confirmation=BUILD_G1_PROD_DEBUG_ONCE
+          echo 'DISPATCH_REQUESTED_G1_PROD_DEBUG_PINNED_SOURCE'
