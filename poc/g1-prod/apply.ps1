@@ -197,11 +197,13 @@ $f = Once $src[5] '    fun goTo(i: Int, next: PlayerEngine? = null): Boolean {' 
 $f = Once $f '        pendingSub = carried?.second?.takeIf { it.external == null }' (
     '        pendingSub = if (subtitlePicksForItem != null) null else carried?.second?.takeIf { it.external == null }'+$nl+
     '        if (subtitlePicksForItem != null) subPicks = subtitlePicksForItem')
-$f = Once $f ('                wantSub = false'+$nl+'                val n = DubMatch.pickSub(list, item()?.subtitles ?: emptyList(), subPicks)') (
-    '                val files = item()?.subtitles ?: emptyList()'+$nl+
-    '                val saved = P1ProductionSubtitles.savedSidecarTrackIndex(subPicks, files, list)'+$nl+
-    '                val n = saved ?: DubMatch.pickSub(list, files, subPicks)'+$nl+
-    '                if (saved != null && n < 0) return'+$nl+
+# Tolerate upstream LF/CRLF (Git for Windows autocrlf may differ from PowerShell's Environment.NewLine).
+$nlF = if ($f.Contains("`r`n")) { "`r`n" } else { "`n" }
+$f = Once $f ('                wantSub = false'+$nlF+'                val n = DubMatch.pickSub(list, item()?.subtitles ?: emptyList(), subPicks)') (
+    '                val files = item()?.subtitles ?: emptyList()'+$nlF+
+    '                val saved = P1ProductionSubtitles.savedSidecarTrackIndex(subPicks, files, list)'+$nlF+
+    '                val n = saved ?: DubMatch.pickSub(list, files, subPicks)'+$nlF+
+    '                if (saved != null && n < 0) return'+$nlF+
     '                wantSub = false')
 if ($d.Contains('P1G1CSubtitleRegistry') -or $d.Contains('P1G0SubtitleProbe')) {
     throw 'STOP: cannot stack production source over debug PoC'
