@@ -10,6 +10,7 @@ on:
 permissions:
   actions: write
   contents: read
+  pull-requests: read # required to verify PR #38 head/state in a private repository
 
 concurrency:
   group: torrent-tv-chatgpt-g1-dispatch
