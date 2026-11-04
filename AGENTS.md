@@ -16,6 +16,13 @@
 
 **Output:** changed files, acceptance/evidence, explicit `DECIDED`/`PROPOSED`/`UNVERIFIED`/`BLOCKED`, risks, blockers, next handoff. Không tự nhận Deep Research, TV hoặc runner đã PASS nếu chưa có evidence.
 
+## Repo visibility và quy tắc tiếp tục khi PUBLIC
+
+- Human đã chấp thuận **PRIVATE hoặc PUBLIC**; không chặn task, PR, build, review hoặc milestone chỉ vì visibility chuyển PUBLIC. Không tự chuyển visibility, ký hay phát hành APK; giữ đúng branch/SHA và tất cả evidence/gates.
+- Trước khi công khai: audit **toàn bộ lịch sử có thể truy cập** (commits/branches/tags/releases), source/fixtures, credentials, tracker passkeys, magnet, IP LAN, log/artifact, OMP GPL và third-party notices. Chỉ đổi visibility khi Human cho phép rõ và đã xử lý blocker; không xóa lịch sử bừa bãi.
+- PUBLIC phải xem fork/issue/PR/comment là **untrusted**: không để mã PR lạ hoặc issue-triggered dispatch chạy trên self-hosted Windows runner chứa secret/host access. Job host chỉ với trusted ref, permissions tối thiểu, explicit review; không dùng `pull_request_target` để checkout/build mã PR không tin cậy.
+- Public **source** không biến TorrServer/TV/gateway thành dịch vụ Internet. Giữ LAN-only và yêu cầu phê duyệt riêng cho deployment, network và release.
+
 ## Deep Research alignment — project engineering rules
 
 - Review docs/RESEARCH_ALIGNMENT_2026-10-28.md and proposed ADR-0008 for discovery, session Gateway, media verification and AI voice-over work. Research is not deployed evidence or acceptance of every technology suggestion.
