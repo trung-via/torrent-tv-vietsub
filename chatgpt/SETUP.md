@@ -1,10 +1,9 @@
-# Tạo ChatGPT Project
+# Thiết lập ChatGPT Project — Torrent TV Vietsub
 
-1. Trong ChatGPT, chọn **Dự án mới / New project** ở thanh bên; tên: **Torrent TV Vietsub — AIOS**.
-2. Nếu có tùy chọn memory, chọn **Bộ nhớ chỉ dành cho dự án / Project-only** để cô lập khỏi các luồng AIOS và chat khác. Khi chọn chế độ này, phải tải/đính kèm các tài liệu dự án vào Project vì ChatGPT không tham chiếu các chat bên ngoài.
-3. Vào dấu ba chấm `•••` của Project -> **Cài đặt dự án / Project settings** -> **Instructions**. Dán toàn bộ file `chatgpt/PROJECT_INSTRUCTIONS.md`.
-4. Trong **Project sources**, thêm `docs/PROJECT_CONTRACT.md`, `docs/PRD.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md` và `planning/TVAPP-001-DRAFT.md` (có thể thêm files sau).
-5. Khi GitHub repo đã tạo, dùng liên kết GitHub của repo trong cuộc chat Project và gọi app GitHub (nếu đã kết nối) để kiểm tra commit/nhánh hiện hành trước việc sửa code. Tài liệu upload chỉ là snapshot, còn nguồn canonical của app là repo GitHub.
-6. Chat đầu tiên trong Project: "Đọc contract và PRD của dự án Torrent TV Vietsub. Kiểm tra GitHub repo ở nhánh main theo quyền truy cập, không dispatch AIOS. Báo các điểm DECIDED/UNVERIFIED và kế hoạch triển khai TVAPP-001."
+1. Tạo hoặc đổi tên ChatGPT Project thành **Torrent TV Vietsub** (không có hậu tố “— AIOS”). Đây là dự án độc lập.
+2. Trong Project settings → Instructions, sử dụng `chatgpt/PROJECT_INSTRUCTIONS.md`.
+3. Trong Project sources, có thể thêm `docs/PROJECT_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/PRD.md`, `docs/ROADMAP.md`, `docs/SECURITY.md`, `docs/DEVELOPMENT_WORKFLOWS.md`, ADR-0002/0006/0007. Khi có quyền GitHub, ưu tiên branch/commit thực so với bản upload cũ.
+4. Workflow/runner/PR là của **Torrent TV**; không cấu hình AIOS Brain/TASK/dispatch hoặc dùng chung AIOS runner/credentials.
+5. Ví dụ prompt: “Đọc contract và architecture hiện hành của Torrent TV trên GitHub; giữ OMP làm codebase, không viết lại Kotlin + Compose + Media3; kiểm tra Draft PR và gate P0/P1; không dùng AIOS runtime/dispatch.”
 
-Không có API/connector hiện tại để tạo Project và ghi instructions tự động trong chính cuộc chat này; các bước giao diện cần người dùng thực hiện.
+Việc đổi tên hoặc cấu hình Project trong giao diện ChatGPT do người dùng thực hiện; cập nhật tài liệu GitHub không tự đổi tên Project.
