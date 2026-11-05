@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          npx vitest run src/sources/tvCandidateCheck.test.ts
+          npx vitest run tests/sources/tvCandidateCheck.test.ts
 
       - name: Typecheck and build Android TV/web assets (no APK or device)
         shell: bash
