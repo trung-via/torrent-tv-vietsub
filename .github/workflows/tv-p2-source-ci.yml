@@ -1,0 +1,29 @@
+# Read-only, GitHub-hosted P2-SOURCE unit CI. No private Windows runner or TV activity.
+name: Torrent TV - P2 SOURCE Metadata CI
+
+on:
+  pull_request:
+    paths:
+      - 'poc/p2-source/**'
+      - '.github/workflows/tv-p2-source-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verifier:
+    name: TV Verified Code CI
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout bounded P2-SOURCE source for isolated tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run source policy regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/p2-source -p 'test_*.py' -v
