@@ -1,0 +1,51 @@
+name: Torrent TV - P2 OMP Search UI CI
+
+on:
+  pull_request:
+    paths:
+      - 'poc/p2-source/omp-ui/**'
+      - '.github/workflows/tv-p2-omp-ui-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  omp-ui:
+    name: TV Verified Code CI
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout reviewed overlay on hosted runner
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Clone pinned public OMP and apply exact UI overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Node $(node --version); npm $(npm --version)"
+          git clone --no-checkout https://github.com/spacesarmat/omp.git "$RUNNER_TEMP/p2-omp"
+          git -C "$RUNNER_TEMP/p2-omp" checkout --detach 52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f
+          node poc/p2-source/omp-ui/apply.mjs "$RUNNER_TEMP/p2-omp"
+          git -C "$RUNNER_TEMP/p2-omp" diff --check
+          grep -Fq "P2: khớp (báo cáo)" "$RUNNER_TEMP/p2-omp/src/screens/Add.tsx"
+          grep -Fq "data-hint=\"p2-reported\"" "$RUNNER_TEMP/p2-omp/src/screens/Add.tsx"
+
+      - name: Install pinned OMP dependencies and run targeted TV metadata tests
+        shell: bash
+        working-directory: ${{ runner.temp }}/p2-omp
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npx vitest run src/sources/tvCandidateCheck.test.ts
+
+      - name: Typecheck and build Android TV/web assets (no APK or device)
+        shell: bash
+        working-directory: ${{ runner.temp }}/p2-omp
+        run: |
+          set -euo pipefail
+          npm run build:mobile
+          echo 'P2_OMP_UI_TYPESCRIPT_AND_TV_ASSETS_PASS_NOT_APK_OR_REDMITV_PASS'
