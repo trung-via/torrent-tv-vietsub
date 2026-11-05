@@ -1,6 +1,6 @@
 # P2-SOURCE.3 — Actual OMP search screen overlay (opt-in, source-only)
 
-This is **not** another standalone Python-only PoC. `apply.mjs` patches the real OMP TV search consumer `src/screens/Add.tsx` (the search-result UI), copying `tvCandidateCheck.ts` and `tvCandidateCheck.test.ts` into OMP's `src/sources/`. The patch is bounded to upstream OMP commit `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f` and requires original `Add.tsx` Git blob `be8ab4529e0fdb9fe6dde3cc68c7fe58284aa323`.
+This is **not** another standalone Python-only PoC. `apply.mjs` patches the real OMP TV search consumer `src/screens/Add.tsx` (the search-result UI), copying `tvCandidateCheck.ts` into OMP's `src/sources/` and the test into `tests/sources/`. The patch is bounded to upstream OMP commit `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f` and requires original `Add.tsx` Git blob `be8ab4529e0fdb9fe6dde3cc68c7fe58284aa323`.
 
 ## User-visible behavior in an overlay-built OMP app
 
@@ -19,7 +19,7 @@ git -C /tmp/omp checkout --detach 52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f
 node poc/p2-source/omp-ui/apply.mjs /tmp/omp
 cd /tmp/omp
 npm ci --no-audit --no-fund
-npx vitest run src/sources/tvCandidateCheck.test.ts
+npx vitest run tests/sources/tvCandidateCheck.test.ts
 npm run build:mobile
 ```
 
