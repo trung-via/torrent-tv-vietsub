@@ -1,0 +1,55 @@
+# Manual G1 Production build on main only; separate from PR29 debug build.
+# No push, PR, schedule, workflow_run, Release, install or ADB. Dispatch only with exact Human authorization.
+name: Torrent TV - G1 Production Manual Debug Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type BUILD_G1_PROD_DEBUG_ONCE (no TV install, no Release)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  g1-prod:
+    name: G1 Production source guard plus Debug/unit tests (dedicated runner)
+    if: github.event.repository.private == true && github.repository == 'trung-via/torrent-tv-vietsub' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'BUILD_G1_PROD_DEBUG_ONCE'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout immutable reviewed G1 Production build source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: 9a3d22967209761396c93d03df5ce71d4be06324
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Execute single approved isolated Debug build and tests
+        shell: powershell
+        env:
+          BUILD_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:BUILD_CONFIRMATION -cne 'BUILD_G1_PROD_DEBUG_ONCE' -or
+              $env:GITHUB_REF -cne 'refs/heads/main' -or
+              $env:GITHUB_WORKFLOW_REF -cne 'trung-via/torrent-tv-vietsub/.github/workflows/p1-g1-production-manual.yml@refs/heads/main') {
+            throw 'STOP: wrong G1 Production manual input, branch or workflow'
+          }
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g1-prod\build-on-runner.ps1') `
+            -AppRepoRoot $env:GITHUB_WORKSPACE `
+            -SourceCommit '9a3d22967209761396c93d03df5ce71d4be06324'
+          if (-not $?) { throw 'STOP: G1 Production build did not pass' }
+
+      - name: Upload Debug APK SHA256 and build proof (private repo only, 7 days)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
+        with:
+          name: g1-production-debug-apk
+          path: |
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/*.apk
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS-G1PROD.txt
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/G1PROD-BUILD-EVIDENCE.txt
+          if-no-files-found: error
+          retention-days: 7
