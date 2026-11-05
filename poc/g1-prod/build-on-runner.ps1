@@ -6,8 +6,8 @@ param([Parameter(Mandatory=$true)][string]$AppRepoRoot,
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = 'trung-via/torrent-tv-vietsub'
-$branch = 'refs/heads/feature/g1-production-sidecar-picker-20261027'
-$workflow = '.github/workflows/p1-g1d-ux-pr29-manual.yml'
+$branch = 'refs/heads/main'
+$workflow = '.github/workflows/p1-g1-production-manual.yml'
 $runnerRoot = 'C:\TOOL\TorrentTV-Runner\_work'
 $ompPin = '52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f'
 $playerPin = '6ba6edd39f5d986ddfae29b5425b8ac0b319844e'
