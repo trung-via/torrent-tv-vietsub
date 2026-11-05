@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { inspectP2Reported, P2_EXAMPLE_CRITERIA, rankP2Reported } from './tvCandidateCheck';
-import type { SourceResult } from './types';
+import { inspectP2Reported, P2_EXAMPLE_CRITERIA, rankP2Reported } from '../../src/sources/tvCandidateCheck';
+import type { SourceResult } from '../../src/sources/types';
 
 function row(part: Partial<SourceResult> = {}): SourceResult {
   return {
