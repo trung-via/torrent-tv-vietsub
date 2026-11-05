@@ -1,4 +1,20 @@
-# G1 Production Vietsub — user-selected external SRT/VTT (source-only Draft)
+# G1 Production Vietsub — user-selected external SRT/VTT (Draft PR #38; Human-tested Debug)
+
+## Current acceptance checkpoint — 2026-11-05 (supersedes the historical draft milestones below)
+
+**Verdict:** `G1_FUNCTIONAL_ACCEPTED_HUMAN_REAL_TV_5_OF_5` / `G1_SUB_01_FIXED_IN_TESTED_SCENARIO` / `CI_DEBUG_UNIT_PASS` / `G4_RELEASE_UNVERIFIED` / `PR38_DRAFT_MERGE_PENDING`.
+
+- **Exact tested Android:** Redmi A Pro 55 China / ADB model `MiTV-ASTR0` / Android 11 / `armeabi-v7a`; explicit VLC player.
+- **Verified installed APK:** `com.spacesarmat.omp.test`, versionCode `200603`, `app-armeabi-v7a-debug.apk` SHA256 `c5a5bbd265e1353012165111d114b692b66ad783775eebdbc1408e1a668e82b6`. Human performed keep-data install and read back APK from actual TV via ADB; hash matched CI manifest. GitHub Actions [run 40904484222](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/40904484222) SUCCESS, checked out pinned Android repair source `75d88a38046b2d6e8e36b2d185bc93c14b7ea62c`; `assembleDebug` + `testDebugUnitTest` PASS. Artifact [12910749250](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/40904484222/artifacts/12910749250) has time-limited retention; do not assume it remains available.
+- **Human physical-TV functional reports — 5/5 PASS:** SRT automatically renders after reopening the same item without manually reselecting; OFF choice remains OFF after reopen; A→B→A per-media isolation; separate VTT automatic render after reopen; OTHER track choice persists without unwanted SRT takeover. See [acceptance evidence on PR #38](https://github.com/trung-via/torrent-tv-vietsub/pull/38#issuecomment-6661231319). Evidence class `HUMAN_REPORTED_REAL_TV`; no automated screenshot or direct ADB control by assistant.
+- **Boundary:** This confirms the reported `G1-SUB-01` late external track bug on the tested real-TV path; it does *not* certify all missing/oversize/malformed-file handling, seek/resume, every engine or firmware, release variant/signing, licensing, source distribution, G2 hot-add, G3 cue-sync or G4 binary isolation. `G1-PLAY-01` remains `UNCONFIRMED`; no playback rate workaround.
+- **Workflow reconciliation:** Preserve `.github/workflows/p1-g1d-ux-pr29-manual.yml` exactly as existing on `main`, so legacy PR29 manual build is unaffected. The separate `.github/workflows/p1-g1-production-manual.yml` is for *future separately authorized* G1 production Debug/unit builds on `main`, using a reviewed immutable commit with main-workflow guard. The old PR38-comment bridge on `main` remains pinned to the previous PR38 SHA and fails closed after this reconciliation; it is **not** a valid route to the new workflow. Do not reissue the old `/tv-action` command or treat the new workflow as tested until separately dispatched.
+- **Merge discipline:** Retain PR #38 as Draft until final source/workflow review and explicit Human merge decision. No automatic CI dispatch, APK installation, data wipe, Release or merge in this checkpoint. Current app source/runtime behavior was not changed by the workflow/documentation reconciliation.
+
+---
+
+## Historical development notes (original pre-build draft; superseded where stated above)
+
 
 **Status:** `G1_PRODUCTION_SOURCE_DRAFT / BUILD_UNVERIFIED / REAL_REDMi_UX_UNVERIFIED / RELEASE_UNVERIFIED`  
 **Date:** 2026-10-27. **Authority:** Human agreed to proceed after P0 Windows TorrServer→Redmi one-pass smoke **Human PASS** (PR #37). `docs/PROJECT_CONTRACT.md`, `docs/PRD.md`, ADR-0006 and `planning/P1A-ACCEPTANCE-CRITERIA-20261025.md` remain authoritative. This is a **source-only implementation candidate**, not permission to build/CI, alter Windows, install on Redmi, merge or release.
