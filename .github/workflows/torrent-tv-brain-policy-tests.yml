@@ -1,0 +1,32 @@
+# Hosted, read-only policy tests. Untrusted PR code never runs on the user's Windows host.
+name: Torrent TV - Brain Policy CI
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/tv_brain_merge.py'
+      - '.github/scripts/test_tv_brain_merge.py'
+      - '.github/workflows/torrent-tv-brain-auto-merge.yml'
+      - '.github/workflows/torrent-tv-brain-policy-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  policy-tests:
+    name: TV Brain Policy Tests
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout proposed policy for isolated tests only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Run fail-closed Brain merge policy regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s .github/scripts -p 'test_tv_brain_merge.py' -v

@@ -1,0 +1,47 @@
+# Torrent TV only. A review COMMENT is a wake, never itself product acceptance.
+# The current main-branch script re-reads exact owner Conversation PASS + GitHub gates.
+# No PR-head checkout, self-host Windows, ADB, APK install, Release or AIOS calls.
+name: Torrent TV - Trusted Brain PASS Merge
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+  checks: read
+
+concurrency:
+  group: torrent-tv-brain-merge-main
+  cancel-in-progress: false
+
+jobs:
+  trusted-merge:
+    name: TV Brain Trusted Merge
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.actor == 'trung-via' &&
+      github.event.review.user.login == 'trung-via' &&
+      github.event.review.state == 'commented' &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted main script only; never the PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate canonical PASS and perform atomic head-SHA merge
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/tv_brain_merge.py
