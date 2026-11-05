@@ -1,0 +1,29 @@
+# P2-AISUB local cue parser/QA only. No user files, network provider or TV.
+name: Torrent TV - P2 AISUB Cue QA CI
+
+on:
+  pull_request:
+    paths:
+      - 'poc/p2-aisub/**'
+      - '.github/workflows/tv-p2-aisub-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cue-qa:
+    name: TV Verified Code CI
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source for isolated pure unit tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate SRT/VTT cue import and timestamp QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/p2-aisub -p 'test_*.py' -v
