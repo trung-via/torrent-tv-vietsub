@@ -2,7 +2,7 @@
 // checkout. Compatible with a checkout already patched by verified G1 script.
 // No subprocess to download media, no Android/ADB or Windows host actions.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,7 +38,7 @@ for (const line of dirty) {
   if (allowedG1.indexOf(name) < 0) fail('UNEXPECTED_DIRTY_FILE:' + name);
 }
 const helper = join(root, 'src/sources/tvCandidateCheck.ts');
-const tests = join(root, 'src/sources/tvCandidateCheck.test.ts');
+const tests = join(root, 'tests/sources/tvCandidateCheck.test.ts');
 if (existsSync(helper) || existsSync(tests)) fail('DESTINATION_EXISTS');
 let text = readFileSync(join(root, add), 'utf8');
 text = once(text,
@@ -71,5 +71,6 @@ text = once(text,
   'ROW_BADGE');
 writeFileSync(join(root, add), text, 'utf8');
 copyFileSync(join(from, 'tvCandidateCheck.ts'), helper);
+mkdirSync(dirname(tests), { recursive: true });
 copyFileSync(join(from, 'tvCandidateCheck.test.ts'), tests);
 console.log('P2_OMP_REPORTED_SEARCH_UI_APPLIED pinned=' + PIN + ' no_tv_effect=true');
