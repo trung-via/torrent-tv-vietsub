@@ -31,7 +31,8 @@ jobs:
           git -C "$RUNNER_TEMP/p2-omp" checkout --detach 52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f
           node poc/p2-source/omp-ui/apply.mjs "$RUNNER_TEMP/p2-omp"
           git -C "$RUNNER_TEMP/p2-omp" diff --check
-          grep -Fq "P2: khớp (báo cáo)" "$RUNNER_TEMP/p2-omp/src/screens/Add.tsx"
+          grep -Fq "P2: khớp (4K theo tên, seed báo cáo)" "$RUNNER_TEMP/p2-omp/src/screens/Add.tsx"
+          grep -Fq "P2: 6–15 GB · tên 4K · seed cao nhất (bật)" "$RUNNER_TEMP/p2-omp/src/screens/Add.tsx"
           grep -Fq "data-hint=\"p2-reported\"" "$RUNNER_TEMP/p2-omp/src/screens/Add.tsx"
 
       - name: Install pinned OMP dependencies and run targeted TV metadata tests
