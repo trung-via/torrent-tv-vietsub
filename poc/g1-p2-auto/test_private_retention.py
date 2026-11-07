@@ -57,7 +57,23 @@ class PersistentPrivateApkTests(unittest.TestCase):
         self.assertIn("S-1-5-18", SCRIPT)
         self.assertIn("S-1-5-32-544", SCRIPT)
         self.assertIn("PRIVATE_DIRECTORY_ACL_NOT_EXCLUSIVE", SCRIPT)
+        self.assertIn("PRIVATE_DIRECTORY_REQUIRED_ACE_MISSING", SCRIPT)
+        self.assertIn("PRIVATE_DIRECTORY_DACL_INHERITANCE_NOT_DISABLED", SCRIPT)
         self.assertIn("REPARSE_POINT_DENIED", SCRIPT)
+
+    def test_nonprivileged_dacl_only_write_and_read_back(self):
+        # No Set-Acl (may attempt SACL/audit writes and require SeSecurityPrivilege).
+        self.assertNotIn("Set-Acl -", SCRIPT)
+        self.assertIn("$directory.SetAccessControl($safe)", SCRIPT)
+        self.assertIn("$directory.GetAccessControl(", SCRIPT)
+        self.assertIn("[Security.AccessControl.AccessControlSections]::Access", SCRIPT)
+        self.assertIn("$actual.AreAccessRulesProtected", SCRIPT)
+        self.assertIn("$ace.IsInherited", SCRIPT)
+        self.assertIn("$ace.FileSystemRights", SCRIPT)
+        self.assertIn("G1P2_PRIVATE_DACL_OWNER_SYSTEM_ADMIN_VERIFIED_NO_SACL_ACCESS", SCRIPT)
+        # Do not allow permissive fallback after ACL failure.
+        self.assertNotIn("PRIVATE_ACL_BYPASS", SCRIPT)
+
 
     def test_no_apk_external_publish_or_device_install(self):
         code = "\n".join(x for x in SCRIPT.splitlines() if not x.lstrip().startswith("#")).lower()

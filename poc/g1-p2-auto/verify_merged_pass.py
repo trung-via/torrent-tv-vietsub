@@ -39,9 +39,14 @@ SIGNER_ONLY_PATHS = frozenset({
     "tools/redmi-validation/verify-g1p2-arm32.ps1",
     "tools/redmi-validation/test_private_handoff.py",
 })
+# Retention repairs need a fresh APK for this merge: the previous build may
+# have been cleaned from RUNNER_TEMP before the vault copy ever succeeded.
+# Never route a retention repair to the old-APK-only reverify job.
+RETENTION_BUILD_PATHS = frozenset({
+    "poc/g1-p2-auto/retain-private-arm32.ps1",
+})
 SIGNER_FIX_PATHS = frozenset({
     "poc/g1-p2-auto/apk-signer-digests.ps1",
-    "poc/g1-p2-auto/retain-private-arm32.ps1",
     "poc/g1-p2-auto/reverify-retained-arm32.ps1",
     "tools/redmi-validation/verify-g1p2-arm32.ps1",
 })
@@ -57,6 +62,8 @@ def select_action(files: list[dict]) -> str:
                 or record.get("status") not in ("added", "modified")):
             raise Hold("PR_FILES_NOT_SAFE_TO_CLASSIFY")
         paths.add(name)
+    if paths.intersection(RETENTION_BUILD_PATHS):
+        return "build"
     if paths.issubset(SIGNER_ONLY_PATHS) and paths.intersection(SIGNER_FIX_PATHS):
         return "reverify"
     return "build"
