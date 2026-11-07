@@ -37,18 +37,18 @@ function Read-Package([string]$Apk,[string]$Aapt) {
     $out = @(& $Aapt dump badging $Apk 2>&1)
     Check-Exit 'AAPT_BADGING_FAILED'
     $line = @($out | Where-Object { "$_" -match "^package:\s+name='([^']+)'" })
-    if ($line.Count -ne 1 -or "$($line[0])" -notmatch "^package:\s+name='([^']+)'") {
-        Stop-Gate 'PACKAGE_NAME_NOT_PROVEN'
-    }
-    return $Matches[1]
+    if ($line.Count -ne 1) { Stop-Gate 'PACKAGE_NAME_NOT_UNIQUE' }
+    $parsed = [regex]::Match("$($line[0])", "^package:\s+name='([^']+)'")
+    if (-not $parsed.Success) { Stop-Gate 'PACKAGE_NAME_NOT_PROVEN' }
+    return $parsed.Groups[1].Value
 }
 function Read-Signers([string]$Apk,[string]$SignerTool) {
     $out = @(& $SignerTool verify --print-certs $Apk 2>&1)
     Check-Exit 'APKSIGNER_VERIFY_FAILED'
     $pattern = '(?im)^\s*Signer\s+#\d+\s+certificate\s+SHA-256\s+digest:\s*([a-f0-9]{64})\s*$'
-    $matches = [regex]::Matches(($out -join [Environment]::NewLine),$pattern)
-    if ($matches.Count -lt 1) { Stop-Gate 'CERT_SHA256_NOT_PROVEN' }
-    return @($matches | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
+    $certMatches = [regex]::Matches(($out -join [Environment]::NewLine),$pattern)
+    if ($certMatches.Count -lt 1) { Stop-Gate 'CERT_SHA256_NOT_PROVEN' }
+    return @($certMatches | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
 }
 if (-not (Test-Path -LiteralPath $SourceApk -PathType Leaf)) {
     Stop-Gate ('SOURCE_APK_NOT_RETAINED_ON_RUNNER run=' + $run)
