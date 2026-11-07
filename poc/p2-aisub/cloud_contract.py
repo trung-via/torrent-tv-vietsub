@@ -151,9 +151,12 @@ def parse_gemini_response(response: Mapping[str, Any], batch: CueBatch) -> dict[
             raise ValueError("TRANSLATION_ORDER_OR_ID_MISMATCH")
         vi = item["vi"]
         if (not isinstance(vi, str) or not vi.strip() or len(vi) > 2000
-            or any(ch in vi for ch in ("\x00", "<", ">", "\r"))
-            or not vi.encode("utf-8", errors="strict")):
+            or any(ch in vi for ch in ("\x00", "<", ">", "\r"))):
             raise ValueError("PLAIN_UTF8_TRANSLATION_REQUIRED")
+        try:
+            vi.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("PLAIN_UTF8_TRANSLATION_REQUIRED") from exc
         actual[str(idx)] = vi
     return actual
 
