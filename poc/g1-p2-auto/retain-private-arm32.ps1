@@ -22,8 +22,13 @@ function Restrict-Directory([string]$Path) {
     foreach ($sid in @($owner,
         (New-Object Security.Principal.SecurityIdentifier('S-1-5-18')),
         (New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')))) {
-        $rule = New-Object Security.AccessControl.FileSystemAccessRule(
-            $sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
+        $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+            $sid,
+            [Security.AccessControl.FileSystemRights]::FullControl,
+            ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+             [Security.AccessControl.InheritanceFlags]::ObjectInherit),
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow)
         $safe.AddAccessRule($rule)
     }
     Set-Acl -LiteralPath $Path -AclObject $safe -ErrorAction Stop
