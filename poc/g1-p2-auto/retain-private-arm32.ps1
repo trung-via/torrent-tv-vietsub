@@ -96,13 +96,6 @@ $badging = @(& $aapt dump badging $apk 2>&1)
 if ($LASTEXITCODE -ne 0 -or @($badging | Where-Object {
     "$_" -match "^package:\s+name='com\.spacesarmat\.omp\.test'"
 }).Count -ne 1) { Stop-Retention 'APK_PACKAGE_NOT_PROVEN' }
-$signer = Read-Tool 'apksigner.bat'
-$verify = @(& $signer verify --print-certs $apk 2>&1)
-if ($LASTEXITCODE -ne 0 -or
-    -not (($verify -join [Environment]::NewLine) -match
-        '(?im)^\s*Signer\s+#\d+\s+certificate\s+SHA-256\s+digest:\s*[a-f0-9]{64}\s*$')) {
-    Stop-Retention 'APK_SIGNATURE_NOT_VERIFIED'
-}
 
 # Runner installation root is stable. Do not put retained APK under _work/_temp.
 $root = 'C:\TOOL\TorrentTV-Runner'
@@ -126,6 +119,27 @@ $check = (Get-FileHash -LiteralPath (Join-Path $partial 'app-armeabi-v7a-debug.a
 if ($check -cne $apkHash) { Stop-Retention 'PRIVATE_COPY_HASH_MISMATCH' }
 Move-Item -LiteralPath $partial -Destination $target -ErrorAction Stop
 Guard-NoReparse $target
+# Preserve the exact SHA-approved bytes FIRST; signer verification is a
+# separate fail-closed acceptance gate. If the signer tool fails or its output
+# changes, we retain a private QUARANTINED copy for offline diagnosis instead
+# of losing the APK when RUNNER_TEMP is cleaned.
+$statusPath = Join-Path $target 'SIGNATURE-STATUS.txt'
+Set-Content -LiteralPath $statusPath -Value 'SIGNATURE_HOLD_PENDING_VERIFY' -Encoding ascii
+Write-Host ('G1P2_PRIVATE_APK_QUARANTINED_LOCAL_ONLY run={0} attempt={1} sha256={2} path={3}' -f
+    $run,$attempt,$apkHash,$target)
+$signer = Read-Tool 'apksigner.bat'
+$retainedApk = Join-Path $target 'app-armeabi-v7a-debug.apk'
+$verify = @(& $signer verify --print-certs $retainedApk 2>&1)
+$verifyExit = $LASTEXITCODE
+$signerText = $verify -join [Environment]::NewLine
+$certDigests = [regex]::Matches($signerText,
+    '(?im)^\s*Signer\s+#\d+\s+certificate\s+SHA-256\s+digest:\s*([a-f0-9]{64})\s*$')
+Write-Host ('G1P2_APKSIGNER_DIAGNOSTIC exit={0} matched_cert_lines={1} output_lines={2}' -f
+    $verifyExit,$certDigests.Count,$verify.Count)
+if ($verifyExit -ne 0 -or $certDigests.Count -lt 1) {
+    Stop-Retention 'APK_SIGNATURE_NOT_VERIFIED_RETAINED_QUARANTINED'
+}
+Set-Content -LiteralPath $statusPath -Value 'SIGNATURE_VERIFIED' -Encoding ascii
 Write-Host ('G1P2_PRIVATE_APK_RETAINED_LOCAL_ONLY run={0} attempt={1} sha256={2} path={3}' -f
     $run,$attempt,$apkHash,$target)
 Write-Host 'G1P2_PRIVATE_STORE_NOT_PUBLIC_NO_ADB_INSTALL'
