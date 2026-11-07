@@ -6,6 +6,7 @@ on:
     paths:
       - 'poc/p2-source/omp-ui/build-g1p2-on-runner.ps1'
       - 'poc/p2-source/omp-ui/test_combined_build_guards.py'
+      - 'poc/p2-source/omp-ui/apply.mjs'
       - '.github/workflows/p2-g1-combined-manual.yml'
       - '.github/workflows/tv-g1p2-composition-preflight.yml'
 
@@ -49,3 +50,25 @@ jobs:
           node --check poc/p2-source/omp-ui/apply.mjs
           if ($LASTEXITCODE -ne 0) { throw 'P2_OVERLAY_NODE_SYNTAX_FAIL' }
           Write-Host 'G1P2_OVERLAY_SOURCE_SYNTAX_PASS_NOT_NATIVE_BUILD'
+      - name: Check P2 overlay after synthetic G1 dirty worktree (no APK)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $omp = Join-Path $env:RUNNER_TEMP 'g1-p2-porcelain-probe'
+          git clone --no-checkout https://github.com/spacesarmat/omp.git $omp
+          if ($LASTEXITCODE -ne 0) { throw 'OMP_CLONE_FAILED' }
+          git -C $omp checkout --detach 52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f
+          if ($LASTEXITCODE -ne 0) { throw 'OMP_PIN_MISMATCH' }
+          Add-Content -LiteralPath (Join-Path $omp 'src/api/torrserver.ts') -Value '// Synthetic G1 change, not real Kotlin patch' -Encoding utf8
+          $unexpected = Join-Path $omp 'src/unapproved-g1-p2-probe.txt'
+          Set-Content -LiteralPath $unexpected -Value 'untrusted' -Encoding utf8
+          $overlay = Join-Path $env:GITHUB_WORKSPACE 'poc/p2-source/omp-ui/apply.mjs'
+          & node $overlay $omp
+          if ($LASTEXITCODE -eq 0) { throw 'STOP: unapproved source path was not rejected' }
+          Remove-Item -LiteralPath $unexpected
+          & node $overlay $omp
+          if ($LASTEXITCODE -ne 0) { throw 'STOP: pinned G1 modified file was not recognized' }
+          & git -C $omp diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'STOP: composed overlay diff invalid' }
+          Write-Host 'G1_P2_PORCELAIN_MODIFIED_TREE_PASS_AND_UNKNOWN_PATH_REJECTED'
