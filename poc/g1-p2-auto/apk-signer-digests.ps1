@@ -9,9 +9,12 @@ function Get-ApkSignerSha256Digests {
     $rx = '(?im)^\s*(?:(?:V[0-9]+(?:\.[0-9]+)?\s+)?Signer(?:\s+#\d+)?):?\s+certificate\s+SHA-256\s+digest:\s*([a-f0-9]{64})\s*$'
     $value = $OutputLines -join [Environment]::NewLine
     $found = [regex]::Matches($value, $rx)
-    foreach ($digest in @($found | ForEach-Object {
-        $_.Groups[1].Value.ToLowerInvariant()
-    } | Sort-Object -Unique)) {
-        Write-Output $digest
+    $unique = [System.Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
+    foreach ($match in $found) {
+        $digest = $match.Groups[1].Value.ToLowerInvariant()
+        if ($unique.Add($digest)) {
+            Write-Output $digest
+        }
     }
 }
