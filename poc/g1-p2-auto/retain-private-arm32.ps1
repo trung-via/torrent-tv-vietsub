@@ -31,16 +31,39 @@ function Restrict-Directory([string]$Path) {
             [Security.AccessControl.AccessControlType]::Allow)
         $safe.AddAccessRule($rule)
     }
-    Set-Acl -LiteralPath $Path -AclObject $safe -ErrorAction Stop
-    # Verify explicit allow ACL only; do not proceed on shared-access folder.
-    $actual = Get-Acl -LiteralPath $Path
-    $allowedSids = @($owner.Value,'S-1-5-18','S-1-5-32-544')
-    foreach ($ace in $actual.Access) {
-        $sid = $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
-        if ($ace.AccessControlType -ne 'Allow' -or $sid -notin $allowedSids) {
+    # Windows PowerShell Set-Acl may attempt SACL (audit) writes and require
+    # SeSecurityPrivilege on the non-elevated dedicated runner. Modify only
+    # the DACL through DirectoryInfo instead; never read/clear the SACL.
+    $directory = New-Object IO.DirectoryInfo($Path)
+    $directory.SetAccessControl($safe)
+    # Read only the Access section; do not request Audit/All privileges.
+    $actual = $directory.GetAccessControl(
+        [Security.AccessControl.AccessControlSections]::Access)
+    if (-not $actual.AreAccessRulesProtected) {
+        Stop-Retention 'PRIVATE_DIRECTORY_DACL_INHERITANCE_NOT_DISABLED'
+    }
+    $allowedSids = @($owner.Value,'S-1-5-18','S-1-5-32-544') |
+        Select-Object -Unique
+    $aces = @($actual.GetAccessRules($true,$true,
+        [Security.Principal.SecurityIdentifier]))
+    $observed = @()
+    foreach ($ace in $aces) {
+        $sid = $ace.IdentityReference.Value
+        if ($ace.IsInherited -or
+            $ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $sid -notin $allowedSids -or
+            ($ace.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -ne
+                [Security.AccessControl.FileSystemRights]::FullControl) {
             Stop-Retention 'PRIVATE_DIRECTORY_ACL_NOT_EXCLUSIVE'
         }
+        $observed += $sid
     }
+    foreach ($sid in $allowedSids) {
+        if ($sid -notin $observed) {
+            Stop-Retention 'PRIVATE_DIRECTORY_REQUIRED_ACE_MISSING'
+        }
+    }
+    Write-Host 'G1P2_PRIVATE_DACL_OWNER_SYSTEM_ADMIN_VERIFIED_NO_SACL_ACCESS'
 }
 function Read-Tool([string]$Name) {
     $base = Join-Path 'C:\TOOL\Android-SDK' 'build-tools'
