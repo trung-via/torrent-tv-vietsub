@@ -49,6 +49,11 @@ class PrivateHandoffContract(unittest.TestCase):
         self.assertIn("com.spacesarmat.omp.test", SCRIPT)
         self.assertIn("APKSIGNER_VERIFY_FAILED", SCRIPT)
 
+    def test_real_apksigner_v2_uses_shared_digest_parser(self):
+        self.assertIn("apk-signer-digests.ps1", SCRIPT)
+        self.assertIn("Get-ApkSignerSha256Digests", SCRIPT)
+        self.assertNotIn("(?im)^\\s*Signer\\s+#\\d+", SCRIPT)
+
     def test_unknown_or_missing_file_returns_hold(self):
         self.assertIn("SOURCE_APK_NOT_RETAINED_ON_RUNNER", SCRIPT)
         self.assertIn("MANIFEST_EXPECTED_ARM32_SHA_MISSING", SCRIPT)
