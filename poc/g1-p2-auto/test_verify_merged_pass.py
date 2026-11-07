@@ -53,13 +53,27 @@ def verify(**kw):
 
 class AutoBuildBrainGateTests(unittest.TestCase):
     def test_signer_only_review_routes_to_reverify_without_gradle(self):
+        # Only signer parser / reverify logic may reuse an already retained APK.
         files = [
             {"filename": "poc/g1-p2-auto/apk-signer-digests.ps1", "status": "added"},
-            {"filename": "poc/g1-p2-auto/retain-private-arm32.ps1", "status": "modified"},
             {"filename": ".github/workflows/tv-g1p2-auto-debug.yml", "status": "modified"},
             {"filename": "poc/g1-p2-auto/reverify-retained-arm32.ps1", "status": "added"},
         ]
         self.assertEqual(select_action(files), "reverify")
+
+    def test_private_retention_repair_always_rebuilds_after_failed_copy(self):
+        retention = {"filename": "poc/g1-p2-auto/retain-private-arm32.ps1", "status": "modified"}
+        self.assertEqual(select_action([retention]), "build")
+        self.assertEqual(select_action([
+            {"filename": "poc/g1-p2-auto/apk-signer-digests.ps1", "status": "modified"},
+            retention,
+            {"filename": "poc/g1-p2-auto/reverify-retained-arm32.ps1", "status": "modified"},
+        ]), "build")
+
+    def test_non_retention_signer_fix_stays_no_gradle(self):
+        self.assertEqual(select_action([
+            {"filename": "tools/redmi-validation/verify-g1p2-arm32.ps1", "status": "modified"},
+        ]), "reverify")
 
     def test_player_or_build_scope_still_requires_full_build(self):
         files = [
