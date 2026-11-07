@@ -8,15 +8,27 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = 'trung-via/torrent-tv-vietsub'
 $branch = 'refs/heads/main'
-$workflow = '.github/workflows/p2-g1-combined-manual.yml'
-$runnerRoot = 'C:\TOOL\TorrentTV-Runner\_work'
+$manualWorkflow = '.github/workflows/p2-g1-combined-manual.yml'
+$automaticWorkflow = '.github/workflows/tv-g1p2-auto-debug.yml'
+$runnerRoot = 'C:\\TOOL\\TorrentTV-Runner\\_work'
 $ompPin = '52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f'
 $playerPin = '6ba6edd39f5d986ddfae29b5425b8ac0b319844e'
-if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or
+# Manual PUBLIC-artifact build remains separately Owner-confirmed.
+$manualRoute = ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch' -and
+    $env:GITHUB_WORKFLOW_REF -ceq ($repo + '/' + $manualWorkflow + '@' + $branch))
+# Automatic route is AFTER authenticated Brain review of exact merge + CI,
+# from the GitHub-hosted gate; never from PR, forks or direct unreviewed push.
+$autoRoute = ($env:GITHUB_EVENT_NAME -ceq 'push' -and
+    $env:GITHUB_WORKFLOW_REF -ceq ($repo + '/' + $automaticWorkflow + '@' + $branch) -and
+    $env:GITHUB_SHA -ceq $SourceCommit -and
+    $env:G1P2_AUTO_SOURCE_SHA -ceq $SourceCommit -and
+    $env:G1P2_AUTO_BRAIN_APPROVED -ceq 'true' -and
+    $env:G1P2_AUTO_BRAIN_PR -match '^[1-9][0-9]*$')
+if ($env:GITHUB_ACTIONS -cne 'true' -or
     $env:GITHUB_REPOSITORY -cne $repo -or $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
     $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REF -cne $branch -or
-    $env:GITHUB_WORKFLOW_REF -cne ($repo + '/' + $workflow + '@' + $branch)) {
-    throw 'STOP: event, branch, workflow or dedicated runner identity mismatch'
+    -not ($manualRoute -or $autoRoute)) {
+    throw 'STOP: event, Brain provenance, branch, workflow or runner identity mismatch'
 }
 if ($SourceCommit -notmatch '^[a-f0-9]{40}$') { throw 'STOP: unpinned app source' }
 foreach ($envKey in @('RUNNER_WORKSPACE','RUNNER_TEMP','GITHUB_WORKSPACE','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT')) {

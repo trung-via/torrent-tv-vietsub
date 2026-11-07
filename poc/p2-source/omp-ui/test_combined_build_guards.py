@@ -19,7 +19,12 @@ class CompositionGuards(unittest.TestCase):
 
     def test_main_only_distinct_workflow_and_original_g1_unchanged(self):
         self.assertIn("$workflow = '.github/workflows/p1-g1-production-manual.yml'", self.g1)
-        self.assertIn("$workflow = '.github/workflows/p2-g1-combined-manual.yml'", self.combo)
+        self.assertIn("$manualWorkflow = '.github/workflows/p2-g1-combined-manual.yml'", self.combo)
+        self.assertIn("$automaticWorkflow = '.github/workflows/tv-g1p2-auto-debug.yml'", self.combo)
+        self.assertIn("$manualRoute", self.combo)
+        self.assertIn("$autoRoute", self.combo)
+        self.assertIn("G1P2_AUTO_BRAIN_APPROVED", self.combo)
+        self.assertIn("G1P2_AUTO_SOURCE_SHA -ceq $SourceCommit", self.combo)
         self.assertIn("$branch = 'refs/heads/main'", self.combo)
         self.assertIn("$env:GITHUB_WORKFLOW_REF", self.combo)
 
