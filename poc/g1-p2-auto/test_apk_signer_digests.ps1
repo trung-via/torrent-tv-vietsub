@@ -20,7 +20,9 @@ $cases = @(
 foreach ($case in $cases) {
     $got = @(Get-ApkSignerSha256Digests -OutputLines $case.lines)
     if (($got -join ',') -cne ($case.expected -join ',')) {
-        throw ('APK_CERT_PARSER_FAIL: ' + $case.name)
+        throw ('APK_CERT_PARSER_FAIL: ' + $case.name + ' expected_count=' +
+            @($case.expected).Count + ' actual_count=' + $got.Count +
+            ' actual=' + ($got -join '|') + ' input=' + ($case.lines -join '|'))
     }
     Write-Host ('APK_CERT_PARSER_PASS: ' + $case.name)
 }
