@@ -91,6 +91,17 @@ jobs:
             -SourceCommit $env:AUTO_SOURCE_SHA
           if (-not $?) { throw 'STOP: combined G1+P2 Debug build failed' }
 
+      - name: Persist verified ARM32 Debug APK to Windows private vault before temp cleanup
+        shell: powershell
+        env:
+          G1P2_AUTO_SOURCE_SHA: ${{ needs.brain-acceptance.outputs.source_sha }}
+          G1P2_AUTO_BRAIN_APPROVED: ${{ needs.brain-acceptance.outputs.approved }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g1-p2-auto\retain-private-arm32.ps1') `
+            -SourceCommit $env:GITHUB_SHA
+          if (-not $?) { throw 'STOP: local private APK retention failed' }
+
       - name: Upload SHA256 and redacted build manifest only; NEVER PUBLIC APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
         with:

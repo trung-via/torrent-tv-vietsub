@@ -44,4 +44,10 @@ jobs:
             (Resolve-Path 'poc/p2-source/omp-ui/build-g1p2-on-runner.ps1').Path,
             [ref]$tokens,[ref]$errors) | Out-Null
           if ($errors.Count -ne 0) { throw 'G1P2_AUTO_POWERSHELL_PARSE_FAILED' }
-          Write-Host 'G1P2_AUTO_POLICY_SOURCE_AND_PARSER_PASS_NOT_WINDOWS_APK'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'poc/g1-p2-auto/retain-private-arm32.ps1').Path,
+            [ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'G1P2_PRIVATE_RETENTION_POWERSHELL_PARSE_FAILED' }
+          Write-Host 'G1P2_AUTO_POLICY_AND_PRIVATE_RETENTION_PARSER_PASS_NOT_WINDOWS_APK'

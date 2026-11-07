@@ -4,14 +4,21 @@
 param(
     [ValidateSet('Inspect','Stage','CompareInstalled')]
     [string]$Mode = 'Inspect',
-    [string]$SourceApk = 'C:\TOOL\TorrentTV-Runner\_work\_temp\p1-g1-prod-42331308161-1\android\app\build\outputs\apk\debug\app-armeabi-v7a-debug.apk',
+    [string]$SourceApk = '',
+    [string]$RunId = '42331308161',
+    [string]$RunAttempt = '1',
+    [string]$ExpectedSha256 = 'c2f71cb8c8accc11821396d20a96490b0a129344cb329e1c5e6d9c3bf2f7b75f',
     [string]$Serial = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$expected = 'c2f71cb8c8accc11821396d20a96490b0a129344cb329e1c5e6d9c3bf2f7b75f'
+$expected = $ExpectedSha256.ToLowerInvariant()
 $package = 'com.spacesarmat.omp.test'
-$run = '42331308161'
+$run = $RunId
+if ($expected -cnotmatch '^[a-f0-9]{64}$' -or
+    $RunId -cnotmatch '^[0-9]+$' -or $RunAttempt -cnotmatch '^[0-9]+$') {
+    throw 'G1P2_HANDOFF_HOLD: SHA_OR_RUN_PARAMETER_INVALID'
+}
 
 function Stop-Gate([string]$Reason) { throw ('G1P2_HANDOFF_HOLD: ' + $Reason) }
 function Check-Exit([string]$Reason) {
@@ -50,6 +57,17 @@ function Read-Signers([string]$Apk,[string]$SignerTool) {
     if ($certMatches.Count -lt 1) { Stop-Gate 'CERT_SHA256_NOT_PROVEN' }
     return @($certMatches | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
 }
+if (-not $SourceApk) {
+    # Prefer the private durable store; the runner temporary path is historical.
+    $vault = Join-Path 'C:\TOOL\TorrentTV-Runner\private-artifacts\G1P2' (
+        'run-' + $run + '-' + $RunAttempt + '\app-armeabi-v7a-debug.apk')
+    $historical = Join-Path 'C:\TOOL\TorrentTV-Runner\_work\_temp' (
+        'p1-g1-prod-' + $run + '-' + $RunAttempt +
+        '\android\app\build\outputs\apk\debug\app-armeabi-v7a-debug.apk')
+    if (Test-Path -LiteralPath $vault -PathType Leaf) { $SourceApk = $vault }
+    elseif (Test-Path -LiteralPath $historical -PathType Leaf) { $SourceApk = $historical }
+    else { Stop-Gate ('SOURCE_APK_NOT_RETAINED_ON_RUNNER run=' + $run) }
+}
 if (-not (Test-Path -LiteralPath $SourceApk -PathType Leaf)) {
     Stop-Gate ('SOURCE_APK_NOT_RETAINED_ON_RUNNER run=' + $run)
 }
@@ -78,7 +96,7 @@ if ($Mode -ceq 'Stage') {
     if (-not $base) { Stop-Gate 'LOCAL_APPDATA_UNAVAILABLE' }
     $private = Join-Path $base 'TorrentTVVietsub\PrivateDebug'
     New-Item -ItemType Directory -Path $private -Force | Out-Null
-    $target = Join-Path $private ('g1p2-' + $run + '-armeabi-v7a-debug.apk')
+    $target = Join-Path $private ('g1p2-' + $run + '-' + $RunAttempt + '-armeabi-v7a-debug.apk')
     if (Test-Path -LiteralPath $target) {
         if ((Get-Sha256 $target) -cne $expected) { Stop-Gate 'EXISTING_PRIVATE_COPY_DIFFERS' }
         Write-Host ('G1P2_LOCAL_PRIVATE_COPY_ALREADY_VERIFIED path=' + $target)

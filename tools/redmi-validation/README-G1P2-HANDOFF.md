@@ -9,6 +9,30 @@ Historical source:
 - Evidence artifact: [run #42331308161 artifact #13557710870](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/42331308161/artifacts/13557710870) (checksums and manifest **only**, not an APK)
 - Runner build path originally reported: `C:\TOOL\TorrentTV-Runner\_work\_temp\p1-g1-prod-42331308161-1\android\app\build\outputs\apk\debug\`. It may have been cleaned; existence **must be checked**, not assumed.
 
+## Fix for `SOURCE_APK_NOT_RETAINED_ON_RUNNER` (7 Nov 2026)
+
+The verified run `42331308161` created its APK under `C:\TOOL\TorrentTV-Runner\_work\_temp\...`. This is GitHub Actions **RUNNER_TEMP** and may be purged after a job. The evidence-only GitHub artifact contains no APK bytes; a SHA256 hash cannot reconstruct the APK. A missing historical file is an expected HOLD, not permission to skip hash/signature checks or to use a different APK silently.
+
+A reviewed auto-build now retains the freshly rebuilt ARM32 APK, manifest and evidence **before job cleanup**, outside `_work`, at:
+
+```text
+C:\TOOL\TorrentTV-Runner\private-artifacts\G1P2\run-<RUN_ID>-<RUN_ATTEMPT>\
+  app-armeabi-v7a-debug.apk
+  SHA256SUMS-G1P2.txt
+  G1P2-BUILD-EVIDENCE.txt
+```
+
+The runner script uses NTFS ACL restricted to its own Windows identity, SYSTEM and local Administrators, and never publishes the APK to GitHub. This directory can differ from the interactive user's `%LOCALAPPDATA%`; access may require the authorized runner account or local administrator. Existing builds are never overwritten, and there is no automatic device installation.
+
+For a **new confirmed successful run**, independently read its SHA256 from the GitHub Actions evidence manifest. On the Windows host, use the updated preflight (with exact run ID, attempt, and trusted hash):
+
+```powershell
+& .\tools\redmi-validation\verify-g1p2-arm32.ps1 -Mode Stage `
+  -RunId '<new-run-id>' -RunAttempt '1' -ExpectedSha256 '<verified-64-hex-sha>'
+```
+
+The tool prefers the private retained path, then historical RUNNER_TEMP as a fallback; missing bytes still HOLD. To compare installed signatures without changing the TV, use `-Mode CompareInstalled` with the *same* pinned parameters and an already connected, authorized Redmi. **Do not use the old run's SHA to validate a different APK**.
+
 ## Local read-only checks
 
 From Windows PowerShell, in a trusted checkout of this repository:
