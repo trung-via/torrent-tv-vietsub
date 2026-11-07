@@ -52,10 +52,12 @@ function Read-Package([string]$Apk,[string]$Aapt) {
 function Read-Signers([string]$Apk,[string]$SignerTool) {
     $out = @(& $SignerTool verify --print-certs $Apk 2>&1)
     Check-Exit 'APKSIGNER_VERIFY_FAILED'
-    $pattern = '(?im)^\s*Signer\s+#\d+\s+certificate\s+SHA-256\s+digest:\s*([a-f0-9]{64})\s*$'
-    $certMatches = [regex]::Matches(($out -join [Environment]::NewLine),$pattern)
-    if ($certMatches.Count -lt 1) { Stop-Gate 'CERT_SHA256_NOT_PROVEN' }
-    return @($certMatches | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
+    $parser = Join-Path $PSScriptRoot '..\..\poc\g1-p2-auto\apk-signer-digests.ps1'
+    if (-not (Test-Path -LiteralPath $parser -PathType Leaf)) { Stop-Gate 'SIGNER_PARSER_MISSING' }
+    . $parser
+    $certDigests = @(Get-ApkSignerSha256Digests -OutputLines $out)
+    if ($certDigests.Count -lt 1) { Stop-Gate 'CERT_SHA256_NOT_PROVEN' }
+    return $certDigests
 }
 if (-not $SourceApk) {
     # Prefer the private durable store; the runner temporary path is historical.
