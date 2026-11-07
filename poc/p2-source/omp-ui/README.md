@@ -2,7 +2,7 @@
 
 This is **not** another standalone Python-only PoC. `apply.mjs` patches the real OMP TV search consumer `src/screens/Add.tsx` (the search-result UI), copying `tvCandidateCheck.ts` into OMP's `src/sources/` and the test into `tests/sources/`. The patch is bounded to upstream OMP commit `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f` and requires original `Add.tsx` Git blob `be8ab4529e0fdb9fe6dde3cc68c7fe58284aa323`.
 
-## User-visible behavior in an overlay-built OMP app
+## Historical P2-SOURCE.3/4 behavior (superseded by P2-SOURCE.5 below)
 
 A **new optional search control**, default OFF: `P2: ưu tiên metadata (tắt)`. When enabled it uses the North Star sample constraint **8–12 decimal GB and >=300 *reported* seeds** (non-customizable in this bounded slice), marks each result `khớp / ngoài giới hạn / chưa đủ dữ liệu`, and prioritizes matches once streaming completes. It never hides unknown rows, alters existing source search, automatically resolves a link/adds a torrent, fetches peers, reads media tracks or overrides D-pad selection. Search focus order remains stable as rows stream.
 
@@ -22,6 +22,18 @@ Every UNKNOWN result now has a safe, static diagnostic in the visible UI: unsupp
 Sort remains `reported-match` → `unknown` → `reported-mismatch` **after** source streaming ends; all rows remain visible and stable while streaming. The original default-OFF control, user confirmation for additions, search back/remote UX, G1 subtitles and runtime permissions are unchanged.
 
 **Gate:** this PR proves only overlay source/tests and GitHub-hosted TypeScript/asset build if CI succeeds. The existing Redmi APK SHA `c2f71cb8c8accc11821396d20a96490b0a129344cb329e1c5e6d9c3bf2f7b75f` **does not contain this revision**. A new APK and read-only/installation/device validation require a later separately approved deployment; no current real-TV PASS is claimed for P2-SOURCE.4.
+
+## P2-SOURCE.5 — Human-requested 6–15 GB + 4K title hint + highest reported seeds (2026-11-07)
+
+The Human's latest on-Redmi decision supersedes the previous 8–12 GB / >=300-seed sample. This remains **P2 opt-in UI ranking, NOT a hard-hide filter**. The new badge is `P2: 6–15 GB · tên 4K · seed cao nhất (bật)`; default remains OFF. The search/source/network/remote/Back and add-confirmation paths are unchanged. No automated torrent addition/download is permitted.
+
+- **Size:** 6,000,000,000 to 15,000,000,000 reported bytes inclusive (decimal GB); outside range is `reported-mismatch`.
+- **4K:** recognize only bounded `2160p`, `2160`, `4K`, `UHD` **tokens in the result title**. This is an untrusted release *claim*, not an inspected 3840x2160 stream or codec proof. Explicitly lower-resolution-only titles are `reported-mismatch`; unlabeled/ambiguous titles remain `unknown`. Titles with both 4K and lower resolution are ambiguous, not auto-matched. No 4K claim is silently inferred from `qualityRank`, poster or filename-like substrings (e.g. `4KID`).
+- **Seed priority:** drop the former >=300 seed eligibility floor entirely. After search streaming ends, group matched (size+claimed 4K+valid seed) → unknown → mismatch, and sort **descending reported seeder count within each group**, preserving original order on ties. Zero seeds are a valid reported count and rank last among matched nonnegative counts. Missing/invalid seeds remain unknown. No live peer count, health or throughput is verified.
+- **Scope/provenance:** assess only pinned first-party TorrServer `ts-rutor` and `ts-torznab` (the latter requiring nonempty tracker display metadata); other/merged sources remain unknown regardless of title/size/seed. These results do not establish that the source or media is authorized.
+- **UI:** each row keeps its P2 verdict with safe diagnostics for unknown, and the notice emphasizes that 4K is a title claim; all rows remain visible. No data migration or modification of G1 subtitles, saved preferences, Windows/NAS TorrServer or Redmi hardware.
+
+**Acceptance boundaries:** targeted Vitest must cover inclusive 6/15 GB, 4K token/false-positive behavior, no seed floor, descending seeds, tie stability, provenance/UNKNOWN handling, and no hidden/mutated rows. Hosted OMP TypeScript build and build-composition CI are source-only; do not claim that the **already-installed** G1+P2-SOURCE.4 APK SHA `cd55d195741697509b294d8cc4176473c01ccfdba654b1a40408a001e85c7320` includes P2-SOURCE.5. A fresh ARM32 APK and separate Human-approved ADB in-place install plus Redmi UI acceptance will be required to deploy this change.
 
 ## Test in a disposable pinned upstream checkout
 
