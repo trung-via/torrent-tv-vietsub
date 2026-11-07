@@ -1,7 +1,7 @@
 """Offline negative/positive gates; no GitHub, host or network calls."""
 import unittest
 
-from verify_merged_pass import Hold, REPO, OWNER, validate, select_action
+from verify_merged_pass import Hold, REPO, OWNER, canonical, render_brain_verdict, validate, select_action
 
 HEAD = "a" * 40
 BASE = "b" * 40
@@ -82,6 +82,30 @@ class AutoBuildBrainGateTests(unittest.TestCase):
 
     def test_owner_brain_pass_canonical_current_head_base_and_ci(self):
         self.assertEqual(verify(), 51)
+
+    def test_rendered_premerge_verdict_exactly_matches_machine_receipt(self):
+        self.assertEqual(render_brain_verdict(51, HEAD, BASE, True), PASS)
+        self.assertEqual(render_brain_verdict(51, HEAD, BASE, False), HOLD)
+        self.assertEqual(canonical(comment(render_brain_verdict(51, HEAD, BASE, True)))["type"],
+                         "TORRENT_TV_BRAIN_REVIEW_PASS_V1")
+
+    def test_renderer_rejects_invalid_head_base_or_pr_number(self):
+        for args in ((0, HEAD, BASE), (51, "bad", BASE), (51, HEAD, "bad")):
+            with self.subTest(args=args):
+                with self.assertRaises(Hold):
+                    render_brain_verdict(*args)
+
+    def test_noncanonical_owner_review_is_explicit_hold_not_accepted(self):
+        narrative = ("TORRENT_TV_BRAIN_REVIEW_V1\\nDECISION=PASS_FOR_SOURCE_ONLY_MERGE\\n"
+                     f"PR=51\\nHEAD_SHA={HEAD}\\nBASE_MAIN_SHA={BASE}")
+        with self.assertRaises(Hold) as raised:
+            verify(comments=[comment(narrative)])
+        self.assertEqual(str(raised.exception), "BRAIN_VERDICT_NONCANONICAL_FOUR_LINE_REQUIRED")
+
+    def test_untrusted_noncanonical_review_does_not_change_missing_verdict_reason(self):
+        with self.assertRaises(Hold) as raised:
+            verify(comments=[comment("TORRENT_TV_BRAIN_REVIEW_V1", author="outsider")])
+        self.assertEqual(str(raised.exception), "BRAIN_VERDICT_MISSING")
 
     def test_non_owner_comment_is_not_a_brain_signoff(self):
         with self.assertRaises(Hold):
