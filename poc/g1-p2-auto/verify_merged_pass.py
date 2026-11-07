@@ -66,6 +66,40 @@ class Hold(Exception):
     pass
 
 
+def render_brain_verdict(pr_number: int, head_sha: str, base_sha: str,
+                         approve: bool = True) -> str:
+    """Render the only receipt accepted by the post-merge provenance gate.
+
+    Use before merge; a human-readable review narrative is NOT this receipt.
+    This function never posts a comment or grants build permission.
+    """
+    if (type(pr_number) is not int or pr_number < 1
+            or not FULL.fullmatch(head_sha or "")
+            or not FULL.fullmatch(base_sha or "")):
+        raise Hold("BRAIN_VERDICT_INPUT_INVALID")
+    decision = "PASS" if approve else "HOLD"
+    body = (f"TORRENT_TV_BRAIN_REVIEW_{decision}_V1\n"
+            f"pr={pr_number}\nhead_sha={head_sha}\nbase_sha={base_sha}")
+    if not VERDICT.fullmatch(body):
+        raise Hold("BRAIN_VERDICT_RENDER_INVALID")
+    return body
+
+
+def noncanonical_owner_review_present(comments: list[dict]) -> bool:
+    """Diagnostic only: never reinterpret a free-form review as authorization."""
+    for row in comments:
+        if not isinstance(row, dict):
+            continue
+        author = row.get("user")
+        if (not isinstance(author, dict) or author.get("login") != OWNER
+                or row.get("author_association") != "OWNER"):
+            continue
+        body = row.get("body")
+        if isinstance(body, str) and "TORRENT_TV_BRAIN_REVIEW" in body:
+            return True
+    return False
+
+
 def canonical(comment: dict):
     author = comment.get("user") or {}
     if author.get("login") != OWNER or comment.get("author_association") != "OWNER":
@@ -112,6 +146,8 @@ def validate(repo: str, sha: str, before: str, current: str,
         raise Hold("PR_SCOPE_INVALID")
     verdicts = [c for c in (canonical(row) for row in comments) if c is not None]
     if not verdicts:
+        if noncanonical_owner_review_present(comments):
+            raise Hold("BRAIN_VERDICT_NONCANONICAL_FOUR_LINE_REQUIRED")
         raise Hold("BRAIN_VERDICT_MISSING")
     verdicts.sort(key=lambda c: (c["created"], c["id"]))
     last = verdicts[-1]
