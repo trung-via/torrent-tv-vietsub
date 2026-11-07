@@ -1,0 +1,43 @@
+# Read-only PowerShell parser and offline private handoff static tests.
+# Does NOT contact the user's Windows host, Android device or Github artifacts.
+name: Torrent TV - G1P2 Local Private Handoff CI
+
+on:
+  pull_request:
+    paths:
+      - 'tools/redmi-validation/**'
+      - '.github/workflows/tv-g1p2-private-handoff-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  private-preflight:
+    name: TV Verified Code CI
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source for offline tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify PowerShell syntax and read-only operational contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'tools/redmi-validation/verify-g1p2-arm32.ps1').Path,
+            [ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'G1P2_PRIVATE_HANDOFF_PARSER_FAILED' }
+          Write-Host 'G1P2_PRIVATE_HANDOFF_POWERSHELL_PARSE_PASS'
+
+      - name: Verify no install, exact historical SHA, and safe local-only defaults
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/redmi-validation -p 'test_*.py' -v
