@@ -58,11 +58,11 @@ text = once(text,
   'SORT');
 text = once(text,
   "      {note === 'phoneDown' && <div class=\"search-note search-note-warn\">{t('search.phoneDown')}</div>}",
-  "      {p2ReportedView && <div class=\"search-note\" data-hint=\"p2-reported\">P2: chỉ ưu tiên kích thước + seed được nguồn báo cáo; chưa xác minh 2K, audio Việt hay quyền nội dung.</div>}\n      {note === 'phoneDown' && <div class=\"search-note search-note-warn\">{t('search.phoneDown')}</div>}",
+  "      {p2ReportedView && <div class=\"search-note\" data-hint=\"p2-reported\">P2: 6–15 GB + dấu hiệu 4K theo tên bản phát hành; ưu tiên seed báo cáo cao nhất. Chưa xác minh độ phân giải thật, peers hay quyền nội dung.</div>}\n      {note === 'phoneDown' && <div class=\"search-note search-note-warn\">{t('search.phoneDown')}</div>}",
   'DISCLAIMER');
 text = once(text,
   "          {prog && <Button focusKey=\"search-sort\" className=\"search-sort\" label={t('search.sortLabel', { v: sortName() })} onPress={pickSort} />}",
-  "          {prog && <Button focusKey=\"search-sort\" className=\"search-sort\" label={t('search.sortLabel', { v: sortName() })} onPress={pickSort} />}\n          {prog && <Button focusKey=\"search-p2\" className=\"search-sort\" label={p2ReportedView ? 'P2: 8–12 GB, ≥300 seed báo cáo (bật)' : 'P2: ưu tiên metadata (tắt)'} onPress={() => { order.current = []; setP2ReportedView((v) => !v); }} />}",
+  "          {prog && <Button focusKey=\"search-sort\" className=\"search-sort\" label={t('search.sortLabel', { v: sortName() })} onPress={pickSort} />}\n          {prog && <Button focusKey=\"search-p2\" className=\"search-sort\" label={p2ReportedView ? 'P2: 6–15 GB · tên 4K · seed cao nhất (bật)' : 'P2: ưu tiên metadata (tắt)'} onPress={() => { order.current = []; setP2ReportedView((v) => !v); }} />}",
   'BUTTON');
 text = once(text,
   "            const kind = resultKindLabel(r);",
@@ -70,7 +70,7 @@ text = once(text,
   'ROW_STATE');
 text = once(text,
   "                    {kind && <span class=\"search-chip search-kind\">{tvGlyphs(kind)}</span>}",
-  "                    {kind && <span class=\"search-chip search-kind\">{tvGlyphs(kind)}</span>}\n                    {p2Status && <span class=\"search-chip\">{p2Status.status === 'reported-match' ? 'P2: khớp (báo cáo)' : p2Status.status === 'reported-mismatch' ? 'P2: ngoài giới hạn (báo cáo)' : 'P2: chưa đủ dữ liệu (' + p2UnknownReasonLabel(p2Status.reason) + ')'}</span>}",
+  "                    {kind && <span class=\"search-chip search-kind\">{tvGlyphs(kind)}</span>}\n                    {p2Status && <span class=\"search-chip\">{p2Status.status === 'reported-match' ? 'P2: khớp (4K theo tên, seed báo cáo)' : p2Status.status === 'reported-mismatch' ? 'P2: ngoài giới hạn (báo cáo)' : 'P2: chưa đủ dữ liệu (' + p2UnknownReasonLabel(p2Status.reason) + ')'}</span>}",
   'ROW_BADGE');
 writeFileSync(join(root, add), text, 'utf8');
 copyFileSync(join(from, 'tvCandidateCheck.ts'), helper);
