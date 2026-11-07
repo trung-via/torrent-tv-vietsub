@@ -128,12 +128,15 @@ Set-Content -LiteralPath $statusPath -Value 'SIGNATURE_HOLD_PENDING_VERIFY' -Enc
 Write-Host ('G1P2_PRIVATE_APK_QUARANTINED_LOCAL_ONLY run={0} attempt={1} sha256={2} path={3}' -f
     $run,$attempt,$apkHash,$target)
 $signer = Read-Tool 'apksigner.bat'
+$parser = Join-Path $PSScriptRoot 'apk-signer-digests.ps1'
+if (-not (Test-Path -LiteralPath $parser -PathType Leaf)) {
+    Stop-Retention 'SIGNER_PARSER_MISSING'
+}
+. $parser
 $retainedApk = Join-Path $target 'app-armeabi-v7a-debug.apk'
 $verify = @(& $signer verify --print-certs $retainedApk 2>&1)
 $verifyExit = $LASTEXITCODE
-$signerText = $verify -join [Environment]::NewLine
-$certDigests = [regex]::Matches($signerText,
-    '(?im)^\s*Signer\s+#\d+\s+certificate\s+SHA-256\s+digest:\s*([a-f0-9]{64})\s*$')
+$certDigests = @(Get-ApkSignerSha256Digests -OutputLines $verify)
 Write-Host ('G1P2_APKSIGNER_DIAGNOSTIC exit={0} matched_cert_lines={1} output_lines={2}' -f
     $verifyExit,$certDigests.Count,$verify.Count)
 if ($verifyExit -ne 0 -or $certDigests.Count -lt 1) {
