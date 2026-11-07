@@ -21,10 +21,15 @@ class PrivateHandoffContract(unittest.TestCase):
         self.assertIn("ValidateSet('Inspect','Stage','CompareInstalled')", SCRIPT)
 
     def test_no_adb_install_delete_or_network_upload(self):
+        # Comment text may explain forbidden actions; inspect executable source.
+        active = "\n".join(
+            line for line in SCRIPT.splitlines()
+            if not line.lstrip().startswith("#")
+        ).lower()
         for prohibited in ("adb install", "pm clear", "adb push", "adb uninstall",
                            "Invoke-WebRequest", "Invoke-RestMethod", "Start-Process",
                            "curl.exe", "gh release", "gh api"):
-            self.assertNotIn(prohibited.lower(), SCRIPT.lower())
+            self.assertNotIn(prohibited.lower(), active)
 
     def test_copy_only_when_stage_selected(self):
         self.assertIn("if ($Mode -ceq 'Stage')", SCRIPT)
