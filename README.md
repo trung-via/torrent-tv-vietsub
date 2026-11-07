@@ -24,7 +24,11 @@ Windows PC chạy TorrServer mặc định; NAS tùy chọn. TV là client, khô
 
 ## Phát triển hoàn toàn độc lập AIOS
 
-Repo `trung-via/torrent-tv-vietsub` (PRIVATE) có GitHub Issues/PR/ADR, GitHub Actions, self-hosted runner, workspace, credentials, artifacts và release **riêng**. Không dùng AIOS Brain Sync, TASK/admission, dispatch, executor, review, runtime hoặc runner. Có thể **tái sử dụng chọn lọc** mã nguồn/mẫu GitHub Actions, runner guard, script từ AIOS sau kiểm tra provenance, license, secrets và PR review; không tạo phụ thuộc vận hành.
+Repo `trung-via/torrent-tv-vietsub` (PRIVATE hiện tại; **PUBLIC được phép khi Human yêu cầu sau security/license preflight**) có GitHub Issues/PR/ADR, GitHub Actions, self-hosted runner, workspace, credentials, artifacts và release **riêng**. Không dùng AIOS Brain Sync, TASK/admission, dispatch, executor, review, runtime hoặc runner. Có thể **tái sử dụng chọn lọc** mã nguồn/mẫu GitHub Actions, runner guard, script từ AIOS sau kiểm tra provenance, license, secrets và PR review; không tạo phụ thuộc vận hành.
+
+## PUBLIC repository không làm dừng dự án
+
+Human đã chọn cho phép chuyển repo sang PUBLIC và **tiếp tục trên chính repo/branches/Issues/PR/CI/roadmap hiện có**. Không cần tạo repo khác, reset lịch sử hoặc quay về PRIVATE. Trước khi đổi visibility, phải audit Git history, secrets, personal media, issue/artifact, giấy phép OMP/GPL và dependencies. Không cho code từ fork/PR lạ chạy trên self-hosted Windows runner có quyền host; public source không đồng nghĩa công khai TorrServer/gateway hay tự động phát hành APK. Trạng thái PRIVATE/PUBLIC thực tế do GitHub quyết định; xem [Contract](docs/PROJECT_CONTRACT.md) và [Security](docs/SECURITY.md).
 
 ## Tài liệu
 

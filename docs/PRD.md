@@ -16,7 +16,7 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 - **Nguồn:** giữ OMP website search adapters, nhập magnet/.torrent và nguồn người dùng cấu hình hợp lệ; không vận hành piracy index/scraper trái phép, không bypass DRM/ToS.
 - **Player:** library, series, history, resume, remote D-pad, track audio/subtitle; Việt hóa UI, `vi/vie` và SRT/VTT UTF-8. Kiểm chứng Redmi thật trước PASS.
 - **P1:** external subtitle source-agnostic, capability trước transport; SMB/USB/phone chưa chọn default.
-- **Vận hành:** GitHub repo PRIVATE, dedicated runner/workspace/CI/release riêng. AIOS chỉ là nguồn tham khảo code/workflow sau audit; không có AIOS admission/dispatch/Brain/Runtime.
+- **Vận hành:** GitHub repo PRIVATE hiện tại hoặc PUBLIC sau Human-authorized preflight, dedicated runner/workspace/CI/release riêng. AIOS chỉ là nguồn tham khảo code/workflow sau audit; không có AIOS admission/dispatch/Brain/Runtime.
 - **AI:** Windows/NAS optional opt-in; Vietsub trước voice-over; consent, quyền sử dụng, QA, sync và cost gate.
 
 ## 3. Hành trình người dùng theo giai đoạn
