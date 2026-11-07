@@ -12,7 +12,7 @@ $cases = @(
     @{name='legacy numbered signer'; lines=@('Signer #1 certificate SHA-256 digest: ' + $expected); expected=@($expected)},
     @{name='V3 signer'; lines=@('V3 Signer: certificate SHA-256 digest: ' + $expected); expected=@($expected)},
     @{name='V3.1 signer'; lines=@('V3.1 Signer: certificate SHA-256 digest: ' + $expected); expected=@($expected)},
-    @{name='scheme duplicate'; lines=@('V2 Signer: certificate SHA-256 digest: ' + $expected,'V3 Signer: certificate SHA-256 digest: ' + $expected);expected=@($expected)},
+    @{name='scheme duplicate'; lines=@("V2 Signer: certificate SHA-256 digest: $expected","V3 Signer: certificate SHA-256 digest: $expected");expected=@($expected)},
     @{name='no digest';lines=@('V2 Signer: certificate SHA-1 digest: 33c166e6b88a046350c902471888897deb0326d8');expected=@()},
     @{name='truncated digest';lines=@('V2 Signer: certificate SHA-256 digest: abcd');expected=@()},
     @{name='untrusted free text';lines=@('WARNING: V2 Signer: certificate SHA-256 digest: ' + $expected);expected=@()}
