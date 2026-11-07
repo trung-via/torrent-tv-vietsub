@@ -51,6 +51,13 @@ jobs:
           # Simulate an allowed G1 modification, not a full G1 Kotlin patch.
           # Full real G1 apply is Windows-only and is gated in the manual job.
           printf '\n// synthetic G1 compatibility fixture only\n' >> "$RUNNER_TEMP/g1p2-omp/src/api/torrserver.ts"
+          # A non-G1 path must remain a hard rejection, never silently allowed.
+          printf 'unapproved\n' > "$RUNNER_TEMP/g1p2-omp/src/p2-unapproved-test.txt"
+          if node poc/p2-source/omp-ui/apply.mjs "$RUNNER_TEMP/g1p2-omp"; then
+            echo 'FAIL: unexpected source path was accepted'
+            exit 1
+          fi
+          rm "$RUNNER_TEMP/g1p2-omp/src/p2-unapproved-test.txt"
           node poc/p2-source/omp-ui/apply.mjs "$RUNNER_TEMP/g1p2-omp"
           git -C "$RUNNER_TEMP/g1p2-omp" diff --check
 
