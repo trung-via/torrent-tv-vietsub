@@ -59,8 +59,13 @@ class PrivateHandoffContract(unittest.TestCase):
         self.assertIn("NO_ADB_INSTALL_OR_TV_CHANGE", SCRIPT)
         self.assertNotIn("Install-Android", SCRIPT)
 
-    def test_source_unchanged_g1p2_is_historical_run(self):
-        self.assertIn("p1-g1-prod-42331308161-1", SCRIPT)
+    def test_historical_run_remains_default_but_future_runs_supported(self):
+        self.assertIn("42331308161", SCRIPT)
+        self.assertIn("[string]$RunId", SCRIPT)
+        self.assertIn("[string]$RunAttempt", SCRIPT)
+        self.assertIn("[string]$ExpectedSha256", SCRIPT)
+        self.assertIn("'p1-g1-prod-' + $run", SCRIPT)
+        self.assertIn("private-artifacts\\G1P2", SCRIPT)
 
     def test_no_canonical_pass_fabrication(self):
         self.assertNotIn("TORRENT_TV_BRAIN_REVIEW_PASS_V1", SCRIPT)
