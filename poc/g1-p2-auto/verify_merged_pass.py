@@ -90,7 +90,8 @@ def noncanonical_owner_review_present(comments: list[dict]) -> bool:
     for row in comments:
         if not isinstance(row, dict):
             continue
-        if ((row.get("user") or {}).get("login") != OWNER
+        author = row.get("user")
+        if (not isinstance(author, dict) or author.get("login") != OWNER
                 or row.get("author_association") != "OWNER"):
             continue
         body = row.get("body")
