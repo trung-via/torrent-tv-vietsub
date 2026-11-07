@@ -11,6 +11,18 @@ A **new optional search control**, default OFF: `P2: ưu tiên metadata (tắt)`
 - The UI badge deliberately says `báo cáo`; a prominent notice states no confirmation of 2K, Vietnamese audio or content rights. Addition remains a separate existing explicit user action.
 - No external Python process runs on the TV. This is a TypeScript evaluator in OMP itself, independent of the previously merged offline Python verifier.
 
+## P2-SOURCE.4 — reasoned UNKNOWN and pinned TorrServer Rutor metadata (2026-11-07)
+
+Human-observed on Redmi after the G1+P2 debug APK install: P2 toggle and badge rendering worked, but TorrServer Rutor results showing reported size and seeds were all UNKNOWN and did not change priority. This is expected under the earlier Torznab-only allowlist, not evidence of a broken APK.
+
+This bounded revision follows the exact pinned OMP `registry.ts` contract: `fromSearchResult(..., 'ts-rutor')` and `fromSearchResult(..., 'ts-torznab')` produce first-party TorrServer source ids. Only those two primary ids may be evaluated for **reported** size/seed metadata. Torznab still requires a nonblank tracker display field; Rutor does not. Other built-ins, phone results and merged secondary `sources` remain UNKNOWN even with plausible visible numbers. This is not a generic trust grant for source names.
+
+Every UNKNOWN result now has a safe, static diagnostic in the visible UI: unsupported primary source, missing Torznab tracker, missing/invalid size, missing/invalid reported seeds, or invalid criteria. No raw tracker name/URL, magnet, credentials, rights or source secrets are logged/shown. A known numeric mismatch outranks missing unrelated metadata, but only within the two pinned adapters. Reported counts are neither live connected peers nor lawful-media authorization, and title text never proves resolution/audio.
+
+Sort remains `reported-match` → `unknown` → `reported-mismatch` **after** source streaming ends; all rows remain visible and stable while streaming. The original default-OFF control, user confirmation for additions, search back/remote UX, G1 subtitles and runtime permissions are unchanged.
+
+**Gate:** this PR proves only overlay source/tests and GitHub-hosted TypeScript/asset build if CI succeeds. The existing Redmi APK SHA `c2f71cb8c8accc11821396d20a96490b0a129344cb329e1c5e6d9c3bf2f7b75f` **does not contain this revision**. A new APK and read-only/installation/device validation require a later separately approved deployment; no current real-TV PASS is claimed for P2-SOURCE.4.
+
 ## Test in a disposable pinned upstream checkout
 
 ```bash
