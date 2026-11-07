@@ -36,6 +36,7 @@ jobs:
       approved: ${{ steps.gate.outputs.approved }}
       pr: ${{ steps.gate.outputs.pr }}
       source_sha: ${{ steps.gate.outputs.source_sha }}
+      action: ${{ steps.gate.outputs.action }}
     steps:
       - name: Checkout exact merged main commit for hosted-only gate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
@@ -61,6 +62,7 @@ jobs:
       needs.brain-acceptance.result == 'success' &&
       needs.brain-acceptance.outputs.approved == 'true' &&
       needs.brain-acceptance.outputs.source_sha == github.sha
+      && needs.brain-acceptance.outputs.action == 'build'
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
@@ -112,3 +114,37 @@ jobs:
             ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/G1P2-BUILD-EVIDENCE.txt
           if-no-files-found: warn
           retention-days: 3
+
+  signature-reverify:
+    name: Verify preserved Debug APK signer without rebuilding Gradle
+    needs: brain-acceptance
+    if: >-
+      needs.brain-acceptance.result == 'success' &&
+      needs.brain-acceptance.outputs.approved == 'true' &&
+      needs.brain-acceptance.outputs.source_sha == github.sha &&
+      needs.brain-acceptance.outputs.action == 'reverify'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact Brain-approved immutable merge for signer repair
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Revalidate already retained ARM32 APK and certificate only
+        shell: powershell
+        env:
+          G1P2_AUTO_SOURCE_SHA: ${{ needs.brain-acceptance.outputs.source_sha }}
+          G1P2_AUTO_BRAIN_APPROVED: ${{ needs.brain-acceptance.outputs.approved }}
+          G1P2_AUTO_BRAIN_PR: ${{ needs.brain-acceptance.outputs.pr }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_SHA -cne $env:G1P2_AUTO_SOURCE_SHA -or
+              $env:G1P2_AUTO_BRAIN_APPROVED -cne 'true') {
+            throw 'STOP: signer reverify not Brain-authorized'
+          }
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g1-p2-auto\reverify-retained-arm32.ps1') `
+            -SourceCommit $env:GITHUB_SHA
+          if (-not $?) { throw 'STOP: retained APK signer reverify failed' }
