@@ -159,6 +159,20 @@ class OfflineCloudContractTests(unittest.TestCase):
         self.assertEqual([(c.start_ms, c.end_ms) for c in result],
                          [(c.start_ms, c.end_ms) for c in cues])
 
+    def test_benchmark_has_36_original_dialogues_across_six_genres(self):
+        from pathlib import Path
+        dataset = json.loads(Path(__file__).with_name("benchmark_synthetic.json").read_text(encoding="utf-8"))
+        self.assertEqual(dataset["provider_calls_performed"], 0)
+        self.assertIn("original synthetic", dataset["provenance"].lower())
+        cases = dataset["cases"]
+        self.assertEqual(len(cases), 36)
+        self.assertEqual([x["id"] for x in cases], list(range(1, 37)))
+        self.assertEqual(
+            set(x["genre"] for x in cases),
+            {"action", "romance", "comedy", "mystery", "historical", "family"},
+        )
+        self.assertTrue(all(x["source_english"] and x["scene_context"] and x["risk_focus"] for x in cases))
+
     def test_no_network_imports_or_provider_effects(self):
         import cloud_contract
         import inspect
