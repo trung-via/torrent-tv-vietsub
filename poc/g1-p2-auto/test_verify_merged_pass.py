@@ -1,7 +1,7 @@
 """Offline negative/positive gates; no GitHub, host or network calls."""
 import unittest
 
-from verify_merged_pass import Hold, REPO, OWNER, validate
+from verify_merged_pass import Hold, REPO, OWNER, validate, select_action
 
 HEAD = "a" * 40
 BASE = "b" * 40
@@ -52,6 +52,34 @@ def verify(**kw):
 
 
 class AutoBuildBrainGateTests(unittest.TestCase):
+    def test_signer_only_review_routes_to_reverify_without_gradle(self):
+        files = [
+            {"filename": "poc/g1-p2-auto/apk-signer-digests.ps1", "status": "added"},
+            {"filename": "poc/g1-p2-auto/retain-private-arm32.ps1", "status": "modified"},
+            {"filename": ".github/workflows/tv-g1p2-auto-debug.yml", "status": "modified"},
+            {"filename": "poc/g1-p2-auto/reverify-retained-arm32.ps1", "status": "added"},
+        ]
+        self.assertEqual(select_action(files), "reverify")
+
+    def test_player_or_build_scope_still_requires_full_build(self):
+        files = [
+            {"filename": "poc/g1-p2-auto/apk-signer-digests.ps1", "status": "added"},
+            {"filename": "poc/g1-prod/apply.ps1", "status": "modified"},
+        ]
+        self.assertEqual(select_action(files), "build")
+
+    def test_unrelated_workflow_or_docs_only_keeps_normal_build_route(self):
+        self.assertEqual(select_action([
+            {"filename": ".github/workflows/tv-g1p2-auto-debug.yml", "status": "modified"}
+        ]), "build")
+
+    def test_untrusted_truncated_or_removed_diff_does_not_classify(self):
+        for files in ([], [{"filename": "x", "status": "removed"}],
+                      [{"status": "modified"}], [{}], [None]):
+            with self.subTest(files=files):
+                with self.assertRaises(Hold):
+                    select_action(files)
+
     def test_owner_brain_pass_canonical_current_head_base_and_ci(self):
         self.assertEqual(verify(), 51)
 
