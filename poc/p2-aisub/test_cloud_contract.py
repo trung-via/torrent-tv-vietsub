@@ -135,6 +135,11 @@ class OfflineCloudContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     parse_gemini_response(self._set_rows(rows), self.batches[0])
 
+    def test_refuses_unpaired_unicode_surrogate(self):
+        rows = [{"id": i, "vi": "\\ud800"} for i in (1, 2, 3)]
+        with self.assertRaisesRegex(ValueError, "PLAIN_UTF8_TRANSLATION_REQUIRED"):
+            parse_gemini_response(self._set_rows(rows), self.batches[0])
+
     def test_refuses_boolean_ids_and_timestamp_output(self):
         rows = [{"id": True, "vi": "Một"}, {"id": 2, "vi": "Hai"}, {"id": 3, "vi": "Ba"}]
         with self.assertRaises(ValueError):
