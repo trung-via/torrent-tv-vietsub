@@ -50,4 +50,16 @@ jobs:
             (Resolve-Path 'poc/g1-p2-auto/retain-private-arm32.ps1').Path,
             [ref]$tokens,[ref]$errors) | Out-Null
           if ($errors.Count -ne 0) { throw 'G1P2_PRIVATE_RETENTION_POWERSHELL_PARSE_FAILED' }
-          Write-Host 'G1P2_AUTO_POLICY_AND_PRIVATE_RETENTION_PARSER_PASS_NOT_WINDOWS_APK'
+          foreach ($file in @(
+              'poc/g1-p2-auto/apk-signer-digests.ps1',
+              'poc/g1-p2-auto/reverify-retained-arm32.ps1',
+              'tools/redmi-validation/verify-g1p2-arm32.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors.Count -ne 0) { throw ('G1P2_SIGNER_PARSER_PARSE_FAILED ' + $file) }
+          }
+          & ./poc/g1-p2-auto/test_apk_signer_digests.ps1
+          if (-not $?) { throw 'G1P2_REAL_V2_CERT_FIXTURE_FAILED' }
+          Write-Host 'G1P2_SIGNER_AND_ROUTING_POLICY_CI_PASS_NO_APK_OR_DEVICE'
