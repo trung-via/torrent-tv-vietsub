@@ -1,5 +1,6 @@
 """Source-only guard tests for G1+P2 composition; never run Windows/ADB."""
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -67,9 +68,19 @@ class CompositionGuards(unittest.TestCase):
         self.assertIn("p2_ui=opt_in_reported_metadata_only", self.combo)
         self.assertIn("no_adb_or_tv_install=yes", self.combo)
 
+    def test_git_porcelain_columns_remain_intact_with_g1_dirty_tree(self):
+        # .trim() strips the significant first status column in Git porcelain.
+        self.assertIn(".trimEnd()", self.overlay)
+        self.assertNotIn("encoding: 'utf8' }).trim();", self.overlay)
+        self.assertIn("line.slice(3)", self.overlay)
+
     def test_source_checkout_immutable_and_workflow_guard_present(self):
-        self.assertIn("ref: dbc0c1b04dc352bed0662fae899475f4e55425f0", self.workflow)
-        self.assertIn("SourceCommit 'dbc0c1b04dc352bed0662fae899475f4e55425f0'", self.workflow)
+        pinned_ref = re.search(r"ref: ([0-9a-f]{40})", self.workflow)
+        source_arg = re.search(r"SourceCommit '([0-9a-f]{40})'", self.workflow)
+        self.assertIsNotNone(pinned_ref)
+        self.assertIsNotNone(source_arg)
+        self.assertEqual(pinned_ref.group(1), source_arg.group(1))
+        self.assertNotEqual(pinned_ref.group(1), "dbc0c1b04dc352bed0662fae899475f4e55425f0")
         self.assertIn("GITHUB_REF -cne 'refs/heads/main'", self.workflow)
         self.assertIn("p2-g1-combined-manual.yml@refs/heads/main", self.workflow)
 
