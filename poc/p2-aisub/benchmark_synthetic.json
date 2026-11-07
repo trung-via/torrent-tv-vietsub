@@ -1,0 +1,304 @@
+{
+  "corpus": "P2-AISUB.2a-original-synthetic-context-v1",
+  "provenance": "Original synthetic dialogue written for this test; NOT real film scripts, uploads or licensed media.",
+  "purpose": "Plan blinded bilingual human review of natural VI, pronoun choices, semantic fidelity and readability after authorized provider experiment.",
+  "provider_calls_performed": 0,
+  "scoring": {
+    "semantic_accuracy": "human 1-5",
+    "vietnamese_naturalness": "human 1-5",
+    "relationship_pronouns": "human 1-5",
+    "tone_register": "human 1-5",
+    "subtitle_readability": "human 1-5",
+    "hallucination": "human yes/no"
+  },
+  "cases": [
+    {
+      "id": 1,
+      "genre": "action",
+      "scene_context": "A rookie speaks to the older squad captain.",
+      "speaker": "Rookie",
+      "source_english": "The backup is here. Did I miss the signal?",
+      "risk_focus": "rank"
+    },
+    {
+      "id": 2,
+      "genre": "action",
+      "scene_context": "A captain reassures a frightened civilian.",
+      "speaker": "Captain",
+      "source_english": "Stay behind me. I'll get you through this.",
+      "risk_focus": "reassurance"
+    },
+    {
+      "id": 3,
+      "genre": "action",
+      "scene_context": "Two siblings reunite during an evacuation.",
+      "speaker": "Younger brother",
+      "source_english": "I thought you'd left without me.",
+      "risk_focus": "relationship"
+    },
+    {
+      "id": 4,
+      "genre": "action",
+      "scene_context": "A pilot mocks a long-time rival.",
+      "speaker": "Pilot",
+      "source_english": "Still flying like you own the sky?",
+      "risk_focus": "sarcasm"
+    },
+    {
+      "id": 5,
+      "genre": "action",
+      "scene_context": "An exhausted firefighter speaks to a colleague.",
+      "speaker": "Firefighter",
+      "source_english": "We can save the archive, not the whole building.",
+      "risk_focus": "urgency"
+    },
+    {
+      "id": 6,
+      "genre": "action",
+      "scene_context": "A commander quietly admits responsibility.",
+      "speaker": "Commander",
+      "source_english": "I gave the order. The blame is mine.",
+      "risk_focus": "responsibility"
+    },
+    {
+      "id": 7,
+      "genre": "romance",
+      "scene_context": "Former partners meet years after their separation.",
+      "speaker": "Woman",
+      "source_english": "You came back. I didn't think you would.",
+      "risk_focus": "pronoun"
+    },
+    {
+      "id": 8,
+      "genre": "romance",
+      "scene_context": "A shy guest confesses affection.",
+      "speaker": "Guest",
+      "source_english": "Every ordinary day feels different with you.",
+      "risk_focus": "register"
+    },
+    {
+      "id": 9,
+      "genre": "romance",
+      "scene_context": "Two newlyweds joke about burnt dinner.",
+      "speaker": "Husband",
+      "source_english": "If this is your plan, I'm ordering noodles.",
+      "risk_focus": "humor"
+    },
+    {
+      "id": 10,
+      "genre": "romance",
+      "scene_context": "A woman comforts a grieving childhood friend.",
+      "speaker": "Friend",
+      "source_english": "You don't need to be brave with me.",
+      "risk_focus": "empathy"
+    },
+    {
+      "id": 11,
+      "genre": "romance",
+      "scene_context": "An estranged pair disagree without shouting.",
+      "speaker": "Man",
+      "source_english": "Being right isn't the same as being kind.",
+      "risk_focus": "subtext"
+    },
+    {
+      "id": 12,
+      "genre": "romance",
+      "scene_context": "A grandmother teases her aging spouse.",
+      "speaker": "Grandmother",
+      "source_english": "You still pretend you don't wait for me.",
+      "risk_focus": "relationship"
+    },
+    {
+      "id": 13,
+      "genre": "comedy",
+      "scene_context": "Friends comment on a terrible magic trick.",
+      "speaker": "Friend",
+      "source_english": "Amazing. You made my wallet disappear.",
+      "risk_focus": "sarcasm"
+    },
+    {
+      "id": 14,
+      "genre": "comedy",
+      "scene_context": "A cook admits a recipe experiment failed.",
+      "speaker": "Cook",
+      "source_english": "The smoke is intentional. The flavor isn't.",
+      "risk_focus": "wordplay"
+    },
+    {
+      "id": 15,
+      "genre": "comedy",
+      "scene_context": "A student responds to an absurd challenge.",
+      "speaker": "Student",
+      "source_english": "Sure, and tomorrow I'll teach the moon to swim.",
+      "risk_focus": "idiom"
+    },
+    {
+      "id": 16,
+      "genre": "comedy",
+      "scene_context": "A manager gives a dry status update.",
+      "speaker": "Manager",
+      "source_english": "We have two problems and one suspicious cake.",
+      "risk_focus": "humor"
+    },
+    {
+      "id": 17,
+      "genre": "comedy",
+      "scene_context": "A sibling jokes about an untidy bedroom.",
+      "speaker": "Brother",
+      "source_english": "There's a museum in here. Nothing can be touched.",
+      "risk_focus": "register"
+    },
+    {
+      "id": 18,
+      "genre": "comedy",
+      "scene_context": "A traveler narrates a series of mishaps.",
+      "speaker": "Traveler",
+      "source_english": "The map was confident. It was also wrong.",
+      "risk_focus": "tone"
+    },
+    {
+      "id": 19,
+      "genre": "mystery",
+      "scene_context": "An investigator interviews a reluctant witness.",
+      "speaker": "Detective",
+      "source_english": "When you say 'later', which night do you mean?",
+      "risk_focus": "ambiguity"
+    },
+    {
+      "id": 20,
+      "genre": "mystery",
+      "scene_context": "Two detectives discuss a contradictory alibi.",
+      "speaker": "Partner",
+      "source_english": "The clock was correct. His story wasn't.",
+      "risk_focus": "subtext"
+    },
+    {
+      "id": 21,
+      "genre": "mystery",
+      "scene_context": "A witness speaks under pressure.",
+      "speaker": "Witness",
+      "source_english": "I saw the coat. I never saw their face.",
+      "risk_focus": "ambiguity"
+    },
+    {
+      "id": 22,
+      "genre": "mystery",
+      "scene_context": "An archivist finds a hidden message.",
+      "speaker": "Archivist",
+      "source_english": "Someone wanted us to read the gaps.",
+      "risk_focus": "metaphor"
+    },
+    {
+      "id": 23,
+      "genre": "mystery",
+      "scene_context": "A detective reassures a child witness.",
+      "speaker": "Detective",
+      "source_english": "Tell me what you remember, not what they told you.",
+      "risk_focus": "empathy"
+    },
+    {
+      "id": 24,
+      "genre": "mystery",
+      "scene_context": "A suspect gives a carefully worded denial.",
+      "speaker": "Suspect",
+      "source_english": "I wasn't there when the door opened.",
+      "risk_focus": "subtext"
+    },
+    {
+      "id": 25,
+      "genre": "historical",
+      "scene_context": "An apprentice addresses a respected elderly master.",
+      "speaker": "Apprentice",
+      "source_english": "Master, may I ask what this symbol means?",
+      "risk_focus": "honorific"
+    },
+    {
+      "id": 26,
+      "genre": "historical",
+      "scene_context": "A queen speaks to a younger court advisor.",
+      "speaker": "Queen",
+      "source_english": "Your loyalty is noted. Your judgment is needed.",
+      "risk_focus": "hierarchy"
+    },
+    {
+      "id": 27,
+      "genre": "historical",
+      "scene_context": "A village elder addresses their kin.",
+      "speaker": "Elder",
+      "source_english": "We keep the old stories so our children can choose.",
+      "risk_focus": "register"
+    },
+    {
+      "id": 28,
+      "genre": "historical",
+      "scene_context": "A guard reports to a noble patron.",
+      "speaker": "Guard",
+      "source_english": "My lady, the northern gate has fallen.",
+      "risk_focus": "honorific"
+    },
+    {
+      "id": 29,
+      "genre": "historical",
+      "scene_context": "Two old rivals agree to a truce.",
+      "speaker": "Rival",
+      "source_english": "For tonight, we lay down our quarrel.",
+      "risk_focus": "era"
+    },
+    {
+      "id": 30,
+      "genre": "historical",
+      "scene_context": "An aunt corrects an impatient nephew.",
+      "speaker": "Aunt",
+      "source_english": "A promise weighs more than a coin.",
+      "risk_focus": "proverb"
+    },
+    {
+      "id": 31,
+      "genre": "family",
+      "scene_context": "An older sister welcomes her younger brother.",
+      "speaker": "Sister",
+      "source_english": "You can start again. I'll be here.",
+      "risk_focus": "pronoun"
+    },
+    {
+      "id": 32,
+      "genre": "family",
+      "scene_context": "A father apologizes to a teenage daughter.",
+      "speaker": "Father",
+      "source_english": "I listened to my fear instead of listening to you.",
+      "risk_focus": "empathy"
+    },
+    {
+      "id": 33,
+      "genre": "family",
+      "scene_context": "A child asks a parent about a missing pet.",
+      "speaker": "Child",
+      "source_english": "Will she remember us when she comes home?",
+      "risk_focus": "pronoun"
+    },
+    {
+      "id": 34,
+      "genre": "family",
+      "scene_context": "An adult daughter visits her widowed mother.",
+      "speaker": "Daughter",
+      "source_english": "I kept the key, just in case you needed me.",
+      "risk_focus": "relationship"
+    },
+    {
+      "id": 35,
+      "genre": "family",
+      "scene_context": "Cousins joke at a crowded dinner table.",
+      "speaker": "Cousin",
+      "source_english": "We only fight about the last dumpling.",
+      "risk_focus": "humor"
+    },
+    {
+      "id": 36,
+      "genre": "family",
+      "scene_context": "A parent encourages a child before a recital.",
+      "speaker": "Parent",
+      "source_english": "It's okay to be nervous. Just take the first note.",
+      "risk_focus": "reassurance"
+    }
+  ]
+}
