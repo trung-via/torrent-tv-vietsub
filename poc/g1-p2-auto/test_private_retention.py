@@ -12,7 +12,7 @@ class PersistentPrivateApkTests(unittest.TestCase):
     def test_build_then_private_retention_then_only_evidence_upload(self):
         a = AUTO.index("Apply G1 and P2, run tests, assemble Debug")
         b = AUTO.index("Persist verified ARM32 Debug APK")
-        c = AUTO.index("Upload SHA256 and redacted build manifest only")
+        c = AUTO.index("Upload SHA256 and redacted build manifest even if signer gate holds")
         self.assertLess(a, b)
         self.assertLess(b, c)
         self.assertIn("retain-private-arm32.ps1", AUTO)
