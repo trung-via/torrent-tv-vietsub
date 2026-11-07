@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inspectP2Reported, P2_EXAMPLE_CRITERIA, rankP2Reported } from '../../src/sources/tvCandidateCheck';
+import { inspectP2Reported, inspectP2ReportedDetail, p2UnknownReasonLabel, P2_EXAMPLE_CRITERIA, rankP2Reported } from '../../src/sources/tvCandidateCheck';
 import type { SourceResult } from '../../src/sources/types';
 
 function row(part: Partial<SourceResult> = {}): SourceResult {
@@ -29,10 +29,41 @@ describe('P2 TV reported metadata, not media verification', () => {
     expect(inspectP2Reported(row({ Seed: -1 }))).toBe('unknown');
     expect(inspectP2Reported(row({ Seed: 1.2 }))).toBe('unknown');
   });
-  it('does not trust results from non Torznab adapters', () => {
-    expect(inspectP2Reported(row({ source: 'ts-rutor' }))).toBe('unknown');
+  it('accepts only pinned TorrServer Rutor/Torznab reported metadata', () => {
+    expect(inspectP2Reported(row({ source: 'ts-rutor', Tracker: '' }))).toBe('reported-match');
+    expect(inspectP2Reported(row({ source: 'ts-rutor', Tracker: '', sizeBytes: 44_600_000_000, Seed: 9 })))
+      .toBe('reported-mismatch');
+    expect(inspectP2Reported(row({ source: 'other', sources: ['ts-rutor'] }))).toBe('unknown');
     expect(inspectP2Reported(row({ source: 'other', sources: ['ts-torznab'] }))).toBe('unknown');
-    expect(inspectP2Reported(row({ Tracker: '' }))).toBe('unknown');
+    expect(inspectP2Reported(row({ source: 'ts-rutor-clone' }))).toBe('unknown');
+    expect(inspectP2Reported(row({ source: 'ts-torznab', Tracker: '' }))).toBe('unknown');
+  });
+
+  it('explains UNKNOWN without exposing raw source or tracker identity', () => {
+    const unsupported = inspectP2ReportedDetail(row({ source: 'nnmclub', Tracker: 'secret-tracker' }));
+    expect(unsupported).toEqual({ status: 'unknown', reason: 'source-not-supported' });
+    expect(p2UnknownReasonLabel(unsupported.reason)).toBe('nguồn chưa hỗ trợ');
+
+    const missingTracker = inspectP2ReportedDetail(row({ Tracker: '' }));
+    expect(missingTracker.reason).toBe('torznab-tracker-missing');
+
+    const missingSize = inspectP2ReportedDetail(row({ source: 'ts-rutor', Tracker: '', sizeBytes: undefined }));
+    expect(missingSize.reason).toBe('size-unverified');
+
+    const missingSeed = inspectP2ReportedDetail(row({ source: 'ts-rutor', Tracker: '', Seed: NaN }));
+    expect(missingSeed.reason).toBe('seeds-unverified');
+
+    const invalid = inspectP2ReportedDetail(row(), { ...P2_EXAMPLE_CRITERIA, maxBytes: 0 });
+    expect(invalid.reason).toBe('criteria-invalid');
+    expect(p2UnknownReasonLabel(unsupported.reason)).not.toContain('secret');
+  });
+
+  it('orders Rutor known mismatches below UNKNOWN built-in rows, without hiding anything', () => {
+    const bad = row({ Title: 'rutor-known-outside', source: 'ts-rutor', Tracker: '', sizeBytes: 44_600_000_000, Seed: 9 });
+    const unknown = row({ Title: 'builtin-unknown', source: 'nnmclub' });
+    const valid = row({ Title: 'rutor-reported-match', source: 'ts-rutor', Tracker: '' });
+    expect(rankP2Reported([bad, unknown, valid]).map(r => r.Title))
+      .toEqual(['rutor-reported-match', 'builtin-unknown', 'rutor-known-outside']);
   });
   it('ignores claim in title of 1440p and Vietnamese audio', () => {
     expect(inspectP2Reported(row({ sizeBytes: undefined, Seed: 0, Title: '1440p.VI.AAC' }))).toBe('reported-mismatch');
