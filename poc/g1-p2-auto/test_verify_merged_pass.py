@@ -96,8 +96,8 @@ class AutoBuildBrainGateTests(unittest.TestCase):
                     render_brain_verdict(*args)
 
     def test_noncanonical_owner_review_is_explicit_hold_not_accepted(self):
-        narrative = ("TORRENT_TV_BRAIN_REVIEW_V1\\nDECISION=PASS_FOR_SOURCE_ONLY_MERGE\\n"
-                     f"PR=51\\nHEAD_SHA={HEAD}\\nBASE_MAIN_SHA={BASE}")
+        narrative = ("TORRENT_TV_BRAIN_REVIEW_V1\nDECISION=PASS_FOR_SOURCE_ONLY_MERGE\n"
+                     f"PR=51\nHEAD_SHA={HEAD}\nBASE_MAIN_SHA={BASE}")
         with self.assertRaises(Hold) as raised:
             verify(comments=[comment(narrative)])
         self.assertEqual(str(raised.exception), "BRAIN_VERDICT_NONCANONICAL_FOUR_LINE_REQUIRED")
