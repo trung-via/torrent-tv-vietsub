@@ -1,0 +1,65 @@
+# Read-only GitHub-hosted compatibility check. Does not assemble APK or touch Windows/TV.
+name: Torrent TV - G1 P2 Composition Source CI
+
+on:
+  pull_request:
+    paths:
+      - 'poc/g1-p2-composed/**'
+      - '.github/workflows/p1-g1-p2-composed-manual.yml'
+      - '.github/workflows/tv-g1-p2-composition-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  composition:
+    name: TV Verified Code CI
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout reviewed source on hosted runner only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check composition contract and PowerShell syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'poc/g1-p2-composed/build-on-runner.ps1'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $path).Path,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw ('PowerShell parser errors: ' + $errors.Count) }
+          Write-Host 'G1_P2_POWERSHELL_PARSE_PASS'
+
+      - name: Run source policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/g1-p2-composed -p 'test_*.py' -v
+
+      - name: Simulate already-patched G1 tree and apply P2 overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --no-checkout https://github.com/spacesarmat/omp.git "$RUNNER_TEMP/g1p2-omp"
+          git -C "$RUNNER_TEMP/g1p2-omp" checkout --detach 52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f
+          # Simulate an allowed G1 modification, not a full G1 Kotlin patch.
+          # Full real G1 apply is Windows-only and is gated in the manual job.
+          printf '\n// synthetic G1 compatibility fixture only\n' >> "$RUNNER_TEMP/g1p2-omp/src/api/torrserver.ts"
+          node poc/p2-source/omp-ui/apply.mjs "$RUNNER_TEMP/g1p2-omp"
+          git -C "$RUNNER_TEMP/g1p2-omp" diff --check
+
+      - name: Run P2 Vitest and build combined OMP UI assets
+        shell: bash
+        working-directory: ${{ runner.temp }}/g1p2-omp
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npx --no-install vitest run tests/sources/tvCandidateCheck.test.ts
+          npm run build:mobile
+          echo 'G1_P2_SOURCE_COMPATIBILITY_PASS_NOT_REAL_G1_APPLY_OR_APK_PASS'
