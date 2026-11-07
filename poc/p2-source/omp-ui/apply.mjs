@@ -46,7 +46,7 @@ if (existsSync(helper) || existsSync(tests)) fail('DESTINATION_EXISTS');
 let text = readFileSync(join(root, add), 'utf8');
 text = once(text,
   "import { sortTvResults, stableTvOrder, type TvSortKey } from '../sources/tvSort';",
-  "import { sortTvResults, stableTvOrder, type TvSortKey } from '../sources/tvSort';\nimport { inspectP2Reported, rankP2Reported } from '../sources/tvCandidateCheck';",
+  "import { sortTvResults, stableTvOrder, type TvSortKey } from '../sources/tvSort';\nimport { inspectP2ReportedDetail, p2UnknownReasonLabel, rankP2Reported } from '../sources/tvCandidateCheck';",
   'IMPORT');
 text = once(text,
   "  const [sortKey, setSortKey] = useState<TvSortKey>('quality');",
@@ -66,11 +66,11 @@ text = once(text,
   'BUTTON');
 text = once(text,
   "            const kind = resultKindLabel(r);",
-  "            const kind = resultKindLabel(r);\n            const p2Status = p2ReportedView ? inspectP2Reported(r) : null;",
+  "            const kind = resultKindLabel(r);\n            const p2Status = p2ReportedView ? inspectP2ReportedDetail(r) : null;",
   'ROW_STATE');
 text = once(text,
   "                    {kind && <span class=\"search-chip search-kind\">{tvGlyphs(kind)}</span>}",
-  "                    {kind && <span class=\"search-chip search-kind\">{tvGlyphs(kind)}</span>}\n                    {p2Status && <span class=\"search-chip\">{p2Status === 'reported-match' ? 'P2: khớp (báo cáo)' : p2Status === 'reported-mismatch' ? 'P2: ngoài giới hạn (báo cáo)' : 'P2: chưa đủ dữ liệu'}</span>}",
+  "                    {kind && <span class=\"search-chip search-kind\">{tvGlyphs(kind)}</span>}\n                    {p2Status && <span class=\"search-chip\">{p2Status.status === 'reported-match' ? 'P2: khớp (báo cáo)' : p2Status.status === 'reported-mismatch' ? 'P2: ngoài giới hạn (báo cáo)' : 'P2: chưa đủ dữ liệu (' + p2UnknownReasonLabel(p2Status.reason) + ')'}</span>}",
   'ROW_BADGE');
 writeFileSync(join(root, add), text, 'utf8');
 copyFileSync(join(from, 'tvCandidateCheck.ts'), helper);
