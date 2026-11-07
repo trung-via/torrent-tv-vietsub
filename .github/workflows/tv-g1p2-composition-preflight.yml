@@ -1,0 +1,51 @@
+# Trusted repo-only PR preflight. Hosted Windows, no self-host, APK, ADB or TV.
+name: Torrent TV - G1 P2 Composition Preflight
+
+on:
+  pull_request:
+    paths:
+      - 'poc/p2-source/omp-ui/build-g1p2-on-runner.ps1'
+      - 'poc/p2-source/omp-ui/test_combined_build_guards.py'
+      - '.github/workflows/p2-g1-combined-manual.yml'
+      - '.github/workflows/tv-g1p2-composition-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-preflight:
+    name: TV Verified Code CI
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed source; no privileged devices
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned SHA v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Python provenance and composition negative gates
+        shell: pwsh
+        run: |
+          python -m unittest discover -s poc/p2-source/omp-ui -p "test_combined_build_guards.py" -v
+          if ($LASTEXITCODE -ne 0) { throw "COMPOSITION_GUARDS_FAIL" }
+      - name: PowerShell syntax verification of both scripts
+        shell: pwsh
+        run: |
+          foreach ($file in @('poc/g1-prod/build-on-runner.ps1',
+              'poc/p2-source/omp-ui/build-g1p2-on-runner.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+                (Resolve-Path $file).Path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              throw ('PS_PARSE_FAILED: ' + $file + ': ' + ($errors | Out-String))
+            }
+          }
+          Write-Host 'G1P2_POWERSHELL_PARSE_PASS'
+      - name: Node syntax and overlay file presence
+        shell: pwsh
+        run: |
+          node --check poc/p2-source/omp-ui/apply.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'P2_OVERLAY_NODE_SYNTAX_FAIL' }
+          Write-Host 'G1P2_OVERLAY_SOURCE_SYNTAX_PASS_NOT_NATIVE_BUILD'
