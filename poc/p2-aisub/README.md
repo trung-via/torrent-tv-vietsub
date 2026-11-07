@@ -20,7 +20,7 @@ Limits: 1 MB per input/translation JSON, 2000 cues, strict SRT 1..N sequence, We
 
 **Test:** `python -m unittest discover -s poc/p2-aisub -p 'test_*.py' -v`.
 
-**Next step:** optional local translator receives cue index/text only after separately approved data rights/provider selection; never overwrite timing, never hallucinate missing cues; compare generated Vietnamese against QA gate and then verify selected media binding in OMP.
+**Historical P2-AISUB.1 next step (superseded):** originally proposed a local translator. The latest Human choice is cloud-first (see P2-AISUB.2a below); retain only deterministic local timing/QA, never alter cue timing or fabricate missing subtitles.
 
 ## P2-AISUB.2a — Cloud-first request/response contract (2026-11-07)
 
