@@ -1,0 +1,47 @@
+# Read-only policy verification on GitHub-hosted runner only.
+# Build workflow runs on main PUSH only AFTER a separate canonical Brain PASS.
+name: Torrent TV - G1 P2 Auto Build Policy CI
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/tv-g1p2-auto-debug.yml'
+      - '.github/workflows/tv-g1p2-auto-policy-ci.yml'
+      - 'poc/g1-p2-auto/**'
+      - 'poc/p2-source/omp-ui/build-g1p2-on-runner.ps1'
+      - 'poc/p2-source/omp-ui/test_combined_build_guards.py'
+
+permissions:
+  contents: read
+
+jobs:
+  policy-tests:
+    name: TV Verified Code CI
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed PR policy only; no Windows runner, no APK
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Run offline canonical Brain PASS, revocation and CI negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/g1-p2-auto -p 'test_*.py' -v
+          python3 -m unittest discover -s poc/p2-source/omp-ui -p 'test_combined_build_guards.py' -v
+
+      - name: Parse updated G1P2 PowerShell script with pwsh
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'poc/p2-source/omp-ui/build-g1p2-on-runner.ps1').Path,
+            [ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'G1P2_AUTO_POWERSHELL_PARSE_FAILED' }
+          Write-Host 'G1P2_AUTO_POLICY_SOURCE_AND_PARSER_PASS_NOT_WINDOWS_APK'
