@@ -63,3 +63,24 @@ jobs:
           & ./poc/g1-p2-auto/test_apk_signer_digests.ps1
           if (-not $?) { throw 'G1P2_REAL_V2_CERT_FIXTURE_FAILED' }
           Write-Host 'G1P2_SIGNER_AND_ROUTING_POLICY_CI_PASS_NO_APK_OR_DEVICE'
+
+  private-vault-dacl-windows:
+    name: TV Verified Windows ACL CI
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout PR ACL fixture on hosted Windows (never self-hosted)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Execute bounded private DACL fixture (no APK or host changes)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./poc/g1-p2-auto/test_private_dacl_windows.ps1
+          if (-not $?) { throw 'G1P2_PRIVATE_DACL_WINDOWS_FIXTURE_FAILED' }
