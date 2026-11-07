@@ -23,6 +23,45 @@ VERDICT = re.compile(
 )
 
 
+# Do not rebuild Gradle for a signer-parser-only accepted merge. The path
+# classification occurs on the trusted GitHub-hosted gate, not self-host.
+SIGNER_ONLY_PATHS = frozenset({
+    ".github/workflows/tv-g1p2-auto-debug.yml",
+    ".github/workflows/tv-g1p2-auto-policy-ci.yml",
+    "poc/g1-p2-auto/apk-signer-digests.ps1",
+    "poc/g1-p2-auto/retain-private-arm32.ps1",
+    "poc/g1-p2-auto/reverify-retained-arm32.ps1",
+    "poc/g1-p2-auto/test_apk_signer_digests.ps1",
+    "poc/g1-p2-auto/test_private_retention.py",
+    "poc/g1-p2-auto/test_auto_workflow_contract.py",
+    "poc/g1-p2-auto/verify_merged_pass.py",
+    "poc/g1-p2-auto/test_verify_merged_pass.py",
+    "tools/redmi-validation/verify-g1p2-arm32.ps1",
+    "tools/redmi-validation/test_private_handoff.py",
+})
+SIGNER_FIX_PATHS = frozenset({
+    "poc/g1-p2-auto/apk-signer-digests.ps1",
+    "poc/g1-p2-auto/retain-private-arm32.ps1",
+    "poc/g1-p2-auto/reverify-retained-arm32.ps1",
+    "tools/redmi-validation/verify-g1p2-arm32.ps1",
+})
+
+
+def select_action(files: list[dict]) -> str:
+    if not isinstance(files, list) or not files or len(files) > 100:
+        raise Hold("PR_FILE_LIST_INVALID")
+    paths = set()
+    for record in files:
+        name = record.get("filename") if isinstance(record, dict) else None
+        if (not isinstance(name, str) or not name
+                or record.get("status") not in ("added", "modified")):
+            raise Hold("PR_FILES_NOT_SAFE_TO_CLASSIFY")
+        paths.add(name)
+    if paths.issubset(SIGNER_ONLY_PATHS) and paths.intersection(SIGNER_FIX_PATHS):
+        return "reverify"
+    return "build"
+
+
 class Hold(Exception):
     pass
 
@@ -134,6 +173,8 @@ def main() -> int:
     comments = get_api(f"repos/{REPO}/issues/{num}/comments?per_page=100", token)
     checks = get_api(f"repos/{REPO}/commits/{selected[0]['head']['sha']}/check-runs?per_page=100", token)
     result = validate(repo, sha, before, current, commit, prs, comments, checks)
+    files = get_api(f"repos/{REPO}/pulls/{result}/files?per_page=100", token)
+    action = select_action(files)
     out = os.environ.get("GITHUB_OUTPUT")
     if not out:
         raise Hold("GITHUB_OUTPUT_MISSING")
@@ -141,7 +182,8 @@ def main() -> int:
         f.write("approved=true\n")
         f.write("pr=" + str(result) + "\n")
         f.write("source_sha=" + sha + "\n")
-    print(f"AUTO_G1P2_BRAIN_PASS_CI_PROVEN pr={result} commit={sha}")
+        f.write("action=" + action + "\n")
+    print(f"AUTO_G1P2_BRAIN_PASS_CI_PROVEN pr={result} commit={sha} action={action}")
     return 0
 
 
