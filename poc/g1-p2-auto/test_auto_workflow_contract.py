@@ -48,6 +48,17 @@ class WorkflowContracts(unittest.TestCase):
         self.assertIn("workflow_dispatch", BUILDER)
         self.assertIn("p2-g1-combined-manual.yml", BUILDER)
 
+    def test_signer_only_reverify_job_skips_gradle(self):
+        self.assertIn("action: ${{ steps.gate.outputs.action }}", AUTO)
+        self.assertIn("needs.brain-acceptance.outputs.action == 'build'", AUTO)
+        self.assertIn("needs.brain-acceptance.outputs.action == 'reverify'", AUTO)
+        self.assertIn("reverify-retained-arm32.ps1", AUTO)
+        self.assertIn("signature-reverify:", AUTO)
+        signer = AUTO.split("  signature-reverify:",1)[1]
+        self.assertNotIn("assembleDebug", signer)
+        self.assertNotIn("npm ci", signer)
+        self.assertIn("persist-credentials: false", signer)
+
     def test_no_device_or_host_lifecycle_actions(self):
         for forbidden in ("adb install", "adb shell", "adb push", "pm clear",
                           "torrserver.exe", "netsh advfirewall", "sc.exe"):
