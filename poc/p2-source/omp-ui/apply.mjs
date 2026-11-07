@@ -10,7 +10,10 @@ const PIN = '52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f';
 const ADD_BLOB = 'be8ab4529e0fdb9fe6dde3cc68c7fe58284aa323';
 const root = resolve(process.argv[2] || '');
 const from = dirname(fileURLToPath(import.meta.url));
-const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+// Keep the two leading porcelain status columns. .trim() corrupts
+// ' M src/api/torrserver.ts' into 'M src/api/torrserver.ts', then slice(3)
+// loses the first two path characters. This was caught composing G1 + P2.
+const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trimEnd();
 function fail(message) { throw new Error('STOP_P2_UI_OVERLAY: ' + message); }
 function once(text, oldValue, newValue, label) {
   const first = text.indexOf(oldValue);
