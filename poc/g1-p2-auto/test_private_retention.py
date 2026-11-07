@@ -12,7 +12,7 @@ class PersistentPrivateApkTests(unittest.TestCase):
     def test_build_then_private_retention_then_only_evidence_upload(self):
         a = AUTO.index("Apply G1 and P2, run tests, assemble Debug")
         b = AUTO.index("Persist verified ARM32 Debug APK")
-        c = AUTO.index("Upload SHA256 and redacted build manifest only")
+        c = AUTO.index("Upload SHA256 and redacted build manifest even if signer gate holds")
         self.assertLess(a, b)
         self.assertLess(b, c)
         self.assertIn("retain-private-arm32.ps1", AUTO)
@@ -36,6 +36,21 @@ class PersistentPrivateApkTests(unittest.TestCase):
         for x in checks:
             self.assertIn(x, SCRIPT)
         self.assertLess(SCRIPT.index("SHA256_MANIFEST_MISMATCH"), SCRIPT.index("Copy-Item -LiteralPath $apk"))
+
+    def test_verified_hash_copy_precedes_signing_hold(self):
+        # Preserve bytes for diagnosis, but a signature failure still blocks install.
+        self.assertLess(SCRIPT.index("Move-Item -LiteralPath $partial -Destination $target"),
+                        SCRIPT.index("$signer = Read-Tool 'apksigner.bat'"))
+        self.assertIn("SIGNATURE_HOLD_PENDING_VERIFY", SCRIPT)
+        self.assertIn("SIGNATURE_VERIFIED", SCRIPT)
+        self.assertIn("APK_SIGNATURE_NOT_VERIFIED_RETAINED_QUARANTINED", SCRIPT)
+        self.assertIn("G1P2_APKSIGNER_DIAGNOSTIC", SCRIPT)
+        self.assertIn("G1P2_PRIVATE_APK_QUARANTINED_LOCAL_ONLY", SCRIPT)
+
+    def test_failed_signature_still_publishes_only_checksum_evidence(self):
+        self.assertIn("if: always()", AUTO)
+        self.assertIn("if-no-files-found: warn", AUTO)
+        self.assertNotIn("*.apk", AUTO)
 
     def test_acl_is_restricted_to_owner_admins_and_system(self):
         self.assertIn("SetAccessRuleProtection($true,$false)", SCRIPT)

@@ -102,12 +102,13 @@ jobs:
             -SourceCommit $env:GITHUB_SHA
           if (-not $?) { throw 'STOP: local private APK retention failed' }
 
-      - name: Upload SHA256 and redacted build manifest only; NEVER PUBLIC APK
+      - name: Upload SHA256 and redacted build manifest even if signer gate holds; NEVER PUBLIC APK
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
         with:
           name: g1p2-auto-debug-evidence-only
           path: |
             ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS-G1P2.txt
             ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/G1P2-BUILD-EVIDENCE.txt
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 3
