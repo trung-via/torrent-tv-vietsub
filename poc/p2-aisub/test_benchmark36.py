@@ -78,7 +78,7 @@ class Benchmark36OfflineTests(unittest.TestCase):
         self.assertIn("17 characters per second", prompt)
         self.assertIn("NEVER omit important meaning", prompt)
         self.assertIn('"id":<integer>', prompt)
-        self.assertIn('["cases"', prompt.replace('{"cases"', '["cases"')) if False else self.assertIn('"cases":[', prompt)
+        self.assertIn('"cases":[', prompt)
         self.assertIn('"id":13', prompt)
         self.assertIn('"id":24', prompt)
         self.assertNotIn('"id":25', prompt)
