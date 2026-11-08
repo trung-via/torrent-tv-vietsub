@@ -51,6 +51,21 @@ def _load(path: Path) -> tuple[bytes, Any]:
     return raw, obj
 
 
+def _corpus_sha_variants(raw: bytes) -> tuple[str, str]:
+    """Accept same corpus with LF or Windows CRLF, never changed content.
+
+    The original benchmark36.py hashes checked-out RAW bytes: Windows autocrlf
+    therefore produces a different SHA from GitHub's LF source. Only those
+    two exact newline variants are interchangeable. Bare CR fails closed.
+    """
+    canonical_lf = raw.replace(b"\r\n", b"\n")
+    if b"\r" in canonical_lf:
+        raise ValueError("BRAIN36_CORPUS_BARE_CR_INVALID")
+    canonical_crlf = canonical_lf.replace(b"\n", b"\r\n")
+    return (hashlib.sha256(canonical_lf).hexdigest(),
+            hashlib.sha256(canonical_crlf).hexdigest())
+
+
 def _validate(corpus_raw: bytes, corpus: Any, exported: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
     if not isinstance(corpus, dict) or corpus.get("corpus") != CORPUS_SCHEMA:
         raise ValueError("BRAIN36_CORPUS_SCHEMA_INVALID")
@@ -61,9 +76,11 @@ def _validate(corpus_raw: bytes, corpus: Any, exported: Any) -> tuple[list[dict[
         raise ValueError("BRAIN36_CORPUS_IDS_INVALID")
     if any(not isinstance(c, dict) or not all(isinstance(c.get(k), str) and c[k].strip() for k in ("genre", "scene_context", "speaker", "source_english", "risk_focus")) for c in cases):
         raise ValueError("BRAIN36_CORPUS_CASE_INVALID")
-    sha = hashlib.sha256(corpus_raw).hexdigest()
-    if not isinstance(exported, dict) or exported.get("schema") != EXPORT_SCHEMA or exported.get("corpus_sha256") != sha:
+    allowed_shas = _corpus_sha_variants(corpus_raw)
+    if (not isinstance(exported, dict) or exported.get("schema") != EXPORT_SCHEMA or
+            exported.get("corpus_sha256") not in allowed_shas):
         raise ValueError("BRAIN36_EXPORT_PROVENANCE_INVALID")
+    sha = exported["corpus_sha256"]
     if exported.get("blind_label") != "A" or exported.get("machine_readability_not_semantic_pass") is not True:
         raise ValueError("BRAIN36_EXPORT_LABEL_OR_STATUS_INVALID")
     rows = exported.get("translations")
@@ -122,6 +139,8 @@ def audit(corpus_raw: bytes, corpus: Mapping[str, Any], exported: Mapping[str, A
                        "line_count": len(lines), "max_line_chars": max(map(len, lines))})
     return {
         "schema": REPORT_SCHEMA, "source_corpus_sha256": sha, "blind_label": "A",
+        "source_corpus_canonical_lf_sha256": _corpus_sha_variants(corpus_raw)[0],
+        "source_corpus_line_ending_compatibility": "LF_OR_CRLF_ONLY",
         "input_export_canonical_sha256": hashlib.sha256(canonical_input).hexdigest(),
         "evaluated_cases": 36, "source": "LOCAL_OFFLINE_STRUCTURAL_HEURISTIC_ONLY",
         "assumed_seconds_per_case": assumed_seconds, "real_timecodes_verified": False,
