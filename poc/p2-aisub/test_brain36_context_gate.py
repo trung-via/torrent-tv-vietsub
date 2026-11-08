@@ -26,6 +26,32 @@ def fixtures():
 
 
 class Brain36ContextGateTests(unittest.TestCase):
+    def test_actual_repo_corpus_lf_and_windows_crlf_sha_are_equivalent(self):
+        from brain36_context_gate import _corpus_sha_variants
+        source = Path(__file__).with_name("benchmark_synthetic.json").read_bytes()
+        lf, crlf = _corpus_sha_variants(source)
+        self.assertEqual(lf, "3e367c1544c2614b44b2a99e6d083ddd61272ab0d773c5410cc9b40914476a31")
+        self.assertEqual(crlf, "9b1e787c79af7866a81921f57e55f9aa4332e5b316fd122d539dbcff185459ca")
+
+    def test_crlf_declaration_accepted_against_lf_checkout_only(self):
+        raw, corpus, export = fixtures()
+        lf = (json.dumps(corpus, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        crlf = lf.replace(b"\n", b"\r\n")
+        declared = hashlib.sha256(crlf).hexdigest()
+        export["corpus_sha256"] = declared
+        first = audit(lf, corpus, export)
+        second = audit(crlf, corpus, export)
+        self.assertEqual(first["source_corpus_sha256"], declared)
+        self.assertEqual(first["source_corpus_canonical_lf_sha256"],
+                         hashlib.sha256(lf).hexdigest())
+        self.assertEqual(first["source_corpus_sha256"], second["source_corpus_sha256"])
+        edited = lf.replace(b"Fictional scene", b"Altered scene")
+        # Source contents changed; SHA cannot be accepted just for matching layout.
+        with self.assertRaisesRegex(ValueError, "PROVENANCE_INVALID"):
+            audit(edited, corpus, export)
+        with self.assertRaisesRegex(ValueError, "BARE_CR_INVALID"):
+            audit(lf.replace(b"\n", b"\r"), corpus, export)
+
     def test_thirty_six_flags_are_review_only(self):
         raw, corpus, export = fixtures()
         report = audit(raw, corpus, export)
