@@ -26,12 +26,26 @@ PEJORATIVE_TERMS = ("hắn", "mụ", "ả")
 MAX_JSON_BYTES = 250_000
 
 
+def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    obj: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("BRAIN36_JSON_DUPLICATE_KEY")
+        obj[key] = value
+    return obj
+
+
+def _reject_nonfinite(_value: str) -> Any:
+    raise ValueError("BRAIN36_JSON_NONFINITE_NUMBER")
+
+
 def _load(path: Path) -> tuple[bytes, Any]:
     raw = path.read_bytes()
     if not 0 < len(raw) <= MAX_JSON_BYTES:
         raise ValueError("BRAIN36_JSON_SIZE_INVALID")
     try:
-        obj = json.loads(raw.decode("utf-8-sig"))
+        obj = json.loads(raw.decode("utf-8-sig"), object_pairs_hook=_unique_pairs,
+                         parse_constant=_reject_nonfinite)
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("BRAIN36_JSON_UTF8_OR_SYNTAX_INVALID") from exc
     return raw, obj
@@ -41,7 +55,9 @@ def _validate(corpus_raw: bytes, corpus: Any, exported: Any) -> tuple[list[dict[
     if not isinstance(corpus, dict) or corpus.get("corpus") != CORPUS_SCHEMA:
         raise ValueError("BRAIN36_CORPUS_SCHEMA_INVALID")
     cases = corpus.get("cases")
-    if not isinstance(cases, list) or len(cases) != 36 or [c.get("id") for c in cases if isinstance(c, dict)] != list(range(1, 37)):
+    if (not isinstance(cases, list) or len(cases) != 36 or
+            any(not isinstance(c, dict) or type(c.get("id")) is not int or c["id"] != i
+                for i, c in enumerate(cases, 1))):
         raise ValueError("BRAIN36_CORPUS_IDS_INVALID")
     if any(not isinstance(c, dict) or not all(isinstance(c.get(k), str) and c[k].strip() for k in ("genre", "scene_context", "speaker", "source_english", "risk_focus")) for c in cases):
         raise ValueError("BRAIN36_CORPUS_CASE_INVALID")
