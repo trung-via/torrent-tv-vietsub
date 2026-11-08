@@ -166,7 +166,7 @@ class BrainSemanticReviewV2HTests(unittest.TestCase):
     def test_wrong_corpus_and_forged_real_timestamps_rejected(self):
         fx = list(fake_records())
         fx[3]["corpus_sha256"] = "0" * 64
-        with self.assertRaisesRegex(ValueError, "EXPORT_SOURCE_OR_SCHEMA"):
+        with self.assertRaisesRegex(ValueError, "CORPUS_SOURCE_HASH_MISMATCH"):
             self.call_verify(fx)
         fx = list(fake_records())
         fx[5]["case_reviews"][0]["hypothetical_readability"]["real_timestamps_supplied"] = True
