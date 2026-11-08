@@ -45,7 +45,7 @@ class Brain36ContextGateTests(unittest.TestCase):
         self.assertEqual(first["source_corpus_canonical_lf_sha256"],
                          hashlib.sha256(lf).hexdigest())
         self.assertEqual(first["source_corpus_sha256"], second["source_corpus_sha256"])
-        edited = lf.replace(b"Fictional scene", b"Altered scene")
+        edited = lf.replace(b"Two fictional people", b"Two modified people")
         # Source contents changed; SHA cannot be accepted just for matching layout.
         with self.assertRaisesRegex(ValueError, "PROVENANCE_INVALID"):
             audit(edited, corpus, export)
