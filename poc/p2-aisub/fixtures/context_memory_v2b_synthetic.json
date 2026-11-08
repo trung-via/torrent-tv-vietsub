@@ -1,0 +1,28 @@
+{
+  "schema": "P2-AISUB.memory-v2b-events-v1",
+  "provenance": "original_synthetic",
+  "source_sha256": "7ddbc02b80e452c8c3d94a0f9cc44131b2e518ddf6e76865b650e9a2f815d7a2",
+  "base_context_sha256": "418097ee51ed2268fdd84816558825f239fb506334d93e52e3a118141fdd1138",
+  "events": [
+    {
+      "id": "m01-alias",
+      "scene_id": "station_reunion",
+      "kind": "alias_confirmed",
+      "character": "linh",
+      "alias": "Mây",
+      "evidence": "fixture_authored",
+      "note": "Original synthetic what-if: this fictional character also has a nickname. This was authored only to test alias memory; it was not inferred from captions."
+    },
+    {
+      "id": "m02-distance",
+      "scene_id": "station_decision",
+      "kind": "address_confirmed",
+      "speaker": "linh",
+      "addressee": "minh",
+      "self": "tôi",
+      "other": "anh",
+      "evidence": "fixture_authored",
+      "note": "Original synthetic what-if: she deliberately switches to distant tôi/anh at the next scene; not observed in the source dialogue and not Human-rated translation truth."
+    }
+  ]
+}
