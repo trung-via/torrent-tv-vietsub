@@ -69,9 +69,12 @@ class VietnameseSubtitleQualityTests(unittest.TestCase):
     def test_unicode_vietnamese_cps_uses_normalized_codepoints(self):
         composed = cue(1, "Chuyện đã qua rồi!", duration_ms=2000)
         decomposed = cue(1, unicodedata.normalize("NFD", composed.text), duration_ms=2000)
-        a, b = analyze_cues((composed,)), analyze_cues((decomposed,))
-        self.assertEqual(a["flags"][0]["char_count"], b["flags"][0]["char_count"]) if a["flags"] else self.assertEqual(
+        self.assertEqual(
             len(unicodedata.normalize("NFC", decomposed.text)), len(composed.text)
+        )
+        self.assertEqual(
+            analyze_cues((decomposed,))["flags"][0]["char_count"],
+            len(composed.text),
         )
 
     def test_readability_report_does_not_claim_semantic_translation_pass(self):
