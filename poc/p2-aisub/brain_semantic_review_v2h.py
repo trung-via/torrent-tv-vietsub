@@ -14,6 +14,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from brain36_context_gate import _corpus_sha_variants
+
 CORPUS_SCHEMA = "P2-AISUB.2a-original-synthetic-context-v1"
 EXPORT_SCHEMA = "P2-AISUB.2f-brain-input-v1"
 REVIEW_SCHEMA = "P2-AISUB.2f-brain-editorial-score-v1"
@@ -62,7 +64,12 @@ def verify(corpus_raw: bytes, corpus: Any,
            export_raw: bytes, exported: Any,
            review_raw: bytes, reviewed: Any) -> dict[str, Any]:
     """Return metadata and statistics without copying private translations."""
-    sha = hashlib.sha256(corpus_raw).hexdigest()
+    allowed_shas = _corpus_sha_variants(corpus_raw)
+    # Compatibility is limited to CRLF/LF checkout of the SAME source bytes;
+    # all other edits remain an integrity failure.
+    sha = exported.get("corpus_sha256") if isinstance(exported, dict) else None
+    _require(isinstance(sha, str) and sha in allowed_shas,
+             "BRAIN2H_CORPUS_SOURCE_HASH_MISMATCH")
     _require(isinstance(corpus, dict) and corpus.get("corpus") == CORPUS_SCHEMA,
              "BRAIN2H_CORPUS_INVALID")
     cases = corpus.get("cases")
@@ -180,6 +187,8 @@ def verify(corpus_raw: bytes, corpus: Any,
     return {
         "schema": REPORT_SCHEMA,
         "source_corpus_sha256": sha,
+        "source_corpus_canonical_lf_sha256": allowed_shas[0],
+        "source_corpus_line_ending_compatibility": "LF_OR_CRLF_ONLY",
         "input_export_sha256": hashlib.sha256(export_raw).hexdigest(),
         "input_review_sha256": hashlib.sha256(review_raw).hexdigest(),
         "reviewed_cases": len(reviewed_ids),
