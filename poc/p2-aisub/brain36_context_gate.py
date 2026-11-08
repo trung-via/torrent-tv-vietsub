@@ -62,6 +62,8 @@ def _corpus_sha_variants(raw: bytes) -> tuple[str, str]:
     if b"\r" in canonical_lf:
         raise ValueError("BRAIN36_CORPUS_BARE_CR_INVALID")
     canonical_crlf = canonical_lf.replace(b"\n", b"\r\n")
+    if raw not in (canonical_lf, canonical_crlf):
+        raise ValueError("BRAIN36_CORPUS_MIXED_LINE_ENDINGS_INVALID")
     return (hashlib.sha256(canonical_lf).hexdigest(),
             hashlib.sha256(canonical_crlf).hexdigest())
 
