@@ -1,0 +1,111 @@
+{
+  "schema": "P2-AISUB.context-v2a-manifest-v1",
+  "provenance": "original_synthetic",
+  "source_sha256": "7ddbc02b80e452c8c3d94a0f9cc44131b2e518ddf6e76865b650e9a2f815d7a2",
+  "characters": [
+    {
+      "id": "linh",
+      "name": "Linh",
+      "note": "Original fictional scene: younger woman, former partner of Minh. Role defined by authored 12-cue synthetic fixture only."
+    },
+    {
+      "id": "minh",
+      "name": "Minh",
+      "note": "Original fictional scene: older man, former partner of Linh. Role defined by authored 12-cue synthetic fixture only."
+    }
+  ],
+  "address_rules": [
+    {
+      "from": "linh",
+      "to": "minh",
+      "self": "em",
+      "other": "anh",
+      "evidence": "fixture_authored"
+    },
+    {
+      "from": "minh",
+      "to": "linh",
+      "self": "anh",
+      "other": "em",
+      "evidence": "fixture_authored"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "station_reunion",
+      "cue_start": 1,
+      "cue_end": 6,
+      "summary": "Original synthetic fiction. Linh and Minh reunite at a rainy station after years apart. The dialogue confronts separation and hurt.",
+      "turns": [
+        {
+          "id": 1,
+          "speaker": "linh",
+          "addressee": "minh"
+        },
+        {
+          "id": 2,
+          "speaker": "minh",
+          "addressee": "linh"
+        },
+        {
+          "id": 3,
+          "speaker": "linh",
+          "addressee": "minh"
+        },
+        {
+          "id": 4,
+          "speaker": "minh",
+          "addressee": "linh"
+        },
+        {
+          "id": 5,
+          "speaker": "linh",
+          "addressee": "minh"
+        },
+        {
+          "id": 6,
+          "speaker": "minh",
+          "addressee": "linh"
+        }
+      ]
+    },
+    {
+      "id": "station_decision",
+      "cue_start": 7,
+      "cue_end": 12,
+      "summary": "Original synthetic fiction continuation at the same rainy station; the last train departure forces a decision and tentative reconciliation.",
+      "turns": [
+        {
+          "id": 7,
+          "speaker": "linh",
+          "addressee": "minh"
+        },
+        {
+          "id": 8,
+          "speaker": "minh",
+          "addressee": "linh"
+        },
+        {
+          "id": 9,
+          "speaker": "linh",
+          "addressee": "minh"
+        },
+        {
+          "id": 10,
+          "speaker": "minh",
+          "addressee": "linh"
+        },
+        {
+          "id": 11,
+          "speaker": "linh",
+          "addressee": "minh"
+        },
+        {
+          "id": 12,
+          "speaker": "minh",
+          "addressee": "linh"
+        }
+      ]
+    }
+  ]
+}
