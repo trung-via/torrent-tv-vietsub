@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from context_engine_v2 import (
-    CONFIRM, SCHEMA, _strict_json, create_plan, cue_duration_budget,
+    CONFIRM, SCHEMA, _strict_json, _canonical_source_sha256, create_plan, cue_duration_budget,
     inspect_translations, main, validate_manifest,
 )
 from cue_pipeline import Cue, parse_cues, render
@@ -38,7 +38,7 @@ class ContextV2ATests(unittest.TestCase):
     def test_source_sha_and_full_authored_context_are_explicit(self):
         source, meta = fixture()
         self.assertEqual(meta["schema"], SCHEMA)
-        self.assertEqual(hashlib.sha256(source).hexdigest(), meta["source_sha256"])
+        self.assertEqual(_canonical_source_sha256(source), meta["source_sha256"])
         self.assertEqual(meta["provenance"], "original_synthetic")
         out = validate_manifest(meta, parse_cues(source, "srt"), source)
         self.assertEqual(out["address"][("linh", "minh")]["other"], "anh")
@@ -260,6 +260,64 @@ class ContextV2ATests(unittest.TestCase):
             self.assertNotIn(str(SOURCE), out.getvalue())
             self.assertEqual((SOURCE.read_bytes(), MANIFEST.read_bytes(), t.read_bytes()),
                              (before_source, before_manifest, before_map))
+
+    def test_windows_checkout_crlf_matches_lf_manifest_and_same_context_plan(self):
+        source, meta = fixture()
+        lf = source.replace(b"\r\n", b"\n")
+        windows = lf.replace(b"\n", b"\r\n")
+        self.assertNotEqual(hashlib.sha256(lf).hexdigest(),
+                            hashlib.sha256(windows).hexdigest())
+        self.assertEqual(hashlib.sha256(lf).hexdigest(), meta["source_sha256"])
+        self.assertEqual(_canonical_source_sha256(windows), meta["source_sha256"])
+        self.assertEqual(create_plan(lf, "srt", meta),
+                         create_plan(windows, "srt", meta))
+        self.assertEqual(windows.replace(b"\r\n", b"\n"), lf)
+
+    def test_windows_crlf_cli_prepare_and_read_only_inspect(self):
+        source, meta = fixture()
+        windows = source.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        with TemporaryDirectory() as d:
+            filename = Path(d) / "checkout-windows.srt"
+            translations_file = Path(d) / "translations.json"
+            plan_file = Path(d) / "plan.json"
+            filename.write_bytes(windows)
+            translations_file.write_text(json.dumps(translations()), encoding="utf-8")
+            with patch.object(sys, "argv", [
+                    "context", "prepare", "--input", str(filename),
+                    "--context", str(MANIFEST), "--out", str(plan_file),
+                    "--confirm", CONFIRM]), redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(main(), 0)
+            self.assertIn("CONTEXT_V2A_PLAN_PREPARED scenes=2 cues=12", out.getvalue())
+            plan = json.loads(plan_file.read_text(encoding="utf-8"))
+            self.assertEqual(plan["source_sha256"], meta["source_sha256"])
+            with patch.object(sys, "argv", [
+                    "context", "inspect", "--input", str(filename),
+                    "--context", str(MANIFEST),
+                    "--translations", str(translations_file)]), redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(main(), 0)
+            report = json.loads(out.getvalue())
+            self.assertEqual(report["source_sha256"], meta["source_sha256"])
+            self.assertEqual(report["readability"]["flagged_cues"], 0)
+            self.assertFalse(report["quality_certified"])
+            self.assertEqual(filename.read_bytes(), windows)
+
+    def test_windows_crlf_normalization_never_bypasses_real_source_drift(self):
+        source, meta = fixture()
+        windows = source.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        for corrupt in (
+            windows.replace(b"I almost stayed away.", b"I never stayed away."),
+            windows.replace(b"00:00:03,000", b"00:00:04,000"),
+            b"\xef\xbb\xbf" + windows,
+        ):
+            with self.subTest(corrupt=corrupt[:35]), self.assertRaisesRegex(
+                    ValueError, "CONTEXT_SOURCE_SHA256_MISMATCH"):
+                create_plan(corrupt, "srt", meta)
+
+    def test_standalone_cr_is_not_silently_canonicalized(self):
+        source, meta = fixture()
+        raw = source.replace(b"\r\n", b"\n").replace(b"\n", b"\r")
+        with self.assertRaisesRegex(ValueError, "CONTEXT_SOURCE_BARE_CR_UNSUPPORTED"):
+            create_plan(raw, "srt", meta)
 
     def test_source_has_no_network_or_model_launch(self):
         import inspect

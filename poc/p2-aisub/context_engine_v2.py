@@ -48,6 +48,20 @@ def _strict_json(raw: bytes, *, max_bytes: int = MAX_MANIFEST_BYTES) -> Any:
         raise ValueError("CONTEXT_UTF8_JSON_REQUIRED") from exc
 
 
+def _canonical_source_sha256(source: bytes) -> str:
+    """Bind source identity to exact UTF-8 content, independent of Git CRLF checkout.
+
+    The parser already treats LF and CRLF as equivalent newline separators.
+    Normalize ONLY CRLF -> LF for digesting; never decode/re-encode dialogue,
+    change timestamps, strip BOM, or alter the original source bytes.
+    Bare CR is rejected so a silently transformed third form cannot pass.
+    """
+    canonical = source.replace(b"\r\n", b"\n")
+    if b"\r" in canonical:
+        raise ValueError("CONTEXT_SOURCE_BARE_CR_UNSUPPORTED")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _plain(value: Any, *, max_chars: int = 200) -> bool:
     return (
         isinstance(value, str) and bool(value.strip())
@@ -72,7 +86,7 @@ def validate_manifest(metadata: Any, cues: tuple[Cue, ...], source: bytes) -> di
     if metadata["schema"] != SCHEMA or metadata["provenance"] not in ALLOWED_PROVENANCE:
         raise ValueError("CONTEXT_MANIFEST_PROVENANCE_INVALID")
     sha = metadata["source_sha256"]
-    if not isinstance(sha, str) or not HEX_SHA256.fullmatch(sha) or sha != hashlib.sha256(source).hexdigest():
+    if not isinstance(sha, str) or not HEX_SHA256.fullmatch(sha) or sha != _canonical_source_sha256(source):
         raise ValueError("CONTEXT_SOURCE_SHA256_MISMATCH")
     characters = metadata["characters"]
     if not isinstance(characters, list) or not (1 <= len(characters) <= 50):
@@ -198,7 +212,7 @@ def create_plan(source: bytes, fmt: str, metadata: Any) -> dict[str, Any]:
         })
     return {
         "schema": PLAN_SCHEMA,
-        "source_sha256": hashlib.sha256(source).hexdigest(),
+        "source_sha256": _canonical_source_sha256(source),
         "format": fmt,
         "total_cues": len(cues),
         "provenance": metadata["provenance"],

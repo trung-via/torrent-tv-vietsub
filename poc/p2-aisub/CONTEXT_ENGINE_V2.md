@@ -16,6 +16,14 @@ v2a takes a smaller, testable step: an explicit human-authored **one-source** co
 - `fixtures/context_v2_synthetic.json`: authored `Linh`/`Minh` test-only fictional context bound to SHA256 of `fixtures/agy_scene12_en.srt`, split into two synthetic scene segments. Alternating speaker turns and direct `em -> anh`, `anh -> em` rules come from the *existing authored fixture's synopsis*, **not detected from audio** or learned about real individuals.
 - `test_context_engine_v2.py`: deterministic positive/negative tests, SRT/VTT/timestamps, 12/13 cue boundaries, missing cast or relations, SHA drift, CP437, no overwrite, no secret/text stdout.
 
+### Windows Git checkout SHA-256 compatibility (Issue #71)
+
+Windows `git checkout` may have previously materialized the original `.srt` fixture as CRLF while GitHub stores LF. The v2a implementation originally hashed those **raw checkout bytes**, causing a false `CONTEXT_SOURCE_SHA256_MISMATCH` even though the parsed cue text, IDs and timestamps were identical. CI on LF fixtures did not reproduce Windows's line-ending conversion.
+
+The repair keeps `source_sha256` as an **integrity gate on the original source**: checksum only canonicalizes **CRLF → LF** before calculating SHA-256, matching the behavior of the SRT/VTT cue parser; all other bytes (including UTF-8 BOM, dialogue, punctuation and timecodes) remain significant. Unsupported bare CR is refused. `.gitattributes` pins original SRT/VTT fixture checkouts to LF for future clones, but runtime validation also supports older already-checked-out CRLF files. There is **no manifest manual edit and no bypass of SHA validation**. This hash is a canonical *text-content* identity, not a claim that raw on-disk bytes are equal.
+
+After obtaining the new merged main, **rerun exactly the original `prepare` command** with a *new* `$plan` filename. Expect `CONTEXT_V2A_PLAN_PREPARED scenes=2 cues=12 no_model_call`. No Antigravity, provider quota, TV access or subtitle modification is needed. GitHub synthetic Windows-CRLF regression PASS is not itself proof of execution on the Human laptop; keep the local rerun evidence separate.
+
 ### Scope/authority model
 
 The manifest is exact strict JSON with `schema, provenance, source_sha256, characters, address_rules, scenes`. The PoC `prepare` action deliberately supports **only `original_synthetic`** and requires `PREPARE_ORIGINAL_SYNTHETIC_CONTEXT_V2`. It never prepares real captions for upload.
