@@ -1,0 +1,126 @@
+# Owner-authorized Windows commands for independent Torrent TV only.
+# Inert until merged into default branch main.
+name: Torrent TV - HostOps v1 Owner Commands
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: torrent-tv-hostops-v1
+  cancel-in-progress: false
+
+jobs:
+  owner-command:
+    if: >-
+      ${{
+        github.repository == 'trung-via/torrent-tv-vietsub' &&
+        github.actor == 'trung-via' &&
+        github.event.comment.user.login == 'trung-via' &&
+        github.event.comment.author_association == 'OWNER' &&
+        github.event.issue.number == 82 &&
+        github.event.issue.pull_request == null &&
+        startsWith(github.event.comment.body, '/tv-hostops ')
+      }}
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout trusted main workflow
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify owner command, execute on dedicated Torrent TV Windows runner
+        shell: powershell
+        env:
+          HOSTOPS_REQUEST: ${{ github.event.comment.body }}
+          HOSTOPS_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+
+          if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
+              $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:GITHUB_EVENT_NAME -cne 'issue_comment') {
+            throw 'BLOCKED: unexpected repository, runner or event'
+          }
+
+          $allowedRoot = [IO.Path]::GetFullPath('C:\TOOL\TorrentTV-Runner\_work').TrimEnd('\') + '\'
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+          if (-not $workspace.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'BLOCKED: outside dedicated Torrent TV workspace'
+          }
+
+          $command = $env:HOSTOPS_REQUEST.Trim()
+          $result = ''
+          if ($command -ceq '/tv-hostops probe') {
+            Write-Host 'HOSTOPS_PROBE: running'
+            Write-Host "RUNNER: $env:RUNNER_NAME"
+            Write-Host "RUNNER_OS: $env:RUNNER_OS"
+            Write-Host "POWERSHELL: $($PSVersionTable.PSVersion.ToString())"
+            & git --version
+            if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: git unavailable' }
+            $result = 'HOSTOPS_PROBE_PASS'
+          }
+          elseif ($command -ceq '/tv-hostops write-probe') {
+            $testDir = Join-Path $env:RUNNER_TEMP 'torrent-tv-hostops-v1'
+            New-Item -ItemType Directory -Path $testDir -Force | Out-Null
+            $file = Join-Path $testDir 'write-probe.txt'
+            try {
+              [IO.File]::WriteAllText($file, 'TORRENT_TV_WRITE_PROBE')
+              if ([IO.File]::ReadAllText($file) -cne 'TORRENT_TV_WRITE_PROBE') {
+                throw 'Write/read mismatch'
+              }
+              $result = 'HOSTOPS_WRITE_PROBE_PASS'
+            }
+            finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+          }
+          elseif ($command -cmatch '^/tv-hostops run ([0-9a-f]{40}) ([a-z][a-z0-9-]{0,39})$') {
+            $sha = $Matches[1]
+            $jobId = $Matches[2]
+            $branch = "hostops/$jobId"
+            $refUri = "https://api.github.com/repos/trung-via/torrent-tv-vietsub/git/ref/heads/$branch"
+            $headers = @{
+              Authorization = "Bearer $env:HOSTOPS_GITHUB_TOKEN"
+              Accept = 'application/vnd.github+json'
+              'User-Agent' = 'torrent-tv-hostops-v1'
+              'X-GitHub-Api-Version' = '2022-11-28'
+            }
+            $branchRef = Invoke-RestMethod -Method Get -Uri $refUri -Headers $headers
+            if ($branchRef.object.type -cne 'commit' -or $branchRef.object.sha -cne $sha) {
+              throw 'BLOCKED: branch head differs from approved exact SHA'
+            }
+
+            & git -c credential.helper= fetch --no-tags --depth 1 origin "refs/heads/$branch"
+            if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: fetch failed' }
+            $actualSha = (& git rev-parse FETCH_HEAD).Trim()
+            if ($LASTEXITCODE -ne 0 -or $actualSha -cne $sha) {
+              throw 'BLOCKED: fetched branch SHA drift'
+            }
+            & git -c credential.helper= checkout --detach $sha
+            if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: checkout failed' }
+            $jobFile = Join-Path $env:GITHUB_WORKSPACE "hostops\jobs\$jobId.ps1"
+            if (-not (Test-Path -LiteralPath $jobFile -PathType Leaf)) {
+              throw 'BLOCKED: job script missing from exact SHA'
+            }
+            Write-Host "HOSTOPS_JOB: $jobId"
+            Write-Host "HOSTOPS_COMMIT: $sha"
+            & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $jobFile
+            if ($LASTEXITCODE -ne 0) {
+              throw "HOSTOPS_JOB_FAILED (exit code $LASTEXITCODE)"
+            }
+            $result = 'HOSTOPS_PINNED_JOB_PASS'
+          }
+          else {
+            throw 'BLOCKED: unrecognized command; no arbitrary comment text executed'
+          }
+
+          Write-Host $result
+          @('## Torrent TV HostOps v1', '', "Result: **$result**", '', "Runner: $env:RUNNER_NAME", 'Issue: #82') |
+            Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
