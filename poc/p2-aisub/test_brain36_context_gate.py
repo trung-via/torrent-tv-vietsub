@@ -33,6 +33,15 @@ class Brain36ContextGateTests(unittest.TestCase):
         self.assertEqual(lf, "3e367c1544c2614b44b2a99e6d083ddd61272ab0d773c5410cc9b40914476a31")
         self.assertEqual(crlf, "9b1e787c79af7866a81921f57e55f9aa4332e5b316fd122d539dbcff185459ca")
 
+    def test_mixed_newline_corpus_is_not_one_of_two_approved_forms(self):
+        from brain36_context_gate import _corpus_sha_variants
+        raw = Path(__file__).with_name("benchmark_synthetic.json").read_bytes()
+        lf = raw.replace(b"\r\n", b"\n")
+        self.assertGreater(lf.count(b"\n"), 1)
+        mixed = lf.replace(b"\n", b"\r\n", 1)
+        with self.assertRaisesRegex(ValueError, "MIXED_LINE_ENDINGS_INVALID"):
+            _corpus_sha_variants(mixed)
+
     def test_crlf_declaration_accepted_against_lf_checkout_only(self):
         raw, corpus, export = fixtures()
         lf = (json.dumps(corpus, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
