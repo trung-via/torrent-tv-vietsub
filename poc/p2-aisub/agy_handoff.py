@@ -105,8 +105,15 @@ def extract_translations(receipt: bytes) -> tuple[dict[str, str], dict[str, int]
     else:
         raise ValueError("AGY_RESPONSE_SCHEMA_MISMATCH")
 
-    # The canonical parser checks exact coverage, non-empty plain UTF-8 values,
-    # no script/HTML tags, and safely rejects lone surrogate characters.
+    # Strict UTF-8 check before canonical coverage/markup QA. The canonical
+    # parser alone cannot reject unpaired surrogate scalars in Python strings.
+    for value in result.values():
+        if not isinstance(value, str):
+            raise ValueError("AGY_TRANSLATION_TEXT_REQUIRED")
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("AGY_TRANSLATION_UTF8_INVALID") from exc
     apply_translations(fixture_cues(), result)
 
     usage: dict[str, int] = {}
