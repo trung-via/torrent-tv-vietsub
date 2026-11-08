@@ -87,7 +87,7 @@ class ContinuityReviewV2CTests(unittest.TestCase):
         result = evaluate(review)
         self.assertEqual(result["explicit_pronoun_mismatch_cues"], 1)
         rows = {x["id"]: x for x in result["rows"]}
-        self.assertNotIn("SELF_PRONOUN_MISMATCH_REVIEW", rows[1]["codes"])
+        self.assertNotIn(1, rows)  # A clean cue is intentionally omitted from warning-only rows.
         self.assertIn("SELF_PRONOUN_MISMATCH_REVIEW", rows[7]["codes"])
         self.assertNotIn("OTHER_PRONOUN_MISMATCH_REVIEW", rows[7]["codes"])
 
