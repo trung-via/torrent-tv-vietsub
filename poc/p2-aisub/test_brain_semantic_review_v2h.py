@@ -10,7 +10,7 @@ import unittest
 from brain_semantic_review_v2h import verify, _load, DIMENSIONS
 
 
-def fake_records():
+def fake_records(*, repo_corpus=False):
     cases = []
     translations = []
     reviews = []
@@ -34,8 +34,18 @@ def fake_records():
             "unresolved_context": "Unknown listener." if i == 2 else None,
             "hypothetical_readability": {"real_timestamps_supplied": False},
         })
-    corpus = {"corpus": "P2-AISUB.2a-original-synthetic-context-v1", "cases": cases}
-    corpus_raw = json.dumps(corpus, ensure_ascii=False).encode()
+    if repo_corpus:
+        # Production CLI accepts only the original committed 36-case source.
+        corpus_raw = Path(__file__).with_name("benchmark_synthetic.json").read_bytes()
+        corpus = json.loads(corpus_raw)
+        for original, row in zip(corpus["cases"], reviews):
+            row.update(genre=original["genre"],
+                       scene_context=original["scene_context"],
+                       risk_focus=original["risk_focus"],
+                       english=original["source_english"])
+    else:
+        corpus = {"corpus": "P2-AISUB.2a-original-synthetic-context-v1", "cases": cases}
+        corpus_raw = json.dumps(corpus, ensure_ascii=False).encode()
     export = {
         "schema": "P2-AISUB.2f-brain-input-v1", "corpus_sha256": hashlib.sha256(corpus_raw).hexdigest(),
         "blind_label": "A", "machine_readability_not_semantic_pass": True, "translations": translations
@@ -63,7 +73,11 @@ def fake_records():
 
 class BrainSemanticReviewV2HTests(unittest.TestCase):
     def call_verify(self, fixture):
-        return verify(*fixture)
+        return verify(*fixture, require_original_source=False)
+
+    def test_default_review_rejects_substituted_self_signed_corpus(self):
+        with self.assertRaisesRegex(ValueError, "ORIGINAL_CORPUS_PIN_MISMATCH"):
+            verify(*fake_records())
 
     def test_36_source_bound_brain_review_is_not_certification(self):
         result = self.call_verify(fake_records())
@@ -185,7 +199,7 @@ class BrainSemanticReviewV2HTests(unittest.TestCase):
                     _load(path)
 
     def test_cli_emits_no_dialogue_and_cannot_overwrite(self):
-        fx = fake_records()
+        fx = fake_records(repo_corpus=True)
         with tempfile.TemporaryDirectory() as folder:
             paths = [Path(folder) / n for n in ("corpus.json", "export.json", "review.json")]
             for path, raw in zip(paths, (fx[0], fx[2], fx[4])):
