@@ -27,3 +27,15 @@ try {
 }
 finally { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
 Write-Host 'HOSTOPS_ACCESS_INVENTORY_PASS'
+
+
+# Android SDK may be installed but absent from runner service PATH.
+$adbSdkPath = 'C:\TOOL\Android-SDK\platform-tools\adb.exe'
+$sdkManagerPath = 'C:\TOOL\Android-SDK\cmdline-tools\latest\bin\sdkmanager.bat'
+Write-Host ('HOSTOPS_ADB_SDK_EXISTS=' + (Test-Path -LiteralPath $adbSdkPath -PathType Leaf).ToString().ToUpperInvariant())
+Write-Host ('HOSTOPS_SDKMANAGER_EXISTS=' + (Test-Path -LiteralPath $sdkManagerPath -PathType Leaf).ToString().ToUpperInvariant())
+if (Test-Path -LiteralPath $adbSdkPath -PathType Leaf) {
+  & $adbSdkPath version | Select-Object -First 1
+  if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: Android SDK adb binary not executable' }
+  Write-Host 'HOSTOPS_ADB_SDK_EXECUTABLE_PASS'
+}
