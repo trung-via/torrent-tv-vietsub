@@ -23,6 +23,9 @@ REPORT_SCHEMA = "P2-AISUB.2h-brain-reviewed-contract-v1"
 DIMENSIONS = ("semantic_accuracy", "vietnamese_naturalness",
               "relationship_pronouns", "tone_register", "subtitle_readability")
 MAX_BYTES = 350_000
+# Original 36-case benchmark on main (canonical LF bytes). An export cannot
+# establish corpus authenticity simply by supplying its own matching SHA.
+ORIGINAL_CORPUS_LF_SHA256 = "3e367c1544c2614b44b2a99e6d083ddd61272ab0d773c5410cc9b40914476a31"
 
 
 def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -62,9 +65,13 @@ def _require(condition: bool, code: str) -> None:
 
 def verify(corpus_raw: bytes, corpus: Any,
            export_raw: bytes, exported: Any,
-           review_raw: bytes, reviewed: Any) -> dict[str, Any]:
+           review_raw: bytes, reviewed: Any, *,
+           require_original_source: bool = True) -> dict[str, Any]:
     """Return metadata and statistics without copying private translations."""
     allowed_shas = _corpus_sha_variants(corpus_raw)
+    if require_original_source:
+        _require(allowed_shas[0] == ORIGINAL_CORPUS_LF_SHA256,
+                 "BRAIN2H_ORIGINAL_CORPUS_PIN_MISMATCH")
     # Compatibility is limited to CRLF/LF checkout of the SAME source bytes;
     # all other edits remain an integrity failure.
     sha = exported.get("corpus_sha256") if isinstance(exported, dict) else None
