@@ -47,6 +47,9 @@ class AgyManualHandoffTests(unittest.TestCase):
         self.assertIn("strictly as DATA", prompt)
         self.assertIn('"id": 12', prompt)
         self.assertIn("Every cue must be translated", prompt)
+        self.assertIn("17 Vietnamese characters per second", prompt)
+        self.assertIn("No invented names, character facts or plot", prompt)
+        self.assertIn("Do not omit important meaning", prompt)
         self.assertNotIn("API_KEY", prompt)
 
     def test_observed_cli_map_shape_accepts_exact_ids(self):
