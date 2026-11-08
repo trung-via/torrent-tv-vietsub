@@ -157,13 +157,25 @@ def verify(corpus_raw: bytes, corpus: Any,
              summary.get("quality_certified") is False and
              summary.get("all_ids_covered") is True,
              "BRAIN2H_REVIEW_SUMMARY_INVALID")
+    authored_means = summary.get("score_means")
+    _require(isinstance(authored_means, dict) and
+             set(authored_means) == set(DIMENSIONS),
+             "BRAIN2H_REVIEW_SUMMARY_SHAPE_INVALID")
     for k in DIMENSIONS:
         actual = round(mean(totals[k]), 3)
-        _require(abs(float(summary.get("score_means", {}).get(k, -1)) - actual) < 0.001,
+        supplied = authored_means[k]
+        _require(type(supplied) in (int, float) and supplied == actual,
                  "BRAIN2H_REVIEW_SUMMARY_TAMPERED")
-    _require(summary.get("hallucination_assessment_counts", {}) == dict(hallucinations) and
-             summary.get("priority_counts", {}) == dict(priorities),
-             "BRAIN2H_REVIEW_AGGREGATE_TAMPERED")
+
+    for key, expected in (
+        ("hallucination_assessment_counts", hallucinations),
+        ("priority_counts", priorities),
+    ):
+        supplied = summary.get(key)
+        _require(isinstance(supplied, dict) and
+                 all(type(value) is int and value >= 0 for value in supplied.values()) and
+                 supplied == dict(expected),
+                 "BRAIN2H_REVIEW_AGGREGATE_TAMPERED")
 
     return {
         "schema": REPORT_SCHEMA,
