@@ -124,3 +124,69 @@ jobs:
           Write-Host $result
           @('## Torrent TV HostOps v1', '', "Result: **$result**", '', "Runner: $env:RUNNER_NAME", 'Issue: #82') |
             Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+  # Independent GitHub-hosted metadata job: reports run ID even if Windows is queued/offline.
+  # It never executes the pinned PowerShell script.
+  run-link-receipt:
+    if: >-
+      ${{
+        github.repository == 'trung-via/torrent-tv-vietsub' &&
+        github.actor == 'trung-via' &&
+        github.event.comment.user.login == 'trung-via' &&
+        github.event.comment.author_association == 'OWNER' &&
+        github.event.issue.number == 82 &&
+        github.event.issue.pull_request == null &&
+        startsWith(github.event.comment.body, '/tv-hostops ')
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: none
+      issues: write
+    timeout-minutes: 5
+    steps:
+      - name: Post run link to owner inbox
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMENT_ID: ${{ github.event.comment.id }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_COMMENT_ID" =~ ^[0-9]+$ ]]
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          receipt="$(printf 'HOSTOPS_RUN_LINK_V1\nSource comment: %s\nRun ID: %s\nActions: https://github.com/%s/actions/runs/%s\nState: DISPATCHED_NOT_A_RESULT\nNo device or script PASS is implied.' "$SOURCE_COMMENT_ID" "$RUN_ID" "$GITHUB_REPOSITORY" "$RUN_ID")"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/82/comments" -f "body=$receipt" >/dev/null
+
+  # Read-only Windows credentials stay unchanged; separate metadata-only job posts result.
+  final-result-receipt:
+    needs: [owner-command]
+    if: >-
+      ${{ always() &&
+        github.repository == 'trung-via/torrent-tv-vietsub' &&
+        github.actor == 'trung-via' &&
+        github.event.comment.user.login == 'trung-via' &&
+        github.event.comment.author_association == 'OWNER' &&
+        github.event.issue.number == 82 &&
+        github.event.issue.pull_request == null &&
+        startsWith(github.event.comment.body, '/tv-hostops ')
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: none
+      issues: write
+    timeout-minutes: 5
+    steps:
+      - name: Post Windows result without asserting TV acceptance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMENT_ID: ${{ github.event.comment.id }}
+          RUN_ID: ${{ github.run_id }}
+          WIN_JOB_RESULT: ${{ needs['owner-command'].result }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_COMMENT_ID" =~ ^[0-9]+$ ]]
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          case "$WIN_JOB_RESULT" in success|failure|cancelled|skipped) ;; *) exit 1 ;; esac
+          receipt="$(printf 'HOSTOPS_JOB_RESULT_V1\nSource comment: %s\nRun ID: %s\nWindows job: %s\nActions: https://github.com/%s/actions/runs/%s\nThis is a workflow result, NOT a Redmi/ADB/TV rendering PASS.' "$SOURCE_COMMENT_ID" "$RUN_ID" "$WIN_JOB_RESULT" "$GITHUB_REPOSITORY" "$RUN_ID")"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/82/comments" -f "body=$receipt" >/dev/null
