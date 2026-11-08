@@ -61,6 +61,22 @@ class Brain36ContextGateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "DURATION_INVALID"):
                 audit(raw, corpus, export, assumed_seconds=duration)
 
+    def test_cps_comparison_uses_unrounded_value(self):
+        raw, corpus, export = fixtures()
+        export["translations"][0]["vi"] = "X" * 43
+        # Round(17.004, 2) -> 17.00. A gate using rounded CPS would miss it.
+        result = audit(raw, corpus, export, assumed_seconds=43 / 17.004)
+        first = result["cases"][0]
+        self.assertEqual(first["hypothetical_cps"], 17.0)
+        self.assertIn("HYPOTHETICAL_SPEED_OVER_17_CPS", first["flags"])
+
+    def test_canonical_input_digest_changes_if_any_translation_changes(self):
+        raw, corpus, export = fixtures()
+        original = audit(raw, corpus, export)["input_export_canonical_sha256"]
+        export["translations"][1]["vi"] += "!"
+        changed = audit(raw, corpus, export)["input_export_canonical_sha256"]
+        self.assertNotEqual(original, changed)
+
     def test_boolean_corpus_id_rejected_even_with_matching_sha(self):
         raw, corpus, export = fixtures()
         corpus["cases"][0]["id"] = True
@@ -95,7 +111,11 @@ class Brain36ContextGateTests(unittest.TestCase):
                        "--corpus", str(corp), "--input", str(inp), "--out", str(out)]
             first = subprocess.run(command, text=True, capture_output=True, check=False)
             self.assertEqual(first.returncode, 0, first.stderr)
-            self.assertEqual(json.loads(out.read_text())["evaluated_cases"], 36)
+            report = json.loads(out.read_text())
+            self.assertEqual(report["evaluated_cases"], 36)
+            self.assertEqual(report["input_export_file_sha256"],
+                             hashlib.sha256(inp.read_bytes()).hexdigest())
+            self.assertEqual(len(report["input_export_canonical_sha256"]), 64)
             second = subprocess.run(command, text=True, capture_output=True, check=False)
             self.assertNotEqual(second.returncode, 0)
             self.assertEqual(json.loads(out.read_text())["evaluated_cases"], 36)
