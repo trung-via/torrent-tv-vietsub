@@ -56,8 +56,8 @@ def _canonical_source_sha256(source: bytes) -> str:
     change timestamps, strip BOM, or alter the original source bytes.
     Bare CR is rejected so a silently transformed third form cannot pass.
     """
-    canonical = source.replace(b"\\r\\n", b"\\n")
-    if b"\\r" in canonical:
+    canonical = source.replace(b"\r\n", b"\n")
+    if b"\r" in canonical:
         raise ValueError("CONTEXT_SOURCE_BARE_CR_UNSUPPORTED")
     return hashlib.sha256(canonical).hexdigest()
 
