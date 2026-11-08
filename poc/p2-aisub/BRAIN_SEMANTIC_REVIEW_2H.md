@@ -8,9 +8,12 @@ Windows auto-CRLF checkout produces SHA256 `9b1e787c79af7866a81921f57e55f9aa4332
 the identity in the original attended three-batch imports and Brain export.
 These differ **only in newline bytes**, not case contents; this was independently
 verified with the exact GitHub blob and the user-exported provenance. The v2g
-and v2h gates accept only these two exact LF/CRLF transformations of a pinned
-source, rejecting bare CR or any content edits. Reports retain both the
-declared original raw hash and the canonical LF hash. The export file and Brain
+and v2h gates accept only the unmixed LF or CRLF byte forms of the same supplied
+corpus, rejecting mixed newlines and bare CR. The v2h production review
+additionally pins the canonical LF hash to the original 36-case benchmark above,
+so a self-consistent substituted corpus is rejected; v2g remains a structural
+corpus/export consistency checker, not an independent origin authenticator.
+Reports retain both the declared original raw hash and the canonical LF hash. The export file and Brain
 review stay byte-SHA-bound; no broad "ignore SHA" fallback is permitted.
 
 ## Authority / ownership
