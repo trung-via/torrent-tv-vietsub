@@ -77,6 +77,27 @@ class BrainSemanticReviewV2HTests(unittest.TestCase):
         self.assertTrue(result["legacy_human_scores_unchanged"])
         self.assertNotIn("Chào", json.dumps(result, ensure_ascii=False))
 
+    def test_windows_crlf_brain_review_validates_against_linux_lf_checkout(self):
+        fx = list(fake_records())
+        lf = (json.dumps(fx[1], ensure_ascii=False, indent=2) + "\n").encode()
+        crlf = lf.replace(b"\n", b"\r\n")
+        declared = hashlib.sha256(crlf).hexdigest()
+        fx[0] = lf
+        fx[3]["corpus_sha256"] = declared
+        fx[2] = json.dumps(fx[3], ensure_ascii=False).encode()
+        fx[5]["source_corpus_sha256"] = declared
+        fx[5]["input_export_sha256"] = hashlib.sha256(fx[2]).hexdigest()
+        fx[4] = json.dumps(fx[5], ensure_ascii=False).encode()
+        report = self.call_verify(fx)
+        self.assertEqual(report["source_corpus_sha256"], declared)
+        self.assertEqual(report["source_corpus_canonical_lf_sha256"],
+                         hashlib.sha256(lf).hexdigest())
+        fx[0] = crlf
+        self.assertEqual(self.call_verify(fx)["source_corpus_sha256"], declared)
+        fx[0] = lf.replace(b"Two", b"Not") if b"Two" in lf else lf.replace(b"Fictional", b"Modified")
+        with self.assertRaisesRegex(ValueError, "CORPUS_SOURCE_HASH_MISMATCH"):
+            self.call_verify(fx)
+
     def test_case_text_tampering_requires_new_brain_review(self):
         fx = list(fake_records())
         fx[3]["translations"][0]["vi"] += "?"
