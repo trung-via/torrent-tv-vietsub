@@ -36,6 +36,11 @@ provider receipt, paths, tokens or account information.
 ## Checks and boundaries
 
 - SHA256 of **raw corpus bytes** must equal `corpus_sha256` of export.
+- The report pins both `input_export_file_sha256` (exact input bytes) and
+  `input_export_canonical_sha256` (normalized JSON content); changing the
+  Vietnamese text changes the latter. Reports are never allowed to overwrite.
+- CPS is compared at unrounded precision; the printed two-decimal CPS is for
+  presentation only and cannot suppress a threshold warning.
 - The input must contain exactly 36 ordered IDs and valid strings, label A.
 - Hypothetical speed assumes **2.5 seconds** per isolated sentence. 17 CPS,
   42 characters per line, max 2 lines are **heuristics**, not real timecode
