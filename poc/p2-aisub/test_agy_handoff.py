@@ -11,10 +11,10 @@ import unittest
 from unittest.mock import patch
 
 from agy_handoff import (
-    CONFIRM, MAX_RECEIPT_BYTES, SCENE, _strict_json, extract_translations,
-    fixture_cues, main, prepare_prompt,
+    CONFIRM, REPAIR_CONFIRM, MAX_RECEIPT_BYTES, SCENE, _strict_json,
+    _repair_cp437_text, extract_translations, fixture_cues, main, prepare_prompt,
 )
-from cue_pipeline import parse_cues
+from cue_pipeline import apply_translations, parse_cues, render
 
 
 def make_receipt(response=None, *, status="SUCCESS", turns=1):
@@ -171,6 +171,79 @@ class AgyManualHandoffTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     main()
             self.assertFalse(output.exists())
+
+    def test_exact_user_report_cp437_reverses_to_ordinary_vietnamese(self):
+        sample = "Em kh├┤ng chß║»c l├á anh sß║╜ ─æß║┐n."
+        self.assertEqual(
+            _repair_cp437_text(sample), "Em không chắc là anh sẽ đến."
+        )
+
+    def test_cp437_mojibake_does_not_pass_plain_import_anymore(self):
+        clean = {str(i): f"Đã dịch {i}" for i in range(1, 13)}
+        clean["1"] = "Em không chắc là anh sẽ đến."
+        corrupted = {k: v.encode("utf-8").decode("cp437") for k, v in clean.items()}
+        with self.assertRaisesRegex(ValueError, "AGY_CP437_MOJIBAKE_DETECTED"):
+            extract_translations(make_receipt(corrupted))
+
+    def test_explicit_cp437_recovery_is_exact_and_timestamp_safe(self):
+        clean = {str(i): f"Đã dịch {i}" for i in range(1, 13)}
+        clean["1"] = "Em không chắc là anh sẽ đến."
+        corrupted = {k: v.encode("utf-8").decode("cp437") for k, v in clean.items()}
+        recovered, info = extract_translations(make_receipt(corrupted), repair_cp437=True)
+        self.assertEqual(recovered, clean)
+        self.assertEqual(info["total_tokens"], 357)
+        rendered = render(apply_translations(fixture_cues(), recovered), "srt")
+        parsed = parse_cues(rendered, "srt")
+        self.assertEqual(
+            [(c.start_ms, c.end_ms) for c in parsed],
+            [(c.start_ms, c.end_ms) for c in fixture_cues()],
+        )
+
+    def test_cp437_recovery_refuses_clean_and_irreversible_mixture(self):
+        with self.assertRaisesRegex(ValueError, "AGY_CP437_REPAIR_NOT_NEEDED"):
+            extract_translations(make_receipt(), repair_cp437=True)
+        bad = {str(i): f"Đã dịch {i}" for i in range(1, 13)}
+        bad["2"] = "Em kh├┤ng và anh"
+        with self.assertRaisesRegex(ValueError, "AGY_CP437_MOJIBAKE_UNRECOVERABLE"):
+            extract_translations(make_receipt(bad), repair_cp437=True)
+
+    def test_cp437_repair_writes_new_file_only_with_unique_confirm(self):
+        with TemporaryDirectory() as d:
+            path = Path(d) / "agy.json"
+            out = Path(d) / "recovered.vi.srt"
+            original = {str(i): f"Đã dịch {i}" for i in range(1, 13)}
+            path.write_bytes(make_receipt(
+                {k: v.encode("utf-8").decode("cp437") for k, v in original.items()}
+            ))
+            wrong = ["script", "ingest", "--agy-json", str(path),
+                     "--output", str(out), "--confirm", CONFIRM, "--repair-cp437"]
+            with patch.object(sys, "argv", wrong), self.assertRaises(SystemExit):
+                main()
+            self.assertFalse(out.exists())
+            correct = ["script", "ingest", "--agy-json", str(path),
+                       "--output", str(out), "--confirm", REPAIR_CONFIRM,
+                       "--repair-cp437"]
+            with patch.object(sys, "argv", correct), redirect_stdout(io.StringIO()) as capture:
+                self.assertEqual(main(), 0)
+            self.assertIn("AGY_SYNTHETIC_12_CUE_CP437_RECOVERY_PASS", capture.getvalue())
+            self.assertEqual(parse_cues(out.read_bytes(), "srt")[0].text, "Đã dịch 1")
+            with patch.object(sys, "argv", correct), self.assertRaises(FileExistsError):
+                main()
+
+    def test_inspect_reports_content_not_terminal_encoding(self):
+        original = {str(i): f"Đã dịch {i}" for i in range(1, 13)}
+        corrupt = {k: v.encode("utf-8").decode("cp437") for k, v in original.items()}
+        with TemporaryDirectory() as d:
+            path = Path(d) / "fixture.srt"
+            path.write_bytes(render(apply_translations(fixture_cues(), corrupt), "srt"))
+            args = ["script", "inspect", "--srt", str(path)]
+            with patch.object(sys, "argv", args), redirect_stdout(io.StringIO()) as got:
+                self.assertEqual(main(), 0)
+            self.assertIn("CP437_MOJIBAKE_SUSPECTED", got.getvalue())
+            path.write_bytes(render(apply_translations(fixture_cues(), original), "srt"))
+            with patch.object(sys, "argv", args), redirect_stdout(io.StringIO()) as got:
+                self.assertEqual(main(), 0)
+            self.assertIn("NO_CP437_MOJIBAKE_FOUND", got.getvalue())
 
     def test_import_has_no_automatic_agy_or_web_calls(self):
         import inspect

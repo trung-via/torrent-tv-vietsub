@@ -22,6 +22,11 @@ python $script prepare --prompt-out $promptFile
 
 # 2. HUMAN RUNS AGY DIRECTLY, ONCE: this WILL consume Antigravity quota.
 # No Gemini API key; no background script calls agy; no real film text.
+# Windows PowerShell (especially legacy console) must interpret native
+# Antigravity stdout as UTF-8. Session-local, not persistent OS config.
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
 $promptText = Get-Content -LiteralPath $promptFile -Raw -Encoding UTF8
 agy -p $promptText --model gemini-3.8-flash-medium --output-format json |
   Set-Content -LiteralPath $receiptFile -Encoding UTF8
@@ -34,6 +39,36 @@ python $script ingest --agy-json $receiptFile --output $subtitleFile `
 ```
 
 Expected final marker: `AGY_SYNTHETIC_12_CUE_IMPORT_PASS no_provider_call_by_script`. The output is a NEW locally stored SRT using the original cue start/end times and no real film audio or subtitle. Keep `*-agy-receipt.json` and `*-vi.srt` **private**; do not commit/upload them to GitHub. Never share Antigravity `conversation_id` or full subtitle text in a public issue. Share only command result marker, model alias, duration, and token counters if useful.
+
+### Windows CP437 mojibake detection and offline one-time recovery
+
+A Human experiment on 2026-11-08 succeeded with the 12-cue import marker and token metrics, but the `Get-Content` output showed characteristic text `kh├┤ng`, `sß║╜`, `─æ`. Exact reversal of the displayed sample proves a UTF-8 → **CP437** misdecode signature, and recovers `không`, `sẽ`, `đ`. This is NOT evidence of bad model translation, and does NOT alone prove whether the saved file was already corrupted or only the terminal display. The prior source validator accepted structurally valid but potentially garbled Unicode.
+
+On a checkout containing this fix, diagnose the existing locally saved 12-cue SRT **without any AI call or file write**:
+
+```powershell
+python poc/p2-aisub/agy_handoff.py inspect --srt $subtitleFile
+```
+
+- `AGY_SYNTHETIC_SRT_ENCODING_STATUS=CP437_MOJIBAKE_SUSPECTED` means the **saved SRT itself** contains CP437 symptoms. This must no longer count as a quality PASS.
+- `AGY_SYNTHETIC_SRT_ENCODING_STATUS=NO_CP437_MOJIBAKE_FOUND` means no known CP437 markers were found in the saved text; any garbled console output may be display-only. Confirm in a UTF-8 aware editor. This does NOT certify the actual Vietnamese translation quality.
+
+If the saved SRT is corrupt **and** the previously captured `agy` receipt still exists, recover deterministically from the receipt without another Antigravity call. Do not use this on clean input or real movie files. The recovery requires an explicit separate confirmation and new output path, refuses mixed/unrecoverable text, and leaves source artifacts untouched:
+
+```powershell
+$recovered = Join-Path $dir "$tag-cp437-recovered.vi.srt"
+python poc/p2-aisub/agy_handoff.py ingest `
+  --agy-json $receiptFile `
+  --output $recovered `
+  --confirm RECOVER_CP437_SYNTHETIC_12_CUE `
+  --repair-cp437
+
+python poc/p2-aisub/agy_handoff.py inspect --srt $recovered
+```
+
+Expected recovery marker `AGY_SYNTHETIC_12_CUE_CP437_RECOVERY_PASS` then status `NO_CP437_MOJIBAKE_FOUND`. **If the receipt is clean while the SRT display is weird, the recovery intentionally refuses** with `AGY_CP437_REPAIR_NOT_NEEDED`: diagnose the terminal separately, rather than double-decoding the text.
+
+For future tests, set `[Console]::OutputEncoding` / `$OutputEncoding` to UTF-8 *before* `agy | Set-Content` as shown above. If that environment still emits mojibake, STOP and inspect provider bytes; do not blindly transcode or rerun paid/quota-consuming inference. Never upload CLI receipts to a public repository. The new importer rejects recognizable CP437 mojibake by default with `AGY_CP437_MOJIBAKE_DETECTED`, before any SRT is written.
 
 ### Import envelope examples
 
