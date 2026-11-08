@@ -52,6 +52,14 @@ def prepare_prompt() -> str:
         + "\nThe response MUST be exactly one JSON object shaped "
         + '{"translations":[{"id":1,"vi":"..."}, ...,{"id":12,"vi":"..."}]}. '
         + "Every cue must be translated; omit all extra narration.\n"
+        + "SUBTITLE READABILITY: each target cue is visible for 2.5 seconds. "
+        + "Aim for at most 17 Vietnamese characters per second (about 42 "
+        + "characters per cue), at most 42 characters per line and two lines. "
+        + "Prefer concise, natural dialogue with the same meaning, tone, "
+        + "character relationship and pronouns. Do not omit important meaning "
+        + "to satisfy a length target; if needed, return an intact translation "
+        + "for human review. Never combine, split or renumber cues and do not "
+        + "change timestamps. No invented names, character facts or plot.\n"
         + request["contents"][0]["parts"][0]["text"]
     )
 
