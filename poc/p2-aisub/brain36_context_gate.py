@@ -85,15 +85,20 @@ def audit(corpus_raw: bytes, corpus: Mapping[str, Any], exported: Mapping[str, A
     if not isinstance(assumed_seconds, (int, float)) or type(assumed_seconds) is bool or not (0.1 <= assumed_seconds <= 60):
         raise ValueError("BRAIN36_ASSUMED_DURATION_INVALID")
     cases, rows, sha = _validate(corpus_raw, corpus, exported)
+    # Bind audit results to the *contents* of the input, not only the corpus.
+    # Stable regardless of JSON whitespace/key ordering; CLI additionally pins raw bytes.
+    canonical_input = json.dumps(exported, ensure_ascii=False, sort_keys=True,
+                                 separators=(",", ":"), allow_nan=False).encode("utf-8")
     totals: Counter[str] = Counter()
     checks: list[dict[str, Any]] = []
     for case, row in zip(cases, rows):
         text = unicodedata.normalize("NFC", row["vi"])
         lines = text.split("\n")
         n = sum(len(line) for line in lines)
-        cps = round(n / assumed_seconds, 2)
+        exact_cps = n / assumed_seconds
+        cps = round(exact_cps, 2)
         flags: list[str] = []
-        if cps > 17.0:
+        if exact_cps > 17.0:
             flags.append("HYPOTHETICAL_SPEED_OVER_17_CPS")
         if max(map(len, lines)) > 42:
             flags.append("LINE_OVER_42_CHARS")
@@ -117,6 +122,7 @@ def audit(corpus_raw: bytes, corpus: Mapping[str, Any], exported: Mapping[str, A
                        "line_count": len(lines), "max_line_chars": max(map(len, lines))})
     return {
         "schema": REPORT_SCHEMA, "source_corpus_sha256": sha, "blind_label": "A",
+        "input_export_canonical_sha256": hashlib.sha256(canonical_input).hexdigest(),
         "evaluated_cases": 36, "source": "LOCAL_OFFLINE_STRUCTURAL_HEURISTIC_ONLY",
         "assumed_seconds_per_case": assumed_seconds, "real_timecodes_verified": False,
         "semantic_quality_certified": False, "quality_certified": False,
@@ -133,8 +139,9 @@ def main() -> int:
     p.add_argument("--out", type=Path, required=True, help="new-only report path (never overwrites)")
     a = p.parse_args()
     corpus_raw, corpus = _load(a.corpus)
-    _, exported = _load(a.input)
+    export_raw, exported = _load(a.input)
     result = audit(corpus_raw, corpus, exported, assumed_seconds=a.assumed_seconds)
+    result["input_export_file_sha256"] = hashlib.sha256(export_raw).hexdigest()
     with a.out.open("x", encoding="utf-8", newline="\n") as fh:
         json.dump(result, fh, indent=2, ensure_ascii=False, allow_nan=False)
         fh.write("\n")
