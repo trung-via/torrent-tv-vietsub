@@ -111,6 +111,28 @@ class BrainSemanticReviewV2HTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SUMMARY_TAMPERED"):
             self.call_verify(fx)
 
+    def test_malformed_summary_scores_fail_closed(self):
+        # A wrong-typed summary must fail with a domain error, not AttributeError.
+        for malformed in (None, [], "4.0", {"semantic_accuracy": 4.0}):
+            fx = list(fake_records())
+            fx[5]["summary"]["score_means"] = malformed
+            with self.assertRaisesRegex(ValueError, "SUMMARY_SHAPE_INVALID"):
+                self.call_verify(fx)
+        for malformed in (True, "4.0", 4.0001):
+            fx = list(fake_records())
+            fx[5]["summary"]["score_means"]["semantic_accuracy"] = malformed
+            with self.assertRaisesRegex(ValueError, "SUMMARY_TAMPERED"):
+                self.call_verify(fx)
+
+    def test_forged_boolean_or_string_aggregate_count_rejected(self):
+        for name, key in (("hallucination_assessment_counts", "uncertain"),
+                          ("priority_counts", "high")):
+            for malformed in (True, "1"):
+                fx = list(fake_records())
+                fx[5]["summary"][name][key] = malformed
+                with self.assertRaisesRegex(ValueError, "AGGREGATE_TAMPERED"):
+                    self.call_verify(fx)
+
     def test_context_uncertainty_does_not_forge_human_exception_approval(self):
         fx = list(fake_records())
         fx[5]["case_reviews"][1]["priority"] = "low"
