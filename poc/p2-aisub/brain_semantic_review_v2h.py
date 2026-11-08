@@ -126,8 +126,9 @@ def verify(corpus_raw: bytes, corpus: Any,
                  priority in ("high", "medium", "low") and
                  _plain(row.get("brain_reason")) and
                  _plain(row.get("suggested_revision")) and
-                 isinstance(row.get("unresolved_context"), str) and
-                 len(row["unresolved_context"]) <= 3000,
+                 (row.get("unresolved_context") is None or
+                  isinstance(row.get("unresolved_context"), str)) and
+                 len(row.get("unresolved_context") or "") <= 3000,
                  "BRAIN2H_REVIEW_DETAIL_INVALID")
         _require(isinstance(row.get("hypothetical_readability"), dict) and
                  row["hypothetical_readability"].get("real_timestamps_supplied") is False,
@@ -139,7 +140,7 @@ def verify(corpus_raw: bytes, corpus: Any,
         priorities[priority] += 1
         reviewed_ids.append(i)
 
-        context_pending = bool(row["unresolved_context"].strip()) or h == "uncertain"
+        context_pending = bool((row["unresolved_context"] or "").strip()) or h == "uncertain"
         statuses["CONTEXT_PENDING" if context_pending else "AI_EDITORIAL_REVIEWED"] += 1
         # An advisory handoff, never an automatic Human obligation. Brain first
         # attempts metadata retrieval or independent source-grounded critique.
