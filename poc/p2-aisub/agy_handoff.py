@@ -16,6 +16,10 @@ from cue_pipeline import apply_translations, parse_cues, render
 
 FIXTURE = Path(__file__).with_name("fixtures") / "agy_scene12_en.srt"
 CONFIRM = "MANUAL_SYNTHETIC_12_CUE"
+REPAIR_CONFIRM = "RECOVER_CP437_SYNTHETIC_12_CUE"
+# OEM CP437 decoded UTF-8 produces forms such as "kh├┤ng", "sß║╜", "─æ".
+# Detect the box drawing evidence rather than guessing from lack of accents.
+CP437_MOJIBAKE_MARKERS = frozenset("├┤║─╜╗╞╣⌐░▒┐")
 MAX_RECEIPT_BYTES = 256_000
 
 SCENE = (
@@ -68,7 +72,44 @@ def _strict_json(s: str) -> Any:
         raise ValueError("INVALID_AGY_JSON") from exc
 
 
-def extract_translations(receipt: bytes) -> tuple[dict[str, str], dict[str, int]]:
+def _looks_cp437_mojibake(text: str) -> bool:
+    """Recognize characteristic UTF-8 bytes decoded as Windows OEM CP437."""
+    return any(ch in CP437_MOJIBAKE_MARKERS for ch in text)
+
+
+def _repair_cp437_text(text: str) -> str:
+    """Undo exactly one provable UTF-8→CP437 misdecode, never guess accents."""
+    try:
+        recovered = text.encode("cp437", errors="strict").decode("utf-8", errors="strict")
+    except UnicodeError as exc:
+        raise ValueError("AGY_CP437_MOJIBAKE_UNRECOVERABLE") from exc
+    if recovered == text or not any(ord(ch) > 127 for ch in recovered):
+        raise ValueError("AGY_CP437_MOJIBAKE_UNRECOVERABLE")
+    return recovered
+
+
+def _check_or_repair_text(result: dict[str, str], *, repair_cp437: bool) -> dict[str, str]:
+    updated: dict[str, str] = {}
+    repaired = 0
+    for key, value in result.items():
+        if not isinstance(value, str):
+            raise ValueError("AGY_TRANSLATION_TEXT_REQUIRED")
+        if _looks_cp437_mojibake(value):
+            if not repair_cp437:
+                raise ValueError("AGY_CP437_MOJIBAKE_DETECTED")
+            value = _repair_cp437_text(value)
+            repaired += 1
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("AGY_TRANSLATION_UTF8_INVALID") from exc
+        updated[key] = value
+    if repair_cp437 and repaired == 0:
+        raise ValueError("AGY_CP437_REPAIR_NOT_NEEDED")
+    return updated
+
+
+def extract_translations(receipt: bytes, *, repair_cp437: bool = False) -> tuple[dict[str, str], dict[str, int]]:
     """Validate outer Antigravity CLI --output-format json and exact 12 IDs.
 
     Accept its observed {"1":"..."} inner form, and preferred
@@ -105,15 +146,9 @@ def extract_translations(receipt: bytes) -> tuple[dict[str, str], dict[str, int]
     else:
         raise ValueError("AGY_RESPONSE_SCHEMA_MISMATCH")
 
-    # Strict UTF-8 check before canonical coverage/markup QA. The canonical
-    # parser alone cannot reject unpaired surrogate scalars in Python strings.
-    for value in result.values():
-        if not isinstance(value, str):
-            raise ValueError("AGY_TRANSLATION_TEXT_REQUIRED")
-        try:
-            value.encode("utf-8", errors="strict")
-        except UnicodeError as exc:
-            raise ValueError("AGY_TRANSLATION_UTF8_INVALID") from exc
+    # A UTF-8-valid JSON response can still contain mojibake ("kh├┤ng").
+    # Refuse silent corruption. Repair is opt-in and reversible, not automatic.
+    result = _check_or_repair_text(result, repair_cp437=repair_cp437)
     apply_translations(fixture_cues(), result)
 
     usage: dict[str, int] = {}
@@ -135,6 +170,10 @@ def main() -> int:
     ingest.add_argument("--agy-json", type=Path, required=True)
     ingest.add_argument("--output", type=Path, required=True)
     ingest.add_argument("--confirm", required=True)
+    ingest.add_argument("--repair-cp437", action="store_true",
+                        help="explicit one-time repair of proven CP437 mojibake")
+    inspect = sub.add_parser("inspect", help="read-only ASCII status of 12-cue SRT")
+    inspect.add_argument("--srt", type=Path, required=True)
     args = parser.parse_args()
 
     if args.mode == "prepare":
@@ -146,19 +185,35 @@ def main() -> int:
         print("AGY_SYNTHETIC_PROMPT_PREPARED cues=12 no_provider_call")
         return 0
 
-    if args.confirm != CONFIRM:
+    if args.mode == "inspect":
+        actual = parse_cues(args.srt.read_bytes(), "srt")
+        expected = fixture_cues()
+        if len(actual) != 12 or (
+            [(c.number, c.start_ms, c.end_ms) for c in actual] !=
+            [(c.number, c.start_ms, c.end_ms) for c in expected]
+        ):
+            raise ValueError("AGY_SRT_NOT_THE_12_CUE_SYNTHETIC_FIXTURE")
+        status = ("CP437_MOJIBAKE_SUSPECTED" if any(
+            _looks_cp437_mojibake(c.text) for c in actual
+        ) else "NO_CP437_MOJIBAKE_FOUND")
+        print("AGY_SYNTHETIC_SRT_ENCODING_STATUS=" + status)
+        return 0
+
+    needed = REPAIR_CONFIRM if args.repair_cp437 else CONFIRM
+    if args.confirm != needed:
         parser.error("EXPLICIT_SYNTHETIC_OUTPUT_CONFIRMATION_REQUIRED")
     if args.output.resolve() in (FIXTURE.resolve(), args.agy_json.resolve()):
         parser.error("OUTPUT_MUST_BE_DISTINCT")
     receipt = args.agy_json.read_bytes()
-    translations, usage = extract_translations(receipt)
+    translations, usage = extract_translations(receipt, repair_cp437=args.repair_cp437)
     data = render(apply_translations(fixture_cues(), translations), "srt")
     with args.output.open("xb") as file:
         file.write(data)
     # Never print translated text, user paths, receipt, or CLI conversation ID.
     metrics = " ".join(f"{k}={v}" for k, v in sorted(usage.items()))
-    print("AGY_SYNTHETIC_12_CUE_IMPORT_PASS no_provider_call_by_script "
-          + metrics)
+    marker = ("AGY_SYNTHETIC_12_CUE_CP437_RECOVERY_PASS"
+              if args.repair_cp437 else "AGY_SYNTHETIC_12_CUE_IMPORT_PASS")
+    print(marker + " no_provider_call_by_script " + metrics)
     return 0
 
 
