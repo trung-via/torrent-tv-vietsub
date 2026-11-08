@@ -24,9 +24,9 @@ def make_receipt(response=None, *, status="SUCCESS", turns=1):
         "conversation_id": "synthetic-only-not-a-real-session",
         "status": status,
         "num_turns": turns,
-        "response": json.dumps(response, ensure_ascii=False),
+        "response": json.dumps(response, ensure_ascii=True),
         "usage": {"input_tokens": 234, "output_tokens": 123, "total_tokens": 357},
-    }, ensure_ascii=False).encode("utf-8")
+    }, ensure_ascii=True).encode("utf-8")
 
 
 class AgyManualHandoffTests(unittest.TestCase):
