@@ -61,6 +61,27 @@ class Brain36ContextGateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "DURATION_INVALID"):
                 audit(raw, corpus, export, assumed_seconds=duration)
 
+    def test_boolean_corpus_id_rejected_even_with_matching_sha(self):
+        raw, corpus, export = fixtures()
+        corpus["cases"][0]["id"] = True
+        raw = json.dumps(corpus, ensure_ascii=False).encode("utf-8")
+        export["corpus_sha256"] = hashlib.sha256(raw).hexdigest()
+        with self.assertRaisesRegex(ValueError, "CORPUS_IDS_INVALID"):
+            audit(raw, corpus, export)
+
+    def test_loader_rejects_duplicate_keys_and_nan(self):
+        from brain36_context_gate import _load
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "duplicate.json"
+            for raw, expected in (
+                (b'{"id":1,"id":2}', "JSON_DUPLICATE_KEY"),
+                (b'{"value":NaN}', "JSON_NONFINITE_NUMBER"),
+                (b'{"value":Infinity}', "JSON_NONFINITE_NUMBER"),
+            ):
+                path.write_bytes(raw)
+                with self.assertRaisesRegex(ValueError, expected):
+                    _load(path)
+
     def test_output_cannot_overwrite_and_contains_no_dialogue(self):
         raw, corpus, export = fixtures()
         with tempfile.TemporaryDirectory() as temp:
