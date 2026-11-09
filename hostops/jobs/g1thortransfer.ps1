@@ -33,7 +33,7 @@ if (Test-Path -LiteralPath $profileRoot -PathType Container) {
 $folders = @($folders | Select-Object -Unique)
 $candidates = @()
 foreach ($folder in $folders) {
-    if (-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
+    if (-not (Test-Path -LiteralPath $folder -PathType Container -ErrorAction SilentlyContinue)) { continue }
     $folderInfo = Get-Item -LiteralPath $folder -Force -ErrorAction SilentlyContinue
     if ($null -eq $folderInfo -or ($folderInfo.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
     $files = @(Get-ChildItem -LiteralPath $folder -File -Filter 'Thor*.srt' -ErrorAction SilentlyContinue |
