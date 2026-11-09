@@ -72,7 +72,7 @@ $fontBlobs = @{
     'poc/vi-font/verify.mjs' = 'f54dfdef8a73937a2d9efc3a0b07dea66678892b'
 }
 foreach ($item in $fontBlobs.GetEnumerator()) {
-    $actual = (& git -C $repoRoot hash-object -- $item.Key | Out-String).Trim()
+    $actual = (& git -C $repoRoot rev-parse "HEAD:$($item.Key)" | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $actual -cne $item.Value) { throw 'G4V3_STOP_FONT_BLOB_DRIFT' }
 }
 Write-Host 'G4V3_EXACT_ACCEPTED_FONT_BLOBS_PASS'
