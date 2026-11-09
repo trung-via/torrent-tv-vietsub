@@ -14,9 +14,9 @@ $expected = '3d9d4bf37fe31eb5de8a7af32d68c21fb5a342b87778f6f7925a7b43ad26c15b'
 $target = '/sdcard/Download/TTV-Thor-v035.vi.srt'
 $adb = 'C:\TOOL\Android-SDK\platform-tools\adb.exe'
 $folders = @()
-$home = [Environment]::GetFolderPath('UserProfile')
+$profileHome = [Environment]::GetFolderPath('UserProfile')
 foreach ($sub in @('Downloads','Desktop','Documents')) {
-    $folders += (Join-Path $home $sub)
+    $folders += (Join-Path $profileHome $sub)
 }
 $folders += 'C:\Users\Public\Downloads'
 $folders += 'C:\TOOL\TorrentTV-Runner\transfer-inbox'
