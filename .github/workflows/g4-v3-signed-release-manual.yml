@@ -1,0 +1,55 @@
+# Owner-only, manual-only, signed G4 Release candidate audit.
+# DO NOT dispatch without separate Human authorization and private signing identity.
+name: Torrent TV - G4 v3 Signed Release Binary Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type SIGN_G4_V3_RELEASE_ONCE after separate Human approval'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: torrent-tv-g4-v3-signed-release
+  cancel-in-progress: false
+
+jobs:
+  g4-signed-release:
+    name: One approved private signed APK build and binary audit (no TV install)
+    if: >-
+      ${{ github.repository == 'trung-via/torrent-tv-vietsub' &&
+          github.actor == 'trung-via' &&
+          github.event_name == 'workflow_dispatch' &&
+          github.ref == 'refs/heads/main' &&
+          inputs.confirmation == 'SIGN_G4_V3_RELEASE_ONCE' }}
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact reviewed main source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Run private signed Release build and artifact-only audit
+        shell: powershell
+        env:
+          G4_CONFIRMATION: ${{ inputs.confirmation }}
+          G4_RELEASE_KEYSTORE_FILE: ${{ secrets.TORRENTTV_RELEASE_KEYSTORE_FILE }}
+          G4_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.TORRENTTV_RELEASE_KEYSTORE_PASSWORD }}
+          G4_RELEASE_KEY_ALIAS: ${{ secrets.TORRENTTV_RELEASE_KEY_ALIAS }}
+          G4_RELEASE_KEY_PASSWORD: ${{ secrets.TORRENTTV_RELEASE_KEY_PASSWORD }}
+          G4_RELEASE_CERT_SHA256: ${{ secrets.TORRENTTV_RELEASE_CERT_SHA256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:G4_CONFIRMATION -cne 'SIGN_G4_V3_RELEASE_ONCE') {
+            throw 'G4B1_STOP_NO_EXPLICIT_OWNER_CONFIRMATION'
+          }
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g4\release-v3-builder.ps1') -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit '${{ github.sha }}'
+          if (-not $?) { throw 'G4B1_STOP_BUILDER_FAILED' }
+# Intentionally no upload-artifact, release, push, ADB or deployment steps.
