@@ -47,18 +47,18 @@ if ($candidates.Count -gt 60) {
     Write-Host 'THOR_TRANSFER_STATUS=BLOCKED_TOO_MANY_CANDIDATES'
     exit 0
 }
-$matches = @()
+$localCopies = @()
 foreach ($file in $candidates) {
     try {
         $sha = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
-        if ($sha -ceq $expected) { $matches += $file.FullName }
+        if ($sha -ceq $expected) { $localCopies += $file.FullName }
     } catch {
         # Never log a local path or the exception content.
         Write-Host 'THOR_TRANSFER_SOURCE_CANDIDATE_READ_ERROR_REDACTED'
     }
 }
-Write-Host ('THOR_TRANSFER_VERIFIED_LOCAL_COPIES=' + $matches.Count)
-if ($matches.Count -eq 0) {
+Write-Host ('THOR_TRANSFER_VERIFIED_LOCAL_COPIES=' + $localCopies.Count)
+if ($localCopies.Count -eq 0) {
     Write-Host 'THOR_TRANSFER_STATUS=SOURCE_NOT_PRESENT_ON_WINDOWS'
     Write-Host 'THOR_TRANSFER_TV_WRITE=NOT_ATTEMPTED'
     exit 0
@@ -96,7 +96,7 @@ try {
         exit 0
     }
     # The file is an exact SHA-verified local user copy, never GitHub workflow content.
-    $source = [string]$matches[0]
+    $source = [string]$localCopies[0]
     & $adb -s $serial push $source $target 1>$null 2>$null
     if ($LASTEXITCODE -ne 0) { Write-Host 'THOR_TRANSFER_STATUS=ADB_PUSH_FAILED'; exit 0 }
     $remote = @(& $adb -s $serial shell sha256sum $target 2>$null)
