@@ -1,6 +1,6 @@
 # P1 — Vietnamese subtitle typography trial (VLC 3.7.7 / Redmi A Pro 55)
 
-**Issue:** [#96](https://github.com/trung-via/torrent-tv-vietsub/issues/96). **Status:** `SOURCE_CANDIDATE / REAL_TV_GLYPH_NOT_VERIFIED`.
+**Issue:** [#96](https://github.com/trung-via/torrent-tv-vietsub/issues/96). **Status:** `V2_SOURCE_CANDIDATE / WINDOWS_BUILD_PENDING / REAL_TV_GLYPH_NOT_VERIFIED`.
 
 ## Problem from real TV
 
@@ -13,15 +13,17 @@ Actual Redmi read-only font inventory: [HostOps #42646613900](https://github.com
 Pinned upstream OMP `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f`, LibVLC `org.videolan.android:libvlc-all:3.7.7`, native `VlcRuntime.kt` (original Git blob `15bf0cb1d53ddf6c8936f362499a7575f2586f08`). On a disposable OMP clone **after** G1 Production + P2 source overlays, `poc/vi-font/apply.mjs` makes a single pinned, fail-closed change to `VlcLibrary.OPTIONS`:
 
 - `--freetype-font=Noto Sans` — trial font family; exact Android font resolution and glyph shape must be confirmed on-device, not assumed.
-- `--freetype-rel-fontsize=13` — VLC 3 default 16, smaller denominator yields a larger caption (nominal ~23% scale vs 16; device-dependent).
-- `--freetype-bold` — legibility; evaluate stroke thickness and Vietnamese marks visually.
-- `--freetype-outline-thickness=2`, `--freetype-outline-color=0` — thin black contrast edge.
+- `--freetype-rel-fontsize=13` — **unchanged from v1** per Brain's video review; VLC 3 default 16, smaller denominator yields a larger caption (device-dependent).
+- **No `--freetype-bold` option:** v2 leaves forced bold disabled (VLC Android defaults to normal weight); avoids adding mass around hỏi/ngã and stacked tone marks.
+- `--freetype-outline-thickness=1`, `--freetype-outline-color=0` — slimmer black edge than v1 (`2`) to reduce crowding around `ả`, `ậ`, while retaining contrast.
+
+**Visual Brain Review of user-recorded 31-second video:** size adequate; bold strokes and outline appear heavy, especially tone marks in `cả`, `tận`, `bảo`. This is a camera-based observation, not a claim of exact renderer font-selection. V2 intentionally changes only forced bold and outline thickness; **no SRT, timing, player selection, or resume changes**.
 
 VideoLAN Android `VLCOptions.kt` explicitly uses `--freetype-rel-fontsize`, `--freetype-bold` and `--freetype-outline-thickness` for VLC 3; VLC 4 uses a different scaling flag. Font-family selection is a **test candidate** requiring actual visual acceptance; no bundled font or ROM modification. Source: https://github.com/videolan/vlc-android/blob/master/application/resources/src/main/java/org/videolan/resources/VLCOptions.kt
 
 ## Guards and tests
 
-- `poc/vi-font/apply.test.mjs` — anchor uniqueness, idempotency failure, exact flags, original Vietnamese precomposed Unicode specimen.
+- `poc/vi-font/apply.test.mjs` — anchor uniqueness, idempotency failure, exact **four** freetype flags; confirms no forced bold, unchanged size, thin outline and NFC Vietnamese specimen.
 - `poc/vi-font/verify.mjs` — assembled source flag counts, pinned OMP/LibVLC and G1 helper presence.
 - Run on dedicated Windows `torrent-tv-vietsub-win`, isolated OMP clone; don't change global TV settings/ROM fonts, Thor SRT, Gradle release signing guard, TorrServer or AIOS.
 - User-approved source test/build Debug trial; do **not** install/replace the already working Debug on Redmi, publish APK, sign Release, or modify app data without a separately authorized action.
