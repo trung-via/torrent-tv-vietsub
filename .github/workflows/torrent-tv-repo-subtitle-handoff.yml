@@ -1,0 +1,80 @@
+
+# Owner-initiated SRT handoff from this public repository to authorized Redmi.
+# No private repository, extra token, personal gh login or local file download required.
+name: Torrent TV - Repository Subtitle Handoff
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: torrent-tv-repo-subtitle-handoff
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    if: >-
+      ${{
+        github.repository == 'trung-via/torrent-tv-vietsub' &&
+        github.actor == 'trung-via' &&
+        github.event.comment.user.login == 'trung-via' &&
+        github.event.comment.author_association == 'OWNER' &&
+        github.event.issue.number == 82 &&
+        github.event.issue.pull_request == null &&
+        startsWith(github.event.comment.body, '/tv-subtitle deliver ')
+      }}
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the exact triggering main commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: SHA check, ADB push, remote SHA check
+        shell: powershell
+        env:
+          TTV_SUBTITLE_COMMAND: ${{ github.event.comment.body }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'hostops\jobs\repo-subtitle-handoff.ps1') -Request $env:TTV_SUBTITLE_COMMAND
+          if (-not $?) { throw 'REPO_SUBTITLE_HANDOFF_FAILED' }
+
+  receipt:
+    needs: [deliver]
+    if: >-
+      ${{ always() &&
+        github.repository == 'trung-via/torrent-tv-vietsub' &&
+        github.actor == 'trung-via' &&
+        github.event.comment.user.login == 'trung-via' &&
+        github.event.comment.author_association == 'OWNER' &&
+        github.event.issue.number == 82 &&
+        github.event.issue.pull_request == null &&
+        startsWith(github.event.comment.body, '/tv-subtitle deliver ')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: none
+      issues: write
+    steps:
+      - name: Post linked result to Issue 82
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMENT: ${{ github.event.comment.id }}
+          RUN_ID: ${{ github.run_id }}
+          DELIVERY_RESULT: ${{ needs.deliver.result }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_COMMENT" =~ ^[0-9]+$ ]]
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          case "$DELIVERY_RESULT" in success|failure|cancelled|skipped) ;; *) exit 1 ;; esac
+          body="$(printf 'TTV_REPO_SUBTITLE_HANDOFF_V1\nSource comment: %s\nRun ID: %s\nWindows delivery job: %s\nActions: https://github.com/%s/actions/runs/%s\nRemote SHA proof must be read from Windows log; TV rendering is a separate gate.' "$SOURCE_COMMENT" "$RUN_ID" "$DELIVERY_RESULT" "$GITHUB_REPOSITORY" "$RUN_ID")"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/82/comments" -f "body=$body" >/dev/null
