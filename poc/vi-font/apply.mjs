@@ -14,9 +14,10 @@ export const NEW = [
   '        private val OPTIONS = arrayListOf(',
   '            "--verbose=-1",',
   '            // Vietnamese caption candidate. VLC 3: smaller denominator means larger glyphs.',
-  '            // V2: keep v1 size, remove forced bold, thin black outline; no timing mutation.',
+  '            // V3 diagnostic A/B: keep v2 font, size, thin outline; toggle bold ON only.',
   '            "--freetype-font=Noto Sans",',
   '            "--freetype-rel-fontsize=13",',
+  '            "--freetype-bold",',
   '            "--freetype-outline-thickness=1",',
   '            "--freetype-outline-color=0"',
   '        )',
@@ -52,5 +53,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   // Keep the exact upstream checkout EOL convention on Windows Git/autocrlf.
   const after = before.includes('\r\n') ? patched.replace(/(?<!\r)\n/g, '\r\n') : patched;
   writeFileSync(file, after, 'utf8');
-  console.log('VI_FONT_VLC3_GUARDED_STYLE_V2_APPLIED size_denominator=13 font=Noto_Sans bold=false outline=1');
+  console.log('VI_FONT_VLC3_GUARDED_STYLE_V3_APPLIED size_denominator=13 font=Noto_Sans bold=true outline=1');
 }
