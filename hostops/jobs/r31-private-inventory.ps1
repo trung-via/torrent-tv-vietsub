@@ -30,9 +30,9 @@ if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
 }
 Write-Host 'R31_INVENTORY_TRUSTED_HOSTOPS_SOURCE_PASS'
 
-$home = [Environment]::GetFolderPath('UserProfile')
-if ([string]::IsNullOrWhiteSpace($home) -or
-    -not [IO.Path]::IsPathRooted($home)) {
+$profileRoot = [Environment]::GetFolderPath('UserProfile')
+if ([string]::IsNullOrWhiteSpace($profileRoot) -or
+    -not [IO.Path]::IsPathRooted($profileRoot)) {
     throw 'R31_INVENTORY_STOP_NO_RUNNER_USER_PROFILE'
 }
 
@@ -42,7 +42,7 @@ $scriptName = 'full_srt_trial_r3.py'
 $zipHits = @()
 $scriptHits = @()
 foreach ($folder in $folders) {
-    $parent = Join-Path $home $folder
+    $parent = Join-Path $profileRoot $folder
     # Direct exact paths ONLY. No wildcard/directory listing and no recursion.
     $candidateZip = Join-Path $parent $zipName
     $candidateScript = Join-Path $parent $scriptName
