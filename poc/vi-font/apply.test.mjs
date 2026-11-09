@@ -10,17 +10,19 @@ const base = [
   '}',
 ].join('\n');
 
-test('controlled VLC3 style injection keeps one verbose option and exact 5 style options', () => {
+test('controlled VLC3 style injection keeps one verbose option and exact 4 style options', () => {
   const result = patchText(base);
   assert.ok(result.includes(NEW));
   assert.equal((result.match(/--verbose=-1/g) || []).length, 1);
-  assert.equal((result.match(/--freetype-/g) || []).length, 5);
+  assert.equal((result.match(/--freetype-/g) || []).length, 4);
   assert.ok(result.includes('--freetype-font=Noto Sans'));
   assert.ok(result.includes('--freetype-rel-fontsize=13'));
-  assert.ok(result.includes('--freetype-bold'));
-  assert.ok(result.includes('--freetype-outline-thickness=2'));
+  assert.ok(!result.includes('--freetype-bold'), 'v2 must not force bold glyphs');
+  assert.ok(result.includes('--freetype-outline-thickness=1'));
   assert.ok(result.includes('--freetype-outline-color=0'));
   assert.equal(result.replace(NEW, OLD), base);
+  assert.ok(!result.includes('--freetype-outline-thickness=2'));
+  assert.ok(result.includes('--freetype-rel-fontsize=13'));
 });
 
 test('fail-closed when upstream anchor missing or duplicated', () => {
