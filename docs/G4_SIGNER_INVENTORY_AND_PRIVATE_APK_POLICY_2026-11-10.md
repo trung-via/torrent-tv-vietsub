@@ -1,7 +1,7 @@
 # G4 — Read-only signer/inventory and private Release artifact boundary
 
 **Date:** 2026-11-10 (Asia/Ho_Chi_Minh)  
-**Status:** `SIGNER_INVENTORY_SOURCE_PREPARED / G4_SIGNED_APK_NOT_RUN`  
+**Status:** `WINDOWS_SIGNER_TOOL_INVENTORY_PASS / SIGNING_CONFIG_NOT_PRESENT_IN_HOSTOPS_JOB / G4_SIGNED_APK_NOT_RUN`  
 **Owner:** [Issue #95](https://github.com/trung-via/torrent-tv-vietsub/issues/95)
 
 ## Live baseline
@@ -33,10 +33,27 @@
 
 - `G4_S5_SOURCE_COMPOSITION=PASS` (prior real Windows run).
 - `G4_B1_BUILDER_STATIC=PASS` (prior real Windows run).
-- `G4_SIGNER_INVENTORY=NOT_YET_RUN` at initial source creation; attach exact new Windows job/result to change state.
+- `G4_SIGNER_INVENTORY=READONLY_WINDOWS_PASS` — [HostOps #42680824158](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/42680824158), owner-command job `129374554038`, exact tested commit `b3f6aa218ce9eb7c57d26423a881af7a9595a47a`; no secrets or signing run.
 - `G4_RELEASE_KEYSTORE_APPROVED=NOT_ESTABLISHED`
 - `G4_B2_SIGNED_BINARY=NOT_RUN`
 - `G4_B3_PRIVATE_APK_HANDOFF=NOT_RUN`
 - `G4_T1_REDMITV_RELEASE=NOT_RUN`
 
 No AIOS/AI Commerce runners, secrets, services or workflows are involved.
+
+## Actual dedicated Windows result — 2026-11-10 ICT
+
+Owner-only [HostOps issue #82 command](https://github.com/trung-via/torrent-tv-vietsub/issues/82#issuecomment-6748941345) executed on dedicated Windows runner at [run #42680824158](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/42680824158), job `129374554038`, exact source branch commit `b3f6aa218ce9eb7c57d26423a881af7a9595a47a`. GitHub returned job conclusion **success**. Verified real log markers:
+
+- `G4_SIGNER_PROBE_DEDICATED_RUNNER_AND_SOURCE_PASS`
+- `G4_KEYTOOL_JDK21=AVAILABLE`
+- `G4_ANDROID_RELEASE_AUDIT_TOOLS=AVAILABLE`
+- `G4_SIGNER_ENV_IN_HOSTOPS=NONE_PRESENT_NOT_PROOF_OF_ABSENCE`
+- `G4_SIGNER_FILE_IN_HOSTOPS=NO_CONFIG_IN_THIS_JOB`
+- `G4_PRIVATE_APK_DIR_IN_HOSTOPS=NO_CONFIG_IN_THIS_JOB`
+- `G4_GITHUB_ACTIONS_RELEASE_SECRETS=NOT_INSPECTED_BY_ISSUE_COMMENT`
+- `G4_SIGNER_CERT_FINGERPRINT=NOT_VERIFIED_BY_THIS_READONLY_PROBE`
+- `G4_PRIVATE_APK_VAULT_ACL=NOT_VERIFIED_BY_THIS_READONLY_PROBE`
+- `G4_SIGNER_READONLY_INVENTORY_COMPLETED_NOT_RELEASE_PASS` and `HOSTOPS_PINNED_JOB_PASS`
+
+**Interpretation:** the dedicated runner has the necessary tool executables for future signer and APK checks. However, this Issue #82 HostOps environment was given **no** G4 signing variables and **no** configured private output path. The result **cannot prove** absent keystore on the laptop or absent GitHub Release Secrets: those were intentionally not inspected. The code in this PR read no secret file and made no host changes. This is `INVENTORY_PASS_WITH_SIGNING_HOLD`, **not** G4 Release acceptance.
