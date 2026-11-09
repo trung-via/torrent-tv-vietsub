@@ -137,9 +137,11 @@ function Read-InstalledBase {
  $paths=Invoke-ADB -Cmd @('-s',$serial,'shell','pm','path',$pkg)
  if($paths.Code -ne 0){throw 'VI_FONT_INSTALL_PM_PATH_FAILED'}
  $list=@(($paths.Out -split '\r?\n') | Where-Object {$_ -match '^package:/'})
- # Single installed APK only: no split partial-restore or app-data migration risk.
+ # Only one installed base.apk is safe to restore with one adb install -r.
  if($list.Count -ne 1){throw 'VI_FONT_INSTALL_EXISTING_APK_NOT_SINGLE_BASE'}
- $match=[regex]::Match([string]$list[0],'^package:(/[A-Za-z0-9._~+%=/@-]+/base\.apk)\s*
+ $match=[regex]::Match([string]$list[0],'^package:(/[A-Za-z0-9._~+%=/@-]+/base\.apk)\s*$')
+ if(-not $match.Success){throw 'VI_FONT_INSTALL_EXISTING_APK_PATH_UNEXPECTED'}
+ return $match.Groups[1].Value
 }
 $oldRemote=Read-InstalledBase
 $pull=Invoke-ADB -Cmd @('-s',$serial,'pull',$oldRemote,$backup) -Timeout 120000
