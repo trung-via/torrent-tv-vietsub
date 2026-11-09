@@ -11,12 +11,12 @@ const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 
 if (git('rev-parse', 'HEAD') !== OMP_PIN) throw new Error('VI_FONT_VERIFY_OMP_PIN');
 const src = readFileSync(join(root, RUNTIME_PATH), 'utf8').replace(/\r\n/g, '\n');
 if (src.includes(OLD)) throw new Error('VI_FONT_VERIFY_OLD_OPTIONS_PRESENT');
-if (!src.includes(NEW) || src.split(NEW).length !== 2 || src.includes('--freetype-bold')) {
+if (!src.includes(NEW) || src.split(NEW).length !== 2) {
   throw new Error('VI_FONT_VERIFY_STYLE_MISSING_OR_DUPLICATE');
 }
 const expected = [
   '--verbose=-1', '--freetype-font=Noto Sans', '--freetype-rel-fontsize=13',
-  '--freetype-outline-thickness=1',
+  '--freetype-bold', '--freetype-outline-thickness=1',
   '--freetype-outline-color=0',
 ];
 for (const flag of expected) {
@@ -32,6 +32,6 @@ if (!readFileSync(join(root, 'android/app/src/main/java/com/spacesarmat/omp/play
   .includes('internal object P1ProductionSubtitles')) {
   throw new Error('VI_FONT_VERIFY_G1_PRODUCTION_HELPER_MISSING');
 }
-console.log('VI_FONT_VLC3_7_7_SOURCE_STYLE_V2_VERIFY_PASS');
+console.log('VI_FONT_VLC3_7_7_SOURCE_STYLE_V3_VERIFY_PASS');
 console.log('VI_FONT_G1_TRACK_BINDING_AND_RESUME_NOT_CHANGED_BY_STYLE_OVERLAY');
 console.log('VI_FONT_REAL_REDMITV_GLYPH_RENDER_NOT_YET_TESTED');
