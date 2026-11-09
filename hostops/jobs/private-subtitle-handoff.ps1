@@ -46,7 +46,7 @@ try {
   $sha = (Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($sha -cne $expected) { throw 'TTV_HANDOFF_SOURCE_SHA_MISMATCH' }
   Write-Host 'TTV_HANDOFF_GITHUB_PRIVATE_SOURCE_SHA_PASS'
-  $devices = Invoke-AdbSafe @('devices','-l')
+  $devices = Invoke-AdbSafe -CommandArgs @('devices','-l')
   if ($devices.Code -ne 0) { throw 'TTV_HANDOFF_ADB_LIST_FAILED' }
   $ids = @()
   foreach ($line in ($devices.Out -split '\r?\n')) {
@@ -54,14 +54,15 @@ try {
   }
   if ($ids.Count -ne 1) { throw 'TTV_HANDOFF_DEVICE_COUNT_NOT_ONE' }
   $serial = [string]$ids[0]
-  $model = Invoke-AdbSafe @('-s',$serial,'shell','getprop','ro.product.model')
+  $model = Invoke-AdbSafe -CommandArgs @('-s',$serial,'shell','getprop','ro.product.model')
   if ($model.Code -ne 0 -or $model.Out.Trim() -cne 'MiTV-ASTR0') { throw 'TTV_HANDOFF_WRONG_TV' }
   $target = '/sdcard/Download/TTV-' + $key + '-' + $expected.Substring(0,12) + '.srt'
-  $push = Invoke-AdbSafe @('-s',$serial,'push',$temp,$target)
+  $push = Invoke-AdbSafe -CommandArgs @('-s',$serial,'push',$temp,$target)
   if ($push.Code -ne 0) { throw 'TTV_HANDOFF_ADB_PUSH_FAILED' }
-  $remote = Invoke-AdbSafe @('-s',$serial,'shell','sha256sum',$target)
-  if ($remote.Code -ne 0 -or $remote.Out -notmatch '^([a-fA-F0-9]{64})\s') { throw 'TTV_HANDOFF_REMOTE_HASH_UNAVAILABLE' }
-  if ($Matches[1].ToLowerInvariant() -cne $expected) { throw 'TTV_HANDOFF_REMOTE_SHA_MISMATCH' }
+  $remote = Invoke-AdbSafe -CommandArgs @('-s',$serial,'shell','sha256sum',$target)
+  $remoteHash = [regex]::Match([string]$remote.Out, '^([a-fA-F0-9]{64})\s')
+  if ($remote.Code -ne 0 -or -not $remoteHash.Success) { throw 'TTV_HANDOFF_REMOTE_HASH_UNAVAILABLE' }
+  if ($remoteHash.Groups[1].Value.ToLowerInvariant() -cne $expected) { throw 'TTV_HANDOFF_REMOTE_SHA_MISMATCH' }
   Write-Host 'TTV_HANDOFF_PRIVATE_GITHUB_TO_REDMITV_SHA_PASS'
   Write-Host 'TTV_HANDOFF_OMP_IMPORT_AND_RENDER=NOT_RUN'
   Write-Host 'TTV_HANDOFF_SEEK_RESUME=NOT_RUN'
