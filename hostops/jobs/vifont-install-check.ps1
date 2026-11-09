@@ -12,6 +12,11 @@ $tokens=$null
 $errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile($target,[ref]$tokens,[ref]$errors)
 if($null -eq $ast -or @($errors).Count -ne 0){
+ foreach($problem in @($errors) | Select-Object -First 6){
+  Write-Host ('VI_FONT_PARSE_ERROR_LINE='+$problem.Extent.StartLineNumber)
+  Write-Host ('VI_FONT_PARSE_ERROR_ID='+$problem.ErrorId)
+  Write-Host ('VI_FONT_PARSE_ERROR_DESC='+$problem.Message)
+ }
  throw 'VI_FONT_INSTALL_POWERSHELL_PARSE_FAILED'
 }
 $src=[IO.File]::ReadAllText($target)
