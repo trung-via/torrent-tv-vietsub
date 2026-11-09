@@ -3,3 +3,5 @@
 *.md text eol=lf
 poc/p2-aisub/fixtures/*.srt text eol=lf
 poc/p2-aisub/fixtures/*.vtt text eol=lf
+subtitle-artifacts/*.srt -text
+subtitle-artifacts/*.vtt -text
