@@ -56,7 +56,7 @@ if(Test-Path -LiteralPath $backupDir){throw 'VI_FONT_INSTALL_BACKUP_COLLISION'}
 $backup=Join-Path $backupDir 'baseline-installed.apk'
 $after=Join-Path $backupDir 'candidate-installed-verified.apk'
 # The rollback directory inherits owner/SYSTEM/admin-only DACL from the trusted vault.
-$null=New-Item -LiteralPath $backupDir -ItemType Directory -ErrorAction Stop
+$null=New-Item -Path $backupDir -ItemType Directory -ErrorAction Stop
 
 $tools='C:\TOOL\Android-SDK\build-tools'
 $dirs=@(Get-ChildItem -LiteralPath $tools -Directory -ErrorAction Stop | Sort-Object Name -Descending)
@@ -99,9 +99,9 @@ function Invoke-ADB([string[]]$Cmd,[int]$Timeout=60000){
 function Read-PackageInfo([string]$File){
  $output=@(& $aapt dump badging $File 2>&1)
  if($LASTEXITCODE -ne 0){throw 'VI_FONT_INSTALL_AAPT_BADGING_FAILED'}
- $matches=@($output | Where-Object {"$_" -match "^package:\s+name='"})
- if($matches.Count -ne 1){throw 'VI_FONT_INSTALL_BADGING_PACKAGE_AMBIGUOUS'}
- $rx=[regex]::Match([string]$matches[0],"^package:\s+name='([^']+)'\s+versionCode='([0-9]+)'")
+ $packageLines=@($output | Where-Object {"$_" -match "^package:\s+name='"})
+ if($packageLines.Count -ne 1){throw 'VI_FONT_INSTALL_BADGING_PACKAGE_AMBIGUOUS'}
+ $rx=[regex]::Match([string]$packageLines[0],"^package:\s+name='([^']+)'\s+versionCode='([0-9]+)'")
  if(-not $rx.Success -or $rx.Groups[1].Value -cne $pkg){
   throw 'VI_FONT_INSTALL_BADGING_PACKAGE_MISMATCH'
  }
@@ -138,10 +138,97 @@ function Read-InstalledBase {
  if($paths.Code -ne 0){throw 'VI_FONT_INSTALL_PM_PATH_FAILED'}
  $list=@(($paths.Out -split '\r?\n') | Where-Object {$_ -match '^package:/'})
  # Single installed APK only: no split partial-restore or app-data migration risk.
- if($list.Count -ne 1 -or $list[0] -notmatch '^package:(/[A-Za-z0-9._~+%=/@-]+/base\.apk)\s*$'){
-  throw 'VI_FONT_INSTALL_EXISTING_APK_NOT_SINGLE_BASE'
+ if($list.Count -ne 1){throw 'VI_FONT_INSTALL_EXISTING_APK_NOT_SINGLE_BASE'}
+ $match=[regex]::Match([string]$list[0],'^package:(/[A-Za-z0-9._~+%=/@-]+/base\.apk)\s*
+}
+$oldRemote=Read-InstalledBase
+$pull=Invoke-ADB -Cmd @('-s',$serial,'pull',$oldRemote,$backup) -Timeout 120000
+if($pull.Code -ne 0 -or -not (Test-Path -LiteralPath $backup -PathType Leaf)){
+ throw 'VI_FONT_INSTALL_BASELINE_BACKUP_FAILED'
+}
+$baselineVersion=Read-PackageInfo $backup
+$baselineCert=Read-Cert $backup
+if($baselineVersion -cne $version){
+ throw 'VI_FONT_INSTALL_VERSION_MISMATCH_NO_DOWNGRADE'
+}
+if($baselineCert -cne $candidateCert){
+ throw 'VI_FONT_INSTALL_SIGNER_MISMATCH'
+}
+$baselineSha=(Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant()
+if($baselineSha -ceq $expectedCandidate){
+ Write-Host 'VI_FONT_ALREADY_INSTALLED_CANDIDATE_SHA_PASS'
+ Write-Host 'VI_FONT_NO_REINSTALL_NEEDED=TRUE'
+ exit 0
+}
+$backupLength=(Get-Item -LiteralPath $backup).Length
+if($backupLength -lt 1000000){throw 'VI_FONT_INSTALL_BASELINE_BACKUP_TOO_SMALL'}
+Write-Host 'VI_FONT_BASELINE_PRIVATE_ROLLBACK_READY=TRUE'
+Write-Host ('VI_FONT_BASELINE_SHA256='+$baselineSha)
+Write-Host 'VI_FONT_VERSION_AND_SIGNER_COMPATIBLE=TRUE'
+# Installation is explicitly approved by owner. -r means data-preserving replace.
+# Never use -d, -t, uninstall, clear or reset. Same versionCode required.
+$attempted=$false
+try{
+ $attempted=$true
+ Write-Host 'VI_FONT_ADB_INSTALL_REPLACE_BEGIN'
+ $install=Invoke-ADB -Cmd @('-s',$serial,'install','-r',$candidate) -Timeout 180000
+ if($install.Code -ne 0 -or $install.Out -notmatch '(?m)^Success\s*$'){
+  throw 'VI_FONT_INSTALL_ADB_REPLACE_NOT_CONFIRMED'
  }
- return [string]$Matches[1]
+ $newRemote=Read-InstalledBase
+ $installed=Invoke-ADB -Cmd @('-s',$serial,'pull',$newRemote,$after) -Timeout 120000
+ if($installed.Code -ne 0 -or -not (Test-Path -LiteralPath $after -PathType Leaf)){
+  throw 'VI_FONT_INSTALL_POST_APK_PULL_FAILED'
+ }
+ $postSha=(Get-FileHash -LiteralPath $after -Algorithm SHA256).Hash.ToLowerInvariant()
+ if($postSha -cne $expectedCandidate){
+  throw 'VI_FONT_INSTALL_POST_APK_SHA_MISMATCH'
+ }
+ if((Read-PackageInfo $after) -cne $version -or (Read-Cert $after) -cne $candidateCert){
+  throw 'VI_FONT_INSTALL_POST_PACKAGE_OR_CERT_MISMATCH'
+ }
+ Write-Host ('VI_FONT_INSTALLED_APK_SHA256='+$postSha)
+ Write-Host 'VI_FONT_INSTALLED_DEBUG_APK_VERIFIED_PASS'
+ Write-Host 'VI_FONT_INSTALL_MODE=REPLACE_KEEP_DATA'
+ Write-Host 'VI_FONT_OLD_APK_RETAINED_PRIVATE_FOR_ROLLBACK=TRUE'
+ Write-Host 'VI_FONT_GLYPH_VISUAL_ACCEPTANCE=PENDING_HUMAN'
+ Write-Host 'VI_FONT_G1_G3_RESUME_REGRESSION=PENDING_HUMAN'
+}catch{
+ $failure=$_.Exception.Message
+ Write-Host ('VI_FONT_INSTALL_VERIFY_FAILED_TYPE='+$_.Exception.GetType().Name)
+ if($attempted){
+  Write-Host 'VI_FONT_AUTOMATIC_ROLLBACK_BEGIN'
+  try{
+   $rollback=Invoke-ADB -Cmd @('-s',$serial,'install','-r',$backup) -Timeout 180000
+   if($rollback.Code -ne 0 -or $rollback.Out -notmatch '(?m)^Success\s*$'){
+    throw 'VI_FONT_INSTALL_ROLLBACK_COMMAND_FAILED'
+   }
+   $restoreRemote=Read-InstalledBase
+   $temp=Join-Path $backupDir 'baseline-restored-check.apk'
+   $restored=Invoke-ADB -Cmd @('-s',$serial,'pull',$restoreRemote,$temp) -Timeout 120000
+   if($restored.Code -ne 0 -or -not (Test-Path -LiteralPath $temp -PathType Leaf)){
+    throw 'VI_FONT_INSTALL_ROLLBACK_VERIFY_FAILED'
+   }
+   $restoredSha=(Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash.ToLowerInvariant()
+   if($restoredSha -cne $baselineSha){
+    throw 'VI_FONT_INSTALL_ROLLBACK_SHA_MISMATCH'
+   }
+   Write-Host 'VI_FONT_ROLLBACK_BASELINE_SHA_PASS'
+  }catch{
+   Write-Host 'VI_FONT_ROLLBACK_NOT_VERIFIED_MANUAL_RECOVERY_REQUIRED'
+   throw 'VI_FONT_INSTALL_AND_ROLLBACK_HOLD'
+  }
+ }
+ throw ('VI_FONT_INSTALL_FAILED_ROLLBACK_DONE_OR_NOT_ATTEMPTED_'+$failure)
+}finally{
+ if(Test-Path -LiteralPath $after -PathType Leaf){
+  Remove-Item -LiteralPath $after -Force -ErrorAction SilentlyContinue
+ }
+}
+Write-Host 'VI_FONT_OWNER_APPROVED_INSTALL_END'
+)
+ if(-not $match.Success){throw 'VI_FONT_INSTALL_EXISTING_APK_PATH_UNEXPECTED'}
+ return $match.Groups[1].Value
 }
 $oldRemote=Read-InstalledBase
 $pull=Invoke-ADB -Cmd @('-s',$serial,'pull',$oldRemote,$backup) -Timeout 120000
