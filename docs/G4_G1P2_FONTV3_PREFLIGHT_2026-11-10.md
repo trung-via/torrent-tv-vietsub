@@ -1,6 +1,6 @@
 # G4-B1 preparation — accepted Font v3 Release source preflight
 
-**Date:** 2026-11-10 · **Gate:** [Issue #95](https://github.com/trung-via/torrent-tv-vietsub/issues/95) · **Status:** `SCRIPT_PREPARED / WINDOWS_G4V3_COMPOSITION_PENDING / SIGNED_RELEASE_NOT_RUN`.
+**Date:** 2026-11-10 · **Gate:** [Issue #95](https://github.com/trung-via/torrent-tv-vietsub/issues/95) · **Status:** `WINDOWS_G4V3_SOURCE_COMPOSITION_PASS / SIGNING_ENV_INCOMPLETE_IN_JOB / SIGNED_RELEASE_NOT_RUN`.
 
 ## Source authority and why the prior G4 proof is insufficient
 
@@ -25,7 +25,7 @@
 
 | Gate | To prove | Current status |
 |---|---|---|
-| **G4-S5** | Actual Windows G1+P2+Font v3 composed source and signing-guard preflight, exact runner/run/source | `PENDING_HOSTOPS_RUN` |
+| **G4-S5** | Actual Windows G1+P2+Font v3 composed source and signing-guard preflight, exact runner/run/source | `PASS` — HostOps #42675088058 |
 | **G4-B1/B2** | Approved private Release keystore and **manual-only** signed `assembleRelease` for the exact accepted source; then check manifest `debuggable=false`, applicationId, ABI, compiled G1 helper, absent G0/G1c fixtures, `apksigner verify`, SHA and build provenance | `NOT_RUN / SIGNING_AUTHORITY_PENDING` |
 | **G4-T1** | Separately authorized Redmi installation, preservation of existing Debug package and user data, actual SRT/VTT import, ON/OFF/OTHER, A→B→A, post-seek sync and restart/resume, rollback | `NOT_RUN / TV_INSTALL_AUTHORITY_PENDING` |
 
@@ -34,3 +34,19 @@
 The repository is currently **PUBLIC**. Keystore, passwords, signed APK and user content remain private; do not publish Release artifacts under this source-only PR.
 
 **Decision boundary:** a successful `G4V3_SOURCE_COMPOSITION=PASS_NOT_BINARY_OR_RELEASE_PASS` unblocks **design/review of the signed candidate builder**, not Release acceptance. Human must approve signing, artifact handling and TV deployment in their own scoped steps.
+
+## Actual Windows HostOps result — 2026-11-10
+
+The **source-only preflight completed successfully** at [dedicated Windows Actions run #42675088058](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/42675088058), owner-command job `129354217845`, source-pinned command [Issue #82 comment 6748170935](https://github.com/trung-via/torrent-tv-vietsub/issues/82#issuecomment-6748170935), exact tested branch commit `341623c7f03b42bb9c9a1bcc33e73f05eead9358`.
+
+**Observed log markers** (not hypothetical):
+
+- `G4V3_EXACT_ACCEPTED_FONT_BLOBS_PASS`, `G4V3_FONT_NODE_TESTS_PASS`
+- `G4_CURRENT_OMP_SUBMODULE_PINS_PASS`, `G4_CURRENT_G1_PRODUCTION_SOURCE_GUARDS_PASS`
+- `G4_CURRENT_G1P2_COMPOSED_SOURCES_PASS`, `G4V3_COMPOSED_G1_P2_FONT_V3_SOURCE_PASS`
+- `G4_CURRENT_MAIN_SOURCE_AND_NO_DEBUG_FIXTURE_PASS`, `G4_RELEASE_SIGNING_GUARD_INTACT_PASS`
+- `G4_DISPOSABLE_CLONE_CLEANUP_ATTEMPTED`, `G4V3_SOURCE_COMPOSITION=PASS_NOT_BINARY_OR_RELEASE_PASS`, `HOSTOPS_PINNED_JOB_PASS`
+
+**Signing availability finding:** `G4V3_SIGNING_ENV=INCOMPLETE_OR_NOT_IN_THIS_JOB`. This means four expected signing variables are **not all available to this specific HostOps job**. It does **not** prove whether a private keystore exists elsewhere, nor grant permission to inspect, create or use one. Upstream release signing guard remained intact; no `assembleRelease` executed and no APK generated.
+
+**Next boundary:** separate Human approval must specify using an authorized, local/private Release signing identity and how signing ENV reaches an attended manual-only builder. Do not borrow the public Android Debug signing key, generate a release identity silently, disable the Gradle guard, or publish private APK/credentials. The already-installed `com.spacesarmat.omp.test` Debug app and its data remain unchanged by this preflight.
