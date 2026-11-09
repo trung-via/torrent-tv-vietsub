@@ -49,7 +49,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   const file = join(root, RUNTIME_PATH);
   const before = readFileSync(file, 'utf8');
-  const after = patchText(before);
+  const patched = patchText(before);
+  // Keep the exact upstream checkout EOL convention on Windows Git/autocrlf.
+  const after = before.includes('\r\n') ? patched.replace(/(?<!\r)\n/g, '\r\n') : patched;
   writeFileSync(file, after, 'utf8');
   console.log('VI_FONT_VLC3_GUARDED_STYLE_APPLIED size_denominator=13 font=Noto_Sans bold=true outline=2');
 }
