@@ -1,6 +1,6 @@
 # G4-B1/B2 — Signed Release builder candidate (SOURCE ONLY)
 
-**Status:** DRAFT / MANUAL_SIGNING_NOT_AUTHORIZED / SIGNED_RELEASE_NOT_RUN
+**Status:** DRAFT / WINDOWS_STATIC_GUARDS_PASS / MANUAL_SIGNING_NOT_AUTHORIZED / SIGNED_RELEASE_NOT_RUN
 **Owner issue:** [#95](https://github.com/trung-via/torrent-tv-vietsub/issues/95)
 **Baseline:** Torrent TV main a03b4b113a23f601ab9caabe84bcfa212f055072, merged G1+P2+Font v3, [preflight PR #100](https://github.com/trung-via/torrent-tv-vietsub/pull/100) and [actual HostOps #42675088058](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/42675088058) source-only PASS.
 
@@ -39,7 +39,7 @@ This PR does **not** create a private key, choose an alias, grant access to any 
 ## Gate separation
 
 - G4-S5 G1+P2+Font v3 source composition — **PASS** via actual prior Windows job.
-- G4-B1 code/guard **static review** — PENDING until own exact HostOps run; source content alone is not Windows PASS.
+- G4-B1 code/guard **static review** — PASS on real dedicated Windows HostOps [run #42678315158](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/42678315158), owner-command job 129365640330, exact tested source commit 6481ac76845858dc627c68f6f46c1c815eed19dc. Static job logs: G4B1_STATIC_POWERSHELL_SYNTAX_PASS, G4B1_STATIC_OWNER_ONLY_MANUAL_SIGNING_GATES_PASS, G4B1_STATIC_BINARY_AUDIT_PRESENT_PASS, G4B1_STATIC_NO_APK_BUILD_SIGN_UPLOAD_OR_TV_ACTION_PASS and HOSTOPS_PINNED_JOB_PASS. Only syntax/required guards validated; actual signed build/binary remains NOT_RUN.
 - G4-B2 signed APK build, manifest, ABI, signature/DEX and private SHA — **NOT_RUN**, requires separate Human signing approval and approved Release keystore.
 - G4-B3 private artifact retention and G4-T1 TV acceptance — **NOT_RUN**.
 
