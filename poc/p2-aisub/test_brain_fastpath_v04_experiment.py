@@ -182,6 +182,12 @@ class V04Tests(unittest.TestCase):
             finish(self.work,self.source,'W01-BASE120',out)
         self.assertEqual(json.loads((self.work/'W01-BASE120'/'timer.json').read_text())['state'],'RUNNING')
 
+    def test_strict_output_no_hidden_blank_records(self):
+        sample=parse_cues(make_srt(2),'srt')
+        for raw in (b'1|a\n\n2|b\n',b'\n1|a\n2|b\n'):
+            with self.subTest(raw=raw),self.assertRaisesRegex(ExperimentBlocked,'V04_TRANSLATED_BLANK_ROW'):
+                _translated(raw,sample)
+
     def test_wrong_id_duplicate_and_empty_translation_rejected(self):
         sample=parse_cues(make_srt(2),'srt')
         for raw in (b'1|a\n1|b\n',b'1|a\n3|b\n',b'1|\n2|a\n',b'1|a\n'):
