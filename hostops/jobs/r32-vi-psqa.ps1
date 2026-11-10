@@ -38,7 +38,7 @@ function InspectSrt([string]$path) {
         ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'R32_VI_PS_INPUT_NOT_SCOPED_SRT'
     }
-    $utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+    $utf8 = [System.Text.UTF8Encoding]::new($false, $true)
     $content = $utf8.GetString([IO.File]::ReadAllBytes($path))
     if ($content.Length -gt 0 -and $content[0] -eq [char]0xFEFF) {
         $content = $content.Substring(1)
