@@ -1,5 +1,7 @@
 # P2-AISUB R3.3 — Fresh new-film translation core (no expired R3.1 ZIP)
 
+> **Priority correction / Human decision (2026-11-10):** This R3.3 module is a **Gemini-pinned, 90-cue infrastructure PoC**, **not** the P2-AISUB default translator. The project's default is **Brain GPT-6 FastPath** per the installed `torrent-tv-brain-subtitle-translation v0.3.5` skill. Gemini is a **same-FastPath challenger** only, and must use the same 120-cue provisional FAST120 method and identical source/window/glossary/QA before any performance claim. See [BRAIN_FIRST_FASTPATH_AND_GEMINI_CHALLENGE.md](BRAIN_FIRST_FASTPATH_AND_GEMINI_CHALLENGE.md) and [Issue #109](https://github.com/trung-via/torrent-tv-vietsub/issues/109). Do not relabel or change existing 90-cue R3.3 checkpoints/model manifests to claim Brain compatibility.
+
 **Scope:** source-only, caller-supplied provider callbacks, local private filesystem. This is a **new schema**; it must not overwrite, import or silently claim compatibility with any R2/R3/R3.1 checkpoint, including the lost `full_srt_trial_r3.py` bundle. **No Gemini implementation or cloud call is built in.** G4 Signed Release remains `NOT_PLANNED`.
 
 ## Why
