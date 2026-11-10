@@ -71,13 +71,34 @@ class BlindGateTests(unittest.TestCase):
     def test_incomplete_blocks_unblind(self):
         a,x=finished();x['rows'][0]['scores']['A']=None
         k={'mapping':{str(w):{'A':'BASE120','B':'LEAN120','C':'ADAPTIVE'} for w in (1,2,3)}}
-        with self.assertRaisesRegex(gate.ReviewError,'REVIEW_NOT_COMPLETE'):gate.unblind(a,x,k)
+        with self.assertRaisesRegex(gate.ReviewError,'REVIEW_NOT_COMPLETE'):gate.unblind(a,x,k,expected_key_sha=gate.sha256_bytes(gate.canonical(k)))
     def test_invalid_key_rejected(self):
         a,x=finished();k={'mapping':{str(w):{'A':'BASE120','B':'BASE120','C':'ADAPTIVE'} for w in (1,2,3)}}
-        with self.assertRaisesRegex(gate.ReviewError,'PRIVATE_MAPPING'):gate.unblind(a,x,k)
+        with self.assertRaisesRegex(gate.ReviewError,'PRIVATE_MAPPING'):gate.unblind(a,x,k,expected_key_sha=gate.sha256_bytes(gate.canonical(k)))
+    def test_unblind_requires_owner_precommitted_key(self):
+        a,x=finished(); k={'mapping':{str(w):{'A':'BASE120','B':'LEAN120','C':'ADAPTIVE'} for w in (1,2,3)}}
+        with self.assertRaisesRegex(gate.ReviewError,'OWNER_PINNED_PRIVATE_KEY_SHA_REQUIRED'):
+            gate.unblind(a,x,k)
+
+    def test_unblind_rejects_swapped_valid_mapping(self):
+        a,x=finished()
+        k={'mapping':{str(w):{'A':'BASE120','B':'LEAN120','C':'ADAPTIVE'} for w in (1,2,3)}}
+        pin=gate.sha256_bytes(gate.canonical(k))
+        tampered=copy.deepcopy(k)
+        tampered['mapping']['2']['A'],tampered['mapping']['2']['B']=tampered['mapping']['2']['B'],tampered['mapping']['2']['A']
+        # Both mappings are permutations; without an owner pin the wrong map
+        # silently attributes 30 results to incorrect Brain arms.
+        with self.assertRaisesRegex(gate.ReviewError,'OWNER_PINNED_PRIVATE_KEY_SHA_MISMATCH'):
+            gate.unblind(a,x,tampered,expected_key_sha=pin)
+
+    def test_unblind_rejects_wrong_private_key_sha(self):
+        a,x=finished(); k={'mapping':{str(w):{'A':'BASE120','B':'LEAN120','C':'ADAPTIVE'} for w in (1,2,3)}}
+        with self.assertRaisesRegex(gate.ReviewError,'OWNER_PINNED_PRIVATE_KEY_SHA_MISMATCH'):
+            gate.unblind(a,x,k,expected_key_sha='0'*64)
+
     def test_complete_unblind_aggregates_without_dialogue(self):
         a,x=finished();k={'mapping':{str(w):{'A':'BASE120','B':'LEAN120','C':'ADAPTIVE'} for w in (1,2,3)}}
-        r=gate.unblind(a,x,k)
+        r=gate.unblind(a,x,k,expected_key_sha=gate.sha256_bytes(gate.canonical(k)))
         self.assertEqual(sum(r['arm_counts']['BASE120'].values()),90)
         self.assertEqual(r['mean_score_excluding_uncertain']['LEAN120'],0)
         self.assertNotIn('English',str(r));self.assertNotIn('Câu thử',str(r))
@@ -95,6 +116,24 @@ class CommandLineGateTests(unittest.TestCase):
                                    'validate','--blind',str(p/'blind.json'),'--scores',str(p/'score.json')],capture_output=True,text=True)
             self.assertEqual(result.returncode,2)
             self.assertIn('OWNER_PINNED_BLIND_SHA_REQUIRED',result.stdout)
+    def test_cli_unblind_requires_private_owner_key_pin(self):
+        import tempfile, pathlib, subprocess, sys, json
+        a,x=finished()
+        k={'mapping':{str(w):{'A':'BASE120','B':'LEAN120','C':'ADAPTIVE'} for w in (1,2,3)}}
+        with tempfile.TemporaryDirectory() as d:
+            p=pathlib.Path(d)
+            for name,payload in [('blind.json',a),('score.json',x),('key.json',k)]:
+                (p/name).write_text(json.dumps(payload),encoding='utf-8')
+            cmd=[sys.executable,str(pathlib.Path(__file__).with_name('blind_semantic_gate.py')),
+                 'unblind','--blind',str(p/'blind.json'),'--scores',str(p/'score.json'),
+                 '--key',str(p/'key.json'),'--expected-blind-sha',gate.validate_blind(a)['blind_sha256']]
+            miss=subprocess.run(cmd,capture_output=True,text=True)
+            self.assertEqual(miss.returncode,2)
+            self.assertIn('OWNER_PINNED_PRIVATE_KEY_SHA_REQUIRED',miss.stdout)
+            ok=subprocess.run(cmd+['--expected-key-sha',gate.sha256_bytes(gate.canonical(k))],capture_output=True,text=True)
+            self.assertEqual(ok.returncode,0,ok.stdout)
+            self.assertIn('AFTER_COMPLETED_BLIND_SCORES_ONLY',ok.stdout)
+
     def test_accept_exact_owner_pin(self):
         import tempfile, pathlib, subprocess, sys, json
         a,x=finished()
