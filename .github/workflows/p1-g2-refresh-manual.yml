@@ -1,6 +1,7 @@
 # G2-B1 manual-only build proposal; intentionally not auto-triggered from push/PR.
 # workflow_dispatch requires this workflow on default branch to be dispatchable.
 # Do not merge PR #115 solely to enable it; an independently reviewed build route is still required.
+# Public repo: build on owner-only manual dispatch, but never upload APK artifacts to public Actions.
 name: Torrent TV - G2 Refresh Manual Debug Build
 
 on:
@@ -17,7 +18,7 @@ permissions:
 jobs:
   g2-refresh:
     name: G1 plus G2 source guard, Android Debug build and unit tests
-    if: github.event.repository.private == true && github.repository == 'trung-via/torrent-tv-vietsub' && github.actor == 'trung-via' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/g2-refresh-vietsub-inplace-20261111' && inputs.confirmation == 'BUILD_G2_REFRESH_DEBUG_ONCE'
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.actor == 'trung-via' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/g2-refresh-vietsub-inplace-20261111' && inputs.confirmation == 'BUILD_G2_REFRESH_DEBUG_ONCE'
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
@@ -45,6 +46,7 @@ jobs:
           if (-not $?) { throw 'STOP: G2 build did not pass' }
 
       - name: Upload G2 Debug APK and provenance (private repo only)
+        if: github.event.repository.private == true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
         with:
           name: g2-refresh-debug-apk
