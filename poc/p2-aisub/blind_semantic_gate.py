@@ -142,7 +142,14 @@ def evaluate(doc,submission,require_full=False):
             'quality_gate':'HOLD_INDEPENDENT_REVIEW_AND_ADJUDICATION' if missing or major or meaning_risk or uncertain else 'REVIEW_SCORING_COMPLETE_NOT_PRODUCTION_ACCEPTED'}
 
 
-def unblind(doc,submission,key):
+def unblind(doc,submission,key, *, expected_key_sha=None):
+    # The A/B/C map has only a few possible permutations; NEVER put its SHA
+    # or actual mapping in a public repository/CI receipt. The owner must
+    # privately pin the exact key BEFORE the reviewer receives the sheet.
+    if not isinstance(expected_key_sha, str) or not expected_key_sha:
+        raise ReviewError('OWNER_PINNED_PRIVATE_KEY_SHA_REQUIRED')
+    if not isinstance(key, dict) or sha256_bytes(canonical(key)) != expected_key_sha:
+        raise ReviewError('OWNER_PINNED_PRIVATE_KEY_SHA_MISMATCH')
     summary=evaluate(doc,submission,True)
     mapping=key.get('mapping') if isinstance(key,dict) else None
     if not isinstance(mapping,dict) or set(mapping)!=set(['1','2','3']):
@@ -171,6 +178,7 @@ def main(argv=None):
     p.add_argument('--key',type=Path)
     p.add_argument('--out',type=Path)
     p.add_argument('--expected-blind-sha',help='Owner-pinned SHA256 for exact blinded 90-ID sheet (required for validate/unblind)')
+    p.add_argument('--expected-key-sha',help='PRIVATELY precommitted canonical SHA256 of the exact owner key (required only for unblind; never publish this)')
     a=p.parse_args(argv)
     try:
         blind=_load(a.blind)
@@ -183,7 +191,7 @@ def main(argv=None):
         elif a.command=='validate': report=evaluate(blind,_load(a.scores))
         else:
             if a.key is None:raise ReviewError('OWNER_KEY_REQUIRED_AFTER_BLIND_REVIEW')
-            report=unblind(blind,_load(a.scores),_load(a.key))
+            report=unblind(blind,_load(a.scores),_load(a.key),expected_key_sha=a.expected_key_sha)
         if a.command!='prepare' and a.out: _save_new(a.out,report)
         print(json.dumps(report,ensure_ascii=False,sort_keys=True))
         return 0
