@@ -133,9 +133,15 @@ def _init_or_load(source: bytes, fmt: str, workdir: Path) -> tuple[tuple[Cue, ..
         # New path only, never inside the existing legacy work/ tree.
         try:
             parent = workdir.parent.resolve(strict=True)
-            if (not parent.is_dir() or parent.name.lower() == "work" or
-                (parent / "input_manifest.json").exists() or
-                (parent / "work" / "input_manifest.json").exists()):
+            # Reject even a nested child of an old workdir, not merely one
+            # direct level below it. Only known relative marker names checked.
+            ancestors = (parent, *parent.parents)
+            if (not parent.is_dir() or any(
+                base.name.lower() == "work" or
+                (base / "input_manifest.json").is_file() or
+                (base / "work" / "input_manifest.json").is_file()
+                for base in ancestors
+            )):
                 _fail("R33_PARENT_IS_LEGACY_WORKDIR")
             workdir.mkdir(mode=0o700, exist_ok=False)
             (workdir / "work").mkdir(mode=0o700, exist_ok=False)
@@ -332,6 +338,8 @@ def run_new_film(
             complete = render(apply_translations(cues, translation_map), fmt)
         except ValueError:
             _fail("R33_FINAL_RENDER_FAILED")
+        if not 0 < len(complete) <= MAX_FILE_BYTES:
+            _fail("R33_OUTPUT_SIZE_INVALID")
         output = workdir / ("translated.vi." + fmt)
         if output.exists() or output.is_symlink():
             if _sha(_read_regular(output, MAX_FILE_BYTES)) != _sha(complete):
@@ -362,8 +370,9 @@ def inspect_existing(source: bytes, fmt: str, workdir: Path) -> dict:
         count = math.ceil(len(cues) / BATCH_SIZE)
         if manifest.get("batch_count") != count or manifest.get("batch_size") != BATCH_SIZE:
             _fail("R33_MANIFEST_SOURCE_OR_MODEL_MISMATCH")
-        actual = list(work.glob("batch_*.json"))
-        if len(actual) > count:
+        actual = {p.name for p in work.glob("batch_*.json")}
+        expected_batch_files = {f"batch_{i:03d}.json" for i in range(1, count+1)}
+        if actual - expected_batch_files:
             _fail("R33_UNKNOWN_BATCH_FILE_PRESENT")
         cached = 0
         for i in range(1, count + 1):
