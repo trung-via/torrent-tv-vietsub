@@ -189,8 +189,9 @@ def plan(source: Path, root: Path, ranges: str, glossary_file: Path | None = Non
         _reject("V04_GLOSSARY_INVALID")
     windows = _ranges(ranges, len(cues))
     # Do not permit private prompts/material inside the public source checkout.
-    repo_root = Path(__file__).resolve().parents[2]
-    if root.resolve() == repo_root or repo_root in root.resolve().parents:
+    candidate_root = Path(__file__).resolve().parents[2]
+    repo_root = candidate_root if (candidate_root/"poc"/"p2-aisub"/"cue_pipeline.py").is_file() else None
+    if repo_root and (root.resolve() == repo_root or repo_root in root.resolve().parents):
         _reject("V04_PRIVATE_WORKDIR_MUST_BE_OUTSIDE_REPO")
     if root.exists():
         _reject("V04_WORKDIR_ALREADY_EXISTS")
@@ -321,7 +322,11 @@ def _translated(blob:bytes, target:tuple[Cue,...]) -> dict[int,str]:
         _reject("V04_TRANSLATED_UTF8_REQUIRED")
     if "\x00" in s or "\r" in s:
         _reject("V04_TRANSLATED_TEXT_INVALID")
-    rows=[x for x in s.split("\n") if x]
+    rows=s.split("\n")
+    if rows and rows[-1] == "":
+        rows.pop()  # One final newline is permitted, interior blank rows are not.
+    if any(not x for x in rows):
+        _reject("V04_TRANSLATED_BLANK_ROW")
     if len(rows)!=len(target):
         _reject("V04_TRANSLATED_CUE_COUNT_MISMATCH")
     out={}
