@@ -13,14 +13,14 @@ Status: **REVIEW TOOL READY, INDEPENDENT SCORES NOT SUBMITTED, V0.4 NOT PROMOTED
 - 90 chosen original source IDs, **30 each** from W01 `181–340`, W02 `561–720`, W03 `1081–1240` on a single SHA-pinned English source (1,761 total original cues).
 - An owner-pinned anonymous sheet JSON in schema `torrent-tv-v04-blind-90-v1`, with exactly 90 ordered unique ID rows, original source English, timestamps and masked A/B/C Vietnamese alternatives (270 entries total). A/B/C mapping changes by window.
 - A reviewer-filled score JSON, scaffolded by `prepare`, schema `torrent-tv-v04-blind-review-score-v1`, with one score 0/1/2/3/? for every anonymized candidate, 2/3/? accompanied by a note, reviewer ID/qualification/date/method and a truthfully made nonexposure declaration.
-- The ORIGINAL private mapping **must not** be provided to a reviewer. The unblinding command accepts it only when the scores are complete and pinned to the same masked-sheet SHA.
+- The ORIGINAL private mapping **must not** be provided to a reviewer. The unblinding command accepts it only when the scores are complete and pinned to the same masked-sheet SHA **and** the key matches an owner-private SHA commitment created before review. The owner key SHA is **never published**, because the A/B/C mapping has low entropy and a public hash can be brute-forced.
 
 ## CLI (paths are PRIVATE examples; not CI commands)
 
 ```console
 python blind_semantic_gate.py prepare --blind PRIVATE_BLIND_SHEET.json --scores PRIVATE_BLANK_SCORES.json
 python blind_semantic_gate.py validate --blind PRIVATE_BLIND_SHEET.json --scores PRIVATE_COMPLETED_SCORES.json --expected-blind-sha OWNER_PINNED_MASKED_SHEET_SHA256 --out PRIVATE_VALIDATION_RECEIPT.json
-python blind_semantic_gate.py unblind --blind PRIVATE_BLIND_SHEET.json --scores PRIVATE_COMPLETED_SCORES.json --expected-blind-sha OWNER_PINNED_MASKED_SHEET_SHA256 --key OWNER_PRIVATE_UNBLIND_MAP.json --out PRIVATE_SANITIZED_SCORE_COUNTS.json
+python blind_semantic_gate.py unblind --blind PRIVATE_BLIND_SHEET.json --scores PRIVATE_COMPLETED_SCORES.json --expected-blind-sha OWNER_PINNED_MASKED_SHEET_SHA256 --key OWNER_PRIVATE_UNBLIND_MAP.json --expected-key-sha OWNER_PRECOMMITTED_PRIVATE_KEY_SHA256 --out PRIVATE_SANITIZED_SCORE_COUNTS.json
 ```
 
 - `validate` can return `INCOMPLETE`; its `reviewer_attestation=DECLARED_NOT_INDEPENDENTLY_VERIFIED` is **not** proof of independent review, identity, authority or competence.
@@ -34,6 +34,6 @@ python blind_semantic_gate.py unblind --blind PRIVATE_BLIND_SHEET.json --scores 
 python -m unittest -v test_blind_semantic_gate
 ```
 
-20 synthetic tests cover exact source/sheet/ID pins, missing values, spoofed reviewer mode declarations, corrupt/changed rows, wrong mappings and withheld-until-complete unblinding. All test dialogue is synthetic; the real Thor translations are not included.
+24 synthetic tests cover exact source/sheet/ID pins, missing values, spoofed reviewer mode declarations, corrupt/changed rows, wrong mappings and withheld-until-complete unblinding. All test dialogue is synthetic; the real Thor translations are not included. Four added negative/positive tests reject a missing key commitment, a wrong key SHA, and an A/B/C permutation that would otherwise appear structurally valid. **Owner-only commitment procedure:** before passing the frozen sheet to any reviewer, compute `sha256_bytes(canonical(json.loads(key_file_text)))` with the offline helper in this module and record that digest in an owner-private evidence note, together with the existing masked-sheet SHA. Store neither the key nor its hash in this repository, PR, CI, or public issue. Do not re-pin to a newly edited key after ratings are collected. Direct `unblind(...)` callers must also pass `expected_key_sha` explicitly.
 
 **Default remains Brain v0.3.5 FAST120**; Gemini is not invoked, original VI on Redmi is untouched, and G4 is not planned.
