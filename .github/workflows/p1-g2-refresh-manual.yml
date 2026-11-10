@@ -1,0 +1,58 @@
+# G2-B1 manual-only build proposal; intentionally not auto-triggered from push/PR.
+# workflow_dispatch requires this workflow on default branch to be dispatchable.
+# Do not merge PR #115 solely to enable it; an independently reviewed build route is still required.
+# Public repo: build on owner-only manual dispatch, but never upload APK artifacts to public Actions.
+name: Torrent TV - G2 Refresh Manual Debug Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type BUILD_G2_REFRESH_DEBUG_ONCE (no ADB/TV install, no Release)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  g2-refresh:
+    name: G1 plus G2 source guard, Android Debug build and unit tests
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.actor == 'trung-via' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/g2-refresh-vietsub-inplace-20261111' && inputs.confirmation == 'BUILD_G2_REFRESH_DEBUG_ONCE'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout immutable source at dispatch SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Guard exact dispatch and build G1 plus G2 in disposable OMP
+        shell: powershell
+        env:
+          BUILD_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:BUILD_CONFIRMATION -cne 'BUILD_G2_REFRESH_DEBUG_ONCE' -or
+              $env:GITHUB_REF -cne 'refs/heads/feature/g2-refresh-vietsub-inplace-20261111' -or
+              $env:GITHUB_WORKFLOW_REF -cne 'trung-via/torrent-tv-vietsub/.github/workflows/p1-g2-refresh-manual.yml@refs/heads/feature/g2-refresh-vietsub-inplace-20261111') {
+            throw 'STOP: incorrect G2 dispatch, branch or workflow'
+          }
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g2-refresh\build-on-runner.ps1') `
+            -AppRepoRoot $env:GITHUB_WORKSPACE `
+            -SourceCommit $env:GITHUB_SHA
+          if (-not $?) { throw 'STOP: G2 build did not pass' }
+
+      - name: Upload G2 Debug APK and provenance (private repo only)
+        if: github.event.repository.private == true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
+        with:
+          name: g2-refresh-debug-apk
+          path: |
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/*.apk
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS-G2-REFRESH.txt
+            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/G2-REFRESH-BUILD-EVIDENCE.txt
+          if-no-files-found: error
+          retention-days: 7
