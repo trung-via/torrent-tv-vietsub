@@ -1,5 +1,6 @@
 # G2 Refresh: explicit opt-in Debug build and unit tests on dedicated Torrent TV Windows runner.
-# Source-only preparation; never invoke this without separate authorized private-repo workflow dispatch.
+# Source-only preparation; never invoke this without authorized owner-only workflow dispatch.
+# Public-repository builds are allowed; CI must not publish debug APK artifacts from public runs.
 # No ADB, TV changes, release/signing, network/firewall/service or AIOS dispatch.
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$AppRepoRoot,
@@ -25,8 +26,14 @@ if (-not $env:GITHUB_EVENT_PATH -or -not (Test-Path -LiteralPath $env:GITHUB_EVE
     throw 'STOP: workflow event payload absent'
 }
 $eventData = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-if ($eventData.repository.private -ne $true -or $eventData.repository.full_name -cne $repo) {
-    throw 'STOP: private Torrent TV repository required to build/upload APK'
+if ($eventData.repository.full_name -cne $repo) {
+    throw 'STOP: unexpected repository in workflow dispatch payload'
+}
+if ($eventData.repository.private -ne $true -and $eventData.repository.private -ne $false) {
+    throw 'STOP: repository visibility missing in workflow dispatch payload'
+}
+if ($eventData.repository.private -eq $false) {
+    Write-Host 'G2_PUBLIC_REPO_BUILD_ALLOWED_APK_UPLOAD_DISABLED'
 }
 foreach ($envKey in @('RUNNER_WORKSPACE','RUNNER_TEMP','GITHUB_WORKSPACE','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT')) {
     if (-not [Environment]::GetEnvironmentVariable($envKey)) {
@@ -195,6 +202,7 @@ foreach ($apk in $apks) {
     } finally { $zip.Dispose() }
     $sum = (Get-FileHash -LiteralPath $apk.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     $hashes += "$sum  $($apk.Name)"
+    Write-Host "G2_DEBUG_APK_SHA256 $($apk.Name) $sum"
 }
 $hashes | Out-File -LiteralPath (Join-Path $dir 'SHA256SUMS-G2-REFRESH.txt') -Encoding ascii
 @(
@@ -213,4 +221,4 @@ $hashes | Out-File -LiteralPath (Join-Path $dir 'SHA256SUMS-G2-REFRESH.txt') -En
 ) | Out-File -LiteralPath (Join-Path $dir 'G2-REFRESH-BUILD-EVIDENCE.txt') -Encoding utf8
 $global:LASTEXITCODE = 0
 Write-Host 'G2_DEBUG_APK_HASH_AND_ASSET_GUARDS_PASS'
-Write-Host 'G2_BUILD_ARTIFACT_READY_PRIVATE_NOT_TV_APPROVED'
+Write-Host 'G2_BUILD_APK_READY_ON_DEDICATED_RUNNER_NOT_TV_APPROVED'
