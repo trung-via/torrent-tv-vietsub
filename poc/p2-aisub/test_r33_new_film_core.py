@@ -157,6 +157,25 @@ class NewFilmCoreTests(unittest.TestCase):
             with self.assertRaisesRegex(R33Blocked,"R33_PARENT_IS_LEGACY_WORKDIR"):
                 self._run(sample(),d/"r33_new")
 
+    def test_nested_legacy_workdir_refused_without_creation(self):
+        with TemporaryDirectory() as td:
+            root=Path(td)/"older"
+            nested=root/"work"/"subdir"
+            nested.mkdir(parents=True)
+            (root/"work"/"input_manifest.json").write_bytes(b"private-old-manifest")
+            with self.assertRaisesRegex(R33Blocked,"R33_PARENT_IS_LEGACY_WORKDIR"):
+                self._run(sample(),nested/"new")
+            self.assertFalse((nested/"new").exists())
+
+    def test_inspector_rejects_unknown_batch_file_even_with_valid_count(self):
+        with TemporaryDirectory() as td:
+            p=Path(td)/"new"
+            self._run(sample(91),p)
+            (p/"work"/"batch_001.json").unlink()
+            (p/"work"/"batch_999.json").write_bytes(b"unknown")
+            with self.assertRaisesRegex(R33Blocked,"R33_UNKNOWN_BATCH_FILE_PRESENT"):
+                inspect_existing(sample(91),"srt",p)
+
     def test_output_hash_modified_causes_fail_closed_without_overwrite(self):
         with TemporaryDirectory() as td:
             p=Path(td)/"new"
