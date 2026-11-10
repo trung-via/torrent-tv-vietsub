@@ -40,3 +40,11 @@ The script refuses any checkout not named `p1-g1-prod-*`, missing G1 anchors or 
 4. **Real hot-add remains separate:** this patch reopens the media inside the player. To promise zero-buffering seamless G2, a different `VlcEngine.addSlave` path and real device proof are needed.
 
 **Status:** `SOURCE_CANDIDATE_ONLY`. `ANDROID_BUILD_NOT_RUN`, `REDMI_NOT_RUN`, `G2_HOT_ADD_NOT_PROVEN`, `G4_NOT_RUN`. Do not deploy this candidate or claim release readiness without the listed evidence. Licensed/source-only code, no movie dialogue.
+
+## G2-B1 build-route checkpoint (2026-11-11; source prepared, not executed)
+
+- New `poc/g2-refresh/build-on-runner.ps1`: validates owner/workflow/branch/SHA, requires a **private** Torrent TV GitHub repository and dedicated Windows runner/workspace; clones pinned OMP `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f` and 2160player `6ba6edd39f5d986ddfae29b5425b8ac0b319844e`, runs existing G1 `apply.ps1` + `verify.ps1`, G2 patch unit tests/dry-run/apply, then `npm ci`, `npm run android:sync`, Gradle `assembleDebug testDebugUnitTest`; writes APK hashes + proof **only if successful**.
+- New `.github/workflows/p1-g2-refresh-manual.yml` is `workflow_dispatch` only with `BUILD_G2_REFRESH_DEBUG_ONCE`, fixed branch and owner; checkout at the dispatch event SHA, actions pinned, no ADB/TV install, merge, signing or release; artifact retention is 7 days, private-repo gate mandatory.
+- **Do not dispatch this Draft workflow as though it were live:** a new `workflow_dispatch` file is normally discoverable/dispatchable only once it exists on the repository default branch. Do **not** merge unverified G2 to get a CI button. An independently reviewed build bridge/job on `main`, or separately authorized private local build, is required for **premerge** G2 Android evidence.
+- As observed on 2026-11-11, the linked GitHub repository is currently reported **public**, conflicting with the merged contract's `PRIVATE` requirement. The proposed G2 job therefore remains guarded/skipped; private visibility and any owner-approved premerge build route must be reconciled before executing the runner/build/upload.
+- **No Windows/PowerShell parser or Android build run was performed from this checkpoint.** No new APK SHA, Gradle test results or Redmi G2 E2E result exists for this change. G2-B2 restore-on-reload-failure remains separately open.
