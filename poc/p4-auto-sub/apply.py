@@ -38,8 +38,9 @@ NEW_HEAD = '''    @Synchronized fun importSelected(ctx: Context, uri: Uri, r: Pl
     ): Boolean {
         val key = mediaKey(r, i) ?: return false
         if (key != expectedMediaKey) return false
-        val choice = prefs(ctx).getString("selection.$key", null)
-        if (choice == "off" || choice == "other") return false
+        val p = prefs(ctx)
+        if (!p.getBoolean("ai.$key", false) ||
+            p.getString("selection.$key", null) != "on") return false
         return saveVerifiedBytes(ctx, bytes, r, i, automatic = true)
     }
 
@@ -58,7 +59,8 @@ OLD_COMMIT = '''        val p = prefs(ctx)
 NEW_COMMIT = '''        val p = prefs(ctx)
         // Check again immediately before commit: never override a user's OFF/OTHER
         // selection due to an asynchronous automatic revision arriving late.
-        if (automatic && p.getString("selection.$k", null) in listOf("off", "other")) {
+        if (automatic && (!p.getBoolean("ai.$k", false) ||
+                p.getString("selection.$k", null) != "on")) {
             if (created) target.delete()
             return false
         }
@@ -75,21 +77,51 @@ def patch_g1(text: str) -> str:
         if text.count(key) != 1:
             raise ValueError("P4_G1_EXACT_SOURCE_ANCHOR_INVALID")
         text = text.replace(key, replacement, 1)
+    # Explicit per-film Vietsub AI ON can exist *before* the first SRT.
+    # A normal manual subtitle choice is NOT an opt-in for network delivery.
+    choice_anchor = "    fun hasSaved(ctx: Context, r: PlayRequest?, i: Int): Boolean {"
+    ai_opt_in = '''    @Synchronized internal fun setAutomaticOptIn(
+        ctx: Context, r: PlayRequest?, i: Int, enabled: Boolean,
+    ): Boolean {
+        if (r?.engine != EngineMode.VLC) return false
+        val k = mediaKey(r, i) ?: return false
+        val p = prefs(ctx)
+        val editor = p.edit()
+        if (enabled) {
+            // This method must be called ONLY by the explicit Vietsub AI UI action.
+            editor.putBoolean("ai.$k", true).putString("selection.$k", "on")
+        } else {
+            editor.remove("ai.$k").putString("selection.$k", "off")
+        }
+        return editor.commit()
+    }
+
+'''
+    if text.count(choice_anchor) != 1:
+        raise ValueError("P4_AI_OPTIN_ANCHOR_INVALID")
+    text = text.replace(choice_anchor, ai_opt_in + choice_anchor, 1)
     # Selection persistence and automatic byte commits must use the same
     # monitor to serialize user OFF/OTHER against an in-flight P4 import.
     track_choice = "    fun noteTrackChoice(ctx: Context, r: PlayRequest?, i: Int, choice: TrackChoice) {"
     if text.count(track_choice) != 1:
         raise ValueError("P4_TRACK_CHOICE_ANCHOR_INVALID")
     text = text.replace(track_choice, "    @Synchronized " + track_choice.lstrip(), 1)
-    # Keep default explicit user ON/OFF/OTHER choice authoritative for P4.
-    # No ON entry exists until the user has actually selected/opted in.
+    old_choice_write = '        p.edit().putString("selection.$k", value).apply()'
+    new_choice_write = '''        val edit = p.edit().putString("selection.$k", value)
+        if (value != "on") edit.remove("ai.$k")
+        edit.apply()'''
+    if text.count(old_choice_write) != 1:
+        raise ValueError("P4_TRACK_CHOICE_WRITE_ANCHOR_INVALID")
+    text = text.replace(old_choice_write, new_choice_write, 1)
+    # Query AI activation independently of manually saved track.
     choice_anchor = "    fun hasSaved(ctx: Context, r: PlayRequest?, i: Int): Boolean {"
     choice_method = '''    @Synchronized internal fun automaticChoice(
         ctx: Context, r: PlayRequest?, i: Int,
     ): String {
         val key = mediaKey(r, i) ?: return "OTHER"
-        return when (prefs(ctx).getString("selection.$key", null)) {
-            "on" -> "ON"
+        val p = prefs(ctx)
+        return when (p.getString("selection.$key", null)) {
+            "on" -> if (p.getBoolean("ai.$key", false)) "ON" else "OTHER"
             "off" -> "OFF"
             else -> "OTHER"
         }
