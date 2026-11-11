@@ -2,6 +2,7 @@
 import base64
 from dataclasses import replace
 import hashlib
+import hmac
 import json
 from unittest import TestCase, main, mock
 
@@ -176,19 +177,38 @@ class SessionRevisionFeedTests(TestCase):
             def write(self, chunk):
                 payload.append(chunk)
         handler.wfile=DummyStream()
+        handler.headers={}
         handler.path="/p4/revision/"+SID
         handler.do_GET()
-        self.assertEqual(status,[204])
+        self.assertEqual(status,[401])
         self.assertEqual(payload,[])
+        def authorized(nonce):
+            return {
+                "X-P4-Nonce":nonce,
+                "X-P4-Authorization":hmac.new(
+                    SECRET,("TTV-P4-LAN-READ-V1\n"+SID+"\n"+nonce).encode("ascii"),
+                    hashlib.sha256).hexdigest(),
+            }
+        n1="1"*32
+        handler.headers=authorized(n1)
+        handler.do_GET()
+        self.assertEqual(status[-1],204)
+        handler.do_GET()
+        self.assertEqual(status[-1],401,"replayed GET nonce must fail")
         handler.path="/p4/revision/../etc/passwd"
         handler.do_GET()
         self.assertEqual(status[-1],404)
         handler.path="/p4/revision/"+SID
         self.feed.publish(self.first)
+        handler.headers=authorized("2"*32)
         handler.do_GET()
         self.assertEqual(status[-1],200)
         self.assertEqual(payload[-1],self.feed.latest())
         self.assertIn(("Cache-Control","no-store"),headers)
+        handler.headers=authorized("3"*32)
+        handler.headers["X-P4-Authorization"]="0"*64
+        handler.do_GET()
+        self.assertEqual(status[-1],401)
         handler.do_POST()
         self.assertEqual(status[-1],405)
 
