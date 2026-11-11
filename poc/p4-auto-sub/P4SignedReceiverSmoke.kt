@@ -29,10 +29,17 @@ fun main() {
     val receiver = P4SignedReceiver(session, media, src, secret)
     var calls = 0
     fun accept(payload: ByteArray, fmt: String): Boolean { check(payload.isNotEmpty() && fmt in setOf("srt", "vtt")); calls++; return true }
-    check(receiver.receive(first, session, media, "ON", "VLC", ::accept) == "APPLIED_TO_G2")
+    check(receiver.receive(first, session, media, "ON", "VLC", ::accept) == "G2_PENDING_FIRST_FRAME")
+    check(receiver.pendingVersionForTest() == 1 && receiver.lastAppliedForTest() == 0)
+    check(receiver.receive(first, session, media, "ON", "VLC", ::accept) == "G2_PENDING_DUPLICATE_NOOP")
+    check(receiver.acknowledgeFirstFrame(session, media, "ON", "VLC",
+        1, first.payloadSha256) == "APPLIED_TO_G2")
     check(receiver.receive(first, session, media, "ON", "VLC", ::accept) == "DUPLICATE_NOOP")
     check(calls == 1)
-    check(receiver.receive(second, session, media, "ON", "VLC", ::accept) == "APPLIED_TO_G2")
+    check(receiver.receive(second, session, media, "ON", "VLC", ::accept) == "G2_PENDING_FIRST_FRAME")
+    check(receiver.lastAppliedForTest() == 1)
+    check(receiver.acknowledgeFirstFrame(session, media, "ON", "VLC",
+        2, second.payloadSha256) == "APPLIED_TO_G2")
     check(receiver.lastAppliedForTest() == 2)
     check(calls == 2)
     try {
@@ -47,7 +54,10 @@ fun main() {
     check(fresh.receive(first, session, media, "ON", "Media3", ::accept) == "DEFERRED_UNSUPPORTED_ENGINE")
     check(fresh.lastAppliedForTest() == 0)
     check(calls == 2)
-    check(fresh.receive(second, session, media, "ON", "VLC", ::accept) == "APPLIED_TO_G2")
+    check(fresh.receive(second, session, media, "ON", "VLC", ::accept) == "G2_PENDING_FIRST_FRAME")
+    check(fresh.lastAppliedForTest() == 0)
+    check(fresh.acknowledgeFirstFrame(session, media, "ON", "VLC",
+        2, second.payloadSha256) == "APPLIED_TO_G2")
     check(fresh.lastAppliedForTest() == 2)
     check(calls == 3)
 
@@ -55,7 +65,19 @@ fun main() {
     check(retry.receive(first, session, media, "ON", "VLC", { _, _ -> false }) ==
         "G2_APPLY_FAILED_RETAIN_LAST_VALID")
     check(retry.lastAppliedForTest() == 0)
-    check(retry.receive(first, session, media, "ON", "VLC", ::accept) == "APPLIED_TO_G2")
+    check(retry.receive(first, session, media, "ON", "VLC", ::accept) == "G2_PENDING_FIRST_FRAME")
+    check(retry.lastAppliedForTest() == 0)
+    check(retry.abortPending(1, first.payloadSha256))
+    check(retry.lastAppliedForTest() == 0)
+    check(retry.receive(first, session, media, "ON", "VLC", ::accept) == "G2_PENDING_FIRST_FRAME")
+    try {
+        retry.acknowledgeFirstFrame(session, media, "OFF", "VLC", 1, first.payloadSha256)
+        error("OFF was allowed to acknowledge automatic subtitles")
+    } catch (e: IllegalArgumentException) { check(e.message == "P4_FIRST_FRAME_SCOPE_MISMATCH") }
+    check(retry.lastAppliedForTest() == 0)
+    check(retry.receive(first, session, media, "ON", "VLC", ::accept) == "G2_PENDING_FIRST_FRAME")
+    check(retry.acknowledgeFirstFrame(session, media, "ON", "VLC",
+        1, first.payloadSha256) == "APPLIED_TO_G2")
     check(retry.lastAppliedForTest() == 1)
 
     fun mustReject(offer: P4SubtitleOffer, activeSession: String = session, activeMedia: String = media) {
@@ -79,8 +101,10 @@ fun main() {
         "9a4fc2e878bfbef91f8b7693c9e289ce75a58910235143e5eb38c2491aff5422",
     )
     val vttReceiver = P4SignedReceiver(session, media, src, secret)
-    check(vttReceiver.receive(goodVtt, session, media, "ON", "VLC", ::accept) == "APPLIED_TO_G2")
-    check(calls == 5)
+    check(vttReceiver.receive(goodVtt, session, media, "ON", "VLC", ::accept) == "G2_PENDING_FIRST_FRAME")
+    check(vttReceiver.acknowledgeFirstFrame(session, media, "ON", "VLC",
+        1, goodVtt.payloadSha256) == "APPLIED_TO_G2")
+    check(calls == 7)
 
     println("P4_NATIVE_SIGNED_RECEIVER_SYNTHETIC_PASS (Kotlin/JVM, Python-HMAC cross-language)")
 }
