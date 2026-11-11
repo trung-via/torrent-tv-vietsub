@@ -133,17 +133,26 @@ if (-not $?) { throw 'STOP: G1 Production patch failed' }
 & (Join-Path $AppRepoRoot 'poc\g1-prod\verify.ps1') -OmpRoot $omp
 if (-not $?) { throw 'STOP: G1 Production source verifier failed' }
 Write-Host 'G2_G1_BASELINE_SOURCE_PATCH_PASS'
-$python = Get-Command python.exe -ErrorAction SilentlyContinue
-if (-not $python) { throw 'BLOCKED: Python interpreter absent on dedicated runner' }
+# HostOps read-only run 42937872150 proved this dedicated Windows installation.
+# Do not use the Windows py launcher: it currently points to an AIOS runner tool cache.
+$pythonExe = 'C:\Program Files\Python314\python.exe'
+if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
+    throw 'BLOCKED: dedicated system Python at expected path absent'
+}
+$pythonVersion = (& $pythonExe --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $pythonVersion -notmatch '^Python 3\.') {
+    throw 'BLOCKED: dedicated Python interpreter is invalid'
+}
+Write-Host "G2_DEDICATED_SYSTEM_PYTHON_PASS $pythonVersion"
 $g2 = Join-Path $AppRepoRoot 'poc\g2-refresh\apply.py'
 Push-Location (Join-Path $AppRepoRoot 'poc\g2-refresh')
 try {
-    & $python.Source -m unittest -v test_apply.py
+    & $pythonExe -m unittest -v test_apply.py
     if ($LASTEXITCODE -ne 0) { throw 'STOP: G2 source patch unit tests failed' }
 } finally { Pop-Location }
-& $python.Source $g2 --omp-root $omp
+& $pythonExe $g2 --omp-root $omp
 if ($LASTEXITCODE -ne 0) { throw 'STOP: G2 dry-run preflight failed' }
-& $python.Source $g2 --omp-root $omp --apply
+& $pythonExe $g2 --omp-root $omp --apply
 if ($LASTEXITCODE -ne 0) { throw 'STOP: G2 source overlay failed' }
 $playerDir = Join-Path $omp 'android\app\src\main\java\com\spacesarmat\omp\player'
 foreach ($filename in @('G2RefreshDecision.kt','G2RefreshInPlace.kt')) {
