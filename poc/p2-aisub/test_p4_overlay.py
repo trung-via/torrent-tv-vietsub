@@ -59,6 +59,9 @@ def fake_g2_activity() -> str:
         if (q == null || i !in q.indices || i == session.index) return
         clearG2Recovery()
     }
+    private fun openMenu() {
+        add(I18n.s("player.subsRow", "v" to sSel.label), "AD01.3") { openSubsList() }
+    }
     val updated = G2RefreshInPlace.prepare(ctx,r,idx)
 }
 """
@@ -71,6 +74,8 @@ class P4SourcePatchTest(unittest.TestCase):
         self.assertIn("fun importSelected(ctx: Context, uri: Uri", result)
         self.assertIn("val bytes = readDocument(ctx, uri)", result)
         self.assertIn("fun importAutomaticBytes(", result)
+        self.assertIn("fun snapshotAutomaticBefore(", result)
+        self.assertIn("fun rollbackAutomatic(", result)
         self.assertIn("key != expectedMediaKey", result)
         self.assertIn('!p.getBoolean("ai.$key", false)', result)
         self.assertIn('p.getString("selection.$key", null) != "on"', result)
@@ -140,6 +145,8 @@ class P4SourcePatchTest(unittest.TestCase):
             self.assertTrue((pkg/module.RECEIVER_FILE).is_file())
             self.assertTrue((pkg/module.LAN_CLIENT_FILE).is_file())
             self.assertTrue((pkg/module.LEDGER_FILE).is_file())
+            self.assertTrue((pkg/module.ACTIVATION_CLIENT_FILE).is_file())
+            self.assertTrue((pkg/module.PAIRING_STORE_FILE).is_file())
             lan = (pkg/module.LAN_CLIENT_FILE).read_text(encoding="utf-8")
             self.assertIn("P4_LAN_MAIN_THREAD_FORBIDDEN", lan)
             self.assertIn("private fun isPrivateIPv4(", lan)
@@ -148,6 +155,12 @@ class P4SourcePatchTest(unittest.TestCase):
             activity = (pkg/"PlayerActivity.kt").read_text(encoding="utf-8")
             self.assertIn("internal fun receiveP4Revision(", activity)
             self.assertIn("internal fun startP4LanSession(", activity)
+            self.assertIn("private fun openP4PairingDialog()", activity)
+            self.assertIn("private fun beginP4Activation()", activity)
+            self.assertIn('add("Ghép đôi PC Vietsub AI", "AD01.11")', activity)
+            self.assertIn('add("Hủy ghép đôi PC Vietsub AI", "AD01.12")', activity)
+            self.assertIn("P4ActivationClient.activate(", activity)
+            self.assertIn("P4PairingStore(applicationContext).save(", activity)
             self.assertIn("internal fun stopP4LanSession()", activity)
             self.assertIn("P4LanClient.pollOnce(", activity)
             self.assertIn("P4AppliedLedger(applicationContext, sessionId, mediaKey, sourceSha256)", activity)
@@ -178,7 +191,7 @@ class P4SourcePatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "P4_ACTIVITY_ALREADY_APPLIED"):
             sub.patch_activity(patched)
         for old in (sub.CLEAR_ANCHOR, sub.FRAME_ANCHOR, sub.DESTROY_ANCHOR,
-                    sub.LOAD_ANCHOR, sub.ITEM_ANCHOR, sub.FIELD_ANCHOR):
+                    sub.LOAD_ANCHOR, sub.ITEM_ANCHOR, sub.FIELD_ANCHOR, sub.MENU_ANCHOR):
             with self.subTest(anchor=old[:24]), self.assertRaisesRegex(ValueError,"P4_ACTIVITY_ANCHOR_"):
                 sub.patch_activity(good.replace(old,"// drifted",1))
 
