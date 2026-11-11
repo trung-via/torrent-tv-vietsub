@@ -30,6 +30,58 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private var p4PendingRequest: PlayRequest? = null
     private var p4ExpectedRefresh: PlayRequest? = null
 
+    private data class P4LanScope(val host: String, val port: Int, val sessionId: String)
+    private var p4LanScope: P4LanScope? = null
+    private var p4LanGeneration = 0
+    private var p4LanInFlight = false
+    private val p4LanPoll = object : Runnable {
+        override fun run() {
+            val scope = p4LanScope ?: return
+            val gen = p4LanGeneration
+            if (!p4LanInFlight) {
+                p4LanInFlight = true
+                Thread {
+                    val offer = try {
+                        P4LanClient.pollOnce(scope.host, scope.port, scope.sessionId)
+                    } catch (_: Exception) { null }
+                    runOnUiThread {
+                        if (gen != p4LanGeneration || p4LanScope !== scope) return@runOnUiThread
+                        p4LanInFlight = false
+                        if (!isFinishing && !isDestroyed && !closedSent && offer != null) {
+                            receiveP4Revision(offer)
+                        }
+                    }
+                }.start()
+            }
+            // Pull model: no inbound port/listener on the TV and no auto-start.
+            handler.postDelayed(this, 6_000L)
+        }
+    }
+
+    /**
+     * Trusted local pairing action only; caller supplies a one-time paired
+     * server/session/secret after Human opt-in. No default running service.
+     */
+    internal fun startP4LanSession(
+        host: String, port: Int, sessionId: String,
+        sourceSha256: String, secret: ByteArray,
+    ): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper() || p4LanScope != null) return false
+        try { P4LanClient.endpoint(host, port, sessionId) }
+        catch (_: IllegalArgumentException) { return false }
+        if (!bindP4Session(sessionId, sourceSha256, secret)) return false
+        p4LanGeneration++
+        p4LanScope = P4LanScope(host, port, sessionId)
+        handler.post(p4LanPoll)
+        return true
+    }
+
+    /** Only the paired instance that started this session can stop it. */
+    internal fun stopP4LanSession() {
+        if (Looper.myLooper() != Looper.getMainLooper()) return
+        unbindP4Session()
+    }
+
     /** Only a later, private authenticated pairing flow may call this. */
     internal fun bindP4Session(sessionId: String, sourceSha256: String, key: ByteArray): Boolean {
         if (Looper.myLooper() != Looper.getMainLooper() || p4SignedReceiver != null ||
@@ -54,6 +106,10 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     }
 
     private fun unbindP4Session() {
+        handler.removeCallbacks(p4LanPoll)
+        p4LanGeneration++
+        p4LanScope = null
+        p4LanInFlight = false
         abortP4Pending()
         p4SignedReceiver = null
         p4SessionId = null
