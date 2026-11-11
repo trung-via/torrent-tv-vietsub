@@ -225,11 +225,12 @@ def translate_all(
     source: bytes, fmt: str, media_key: str, profile: ModelProfile,
     *, glossary: Mapping[str, str] | None, api_key: str,
     transport: Transport = _https_post,
+    on_revision: Callable[[SubtitleRevision], None] | None = None,
 ) -> tuple[SubtitleRevision, ...]:
-    """Translate all windows sequentially, requiring no human per 120 cues.
+    """Translate sequential windows with an optional per-revision callback.
 
-    In-memory only: a separate publisher/TV receiver and durable checkpoint
-    are NOT yet implemented.
+    Every callback receives a fully validated cumulative revision immediately.
+    A separate publisher/TV receiver and durable checkpoint are NOT implemented.
     """
     session = ProgressiveSubtitleSession(source, fmt, media_key)
     revisions: list[SubtitleRevision] = []
@@ -244,6 +245,8 @@ def translate_all(
             source_sha256=session.source_sha256,
             media_key=media_key,
         )
+        if on_revision is not None:
+            on_revision(revision)
         revisions.append(revision)
     return tuple(revisions)
 
@@ -271,20 +274,24 @@ def main() -> int:
         source = args.source.read_bytes()
         glossary = (json.loads(args.glossary_json.read_text(encoding="utf-8"))
                     if args.glossary_json else {})
-        # All API replies are validated and accumulated privately in memory.
-        # No unverified output file, TV delivery or provider text in logs.
-        revisions = translate_all(
-            source, args.source.suffix.lower()[1:], args.media_key,
-            profile, glossary=glossary, api_key=key,
-        )
+        # Preflight the destination BEFORE any potentially billed API request.
         args.output_dir.mkdir(parents=True, exist_ok=True)
         if any(args.output_dir.iterdir()):
             raise ValueError("OUTPUT_DIR_MUST_BE_EMPTY")
-        # Create new files only, never overwrite any existing user subtitle.
-        for revision in revisions:
+        def save_revision(revision: SubtitleRevision) -> None:
+            # Emit every validated cumulative version as soon as it is ready;
+            # no viewer menu selection and no overwrite of existing subtitles.
             name = f"vi-{args.media_key[6:22]}-v{revision.version:04d}.{revision.fmt}"
             with (args.output_dir / name).open("xb") as file:
                 file.write(revision.payload)
+                file.flush()
+                os.fsync(file.fileno())
+
+        revisions = translate_all(
+            source, args.source.suffix.lower()[1:], args.media_key,
+            profile, glossary=glossary, api_key=key,
+            on_revision=save_revision,
+        )
         print(f"LEAN120_API_TRANSLATION_PASS batches={len(revisions)} "
               f"cues={revisions[-1].translated_count} "
               "tv_delivery=NOT_RUN")
