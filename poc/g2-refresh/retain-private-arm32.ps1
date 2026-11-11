@@ -1,5 +1,5 @@
 # G2-B2 retention candidate: copy the pinned ARM32 Debug APK to a local ACL-private vault.
-# Never upload/install/publish. Not enabled in CI until separately verified.
+# Never upload/install/publish; only the exact owner-authorized G2 workflow can call this script.
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$SourceCommit)
 $ErrorActionPreference = 'Stop'
