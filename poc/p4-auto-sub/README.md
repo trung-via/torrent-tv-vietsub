@@ -17,15 +17,29 @@ stacked branch, and does not modify the already tested G2 source.
    an internal app-private G1 byte import method. It rejects wrong
    media and persisted OFF/OTHER, uses existing G1 validation/registry,
    and serializes user track selection with P4 imports.
-4. Existing P2 hosted CI invokes the Kotlin smoke and patcher tests. It
-   separately tests the actual pinned G1 source, not only a fake one.
+4. activity_patch.py now adds Activity-scoped bindP4Session() and
+   receiveP4Revision() for FUTURE private pairing/transport integration. It
+   snapshots G1 subtitle bytes before importing the next revision, invokes
+   G2RefreshInPlace.prepare() and session.load() for the SAME VLC queue item,
+   restores pause, current position and selected audio, and calls the P4
+   two-phase ACK only from the G2 first-frame callback with the exact
+   P4-created PlayRequest identity. Failure, load/switch and destruction
+   abandon an unacknowledged revision without advancing the accepted cursor.
+   The patch is guarded by exact existing G2 activity anchors, and preserves
+   the original manual picker callback.
+5. Existing P2 hosted CI invokes Kotlin receiver smoke and patcher tests,
+   including the actual pinned G1 source and bounded G2 source-shaped
+   PlayerActivity fixture; no public network or real movie source involved.
 
 ## Not implemented / no inflated acceptance
 
-There is NO Android LAN listener, no TV receiver subscription, no
-service or TorrServer change, no live Gemini request, no ADB install,
-no real subtitle delivery, and no composed G1+G2+P4 Android Gradle
-proof yet. A Kotlin callback contract is not a real active player hook.
+There is NO Android LAN listener, no registered TV receiver or pairing
+UI, no service or TorrServer change, no live Gemini request, no ADB install
+or real subtitle delivery. The source patch NOW includes an internal,
+Activity-scoped callback wiring to G1/G2, but it has not been compiled
+against an actual full Android/Gradle OMP checkout or installed on Redmi.
+The authenticated caller is not implemented; merely adding methods does
+not cause a subtitle file to arrive automatically.
 
 P4SignedReceiver now implements two-phase acceptance. A callback that starts
 the G2 reload returns G2_PENDING_FIRST_FRAME, without advancing the applied
@@ -33,11 +47,13 @@ version. Only acknowledgeFirstFrame() confirms the same active session/media,
 ON preference, VLC engine and digest. abortPending() discards a failed or
 timed-out revision, so it can be retried. Kotlin tests exercise these paths.
 
-Actual PlayerActivity still needs wiring to onFirstFrameShown and its
-rollbackG2Refresh/engineFailed/lifecycle events; it must capture the previous
-subtitle before importAutomaticBytes. A pure Kotlin ACK test is not actual
-Android/TV first-frame evidence. Process-restart persistence, private pairing
-and authenticated LAN transport remain separate work.
+The Activity overlay now includes calls to first-frame ACK and the
+existing G2 rollback/lifecycle guards, plus per-request identity checks to
+avoid an unrelated/manual reload acknowledging a P4 revision. However,
+the source hooks are STILL unverified by Android Gradle and real LibVLC
+events. Preserve the previous subtitle on rollback; in particular, abort
+a pending revision if the player changes media or OFF/OTHER is chosen.
+Process-restart persistence and private pairing/transport remain open.
 ## Next bounded gates
 
 - Compile actual pinned OMP+G1+G2+P4 in disposable Android Gradle.
