@@ -72,7 +72,7 @@ foreach ($file in @('apply.ps1','verify.ps1')) {
 }
 foreach ($relative in @('poc\g2-refresh\apply.py','poc\g2-refresh\G2RefreshDecision.kt',
                         'poc\g2-refresh\G2RefreshInPlace.kt','poc\g2-refresh\test_apply.py',
-                        'poc\g2-refresh\build-on-runner.ps1')) {
+                        'poc\g2-refresh\build-on-runner.ps1','poc\g2-refresh\G2RefreshRecovery.kt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $AppRepoRoot $relative) -PathType Leaf)) {
         throw ('STOP: required G2 file absent: ' + $relative)
     }
@@ -155,14 +155,20 @@ if ($LASTEXITCODE -ne 0) { throw 'STOP: G2 dry-run preflight failed' }
 & $pythonExe $g2 --omp-root $omp --apply
 if ($LASTEXITCODE -ne 0) { throw 'STOP: G2 source overlay failed' }
 $playerDir = Join-Path $omp 'android\app\src\main\java\com\spacesarmat\omp\player'
-foreach ($filename in @('G2RefreshDecision.kt','G2RefreshInPlace.kt')) {
+foreach ($filename in @('G2RefreshDecision.kt','G2RefreshInPlace.kt','G2RefreshRecovery.kt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $playerDir $filename) -PathType Leaf)) {
         throw 'STOP: G2 integrated Kotlin source missing'
     }
 }
 $activity = Get-Content -LiteralPath (Join-Path $playerDir 'PlayerActivity.kt') -Raw
-if (-not $activity.Contains('G2RefreshInPlace.prepare(applicationContext, current!!, idx)')) {
+if (-not $activity.Contains('G2RefreshInPlace.prepare(applicationContext, current, idx)')) {
     throw 'STOP: G2 PlayerActivity integration anchor absent'
+}
+foreach ($anchor in @('val g2Before = G2RefreshRecovery.capture',
+                      'if (rollbackG2Refresh()) return true',
+                      'handler.postDelayed(g2RecoveryTimeout, 25_000L)',
+                      'g2Recovery?.matchesCurrent(session.request, index())')) {
+    if (-not $activity.Contains($anchor)) { throw ('STOP: G2-B2 integration anchor missing: ' + $anchor) }
 }
 & git -C $omp diff --check
 if ($LASTEXITCODE -ne 0) { throw 'STOP: G2 patch diff validation failed' }
@@ -247,7 +253,7 @@ $hashes | Out-File -LiteralPath (Join-Path $dir 'SHA256SUMS-G2-REFRESH.txt') -En
     "runner=$env:RUNNER_NAME",
     "run_id=$env:GITHUB_RUN_ID",
     'signing=debug_variant_only',
-    'source_set=main',
+    'source_set=feature/g2-refresh-vietsub-inplace-20261111',
     'no_adb_or_tv_install=yes',
     'G2_REFRESH_REAL_TV_UNVERIFIED',
     'G2_REFRESH_RELEASE_BINARY_UNVERIFIED'
