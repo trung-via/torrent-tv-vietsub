@@ -37,6 +37,13 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private val p4LanPoll = object : Runnable {
         override fun run() {
             val scope = p4LanScope ?: return
+            val current = if (::session.isInitialized) session.request else null
+            if (current == null || P1ProductionSubtitles.automaticChoice(
+                    applicationContext, current, index()) != "ON") {
+                // An explicit OFF/OTHER choice revokes feed authorization.
+                unbindP4Session()
+                return
+            }
             val gen = p4LanGeneration
             if (!p4LanInFlight) {
                 p4LanInFlight = true
@@ -70,6 +77,11 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         try { P4LanClient.endpoint(host, port, sessionId) }
         catch (_: IllegalArgumentException) { return false }
         if (!bindP4Session(sessionId, sourceSha256, secret)) return false
+        val r = session.request
+        if (!P1ProductionSubtitles.setAutomaticOptIn(applicationContext, r, index(), true)) {
+            unbindP4Session()
+            return false
+        }
         p4LanGeneration++
         p4LanScope = P4LanScope(host, port, sessionId)
         handler.post(p4LanPoll)
@@ -79,6 +91,11 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     /** Only the paired instance that started this session can stop it. */
     internal fun stopP4LanSession() {
         if (Looper.myLooper() != Looper.getMainLooper()) return
+        val current = if (::session.isInitialized) session.request else null
+        if (p4LanScope != null && current != null) {
+            P1ProductionSubtitles.setAutomaticOptIn(
+                applicationContext, current, index(), false)
+        }
         unbindP4Session()
     }
 
