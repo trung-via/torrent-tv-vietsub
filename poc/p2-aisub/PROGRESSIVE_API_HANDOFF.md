@@ -15,6 +15,56 @@ It does not configure credentials, select a provider, perform HTTP, access a
 torrent/MKV/video, change TV/APK, run an AI model or transport subtitle text.
 It leaves historical 90-cue Gemini/R3.3 and Brain LEAN120 workdirs unchanged.
 
+## LEAN120 API adapter (new on this Draft PR)
+
+- \`lean120_api.py\` adapts the **same LEAN120 contract** to an actual Gemini
+  \`generateContent\` request. Cues are chunked at **120 target IDs / 6500
+  source characters**, with **4 neighboring cues on each side as read-only
+  context**; a stable film glossary is carried to every request. The API
+  transport uses structured JSON \`[{id, vi}]\`, semantically identical to the
+  compact, historical \`ID|VI\` outputs. Only translated text is replaced:
+  cue ID, timing, order and context association are immutable.
+- The temporary model is set in **editable**
+  \`poc/p2-aisub/translator_profile.json\`:
+
+  \`\`\`json
+  {"provider":"gemini","model":"gemini-3.8-flash","thinking_level":"medium"}
+  \`\`\`
+
+  This is **configuration, not a hard-coded fallback in the Python client**.
+  Change the model string or thinking level in the profile without touching
+  the parser/translation algorithm. To switch to a different provider family,
+  implement its dedicated adapter against the same \`TranslationWindow\`
+  and \`SubtitleRevision\` interface; do not rename Gemini models into
+  another provider's endpoint.
+- The official Google API model ID is **\`gemini-3.8-flash\`** and the separate
+  \`thinkingLevel\` value is **\`MEDIUM\`**, *not* a synthetic model ID like
+  \`gemini-3.8-flash-medium\`. Source:
+  https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
+  and https://ai.google.dev/gemini-api/docs/generate-content/thinking
+- \`translate_all()\` processes every window sequentially without a Human
+  file-picking step. Its \`on_revision\` callback publishes the **validated**
+  cumulative payload after each batch (120 → 240 → …), not at end of film.
+  Existing G1's 256-KiB per-file cap still applies.
+- The CLI needs only an existing user-supplied \`.srt\`/\`.vtt\`, opaque
+  \`media.<64 hex>\` identity, API key in \`GEMINI_API_KEY\`, output dir,
+  and explicit \`--execute-api\`. Keys never enter JSON profile or repo.
+  The CLI writes versioned files, not the TV; no provider calls occur in CI.
+  Example (locally, with a source the user may submit to that provider):
+
+  \`\`\`powershell
+  $env:GEMINI_API_KEY = '<key in local secret environment>'
+  python poc/p2-aisub/lean120_api.py --source source.srt --media-key "media.$('a' * 64)" --output-dir .\local-revisions --execute-api
+  \`\`\`
+
+- **Human operational simplification:** no per-120-cue manual confirmation,
+  budget calculator, quotas comparison or repeated rights questionnaire.
+  A single explicitly initiated API job and lawful user-supplied source are
+  the trust boundary. Existing privacy safeguards (don't log caption text
+  or credentials, no GitHub upload) remain.
+- **Verified level:** synthetic CI with injected mock transport; **no live
+  Gemini API token was used and no real subtitle text was sent**.
+
 ## Module: progressive_handoff.py
 
 - Parses original authorized SRT/VTT with existing strict cue_pipeline.
@@ -40,14 +90,14 @@ It leaves historical 90-cue Gemini/R3.3 and Brain LEAN120 workdirs unchanged.
 
 ## Next independently authorized stages
 
-1. **API adapter:** choose an actual supported provider/model/API, opt-in
-   scope, secret storage outside repo, privacy/rights to send subtitle text,
-   budget/quotas, bounded retries, QA and exact-ID parsing. Existing
-   \`cloud_contract.py\` is a **12-target-cue Gemini-specific offline contract**
-   and must not be silently called or mutated into the future 120-cue
-   default. A model-neutral adapter should explicitly map a Window to a
-   provider request and verify its response. ChatGPT Brain may remain a
-   quality reference; it is not an unattended service.
+1. **API adapter + initial LEAN120 implementation:** now present in this PR
+   for \`gemini-3.8-flash\` / \`MEDIUM\` via replaceable JSON profile, strict
+   structured response validation and on-demand \`generateContent\` client.
+   The **first live request** remains untested until an authorized source
+   and local API key are available. The older \`cloud_contract.py\` is a
+   separate 12-cue Gemini-specific offline contract and is not silently
+   mutated. ChatGPT Brain remains a quality reference only, not a required
+   interactive per-batch step.
 2. **Durable checkpoint/publisher:** persist only in private scoped storage
    (source+media+model/version identity, monotonic revision and atomic
    commits); retry without double-paying; handle restart, cancellation,
