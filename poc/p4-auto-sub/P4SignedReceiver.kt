@@ -31,6 +31,8 @@ internal class P4SignedReceiver(
     private val secret = pairingSecret.clone()
     private var lastVersion = 0
     private var lastDigest: String? = null
+    private data class Pending(val version: Int, val digest: String)
+    private var pending: Pending? = null
 
     init {
         require(SESSION.matches(pairedSessionId)) { "P4_SESSION_ID_INVALID" }
@@ -66,14 +68,53 @@ internal class P4SignedReceiver(
         }
         if (engine != "VLC") return "DEFERRED_UNSUPPORTED_ENGINE"
         if (subtitleChoice != "ON") return "DEFERRED_USER_SUBTITLE_CHOICE"
-        val ok = try { onG2Apply(offer.payload.clone(), offer.format) } catch (_: Exception) { false }
-        if (ok != true) return "G2_APPLY_FAILED_RETAIN_LAST_VALID"
-        lastVersion = offer.version
-        lastDigest = offer.payloadSha256
+        pending?.let {
+            if (offer.version == it.version && offer.payloadSha256 == it.digest) {
+                return "G2_PENDING_DUPLICATE_NOOP"
+            }
+            return "DEFERRED_G2_PENDING"
+        }
+        val started = try { onG2Apply(offer.payload.clone(), offer.format) }
+            catch (_: Exception) { false }
+        if (started != true) return "G2_APPLY_FAILED_RETAIN_LAST_VALID"
+        // Sending session.load() is not proof VLC displayed the new subtitle.
+        // Persist the applied cursor only upon the first-frame acknowledgement.
+        pending = Pending(offer.version, offer.payloadSha256)
+        return "G2_PENDING_FIRST_FRAME"
+    }
+
+    /**
+     * Call from the real G2 onFirstFrameShown event, and only after verifying
+     * the same active paired movie, user ON choice, VLC and pending digest.
+     * Do NOT call this just because session.load() returned synchronously.
+     */
+    @Synchronized fun acknowledgeFirstFrame(
+        activeSessionId: String, activeMediaKey: String, subtitleChoice: String,
+        engine: String, version: Int, payloadSha256: String,
+    ): String {
+        val staged = pending ?: return "NO_PENDING_G2"
+        if (activeSessionId != pairedSessionId || activeMediaKey != pairedMediaKey ||
+            subtitleChoice != "ON" || engine != "VLC" ||
+            staged.version != version || staged.digest != payloadSha256) {
+            pending = null
+            throw IllegalArgumentException("P4_FIRST_FRAME_SCOPE_MISMATCH")
+        }
+        lastVersion = staged.version
+        lastDigest = staged.digest
+        pending = null
         return "APPLIED_TO_G2"
     }
 
+    /** G2 engineFailed, timeout, switched item or closed activity must drop pending. */
+    @Synchronized fun abortPending(version: Int, payloadSha256: String): Boolean {
+        val staged = pending ?: return false
+        if (staged.version != version || staged.digest != payloadSha256) return false
+        pending = null
+        return true
+    }
+
     internal fun lastAppliedForTest(): Int = lastVersion
+    internal fun pendingVersionForTest(): Int? = pending?.version
 
     private fun validate(o: P4SubtitleOffer) {
         if (!SESSION.matches(o.sessionId) || !MEDIA.matches(o.mediaKey) ||
