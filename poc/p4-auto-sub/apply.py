@@ -17,6 +17,7 @@ PKG = Path("android/app/src/main/java/com/spacesarmat/omp/player")
 SOURCE_FILE = "P1ProductionSubtitles.kt"
 RECEIVER_FILE = "P4SignedReceiver.kt"
 LAN_CLIENT_FILE = "P4LanClient.kt"
+LEDGER_FILE = "P4AppliedLedger.kt"
 
 OLD_HEAD = '''    @Synchronized fun importSelected(ctx: Context, uri: Uri, r: PlayRequest, i: Int): Boolean {
         val k = mediaKey(r, i) ?: return false
@@ -157,7 +158,7 @@ def run(root: Path, *, apply: bool = False) -> None:
     line_sep = "\r\n" if b"\r\n" in existing else "\n"
     patched = patch_g1(source.replace("\r\n", "\n")).replace("\n", line_sep)
     native_sources = [Path(__file__).with_name(name) for name in
-                      (RECEIVER_FILE, LAN_CLIENT_FILE)]
+                      (RECEIVER_FILE, LAN_CLIENT_FILE, LEDGER_FILE)]
     native_targets = [pkg / p.name for p in native_sources]
     if any(not p.is_file() for p in native_sources) or any(p.exists() for p in native_targets):
         raise ValueError("P4_NATIVE_SOURCE_MISSING_OR_PRESENT")
