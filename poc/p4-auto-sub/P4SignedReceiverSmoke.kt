@@ -106,5 +106,33 @@ fun main() {
         1, goodVtt.payloadSha256) == "APPLIED_TO_G2")
     check(calls == 7)
 
+    // A new Activity after process restart must reject old valid HMAC offers.
+    val resumed = P4SignedReceiver(
+        session, media, src, secret,
+        acceptedVersion=2, acceptedDigest=second.payloadSha256)
+    check(resumed.receive(second, session, media, "ON", "VLC", ::accept) == "DUPLICATE_NOOP")
+    try {
+        resumed.receive(first, session, media, "ON", "VLC", ::accept)
+        error("a stale valid signed revision was replayed after restart")
+    } catch (e: IllegalArgumentException) { check(e.message == "P4_STALE_REVISION") }
+
+    // Failure to durably persist the first-frame ACK must not advance the cursor.
+    val noPersistence = P4SignedReceiver(
+        session, media, src, secret,
+        onFirstFrameAccepted={ _, _ -> false })
+    check(noPersistence.receive(first, session, media, "ON", "VLC", ::accept) ==
+        "G2_PENDING_FIRST_FRAME")
+    check(noPersistence.acknowledgeFirstFrame(session, media, "ON", "VLC", 1,
+        first.payloadSha256) == "P4_PERSISTENCE_FAILED_RETAIN_LAST_VALID")
+    check(noPersistence.lastAppliedForTest() == 0)
+    check(noPersistence.receive(first, session, media, "ON", "VLC", ::accept) ==
+        "G2_PENDING_FIRST_FRAME")
+    check(noPersistence.abortPending(1, first.payloadSha256))
+    try {
+        P4SignedReceiver(session, media, src, secret,
+            acceptedVersion=1, acceptedDigest=null)
+        error("corrupted persisted cursor accepted")
+    } catch (e: IllegalArgumentException) { check(e.message == "P4_STORED_LEDGER_INVALID") }
+
     println("P4_NATIVE_SIGNED_RECEIVER_SYNTHETIC_PASS (Kotlin/JVM, Python-HMAC cross-language)")
 }
