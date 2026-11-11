@@ -168,6 +168,38 @@ class Lean120ApiTests(unittest.TestCase):
                          [(x.start_ms,x.end_ms) for x in original])
         self.assertEqual(parsed[130].text,"Vietsub giả lập số 131")
 
+    def test_incremental_revision_callback_and_no_invalid_second_revision(self):
+        seen=[]
+        attempts=[0]
+        def fake_transport(url, headers, body, timeout):
+            ids=tuple(row["id"] for row in json.loads(
+                json.loads(body)["contents"][0]["parts"][0]["text"]
+            )["target"])
+            attempts[0]+=1
+            if attempts[0] == 2:
+                return {"candidates":[{"finishReason":"MAX_TOKENS"}]}
+            return fake_response(ids)
+        with self.assertRaises(ValueError):
+            translate_all(src_srt(241),"srt",KEY,self.profile,glossary={},
+                          api_key="synthetic-secret",transport=fake_transport,
+                          on_revision=seen.append)
+        self.assertEqual(len(seen),1)
+        self.assertEqual(seen[0].translated_count,120)
+        self.assertEqual(len(parse_cues(seen[0].payload,"srt")),120)
+
+    def test_revision_callback_gets_each_cumulative_output_on_completion(self):
+        seen=[]
+        def fake_transport(url,headers,body,timeout):
+            ids=tuple(row["id"] for row in json.loads(
+                json.loads(body)["contents"][0]["parts"][0]["text"]
+            )["target"])
+            return fake_response(ids)
+        final=translate_all(src_srt(241),"srt",KEY,self.profile,
+                            glossary={},api_key="synthetic-secret",
+                            transport=fake_transport,on_revision=seen.append)
+        self.assertEqual([x.translated_count for x in seen],[120,240,241])
+        self.assertEqual(seen, list(final))
+
     def test_missing_key_and_timeout_fail_without_transport(self):
         called=[]
         def mock(*args):called.append(args);return fake_response(self.window.ids)
