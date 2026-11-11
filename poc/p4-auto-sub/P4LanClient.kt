@@ -31,6 +31,12 @@ internal object P4LanClient {
         return URL("http://$host:$port/p4/revision/$sessionId")
     }
 
+    internal fun activationEndpoint(host: String, port: Int): URL {
+        if (!isPrivateIPv4(host)) throw IllegalArgumentException("P4_LAN_IP_REQUIRED")
+        if (port !in 1024..65535) throw IllegalArgumentException("P4_LAN_PORT_INVALID")
+        return URL("http://$host:$port/p4/activate")
+    }
+
     private fun isPrivateIPv4(value: String): Boolean {
         if (!Regex("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}").matches(value)) return false
         val values = value.split(".").mapNotNull { it.toIntOrNull() }
