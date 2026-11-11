@@ -92,7 +92,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             .setView(field)
             .setPositiveButton("Lưu") { _, _ ->
                 val entered = field.text?.toString()?.trim().orEmpty()
-                val match = Regex("([0-9.]{7,15}):([0-9]{4,5})\\|([0-9a-fA-F]{64})")
+                val match = Regex("([0-9.]{7,15}):([0-9]{4,5})[|]([0-9a-fA-F]{64})")
                     .matchEntire(entered)
                 if (match == null) {
                     showMessage("Dữ liệu ghép đôi PC không hợp lệ.", true)
