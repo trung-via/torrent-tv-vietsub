@@ -74,6 +74,42 @@ class PCActivationTests(unittest.TestCase):
             self.controller.activate(invalid)
         self.assertEqual(len(self.queued),1)
 
+    def test_assumed_english_source_activation_to_lean120_signed_feed(self):
+        from assumed_source_handoff import translate_supplied_to_feed
+        from lean120_api import ModelProfile
+        provider_calls=[]
+        def fake_provider(url,headers,body,timeout):
+            req=json.loads(body)
+            target=json.loads(req["contents"][0]["parts"][0]["text"])["target"]
+            provider_calls.append([x["id"] for x in target])
+            return {"candidates":[{"finishReason":"STOP",
+                "content":{"parts":[{"text":json.dumps({
+                    "translations":[{"id":x["id"],"vi":"Câu thử nghiệm"} for x in target]
+                })}]}}]}
+        def start_translation(feed,source):
+            translate_supplied_to_feed(
+                source,ModelProfile("gemini","gemini-3.8-flash","medium"),
+                feed=feed,glossary={},api_key="synthetic",transport=fake_provider)
+        paired=PairedActivation(
+            device_secret=MASTER,supplied={MEDIA:self.handoff},
+            on_activate=start_translation)
+        reply=paired.activate(self.request(nonce="4"*32))
+        self.assertEqual(provider_calls,[[1]])
+        feed=paired.feed_for(reply["session_id"])
+        wire=json.loads(feed.latest())
+        self.assertEqual(wire["version"],1)
+        self.assertEqual(wire["translated_count"],1)
+        self.assertEqual(wire["media_key"],MEDIA)
+        self.assertEqual(wire["source_sha256"],self.handoff.source_sha256)
+        key=derive_session_secret(
+            MASTER,reply["session_id"],MEDIA,self.handoff.source_sha256)
+        nonce="5"*32
+        tag=hmac.new(key,
+            ("TTV-P4-LAN-READ-V1\n"+reply["session_id"]+"\n"+nonce).encode("ascii"),
+            hashlib.sha256).hexdigest()
+        self.assertTrue(feed.authorize_read(nonce,tag))
+        self.assertFalse(feed.authorize_read(nonce,tag))
+
     def test_no_finder_or_server_or_paid_api_on_import(self):
         with mock.patch("paired_activation.HTTPServer") as srv:
             create_paired_server(self.controller,host="192.168.1.15",port=19009)
