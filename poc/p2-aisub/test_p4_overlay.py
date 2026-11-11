@@ -48,6 +48,22 @@ class P4SourcePatchTest(unittest.TestCase):
         self.assertEqual(result.count("fun importSelected("), 1)
         self.assertNotIn("http://",result)
 
+    def test_exact_repository_g1_helper_accepts_patch_without_omitting_original_methods(self):
+        # Use actual G1 source pinned by G1's own source/Gradle overlay.
+        real = HERE.parent / "g1-prod" / "P1ProductionSubtitles.kt"
+        original = real.read_text(encoding="utf-8")
+        patched = module.patch_g1(original)
+        self.assertEqual(patched.count("fun importSelected("), 1)
+        self.assertEqual(patched.count("fun importAutomaticBytes("), 1)
+        self.assertIn("fun forItem(", patched)
+        self.assertIn("fun prepare(", patched)
+        self.assertIn("fun noteTrackChoice(", patched)
+        self.assertIn("fun detectedExtension(", patched)
+        self.assertEqual(original.count("fun detectedExtension("),
+                         patched.count("fun detectedExtension("))
+        self.assertEqual(original.count("fun removeSaved("),
+                         patched.count("fun removeSaved("))
+
     def test_fails_closed_if_anchors_drift_or_overlay_reapplied(self):
         original=fake_g1()
         with self.assertRaisesRegex(ValueError, "P4_ALREADY_APPLIED"):
