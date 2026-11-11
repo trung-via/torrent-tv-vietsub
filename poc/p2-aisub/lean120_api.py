@@ -83,6 +83,12 @@ def make_gemini_payload(
     """Only model requests use the provider adapter; never include a media URL."""
     if profile.provider != "gemini":
         raise ValueError("PROVIDER_ADAPTER_NOT_CONFIGURED")
+    # Profiles created directly by library users must obey the same checks
+    # as profiles loaded from editable JSON files.
+    if not isinstance(profile.model, str) or not MODEL_ID_RX.fullmatch(profile.model):
+        raise ValueError("MODEL_ID_INVALID")
+    if profile.thinking_level not in {"low", "medium", "high"}:
+        raise ValueError("THINKING_LEVEL_INVALID")
     if (not window.ids or len(window.ids) > 120
         or window.ids != tuple(c.number for c in window.target)
         or sum(len(c.text) for c in window.target) > 6500
