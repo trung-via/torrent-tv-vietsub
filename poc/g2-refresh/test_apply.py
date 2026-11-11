@@ -52,7 +52,7 @@ class TestG2Patch(unittest.TestCase):
             f=p/'PlayerActivity.kt'; f.write_text(G1,encoding='utf8')
             (p/'P1ProductionSubtitles.kt').write_text('internal object P1ProductionSubtitles { fun importSelected() {} }')
             run(root,False)
-            self.assertEqual(f.read_text(),G1)
+            self.assertEqual(f.read_text(encoding='utf-8'),G1)
             self.assertFalse((p/'G2RefreshInPlace.kt').exists())
 
     def test_apply_changes_bounded_source(self):
@@ -61,7 +61,7 @@ class TestG2Patch(unittest.TestCase):
             f=p/'PlayerActivity.kt'; f.write_text(G1,encoding='utf8')
             (p/'P1ProductionSubtitles.kt').write_text('internal object P1ProductionSubtitles { fun importSelected() {} }')
             run(root,True)
-            self.assertIn('G2RefreshDecision.matchesCurrent',f.read_text())
+            self.assertIn('G2RefreshDecision.matchesCurrent',f.read_text(encoding='utf-8'))
             self.assertTrue((p/'G2RefreshInPlace.kt').is_file())
             self.assertTrue((p/'G2RefreshDecision.kt').is_file())
 
