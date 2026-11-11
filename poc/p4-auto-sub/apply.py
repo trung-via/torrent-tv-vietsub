@@ -45,6 +45,87 @@ NEW_HEAD = '''    @Synchronized fun importSelected(ctx: Context, uri: Uri, r: Pl
         return saveVerifiedBytes(ctx, bytes, r, i, automatic = true)
     }
 
+    /** G1 file and registry snapshot before importing new AI captions. */
+    internal data class AutomaticBefore(
+        val mediaKey: String,
+        val oldSha: String?,
+        val oldExt: String?,
+        val oldBytes: ByteArray?,
+    )
+
+    @Synchronized internal fun snapshotAutomaticBefore(
+        ctx: Context, r: PlayRequest, i: Int, expectedMediaKey: String,
+    ): AutomaticBefore? {
+        val key = mediaKey(r, i) ?: return null
+        if (key != expectedMediaKey) return null
+        val p = prefs(ctx)
+        if (!p.getBoolean("ai.$key", false) ||
+            p.getString("selection.$key", null) != "on") return null
+        val oldSha = p.getString("sha.$key", null)
+        val oldExt = p.getString("ext.$key", null)
+        if (oldSha == null && oldExt == null) {
+            return AutomaticBefore(key, null, null, null)
+        }
+        if (oldSha == null || !digestRx.matches(oldSha) ||
+            oldExt !in listOf("srt", "vtt")) return null
+        val prior = Validated(oldExt!!, oldSha)
+        val priorFile = file(ctx, key, prior)
+        val oldBytes = try {
+            if (!priorFile.isFile || priorFile.length() !in 1L..MAX.toLong()) return null
+            priorFile.readBytes()
+        } catch (_: Exception) { return null }
+        if (validate(oldBytes) != prior) return null
+        return AutomaticBefore(key, oldSha, oldExt, oldBytes)
+    }
+
+    /**
+     * Compare-and-swap rollback of AI import, restoring the previous G1
+     * digest registry and bytes; preserve user OFF/OTHER and AI consent.
+     * A later unrelated/manual import must never be overwritten.
+     */
+    @Synchronized internal fun rollbackAutomatic(
+        ctx: Context, before: AutomaticBefore, expectedNewBytes: ByteArray,
+    ): Boolean {
+        val newDigest = validate(expectedNewBytes) ?: return false
+        if (!mediaKeyFromSnapshot(before.mediaKey)) return false
+        val p = prefs(ctx)
+        if (p.getString("sha.${before.mediaKey}", null) != newDigest.sha ||
+            p.getString("ext.${before.mediaKey}", null) != newDigest.ext) {
+            return false
+        }
+        if (before.oldSha != null) {
+            val oldBytes = before.oldBytes ?: return false
+            val old = Validated(before.oldExt ?: return false, before.oldSha)
+            if (validate(oldBytes) != old) return false
+            val previous = file(ctx, before.mediaKey, old)
+            val dir = folder(ctx)
+            if (!dir.isDirectory && !dir.mkdirs()) return false
+            try {
+                if (!previous.isFile) {
+                    if (previous.exists()) return false
+                    val tmp = File.createTempFile("p4-rollback-", ".tmp", dir)
+                    try {
+                        tmp.writeBytes(oldBytes)
+                        if (validate(tmp.readBytes()) != old || !tmp.renameTo(previous)) return false
+                    } finally { tmp.delete() }
+                }
+                if (validate(previous.readBytes()) != old) return false
+            } catch (_: Exception) { return false }
+        }
+        val edit = p.edit()
+        if (before.oldSha == null) {
+            edit.remove("sha.${before.mediaKey}").remove("ext.${before.mediaKey}")
+        } else {
+            edit.putString("sha.${before.mediaKey}", before.oldSha)
+                .putString("ext.${before.mediaKey}", before.oldExt)
+        }
+        return edit.commit()
+    }
+
+    private fun mediaKeyFromSnapshot(key: String) =
+        key.startsWith("media.") && key.length == 70 &&
+            digestRx.matches(key.removePrefix("media."))
+
     private fun saveVerifiedBytes(
         ctx: Context, bytes: ByteArray, r: PlayRequest, i: Int, automatic: Boolean,
     ): Boolean {
