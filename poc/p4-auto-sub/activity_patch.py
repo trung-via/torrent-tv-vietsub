@@ -19,6 +19,7 @@ LOAD_ANCHOR = """    private fun load(r: PlayRequest, choose: Boolean = true) {
         clearG2Recovery()"""
 ITEM_ANCHOR = """        if (q == null || i !in q.indices || i == session.index) return
         clearG2Recovery()"""
+MENU_ANCHOR = '        add(I18n.s("player.subsRow", "v" to sSel.label), "AD01.3") { openSubsList() }'
 
 # This whole bridge is deliberately in PlayerActivity (not a global singleton).
 # Future pairing transport may call bindP4Session()/receiveP4Revision() *only from
@@ -39,6 +40,8 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private var p4LanScope: P4LanScope? = null
     private var p4LanGeneration = 0
     private var p4LanInFlight = false
+    private var p4ActivationInFlight = false
+    private var p4ActivationGeneration = 0
     private val p4LanPoll = object : Runnable {
         override fun run() {
             val scope = p4LanScope ?: return
@@ -68,6 +71,97 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             // Pull model: no inbound port/listener on the TV and no auto-start.
             handler.postDelayed(this, 6_000L)
         }
+    }
+
+    /**
+     * Developer-stage one-time PC provisioning using a long, strong token.
+     * Later companion-phone/QR onboarding may replace keyboard entry.
+     * No key is logged or transmitted by the dialog itself.
+     */
+    private fun openP4PairingDialog() {
+        if (p4LanScope != null || p4ActivationInFlight) {
+            showMessage("Tắt Vietsub AI trước khi đổi máy tính.", true)
+            return
+        }
+        val field = android.widget.EditText(this)
+        field.hint = "192.168.1.10:19009|64 ký tự hex"
+        field.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+            android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        val dialogP4 = AlertDialog.Builder(this, R.style.OmpPlayerDialog)
+            .setTitle("Ghép đôi PC Vietsub AI (một lần)")
+            .setView(field)
+            .setPositiveButton("Lưu") { _, _ ->
+                val entered = field.text?.toString()?.trim().orEmpty()
+                val match = Regex("([0-9.]{7,15}):([0-9]{4,5})\\|([0-9a-fA-F]{64})")
+                    .matchEntire(entered)
+                if (match == null) {
+                    showMessage("Dữ liệu ghép đôi PC không hợp lệ.", true)
+                } else {
+                    val host = match.groupValues[1]
+                    val port = match.groupValues[2].toIntOrNull() ?: 0
+                    val hex = match.groupValues[3].lowercase()
+                    val key = ByteArray(32) { i ->
+                        hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+                    }
+                    val stored = P4PairingStore(applicationContext).save(host, port, key)
+                    key.fill(0)
+                    showMessage(
+                        if (stored) "Đã lưu ghép đôi PC. Chọn Bật Vietsub AI cho phim."
+                        else "Không thể lưu ghép đôi an toàn.", !stored)
+                }
+            }
+            .setNegativeButton("Hủy", null)
+            .create()
+        dialogP4.show()
+        dialog = dialogP4
+        field.requestFocus()
+    }
+
+    /** Explicit per-film UI only, with an already paired PC and supplied EN text. */
+    private fun beginP4Activation() {
+        if (p4ActivationInFlight || p4LanScope != null || !::session.isInitialized ||
+            engine !is VlcEngine || isFinishing || isDestroyed) return
+        val r = session.request ?: return
+        val idx = index()
+        val media = P1ProductionSubtitles.mediaKey(r, idx) ?: run {
+            showMessage("Không xác định được phim cho Vietsub AI.", true)
+            return
+        }
+        val device = P4PairingStore(applicationContext).load() ?: run {
+            openP4PairingDialog()
+            return
+        }
+        p4ActivationInFlight = true
+        val gen = ++p4ActivationGeneration
+        showMessage("Đang kết nối Vietsub AI với PC...", false)
+        Thread {
+            val result = try {
+                P4ActivationClient.activate(device.host, device.port,
+                    media, device.deviceSecret)
+            } catch (_: Exception) { null }
+            device.deviceSecret.fill(0)
+            runOnUiThread {
+                if (gen != p4ActivationGeneration) {
+                    result?.sessionSecret?.fill(0)
+                    return@runOnUiThread
+                }
+                p4ActivationInFlight = false
+                if (result == null) {
+                    showMessage("PC chưa sẵn sàng hoặc chưa có phụ đề nguồn cho phim.", true)
+                    return@runOnUiThread
+                }
+                val same = !closedSent && !isFinishing && !isDestroyed &&
+                    ::session.isInitialized && session.request === r && index() == idx &&
+                    P1ProductionSubtitles.mediaKey(session.request, idx) == media
+                val started = same && startP4LanSession(
+                    device.host, device.port, result.sessionId,
+                    result.sourceSha256, result.sessionSecret)
+                result.sessionSecret.fill(0)
+                showMessage(
+                    if (started) "Đã bật Vietsub AI. Đang chờ bản dịch đầu tiên..."
+                    else "Phim đã đổi hoặc không thể bật Vietsub AI.", !started)
+            }
+        }.start()
     }
 
     /**
@@ -148,6 +242,8 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private fun unbindP4Session() {
         handler.removeCallbacks(p4LanPoll)
         p4LanGeneration++
+        p4ActivationGeneration++
+        p4ActivationInFlight = false
         p4LanScope?.readSecret?.fill(0)
         p4LanScope = null
         p4LanInFlight = false
@@ -291,6 +387,28 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
 
 """
 
+P4_MENU_ROWS = """        add(if (p4LanScope != null || p4ActivationInFlight)
+                "Tắt Vietsub AI" else "Bật Vietsub AI", "AD01.10") {
+            if (p4LanScope != null) {
+                stopP4LanSession()
+                showMessage("Đã tắt Vietsub AI cho phim này.", false)
+            } else if (p4ActivationInFlight) {
+                p4ActivationGeneration++
+                p4ActivationInFlight = false
+                showMessage("Đã hủy yêu cầu Vietsub AI.", false)
+            } else {
+                beginP4Activation()
+            }
+        }
+        add("Ghép đôi PC Vietsub AI", "AD01.11") { openP4PairingDialog() }
+        add("Hủy ghép đôi PC Vietsub AI", "AD01.12") {
+            stopP4LanSession()
+            val revoked = P4PairingStore(applicationContext).revoke()
+            showMessage(if (revoked) "Đã hủy ghép đôi." else "Không thể hủy ghép đôi.", !revoked)
+        }
+"""
+
+
 def _once(text: str, old: str, new: str, tag: str) -> str:
     if text.count(old) != 1:
         raise ValueError("P4_ACTIVITY_ANCHOR_" + tag)
@@ -319,6 +437,7 @@ def patch_activity(original: str) -> str:
         ITEM_ANCHOR: (ITEM_ANCHOR.replace(
             "        clearG2Recovery()",
             "        unbindP4Session()\n        clearG2Recovery()"), "ITEM"),
+        MENU_ANCHOR: (MENU_ANCHOR + "\n" + P4_MENU_ROWS, "MENU"),
     }
     text = original
     # All original G2 anchors must be unique *before* edits.
