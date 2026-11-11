@@ -10,7 +10,7 @@ data class PlayRequest(val engine: EngineMode, val index: Int, val queue: List<Q
 internal object P1ProductionSubtitles {
     data class Prepared(val request: PlayRequest, val warning: String? = null)
     var updatedFile: SubFile? = null
-    fun mediaKey(r: PlayRequest, i: Int): String? = if (r.engine == EngineMode.VLC && i in r.queue.indices) "media."+"a".repeat(64) else null
+    fun mediaKey(r: PlayRequest?, i: Int): String? = if (r != null && r.engine == EngineMode.VLC && i in r.queue.indices) "media."+"a".repeat(64) else null
     fun prepare(ctx: Context, r: PlayRequest): Prepared {
         val newFile=updatedFile ?: return Prepared(r)
         val queue=r.queue.toMutableList()
