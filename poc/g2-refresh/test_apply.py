@@ -19,6 +19,21 @@ G1 = '''class PlayerActivity {
             }
         }.start()
     }
+    private var closedSent = false
+    override fun onFirstFrameShown() {
+        render()
+    }
+    override fun engineFailed(kind: ErrorKind, detail: String, beforeFirstFrame: Boolean): Boolean {
+        return false
+    }
+    private fun load(r: PlayRequest, choose: Boolean = true) {
+        session.load(r)
+    }
+    private fun playItem(i: Int) {
+        val q = session.request?.queue
+        if (q == null || i !in q.indices || i == session.index) return
+        session.goTo(i)
+    }
 }
 '''
 
@@ -28,10 +43,16 @@ class TestG2Patch(unittest.TestCase):
         self.assertEqual(result.count('G2RefreshInPlace.prepare'), 1)
         self.assertEqual(result.count('P1ProductionSubtitles.importSelected'), 1)
         self.assertEqual(result.count('runOnUiThread'), 2)  # label in return and call
-        self.assertIn('session.load(fresh.copy(queue = keptQueue, startAtMs = ms', result)
+        self.assertIn('session.load(refreshed)', result)
+        self.assertIn('g2Before = G2RefreshRecovery.capture(applicationContext, r, idx)', result)
+        self.assertIn('g2Before != null && P1ProductionSubtitles.importSelected', result)
+        self.assertIn('if (rollbackG2Refresh()) return true', result)
+        self.assertIn('handler.postDelayed(g2RecoveryTimeout, 25_000L)', result)
+        self.assertIn('g2Recovery?.matchesCurrent(session.request, index())', result)
         self.assertIn('current !== r', result)
         self.assertIn('item.copy(resumeMs = session.resumeOf(i))', result)
         self.assertIn('if (wasPaused) engine.pause()', result)
+        self.assertIn('g2Before.restoreOldFile()', result)
         self.assertNotIn('if (!isFinishing && !isDestroyed) showMessage(',result)
 
     def test_unexpected_callback_fails_closed(self):
@@ -64,6 +85,27 @@ class TestG2Patch(unittest.TestCase):
             self.assertIn('G2RefreshDecision.matchesCurrent',f.read_text(encoding='utf-8'))
             self.assertTrue((p/'G2RefreshInPlace.kt').is_file())
             self.assertTrue((p/'G2RefreshDecision.kt').is_file())
+            self.assertTrue((p/'G2RefreshRecovery.kt').is_file())
+
+    def test_recovery_hooks_required_fails_closed(self):
+        for missing in (
+            'private var closedSent = false',
+            'override fun onFirstFrameShown() {',
+            'override fun engineFailed(kind: ErrorKind, detail: String, beforeFirstFrame: Boolean): Boolean {',
+            'private fun load(r: PlayRequest, choose: Boolean = true) {',
+            '        if (q == null || i !in q.indices || i == session.index) return',
+        ):
+            with self.subTest(anchor=missing):
+                with self.assertRaisesRegex(ValueError, 'G2_RECOVERY_EVENT_ANCHOR'):
+                    patch_activity(G1.replace(missing, '// anchor drift', 1))
+
+    def test_recovery_hook_injection_bounded(self):
+        result = patch_activity(G1)
+        self.assertEqual(result.count('private var g2Recovery:'), 1)
+        self.assertEqual(result.count('fun rollbackG2Refresh()'), 1)
+        self.assertEqual(result.count('val g2Before = G2RefreshRecovery.capture'), 1)
+        self.assertEqual(result.count('handler.postDelayed(g2RecoveryTimeout, 25_000L)'), 1)
+        self.assertNotIn('P1ProductionSubtitles.removeSaved(', result)
 
     def test_wrong_directory_blocked(self):
         with tempfile.TemporaryDirectory(prefix='other-') as d:
