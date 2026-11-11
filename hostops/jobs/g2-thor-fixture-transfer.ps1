@@ -93,25 +93,36 @@ try {
         if ($hash -cne $f.Hash) { Stop-Test ('LOCAL_FIXTURE_HASH_MISMATCH_' + $f.Count) }
     }
     Write-Host 'G2_THOR_LOCAL_SYNTHETIC_120_240_SHA256_PASS'
-    # Only add new fixed files. A preexisting path prevents any overwrite.
+    # No replacement of ANY existing file. If a prior partial attempt left one of
+    # these fixed files, pull it back and require the exact known SHA256.
     foreach ($f in $fixtures) {
-        & $adb -s $serial shell test ! -e $f.Remote | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Stop-Test ('FIXTURE_ALREADY_PRESENT_OR_PATH_NOT_SAFE_' + $f.Count)
-        }
+        $existsCheck = @(& $adb -s $serial shell test -e $f.Remote 2>&1)
+        $f | Add-Member -NotePropertyName AlreadyThere -NotePropertyValue ($LASTEXITCODE -eq 0)
+    }
+    function Invoke-ADBTransfer([string]$mode, [string]$from, [string]$to) {
+        if ($mode -cnotin @('push','pull')) { Stop-Test 'UNEXPECTED_ADB_TRANSFER_MODE' }
+        # adb prints successful transfer progress to stderr. PowerShell 5.1
+        # wrongly raises NativeCommandError with ErrorActionPreference=Stop.
+        # Run the known binary directly and inspect its exit code, not its stderr.
+        $args = @('-s',$serial,$mode,$from,$to)
+        $proc = Start-Process -FilePath $adb -ArgumentList $args -NoNewWindow -Wait -PassThru -RedirectStandardOutput (Join-Path $root ('adb-' + $mode + '.stdout')) -RedirectStandardError (Join-Path $root ('adb-' + $mode + '.stderr'))
+        if ($proc.ExitCode -ne 0) { Stop-Test ('ADB_' + $mode.ToUpperInvariant() + '_FAILED') }
     }
     foreach ($f in $fixtures) {
-        $push = @(& $adb -s $serial push $f.Local $f.Remote 2>&1)
-        if ($LASTEXITCODE -ne 0) { Stop-Test ('ADB_PUSH_FAILED_' + $f.Count) }
+        if (-not $f.AlreadyThere) {
+            Invoke-ADBTransfer 'push' $f.Local $f.Remote
+        } else {
+            Write-Host ('G2_THOR_TV_EXISTING_' + $f.Count + '_CUES_READBACK_ONLY')
+        }
         $localBack = Join-Path $root ('verified-' + $f.Name)
-        $pull = @(& $adb -s $serial pull $f.Remote $localBack 2>&1)
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $localBack -PathType Leaf)) {
-            Stop-Test ('ADB_PULL_VERIFY_FAILED_' + $f.Count)
+        Invoke-ADBTransfer 'pull' $f.Remote $localBack
+        if (-not (Test-Path -LiteralPath $localBack -PathType Leaf)) {
+            Stop-Test ('ADB_PULL_VERIFY_FILE_MISSING_' + $f.Count)
         }
         if ((Get-FileHash -LiteralPath $localBack -Algorithm SHA256).Hash.ToLowerInvariant() -cne $f.Hash) {
             Stop-Test ('TV_FIXTURE_READBACK_SHA256_MISMATCH_' + $f.Count)
         }
-        Write-Host ('G2_THOR_TV_DOWNLOAD_' + $f.Count + '_CUES_PUSH_AND_READBACK_PASS')
+        Write-Host ('G2_THOR_TV_DOWNLOAD_' + $f.Count + '_CUES_PUSH_OR_EXISTING_AND_READBACK_PASS')
     }
     Write-Host 'G2_THOR_FIXTURES_READY_SYNTHETIC_NOT_REAL_MOVIE_DIALOGUE'
     Write-Host 'G2_THOR_EXISTING_USER_FILES_UNTOUCHED_NO_APP_LAUNCH_OR_PLAYBACK'
