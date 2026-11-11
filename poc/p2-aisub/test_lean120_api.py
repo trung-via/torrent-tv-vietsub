@@ -65,6 +65,14 @@ class Lean120ApiTests(unittest.TestCase):
             with self.subTest(bad=bad),self.assertRaises(ValueError):
                 ModelProfile.from_json(bad)
 
+    def test_direct_profile_object_cannot_bypass_id_validation(self):
+        for p in [
+            ModelProfile("gemini", "../private", "medium"),
+            ModelProfile("gemini", "gemini-3.8-flash", "minimal"),
+        ]:
+            with self.subTest(p=p), self.assertRaises(ValueError):
+                make_gemini_payload(self.window,p)
+
     def test_lean120_ids_6500_context_4_and_no_timing_edit(self):
         self.assertEqual(len(self.window.ids),120)
         self.assertEqual(len(self.session.windows),3)
