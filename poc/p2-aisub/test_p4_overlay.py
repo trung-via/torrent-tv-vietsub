@@ -29,8 +29,38 @@ def fake_g1() -> str:
         + "    }\n"
         + "    fun noteTrackChoice(ctx: Context, r: PlayRequest?, i: Int, choice: TrackChoice) {\n"
         + "        // Synthetic user's OFF/OTHER choice\n"
-        + "    }\n}\n"
+        + "    }\n"
+        + "    fun hasSaved(ctx: Context, r: PlayRequest?, i: Int): Boolean { return false }\n"
+        + "}\n"
     )
+
+
+def fake_g2_activity() -> str:
+    # Source shape emitted by exact G2 patch of pinned OMP, with no real TV runtime.
+    return """class PlayerActivity {
+    private var g2Recovery: G2RefreshRecovery? = null
+    private fun clearG2Recovery() {
+        handler.removeCallbacks(g2RecoveryTimeout)
+        g2Recovery = null
+    }
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+    }
+    override fun onFirstFrameShown() {
+        if (g2Recovery?.matchesCurrent(session.request, index()) == true) {
+            clearG2Recovery()
+        }
+    }
+    private fun load(r: PlayRequest, choose: Boolean = true) {
+        clearG2Recovery()
+    }
+    private fun playItem(i: Int) {
+        if (q == null || i !in q.indices || i == session.index) return
+        clearG2Recovery()
+    }
+    val updated = G2RefreshInPlace.prepare(ctx,r,idx)
+}
+"""
 
 
 class P4SourcePatchTest(unittest.TestCase):
@@ -44,6 +74,8 @@ class P4SourcePatchTest(unittest.TestCase):
         self.assertIn('choice == "off" || choice == "other"', result)
         self.assertIn("if (automatic && p.getString", result)
         self.assertIn("@Synchronized fun noteTrackChoice", result)
+        self.assertIn("fun automaticChoice(", result)
+        self.assertIn('return "OTHER"', result)
         self.assertEqual(result.count("fun importAutomaticBytes("), 1)
         self.assertEqual(result.count("fun importSelected("), 1)
         self.assertNotIn("http://",result)
@@ -82,7 +114,7 @@ class P4SourcePatchTest(unittest.TestCase):
         (pkg / module.SOURCE_FILE).write_text(fake_g1(),encoding="utf-8")
         (pkg / "G2RefreshInPlace.kt").write_text("object G2RefreshInPlace {}")
         (pkg / "G2RefreshRecovery.kt").write_text("object G2RefreshRecovery {}")
-        (pkg / "PlayerActivity.kt").write_text("val updated = G2RefreshInPlace.prepare(ctx,r,idx)")
+        (pkg / "PlayerActivity.kt").write_text(fake_g2_activity())
         return pkg
 
     def test_dry_run_no_changes_then_apply_only_disposable_source(self):
@@ -98,6 +130,13 @@ class P4SourcePatchTest(unittest.TestCase):
             self.assertIn("fun importAutomaticBytes",text)
             self.assertIn("@Synchronized fun noteTrackChoice",text)
             self.assertTrue((pkg/module.RECEIVER_FILE).is_file())
+            activity = (pkg/"PlayerActivity.kt").read_text(encoding="utf-8")
+            self.assertIn("internal fun receiveP4Revision(", activity)
+            self.assertIn("acknowledgeP4FirstFrame()", activity)
+            self.assertIn("P1ProductionSubtitles.importAutomaticBytes(", activity)
+            self.assertIn("snapshot.arm(newRequest, previous, paused)", activity)
+            self.assertIn("session.load(newRequest)", activity)
+            self.assertIn("handler.postDelayed(g2RecoveryTimeout", activity)
             with self.assertRaises(ValueError):
                 module.run(root,apply=True)
 
