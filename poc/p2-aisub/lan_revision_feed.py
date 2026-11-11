@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
+import re
+import secrets
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import ipaddress
 import json
-import re
 from threading import Lock
 from typing import Type
 
@@ -94,6 +97,7 @@ class SessionRevisionFeed:
         self.__secret = bytes(pairing_secret)
         self.__current: FeedSnapshot | None = None
         self.__lock = Lock()
+        self.__used_read_nonces: dict[str, float] = {}
 
     def publish(self, revision: SubtitleRevision) -> str:
         if (revision.media_key != self.media_key or
@@ -117,6 +121,28 @@ class SessionRevisionFeed:
         with self.__lock:
             return None if self.__current is None else self.__current.wire
 
+    def authorize_read(self, nonce: str | None, signature: str | None) -> bool:
+        """Authenticated, unique GET request; no reply to unpaired LAN clients."""
+        if (not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}",nonce) or
+            not isinstance(signature, str) or not re.fullmatch(r"[0-9a-f]{64}",signature)):
+            return False
+        expected = hmac.new(
+            self.__secret,
+            ("TTV-P4-LAN-READ-V1\n"+self.session_id+"\n"+nonce).encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected,signature):
+            return False
+        now = time.monotonic()
+        with self.__lock:
+            self.__used_read_nonces = {
+                n:ts for n,ts in self.__used_read_nonces.items() if now-ts < 600.0
+            }
+            if nonce in self.__used_read_nonces or len(self.__used_read_nonces)>=1024:
+                return False
+            self.__used_read_nonces[nonce]=now
+        return True
+
 
 def make_handler(feed: SessionRevisionFeed) -> Type[BaseHTTPRequestHandler]:
     """Fixed non-discoverable route; no user-controlled paths or directories."""
@@ -130,6 +156,11 @@ def make_handler(feed: SessionRevisionFeed) -> Type[BaseHTTPRequestHandler]:
         def do_GET(self) -> None:
             if self.path != endpoint:
                 self.send_error(404)
+                return
+            if not feed.authorize_read(
+                self.headers.get("X-P4-Nonce"), self.headers.get("X-P4-Authorization")
+            ):
+                self.send_error(401)
                 return
             wire = feed.latest()
             if wire is None:
