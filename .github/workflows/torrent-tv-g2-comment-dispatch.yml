@@ -1,0 +1,85 @@
+# Owner-only ChatGPT -> G2 Debug workflow_dispatch bridge. No PR-head code runs here.
+# Requires an exact owner-authored PR #115 comment naming the current immutable G2 commit.
+name: Torrent TV - G2 Owner Comment Debug Dispatch
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: torrent-tv-g2-owner-comment-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch-exact-g2:
+    if: >-
+      ${{
+        github.repository == 'trung-via/torrent-tv-vietsub' &&
+        github.actor == 'trung-via' &&
+        github.event.comment.user.login == 'trung-via' &&
+        github.event.comment.author_association == 'OWNER' &&
+        github.event.issue.number == 115 &&
+        github.event.issue.pull_request != null &&
+        startsWith(github.event.comment.body, '/tv-action g2-refresh-debug ')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Verify exact PR head, no duplicate active run, then dispatch once
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+          repo='trung-via/torrent-tv-vietsub'
+          branch='feature/g2-refresh-vietsub-inplace-20261111'
+          prefix='/tv-action g2-refresh-debug '
+          [[ "$COMMENT_BODY" == "$prefix"* ]] || exit 1
+          sha="${COMMENT_BODY#"$prefix"}"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'STOP: malformed immutable G2 commit'
+            exit 1
+          }
+          [[ "$COMMENT_ID" =~ ^[0-9]+$ ]] || exit 1
+          pr="$(gh api "repos/$repo/pulls/115")"
+          [[ "$(jq -r '.state' <<< "$pr")" == 'open' ]] || exit 1
+          [[ "$(jq -r '.draft' <<< "$pr")" == 'true' ]] || exit 1
+          [[ "$(jq -r '.base.ref' <<< "$pr")" == 'main' ]] || exit 1
+          [[ "$(jq -r '.head.ref' <<< "$pr")" == "$branch" ]] || exit 1
+          [[ "$(jq -r '.head.repo.full_name' <<< "$pr")" == "$repo" ]] || exit 1
+          [[ "$(jq -r '.head.sha' <<< "$pr")" == "$sha" ]] || {
+            echo 'STOP: stale G2 commit. Do not run an old PR head.'
+            exit 1
+          }
+          # The feature ref must carry the vetted two-stage provenance gate.
+          wf="$(gh api "repos/$repo/contents/.github/workflows/p1-g2-refresh-manual.yml?ref=$branch" --jq '.content' | base64 --decode)"
+          grep -Fq 'G2_OWNER_DISPATCH_PROVENANCE_PASS' <<< "$wf" || {
+            echo 'STOP: no current G2 owner-comment verification gate'
+            exit 1
+          }
+          active="$(gh run list --repo "$repo" --workflow p1-g2-refresh-manual.yml --branch "$branch" --limit 30 --json status --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested" or .status == "pending")] | length')"
+          [[ "$active" == '0' ]] || {
+            echo 'STOP: another G2 Debug workflow is active'
+            exit 1
+          }
+          gh workflow run p1-g2-refresh-manual.yml --repo "$repo" --ref "$branch" \
+            -f confirmation=BUILD_G2_REFRESH_DEBUG_ONCE \
+            -f bridge_comment_id="$COMMENT_ID"
+          receipt="G2_DISPATCH_REQUESTED_V1
+          Source comment: $COMMENT_ID
+          G2 source commit: $sha
+          Workflow: p1-g2-refresh-manual.yml
+          Feature branch: $branch
+          Bridge run: https://github.com/$repo/actions/runs/$GITHUB_RUN_ID
+          State: DISPATCH_REQUESTED_NOT_BUILD_PASS
+          The G2 workflow verifies this comment again before using the Windows runner."
+          gh api -X POST "repos/$repo/issues/115/comments" -f "body=$receipt" >/dev/null
+          echo 'G2_OWNER_COMMENT_DISPATCH_REQUESTED_NOT_BUILD_PASS'
