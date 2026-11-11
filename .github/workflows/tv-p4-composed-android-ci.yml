@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: torrent-tv-p4-android-pr120
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   p4-android:
