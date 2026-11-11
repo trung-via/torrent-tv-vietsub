@@ -28,6 +28,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private var p4SessionId: String? = null
     private var p4PendingOffer: P4SubtitleOffer? = null
     private var p4PendingRequest: PlayRequest? = null
+    private var p4ExpectedRefresh: PlayRequest? = null
 
     /** Only a later, private authenticated pairing flow may call this. */
     internal fun bindP4Session(sessionId: String, sourceSha256: String, key: ByteArray): Boolean {
@@ -49,6 +50,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         if (offer != null) p4SignedReceiver?.abortPending(offer.version, offer.payloadSha256)
         p4PendingOffer = null
         p4PendingRequest = null
+        p4ExpectedRefresh = null
     }
 
     private fun unbindP4Session() {
@@ -62,6 +64,10 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         val offer = p4PendingOffer ?: return
         val receiver = p4SignedReceiver ?: run { abortP4Pending(); return }
         val current = session.request ?: run { abortP4Pending(); return }
+        if (current !== p4ExpectedRefresh) {
+            abortP4Pending()
+            return
+        }
         val mediaKey = P1ProductionSubtitles.mediaKey(current, index())
         val choice = P1ProductionSubtitles.automaticChoice(applicationContext, current, index())
         try {
@@ -151,6 +157,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                                         val previous = r.copy(
                                             queue = priorQueue, startAtMs = ms, audioPick = audioPick)
                                         snapshot.arm(newRequest, previous, paused)
+                                        p4ExpectedRefresh = newRequest
                                         g2Recovery = snapshot
                                         session.load(newRequest)
                                         if (paused) engine.pause()
