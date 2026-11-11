@@ -187,10 +187,34 @@ try {
     & npm.cmd run android:sync
     if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: npm android:sync failed' }
 } finally { Pop-Location }
+# Gradle daemon heap (upstream org.gradle.jvmargs=-Xmx4g) is not the forked JUnit test JVM heap.
+# Run 42938311816: 665/666 succeeded, one OOM in InstallRunnerTest (LG fake installer).
+# Apply a bounded, per-run test-only heap/fork policy without touching OMP upstream sources.
+$initScript = Join-Path $env:RUNNER_TEMP "g2-test-memory-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.init.gradle"
+if (Test-Path -LiteralPath $initScript -PathType Leaf) {
+    throw 'STOP: unexpected existing G2 Gradle test policy'
+}
+@'
+gradle.projectsEvaluated {
+    rootProject.allprojects { project ->
+        project.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach { testTask ->
+            testTask.maxHeapSize = '1536m'
+            testTask.maxParallelForks = 1
+            testTask.forkEvery = 75
+        }
+    }
+}
+'@ | Set-Content -LiteralPath $initScript -Encoding Ascii
+Write-Host 'G2_TEST_MEMORY_POLICY_TEST_JVM_1536M_MAX_FORKS_1_FORK_EVERY_75'
+
 Push-Location (Join-Path $omp 'android')
 try {
-    & .\gradlew.bat assembleDebug testDebugUnitTest --no-daemon --console plain
-    if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: Gradle assembleDebug/testDebugUnitTest failed' }
+    # Check the precise previously failing LG fake install case, before any full-suite result.
+    & .\gradlew.bat :app:testDebugUnitTest --tests com.spacesarmat.omp.install.InstallRunnerTest.lgInstallsOmpAndHomebrewChannel -I $initScript --no-daemon --console plain
+    if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: targeted LG install test did not recover under isolated JVM policy' }
+    Write-Host 'G2_TARGETED_LG_INSTALL_TEST_PASS'
+    & .\gradlew.bat assembleDebug testDebugUnitTest -I $initScript --no-daemon --console plain
+    if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: full Gradle assembleDebug/testDebugUnitTest failed' }
 } finally { Pop-Location }
 Write-Host 'G2_REFRESH_ANDROID_DEBUG_BUILD_AND_UNIT_TEST_PASS_NOT_REAL_TV_PASS'
 
