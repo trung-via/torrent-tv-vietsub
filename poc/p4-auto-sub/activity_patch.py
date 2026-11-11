@@ -107,8 +107,15 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             engine !is VlcEngine) return false
         val current = session.request ?: return false
         val mediaKey = P1ProductionSubtitles.mediaKey(current, index()) ?: return false
-        val receiver = try { P4SignedReceiver(sessionId, mediaKey, sourceSha256, key) }
-            catch (_: IllegalArgumentException) { return false }
+        val ledger = P4AppliedLedger(applicationContext, sessionId, mediaKey, sourceSha256)
+        val prior = ledger.read() ?: return false
+        val receiver = try {
+            P4SignedReceiver(
+                sessionId, mediaKey, sourceSha256, key,
+                acceptedVersion = prior.first, acceptedDigest = prior.second,
+                onFirstFrameAccepted = { version, digest -> ledger.record(version, digest) }
+            )
+        } catch (_: IllegalArgumentException) { return false }
         p4SignedReceiver = receiver
         p4SessionId = sessionId
         return true
