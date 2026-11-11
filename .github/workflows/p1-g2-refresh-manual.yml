@@ -73,13 +73,43 @@ jobs:
           printf 'trusted=true\nsource_sha=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo 'G2_OWNER_DISPATCH_PROVENANCE_PASS'
 
+  g2-recovery-smoke:
+    name: G2 B2 pure Kotlin rollback smoke on isolated hosted runner
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.trusted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact reviewed G2 SHA (no stored credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Compile and run bounded synthetic recovery smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v kotlinc
+          command -v kotlin
+          d="$RUNNER_TEMP/g2-b2-pure"
+          mkdir -p "$d"
+          src=poc/g2-refresh
+          kotlinc "$src/G2RefreshDecision.kt" "$src/G2RefreshRecovery.kt" \
+            "$src/stubs/FakeAndroid.kt" "$src/stubs/FakeOmp.kt" \
+            "$src/stubs/G2RecoverySmoke.kt" -d "$d/classes"
+          kotlin -classpath "$d/classes" com.spacesarmat.omp.player.G2RecoverySmokeKt
+          echo 'G2_B2_SYNTHETIC_RECOVERY_KOTLIN_SMOKE_PASS_NOT_TV'
+
   g2-refresh:
     name: G1 plus G2 source guard, Android Debug build and unit tests
-    needs: authorize
+    needs: [authorize, g2-recovery-smoke]
     if: >-
       needs.authorize.result == 'success' &&
       needs.authorize.outputs.trusted == 'true' &&
-      needs.authorize.outputs.source_sha == github.sha
+      needs.authorize.outputs.source_sha == github.sha &&
+      needs.g2-recovery-smoke.result == 'success'
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
