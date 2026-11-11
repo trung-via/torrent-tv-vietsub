@@ -16,6 +16,7 @@ import sys
 PKG = Path("android/app/src/main/java/com/spacesarmat/omp/player")
 SOURCE_FILE = "P1ProductionSubtitles.kt"
 RECEIVER_FILE = "P4SignedReceiver.kt"
+LAN_CLIENT_FILE = "P4LanClient.kt"
 
 OLD_HEAD = '''    @Synchronized fun importSelected(ctx: Context, uri: Uri, r: PlayRequest, i: Int): Boolean {
         val k = mediaKey(r, i) ?: return false
@@ -123,10 +124,11 @@ def run(root: Path, *, apply: bool = False) -> None:
         raise ValueError("P4_G1_SOURCE_UTF8_INVALID") from None
     line_sep = "\r\n" if b"\r\n" in existing else "\n"
     patched = patch_g1(source.replace("\r\n", "\n")).replace("\n", line_sep)
-    src = Path(__file__).with_name(RECEIVER_FILE)
-    dst = pkg / RECEIVER_FILE
-    if not src.is_file() or dst.exists():
-        raise ValueError("P4_RECEIVER_SOURCE_MISSING_OR_PRESENT")
+    native_sources = [Path(__file__).with_name(name) for name in
+                      (RECEIVER_FILE, LAN_CLIENT_FILE)]
+    native_targets = [pkg / p.name for p in native_sources]
+    if any(not p.is_file() for p in native_sources) or any(p.exists() for p in native_targets):
+        raise ValueError("P4_NATIVE_SOURCE_MISSING_OR_PRESENT")
     raw_activity = activity.read_bytes()
     if "G2RefreshInPlace.prepare" not in raw_activity.decode("utf-8-sig"):
         raise ValueError("P4_LIVE_G2_ACTIVITY_HOOK_NOT_PRESENT")
@@ -149,7 +151,8 @@ def run(root: Path, *, apply: bool = False) -> None:
         return
     # Source-only disposable copy, no running application/TV side effect.
     g1.write_text(patched, encoding="utf-8", newline="")
-    dst.write_bytes(src.read_bytes())
+    for src, dst in zip(native_sources, native_targets):
+        dst.write_bytes(src.read_bytes())
     activity.write_bytes(
         (b"\xef\xbb\xbf" if raw_activity.startswith(b"\xef\xbb\xbf") else b"") +
         patched_activity.encode("utf-8"))
