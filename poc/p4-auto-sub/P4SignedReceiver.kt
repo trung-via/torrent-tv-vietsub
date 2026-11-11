@@ -27,10 +27,13 @@ internal class P4SignedReceiver(
     private val pairedMediaKey: String,
     private val pairedSourceSha256: String,
     pairingSecret: ByteArray,
+    acceptedVersion: Int = 0,
+    acceptedDigest: String? = null,
+    private val onFirstFrameAccepted: (Int, String) -> Boolean = { _, _ -> true },
 ) {
     private val secret = pairingSecret.clone()
-    private var lastVersion = 0
-    private var lastDigest: String? = null
+    private var lastVersion = acceptedVersion
+    private var lastDigest: String? = acceptedDigest
     private data class Pending(val version: Int, val digest: String)
     private var pending: Pending? = null
 
@@ -39,6 +42,11 @@ internal class P4SignedReceiver(
         require(MEDIA.matches(pairedMediaKey)) { "P4_MEDIA_KEY_INVALID" }
         require(SHA.matches(pairedSourceSha256)) { "P4_SOURCE_HASH_INVALID" }
         require(secret.size >= 16) { "P4_PAIRING_SECRET_REQUIRED" }
+        require(lastVersion in 0..1_000_000 &&
+            (lastVersion == 0 && lastDigest == null ||
+                lastVersion > 0 && lastDigest != null && SHA.matches(lastDigest!!))) {
+            "P4_STORED_LEDGER_INVALID"
+        }
     }
 
     /** Apply callback must be wired to G1 bytes import + SAME-item G2 VLC reload. */
@@ -98,6 +106,12 @@ internal class P4SignedReceiver(
             staged.version != version || staged.digest != payloadSha256) {
             pending = null
             throw IllegalArgumentException("P4_FIRST_FRAME_SCOPE_MISMATCH")
+        }
+        val durable = try { onFirstFrameAccepted(staged.version, staged.digest) }
+            catch (_: Exception) { false }
+        if (!durable) {
+            pending = null
+            return "P4_PERSISTENCE_FAILED_RETAIN_LAST_VALID"
         }
         lastVersion = staged.version
         lastDigest = staged.digest
