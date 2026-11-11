@@ -27,15 +27,17 @@ service or TorrServer change, no live Gemini request, no ADB install,
 no real subtitle delivery, and no composed G1+G2+P4 Android Gradle
 proof yet. A Kotlin callback contract is not a real active player hook.
 
-A live PlayerActivity integration needs to stage an incoming revision,
-import app-private bytes, reuse the existing G2 rollback path, and only
-acknowledge successful application on confirmed first frame (not
-merely when session.load returns). Current in-memory receiver advances
-on callback true, so an asynchronous callback must be treated as
-pending until proof of success; do not wire it directly to a
-fire-and-forget session load. Persistence across Android process
-restart and secure private pairing are also open.
+P4SignedReceiver now implements two-phase acceptance. A callback that starts
+the G2 reload returns G2_PENDING_FIRST_FRAME, without advancing the applied
+version. Only acknowledgeFirstFrame() confirms the same active session/media,
+ON preference, VLC engine and digest. abortPending() discards a failed or
+timed-out revision, so it can be retried. Kotlin tests exercise these paths.
 
+Actual PlayerActivity still needs wiring to onFirstFrameShown and its
+rollbackG2Refresh/engineFailed/lifecycle events; it must capture the previous
+subtitle before importAutomaticBytes. A pure Kotlin ACK test is not actual
+Android/TV first-frame evidence. Process-restart persistence, private pairing
+and authenticated LAN transport remain separate work.
 ## Next bounded gates
 
 - Compile actual pinned OMP+G1+G2+P4 in disposable Android Gradle.
