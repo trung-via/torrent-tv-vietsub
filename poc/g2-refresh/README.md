@@ -39,7 +39,7 @@ The script refuses any checkout not named `p1-g1-prod-*`, missing G1 anchors or 
 3. **Failure tests:** malformed/oversize UTF-8 file, picker canceled, stale callback after item change, spoofed `file://` URI, multiple G1 labels, inaccessible file, duplicate import; generic non-sensitive UX and no playback breakage.
 4. **Real hot-add remains separate:** this patch reopens the media inside the player. To promise zero-buffering seamless G2, a different `VlcEngine.addSlave` path and real device proof are needed.
 
-**Status:** `SOURCE_CANDIDATE_ONLY`. `ANDROID_BUILD_NOT_RUN`, `REDMI_NOT_RUN`, `G2_HOT_ADD_NOT_PROVEN`, `G4_NOT_RUN`. Do not deploy this candidate or claim release readiness without the listed evidence. Licensed/source-only code, no movie dialogue.
+**Status:** G2-B1 Android Debug CI **PASS** on pinned commit `8721b87e7de9434472bb32e57aad2e387815d1d1` (Actions run `42942320322`); G2-B2 recovery source **CANDIDATE / AWAITING ITS OWN CI**, Redmi E2E **NOT_RUN**, true seamless hot-add **NOT_PROVEN**, G4 **NOT_RUN**. Do not deploy this B2 candidate or claim release readiness without independent verification. Licensed/source-only code, no movie dialogue.
 
 ## G2-B1 build-route checkpoint (2026-11-11; source prepared, not executed)
 
@@ -57,3 +57,23 @@ Human requested that the private-only execution condition be changed. This is a 
 - **Public repository:** `assembleDebug testDebugUnitTest` may run under those guards. SHA256 and sanitized provenance can be read from build logs; unsigned/debug APK stays on the dedicated runner under its isolated temp checkout (subject to runner cleanup). GitHub artifact upload is skipped.
 - **Private repository:** same build guards; guarded APK/hash/provenance upload may occur with 7-day retention after a successful build.
 - **Workflow registration resolved:** PR #116 added the same workflow to default branch `main`. Do not merge G2 feature to build it. CI/Gradle/Redmi gates are still NOT_RUN until an authorized dispatch and actual logs/artifacts are observed.
+
+## G2-B2 reload-failure recovery — candidate checkpoint (2026-11-11)
+
+Problem identified from exact G1 source: `P1ProductionSubtitles.importSelected()` deletes the previous media-keyed SRT/VTT after committing the new file. Therefore, a simple `catch` around `session.load()` cannot return to the former subtitle track if the new VLC reload fails.
+
+Candidate fix in this Draft branch:
+
+- `G2RefreshRecovery.kt`: capture **up to 256 KiB** of only the previous app-private G1-owned SRT/VTT after media-key/path validation and **SHA256 contents-vs-filename check**. It does not back up ordinary external subtitles, torrent URLs or adjacent queue entries. If snapshot fails, the G2 picker path fails closed rather than deleting an old playing sidecar without rollback bytes.
+- `apply.py`: inject scoped capture *before* G1 import, then arm a one-shot recovery for a specific refreshed `PlayRequest` object, media key and queue index. On synchronous `session.load()` failure, VLC error before first frame, or a 25-second **playing-only** first-frame timeout, try to put the previous validated bytes back at the original scoped file path and reopen previous playback at the captured position, audio pick and paused state. For a file-restore failure, fall back to video without that specific invalid G1 sidecar; never point to another media's captions.
+- On successful new first frame, drop the in-memory snapshot. A stale callback, switched media, closed player or different request identity must not restore old media. Paused media does not use the 25-second frame timeout; its failure handling requires separate TV evidence.
+- The newly imported file and G1 registry remain saved for the **next explicit open** even if the in-place reload is rolled back; this is not a transaction that rolls back the user's import selection. No guarantee of continuous playback during VLC reopen or recovery; the path is intended as fail-safe best effort and needs real-device checks.
+- Synthetic Kotlin/JVM rollback cases are in `stubs/G2RecoverySmoke.kt` (not claimed executed by Android CI unless separately run); Python patch tests check fail-closed anchors. **B2 runtime recovery is not yet verified on real VLC/Redmi.**
+
+### G2 Debug APK private-handoff preparation
+
+`poc/g2-refresh/retain-private-arm32.ps1` is a **prepared, not yet enabled** runner-local retention candidate copied and adapted from the project's own G1+P2 ACL-protected vault logic. It requires exact source/workflow/runner and run-artifact matching, a checked ARM32 APK SHA256, expected debug package ID and OMP debug signing certificate fingerprint, then copies to a dedicated `private-artifacts/G2B2/run-<id>-<attempt>` folder with inherited NTFS access disabled. Any signer failure leaves a quarantined private local copy, never a downloadable public artifact. It does **not** run automatically with the current workflow; it never installs APK/ADB/TV or exposes TorrServer.
+
+Historical G2-B1 success: [run 42942320322](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/42942320322), with three APK SHA256 values in its CI logs. Runner temp cleanup prevented independent post-run JUnit/XML and APK file re-read, and the public GitHub repo has APK upload disabled.
+
+**Open gates:** G2-B2 Android compile/unit on its exact new commit, synthetic error-injection/rollback execution, then authorized Redmi G2 matrix and separate private APK retention/handoff acceptance. No PR merge, release, signing or physical TV change is implied.
