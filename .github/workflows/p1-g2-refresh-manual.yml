@@ -106,6 +106,13 @@ jobs:
             -SourceCommit $env:GITHUB_SHA
           if (-not $?) { throw 'STOP: G2 build did not pass' }
 
+      - name: Retain ARM32 Debug APK in local ACL-private vault (never public upload)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g2-refresh\retain-private-arm32.ps1') -SourceCommit $env:GITHUB_SHA
+          if (-not $?) { throw 'STOP: G2 private APK retention not verified' }
+
       - name: Upload G2 Debug APK and provenance (private repo only)
         if: github.event.repository.private == true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
