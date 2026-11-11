@@ -7,6 +7,7 @@ from unittest import TestCase, main, mock
 
 from lan_revision_feed import (
     SessionRevisionFeed, create_server, make_handler, offer_wire, private_lan_ip,
+    translate_into_feed,
 )
 from progressive_handoff import ProgressiveSubtitleSession
 from revision_delivery import SignedSubtitleOffer, PairedSubtitleReceiver
@@ -119,6 +120,47 @@ class SessionRevisionFeedTests(TestCase):
             create_server(self.feed,host="0.0.0.0",port=19009)
         with self.assertRaises(ValueError):
             create_server(self.feed,host="192.168.1.2",port=80)
+
+    def test_api_batch_to_signed_feed_without_human_picker_or_network(self):
+        from lean120_api import ModelProfile
+        src = ("\n\n".join(
+            f"{i}\n00:{(i-1)//60:02d}:{(i-1)%60:02d},000 --> "
+            f"00:{(i-1)//60:02d}:{(i-1)%60:02d},850\nSynthetic {i}"
+            for i in range(1,242)
+        )+"\n").encode("utf8")
+        job = ProgressiveSubtitleSession(src,"srt",MEDIA)
+        feed = SessionRevisionFeed(session_id=SID,media_key=MEDIA,
+                    source_sha256=job.source_sha256,pairing_secret=SECRET)
+        calls=[]
+        def fake_api(url,headers,body,timeout):
+            req=json.loads(body)
+            ids=[x["id"] for x in json.loads(
+                req["contents"][0]["parts"][0]["text"])["target"]]
+            calls.append(ids)
+            rows=[{"id":i,"vi":f"Vietsub số {i}"} for i in ids]
+            return {"candidates":[{"finishReason":"STOP","content":{"parts":[
+                {"text":json.dumps({"translations":rows},ensure_ascii=False)}
+            ]}}]}
+        profile = ModelProfile.from_json({
+            "provider":"gemini", "model":"gemini-3.8-flash",
+            "thinking_level":"medium",
+        })
+        with self.assertRaisesRegex(ValueError,"P4_FEED_SOURCE_SHA_MISMATCH"):
+            translate_into_feed(src+b"tamper","srt",MEDIA,profile,
+                feed=feed,glossary={},api_key="synthetic",transport=fake_api)
+        with self.assertRaisesRegex(ValueError,"P4_FEED_MEDIA_MISMATCH"):
+            translate_into_feed(src,"srt",OTHER,profile,
+                feed=feed,glossary={},api_key="synthetic",transport=fake_api)
+        self.assertFalse(calls)
+        revisions=translate_into_feed(src,"srt",MEDIA,profile,
+            feed=feed,glossary={},api_key="synthetic",transport=fake_api)
+        self.assertEqual([r.translated_count for r in revisions],[120,240,241])
+        self.assertEqual([len(ids) for ids in calls],[120,120,1])
+        wire=json.loads(feed.latest())
+        self.assertEqual(wire["version"],3)
+        self.assertEqual(wire["translated_count"],241)
+        self.assertEqual(wire["payload_sha256"],revisions[-1].sha256)
+        self.assertEqual(base64.b64decode(wire["payload_b64"]),revisions[-1].payload)
 
     def test_handler_fixed_endpoint_no_directory_and_readonly(self):
         Handler=make_handler(self.feed)
