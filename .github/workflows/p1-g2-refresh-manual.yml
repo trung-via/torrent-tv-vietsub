@@ -109,7 +109,7 @@ jobs:
       needs.authorize.result == 'success' &&
       needs.authorize.outputs.trusted == 'true' &&
       needs.authorize.outputs.source_sha == github.sha &&
-      needs.g2-recovery-smoke.result == 'success'
+      needs['g2-recovery-smoke'].result == 'success'
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
