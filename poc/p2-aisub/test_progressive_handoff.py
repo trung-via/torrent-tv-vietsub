@@ -192,9 +192,10 @@ class OfflineProgressiveTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(raw).hexdigest(),original_hash)
         self.assertEqual(session.source_sha256,original_hash)
         self.assertEqual(session.next_window().ids,(121,122,123,124))
-        with self.assertRaisesRegex(ValueError,"SESSION_ALREADY_COMPLETE"):
-            commit_next(session,1)
-            # A second invocation is only legal after the remaining chunk, tested separately.
+        final = commit_next(session,1)
+        self.assertTrue(final.complete)
+        self.assertEqual(final.translated_count,124)
+        self.assertIsNone(session.next_window())
 
     def test_complete_session_refuses_extra_revision(self):
         session=ProgressiveSubtitleSession(srt(2),"srt",KEY_A)
