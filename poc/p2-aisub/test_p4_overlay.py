@@ -137,6 +137,8 @@ class P4SourcePatchTest(unittest.TestCase):
             self.assertIn("snapshot.arm(newRequest, previous, paused)", activity)
             self.assertIn("p4ExpectedRefresh = newRequest", activity)
             self.assertIn("current !== p4ExpectedRefresh", activity)
+            self.assertIn("unbindP4Session()\\n        handler.removeCallbacksAndMessages(null)".replace("\\n", "\n"), activity)
+            self.assertIn("abortP4Pending()\\n    }".replace("\\n", "\n"), activity)
             self.assertIn("session.load(newRequest)", activity)
             self.assertIn("handler.postDelayed(g2RecoveryTimeout", activity)
             with self.assertRaises(ValueError):
