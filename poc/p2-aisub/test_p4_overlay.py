@@ -135,10 +135,28 @@ class P4SourcePatchTest(unittest.TestCase):
             self.assertIn("acknowledgeP4FirstFrame()", activity)
             self.assertIn("P1ProductionSubtitles.importAutomaticBytes(", activity)
             self.assertIn("snapshot.arm(newRequest, previous, paused)", activity)
+            self.assertIn("p4ExpectedRefresh = newRequest", activity)
+            self.assertIn("current !== p4ExpectedRefresh", activity)
             self.assertIn("session.load(newRequest)", activity)
             self.assertIn("handler.postDelayed(g2RecoveryTimeout", activity)
             with self.assertRaises(ValueError):
                 module.run(root,apply=True)
+
+    def test_p4_activity_anchor_drift_blocks_after_g2(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("p4_activity_patch", HERE / "activity_patch.py")
+        assert spec is not None and spec.loader is not None
+        sub = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sub)
+        good = fake_g2_activity()
+        patched = sub.patch_activity(good)
+        self.assertEqual(patched.count("internal fun receiveP4Revision("), 1)
+        with self.assertRaisesRegex(ValueError, "P4_ACTIVITY_ALREADY_APPLIED"):
+            sub.patch_activity(patched)
+        for old in (sub.CLEAR_ANCHOR, sub.FRAME_ANCHOR, sub.DESTROY_ANCHOR,
+                    sub.LOAD_ANCHOR, sub.ITEM_ANCHOR, sub.FIELD_ANCHOR):
+            with self.subTest(anchor=old[:24]), self.assertRaisesRegex(ValueError,"P4_ACTIVITY_ANCHOR_"):
+                sub.patch_activity(good.replace(old,"// drifted",1))
 
     def test_wrong_directory_missing_g2_and_wrong_native_hook_blocked(self):
         with tempfile.TemporaryDirectory(prefix="not-g1-") as temp:
