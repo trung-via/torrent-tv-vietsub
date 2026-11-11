@@ -7,6 +7,9 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Unattended polling *client* for a single private IPv4 P2 LAN feed.
@@ -39,11 +42,22 @@ internal object P4LanClient {
     }
 
     /** Must be called off the UI thread. No redirects or unbounded response. */
-    internal fun pollOnce(host: String, port: Int, sessionId: String): P4SubtitleOffer? {
+    internal fun pollOnce(
+        host: String, port: Int, sessionId: String, pairedSecret: ByteArray,
+    ): P4SubtitleOffer? {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw IllegalStateException("P4_LAN_MAIN_THREAD_FORBIDDEN")
         }
         val url = endpoint(host, port, sessionId)
+        if (pairedSecret.size < 16) throw IllegalArgumentException("P4_LAN_SECRET_REQUIRED")
+        val nonce = ByteArray(16)
+        SecureRandom().nextBytes(nonce)
+        val nonceHex = nonce.joinToString("") { "%02x".format(it.toInt() and 255) }
+        val authBody = "TTV-P4-LAN-READ-V1\n" + sessionId + "\n" + nonceHex
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(pairedSecret, "HmacSHA256"))
+        val authorization = mac.doFinal(authBody.toByteArray(Charsets.US_ASCII))
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
         val connection = (url.openConnection() as HttpURLConnection)
         try {
             connection.requestMethod = "GET"
@@ -52,6 +66,8 @@ internal object P4LanClient {
             connection.readTimeout = 5_000
             connection.useCaches = false
             connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("X-P4-Nonce", nonceHex)
+            connection.setRequestProperty("X-P4-Authorization", authorization)
             when (connection.responseCode) {
                 204 -> return null
                 200 -> Unit
