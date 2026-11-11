@@ -1,0 +1,99 @@
+"""Explicit PC-only prototype entrypoint: assumed EN source -> API -> paired TV.
+
+DOES NOT execute on import or in GitHub CI. No source discovery, no
+TorrServer/admin operations, no Windows service/firewall/UPnP modifications.
+One permitted PC LAN interface, one pre-supplied timed SRT/VTT and media key.
+
+Dev prototype transport is authenticated with HMAC over PRIVATE HTTP, NOT
+encrypted. Do not use for confidential subtitle text on an untrusted LAN.
+A production release must replace it with certificate-pinned HTTPS or an
+equivalent authenticated encrypted channel before public distribution.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import threading
+
+from assumed_source_handoff import (
+    AssumedEnglishSubtitle, translate_supplied_to_feed,
+)
+from lean120_api import load_profile
+from paired_activation import PairedActivation, create_paired_server
+
+HEX_32 = re.compile(r"[0-9a-fA-F]{64}\Z")
+
+
+def build_controller(
+    *, media_key: str, source_file: Path, master_hex: str,
+    execute_api: bool, profile_file: Path, api_key: str,
+    glossary: dict[str,str] | None = None,
+) -> PairedActivation:
+    if not isinstance(master_hex,str) or not HEX_32.fullmatch(master_hex):
+        raise ValueError("P4_DEVICE_PAIRING_KEY_REQUIRED")
+    if not source_file.is_file() or source_file.suffix.lower() not in (".srt",".vtt"):
+        raise ValueError("P4_TIMED_SOURCE_FILE_REQUIRED")
+    source=AssumedEnglishSubtitle.from_supplied(
+        media_key=media_key,fmt=source_file.suffix.lower()[1:],
+        source_bytes=source_file.read_bytes())
+    profile=load_profile(profile_file)
+    if execute_api and not api_key:
+        raise ValueError("GEMINI_API_KEY_ENV_REQUIRED")
+    # The user-supplied file is assumed to be a correct English match.
+    # No finder/ASR or semantic match claim from this function.
+    if glossary is None:glossary={}
+    def on_activate(feed,handoff):
+        if not execute_api:
+            # Local activation dry-run; no paid API request and no fake captions.
+            return
+        def run():
+            try:
+                translate_supplied_to_feed(
+                    handoff,profile,feed=feed,glossary=glossary,
+                    api_key=api_key,transport=__import__("lean120_api")._https_post)
+                print("P4_LOCAL_LEAN120_COMPLETE_CUES_RECEIVER_NOT_VERIFIED")
+            except Exception:
+                # Never include provider replies, API keys, subtitle text.
+                print("P4_LOCAL_LEAN120_FAILED_CHECK_PRIVATE_HOST_LOG")
+        threading.Thread(target=run,daemon=True,name="p4-lean120").start()
+    return PairedActivation(
+        device_secret=bytes.fromhex(master_hex),
+        supplied={media_key:source},on_activate=on_activate)
+
+
+def main() -> int:
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bind",required=True,help="Explicit RFC1918 IPv4 PC LAN interface")
+    parser.add_argument("--port",required=True,type=int)
+    parser.add_argument("--media-key",required=True)
+    parser.add_argument("--source",required=True,type=Path,
+                        help="PRE-SUPPLIED and authorized English timed SRT/VTT")
+    parser.add_argument("--profile",type=Path,
+        default=Path(__file__).with_name("translator_profile.json"))
+    parser.add_argument("--glossary-json",type=Path)
+    parser.add_argument("--execute-api",action="store_true")
+    parser.add_argument("--start-lan",action="store_true")
+    args=parser.parse_args()
+    if not args.start_lan:
+        parser.error("EXPLICIT_START_LAN_REQUIRED")
+    key=os.environ.get("P4_PAIRING_MASTER_HEX","")
+    api_key=os.environ.get("GEMINI_API_KEY","")
+    glossary=(json.loads(args.glossary_json.read_text(encoding="utf-8"))
+              if args.glossary_json else {})
+    controller=build_controller(
+        media_key=args.media_key,source_file=args.source,
+        master_hex=key,execute_api=args.execute_api,
+        profile_file=args.profile,api_key=api_key,glossary=glossary)
+    server=create_paired_server(controller,host=args.bind,port=args.port)
+    print("P4_PC_PAIRED_GATEWAY_START_USER_INITIATED_PRIVATE_LAN_ONLY")
+    try:server.serve_forever(poll_interval=0.5)
+    except KeyboardInterrupt:pass
+    finally:server.server_close()
+    return 0
+
+
+if __name__=="__main__":
+    raise SystemExit(main())
