@@ -12,6 +12,7 @@ HMAC but does NOT encrypt the subtitles in transit.
 from __future__ import annotations
 
 import base64
+import hashlib
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import ipaddress
@@ -156,6 +157,29 @@ def create_server(feed: SessionRevisionFeed, *, host: str, port: int) -> HTTPSer
     if type(port) is not int or port not in range(1024,65536):
         raise ValueError("P4_PORT_INVALID")
     return HTTPServer((host,port), make_handler(feed))
+
+
+def translate_into_feed(
+    source: bytes, fmt: str, media_key: str, profile: object,
+    *, feed: SessionRevisionFeed, glossary: dict[str, str],
+    api_key: str, transport: object,
+) -> tuple[SubtitleRevision, ...]:
+    """Lean120 API→cumulative signed feed, one callback per validated batch.
+
+    Fail BEFORE the first provider request if this feed was paired for a
+    different source or film. Transport is injectable for entirely offline CI.
+    No server/socket is started; a separate explicit owner action must run it.
+    """
+    if not isinstance(source, bytes) or hashlib.sha256(source).hexdigest() != feed.source_sha256:
+        raise ValueError("P4_FEED_SOURCE_SHA_MISMATCH")
+    if media_key != feed.media_key:
+        raise ValueError("P4_FEED_MEDIA_MISMATCH")
+    from lean120_api import translate_all
+    return translate_all(
+        source, fmt, media_key, profile,
+        glossary=glossary, api_key=api_key, transport=transport,
+        on_revision=feed.publish,
+    )
 
 
 # No CLI or automatic service startup is provided yet. A future trusted
