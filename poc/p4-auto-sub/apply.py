@@ -80,6 +80,24 @@ def patch_g1(text: str) -> str:
     if text.count(track_choice) != 1:
         raise ValueError("P4_TRACK_CHOICE_ANCHOR_INVALID")
     text = text.replace(track_choice, "    @Synchronized " + track_choice.lstrip(), 1)
+    # Keep default explicit user ON/OFF/OTHER choice authoritative for P4.
+    # No ON entry exists until the user has actually selected/opted in.
+    choice_anchor = "    fun hasSaved(ctx: Context, r: PlayRequest?, i: Int): Boolean {"
+    choice_method = '''    @Synchronized internal fun automaticChoice(
+        ctx: Context, r: PlayRequest?, i: Int,
+    ): String {
+        val key = mediaKey(r, i) ?: return "OTHER"
+        return when (prefs(ctx).getString("selection.$key", null)) {
+            "on" -> "ON"
+            "off" -> "OFF"
+            else -> "OTHER"
+        }
+    }
+
+'''
+    if text.count(choice_anchor) != 1:
+        raise ValueError("P4_AUTOMATIC_CHOICE_ANCHOR_INVALID")
+    text = text.replace(choice_anchor, choice_method + choice_anchor, 1)
     if text.count("fun importSelected(") != 1 or text.count("fun importAutomaticBytes(") != 1:
         raise ValueError("P4_IMPORT_ENTRYPOINT_INVALID")
     return text
@@ -109,8 +127,22 @@ def run(root: Path, *, apply: bool = False) -> None:
     dst = pkg / RECEIVER_FILE
     if not src.is_file() or dst.exists():
         raise ValueError("P4_RECEIVER_SOURCE_MISSING_OR_PRESENT")
-    if "G2RefreshInPlace.prepare" not in activity.read_text(encoding="utf-8-sig"):
+    raw_activity = activity.read_bytes()
+    if "G2RefreshInPlace.prepare" not in raw_activity.decode("utf-8-sig"):
         raise ValueError("P4_LIVE_G2_ACTIVITY_HOOK_NOT_PRESENT")
+    # Reuse a standalone bounded source patch module to keep activity anchors
+    # readable and testable without a running Android device.
+    import importlib.util
+    activity_patch_path = Path(__file__).with_name("activity_patch.py")
+    spec = importlib.util.spec_from_file_location("p4_activity_patch", activity_patch_path)
+    if spec is None or spec.loader is None:
+        raise ValueError("P4_ACTIVITY_PATCH_MODULE_MISSING")
+    patch_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(patch_module)
+    original_activity = raw_activity.decode("utf-8-sig")
+    activity_nl = "\r\n" if b"\r\n" in raw_activity else "\n"
+    patched_activity = patch_module.patch_activity(
+        original_activity.replace("\r\n", "\n")).replace("\n", activity_nl)
     print("P4_G1_G2_OVERLAY_PREFLIGHT_PASS source_sha256=" +
           hashlib.sha256(existing).hexdigest() + " dry_run=" + str(not apply))
     if not apply:
@@ -118,7 +150,10 @@ def run(root: Path, *, apply: bool = False) -> None:
     # Source-only disposable copy, no running application/TV side effect.
     g1.write_text(patched, encoding="utf-8", newline="")
     dst.write_bytes(src.read_bytes())
-    print("P4_NATIVE_BYTES_IMPORT_SOURCE_APPLIED_NOT_ANDROID_BUILT_NOT_TV")
+    activity.write_bytes(
+        (b"\xef\xbb\xbf" if raw_activity.startswith(b"\xef\xbb\xbf") else b"") +
+        patched_activity.encode("utf-8"))
+    print("P4_NATIVE_ACTIVITY_BRIDGE_SOURCE_APPLIED_NOT_ANDROID_BUILT_NOT_TV")
 
 
 def main() -> int:
