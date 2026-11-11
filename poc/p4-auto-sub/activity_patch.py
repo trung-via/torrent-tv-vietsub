@@ -29,6 +29,8 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private var p4PendingOffer: P4SubtitleOffer? = null
     private var p4PendingRequest: PlayRequest? = null
     private var p4ExpectedRefresh: PlayRequest? = null
+    private var p4RegistryBefore: P1ProductionSubtitles.AutomaticBefore? = null
+    private var p4RegistryNewBytes: ByteArray? = null
 
     private data class P4LanScope(val host: String, val port: Int, val sessionId: String)
     private var p4LanScope: P4LanScope? = null
@@ -121,6 +123,17 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         return true
     }
 
+    /** Discard an unacknowledged AI G1 import, including its SHA/ext registry. */
+    private fun restoreP4RegistryIfPending() {
+        val before = p4RegistryBefore
+        val applied = p4RegistryNewBytes
+        if (before != null && applied != null) {
+            P1ProductionSubtitles.rollbackAutomatic(applicationContext, before, applied)
+        }
+        p4RegistryBefore = null
+        p4RegistryNewBytes = null
+    }
+
     private fun abortP4Pending() {
         val offer = p4PendingOffer
         if (offer != null) p4SignedReceiver?.abortPending(offer.version, offer.payloadSha256)
@@ -134,33 +147,33 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         p4LanGeneration++
         p4LanScope = null
         p4LanInFlight = false
+        restoreP4RegistryIfPending()
         abortP4Pending()
         p4SignedReceiver = null
         p4SessionId = null
     }
 
     /** G2 first-frame callback already proved the refreshed PlayRequest is current. */
-    private fun acknowledgeP4FirstFrame() {
-        val offer = p4PendingOffer ?: return
-        val receiver = p4SignedReceiver ?: run { abortP4Pending(); return }
-        val current = session.request ?: run { abortP4Pending(); return }
-        if (current !== p4ExpectedRefresh) {
-            abortP4Pending()
-            return
-        }
+    private fun acknowledgeP4FirstFrame(): Boolean {
+        val offer = p4PendingOffer ?: return false
+        val receiver = p4SignedReceiver ?: return false
+        val current = session.request ?: return false
+        if (current !== p4ExpectedRefresh) return false
         val mediaKey = P1ProductionSubtitles.mediaKey(current, index())
         val choice = P1ProductionSubtitles.automaticChoice(applicationContext, current, index())
-        try {
+        val acknowledged = try {
             receiver.acknowledgeFirstFrame(
                 p4SessionId.orEmpty(), mediaKey.orEmpty(), choice,
                 if (engine is VlcEngine) "VLC" else "OTHER",
                 offer.version, offer.payloadSha256
-            )
-        } catch (_: IllegalArgumentException) {
-            // An OFF/OTHER switch or session change invalidates this async ACK.
-        } finally {
-            abortP4Pending()
-        }
+            ) == "APPLIED_TO_G2"
+        } catch (_: IllegalArgumentException) { false }
+        if (!acknowledged) return false
+        // Only after the persisted first-frame ACK is this new registry valid.
+        p4RegistryBefore = null
+        p4RegistryNewBytes = null
+        abortP4Pending()
+        return true
     }
 
     /**
@@ -195,9 +208,12 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                     Thread {
                         // Snapshot BEFORE G1's registry replaces and deletes old bytes.
                         val snapshot = G2RefreshRecovery.capture(applicationContext, r, idx)
+                        val before = P1ProductionSubtitles.snapshotAutomaticBefore(
+                            applicationContext, r, idx, nowKey)
                         val imported = try {
-                            snapshot != null && P1ProductionSubtitles.importAutomaticBytes(
-                                applicationContext, bytes, r, idx, nowKey)
+                            snapshot != null && before != null &&
+                                P1ProductionSubtitles.importAutomaticBytes(
+                                    applicationContext, bytes, r, idx, nowKey)
                         } catch (_: Exception) { false }
                         runOnUiThread {
                             if (p4PendingOffer !== offer || p4PendingRequest !== r ||
@@ -208,15 +224,23 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                                     idx, index(), engine is VlcEngine, closedSent) ||
                                 P1ProductionSubtitles.automaticChoice(
                                     applicationContext, r, idx) != "ON" ||
-                                !imported || snapshot == null) {
+                                !imported || snapshot == null || before == null) {
+                                if (imported && before != null) {
+                                    P1ProductionSubtitles.rollbackAutomatic(
+                                        applicationContext, before, bytes)
+                                }
                                 snapshot?.restoreOldFile()
                                 abortP4Pending()
                             } else {
                                 val fresh = G2RefreshInPlace.prepare(applicationContext, r, idx)
                                 if (fresh == null) {
+                                    P1ProductionSubtitles.rollbackAutomatic(
+                                        applicationContext, before, bytes)
                                     snapshot.restoreOldFile()
                                     abortP4Pending()
                                 } else {
+                                    p4RegistryBefore = before
+                                    p4RegistryNewBytes = bytes.clone()
                                     try {
                                         commitPendingSeek()
                                         val ms = engine.positionMs.coerceAtLeast(0L)
@@ -244,7 +268,10 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                                         if (!paused) handler.postDelayed(g2RecoveryTimeout, 25_000L)
                                         showMessage("Đang tự cập nhật Vietsub AI...", false)
                                     } catch (_: Exception) {
-                                        if (!rollbackG2Refresh()) abortP4Pending()
+                                        if (!rollbackG2Refresh()) {
+                                            restoreP4RegistryIfPending()
+                                            abortP4Pending()
+                                        }
                                     }
                                 }
                             }
@@ -273,10 +300,12 @@ def patch_activity(original: str) -> str:
         FIELD_ANCHOR: (ACTIVITY_BRIDGE + FIELD_ANCHOR, "FIELD"),
         CLEAR_ANCHOR: (CLEAR_ANCHOR.replace(
             "        g2Recovery = null",
-            "        g2Recovery = null\n        abortP4Pending()"), "CLEAR"),
+            "        g2Recovery = null\n        restoreP4RegistryIfPending()\n        abortP4Pending()"), "CLEAR"),
         FRAME_ANCHOR: (FRAME_ANCHOR.replace(
             "            clearG2Recovery()",
-            "            acknowledgeP4FirstFrame()\n            clearG2Recovery()"), "FRAME"),
+            "            if (p4PendingOffer == null || acknowledgeP4FirstFrame()) {\n" +
+            "                clearG2Recovery()\n            } else {\n" +
+            "                rollbackG2Refresh()\n            }"), "FRAME"),
         DESTROY_ANCHOR: (DESTROY_ANCHOR.replace(
             "        handler.removeCallbacksAndMessages(null)",
             "        unbindP4Session()\n        handler.removeCallbacksAndMessages(null)"), "DESTROY"),
