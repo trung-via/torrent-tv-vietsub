@@ -16,7 +16,7 @@ from lan_revision_feed import SessionRevisionFeed
 
 MEDIA="media."+"a"*64
 OTHER="media."+"b"*64
-MASTER=b"one-time-pairing-device-key-32byte"
+MASTER=b"synthetic-pairing-device-key-32x"
 assert len(MASTER)==32
 
 
