@@ -74,6 +74,12 @@ def patch_g1(text: str) -> str:
         if text.count(key) != 1:
             raise ValueError("P4_G1_EXACT_SOURCE_ANCHOR_INVALID")
         text = text.replace(key, replacement, 1)
+    # Selection persistence and automatic byte commits must use the same
+    # monitor to serialize user OFF/OTHER against an in-flight P4 import.
+    track_choice = "    fun noteTrackChoice(ctx: Context, r: PlayRequest?, i: Int, choice: TrackChoice) {"
+    if text.count(track_choice) != 1:
+        raise ValueError("P4_TRACK_CHOICE_ANCHOR_INVALID")
+    text = text.replace(track_choice, "    @Synchronized " + track_choice.lstrip(), 1)
     if text.count("fun importSelected(") != 1 or text.count("fun importAutomaticBytes(") != 1:
         raise ValueError("P4_IMPORT_ENTRYPOINT_INVALID")
     return text
