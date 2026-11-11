@@ -32,7 +32,10 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private var p4RegistryBefore: P1ProductionSubtitles.AutomaticBefore? = null
     private var p4RegistryNewBytes: ByteArray? = null
 
-    private data class P4LanScope(val host: String, val port: Int, val sessionId: String)
+    private data class P4LanScope(
+        val host: String, val port: Int, val sessionId: String,
+        val readSecret: ByteArray,
+    )
     private var p4LanScope: P4LanScope? = null
     private var p4LanGeneration = 0
     private var p4LanInFlight = false
@@ -51,7 +54,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                 p4LanInFlight = true
                 Thread {
                     val offer = try {
-                        P4LanClient.pollOnce(scope.host, scope.port, scope.sessionId)
+                        P4LanClient.pollOnce(scope.host, scope.port, scope.sessionId, scope.readSecret)
                     } catch (_: Exception) { null }
                     runOnUiThread {
                         if (gen != p4LanGeneration || p4LanScope !== scope) return@runOnUiThread
@@ -85,7 +88,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             return false
         }
         p4LanGeneration++
-        p4LanScope = P4LanScope(host, port, sessionId)
+        p4LanScope = P4LanScope(host, port, sessionId, secret.clone())
         handler.post(p4LanPoll)
         return true
     }
@@ -145,6 +148,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private fun unbindP4Session() {
         handler.removeCallbacks(p4LanPoll)
         p4LanGeneration++
+        p4LanScope?.readSecret?.fill(0)
         p4LanScope = null
         p4LanInFlight = false
         restoreP4RegistryIfPending()
