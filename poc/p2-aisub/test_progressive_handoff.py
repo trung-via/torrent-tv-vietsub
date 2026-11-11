@@ -148,10 +148,16 @@ class OfflineProgressiveTests(unittest.TestCase):
 
     def test_size_limit_rolls_back_and_keeps_old_output(self):
         session = ProgressiveSubtitleSession(srt(240),"srt",KEY_A)
-        first = commit_next(session,0)
+        w0 = session.next_window()
+        assert w0 is not None
+        first = session.commit(
+            w0, {i:"A"*2000 for i in w0.ids},
+            expected_version=0,
+            source_sha256=session.source_sha256, media_key=KEY_A,
+        )
         w = session.next_window()
         assert w is not None
-        huge = {i:"A"*2000 for i in w.ids}
+        huge = {i:"B"*2000 for i in w.ids}
         with self.assertRaisesRegex(ValueError,"TV_SUBTITLE_SIZE_LIMIT"):
             session.commit(w, huge, expected_version=1,
                            source_sha256=session.source_sha256,media_key=KEY_A)
