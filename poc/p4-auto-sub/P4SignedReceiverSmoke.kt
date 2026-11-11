@@ -28,7 +28,7 @@ fun main() {
     )
     val receiver = P4SignedReceiver(session, media, src, secret)
     var calls = 0
-    fun accept(_: ByteArray, __: String): Boolean { calls++; return true }
+    fun accept(payload: ByteArray, fmt: String): Boolean { check(payload.isNotEmpty() && fmt in setOf("srt", "vtt")); calls++; return true }
     check(receiver.receive(first, session, media, "ON", "VLC", ::accept) == "APPLIED_TO_G2")
     check(receiver.receive(first, session, media, "ON", "VLC", ::accept) == "DUPLICATE_NOOP")
     check(calls == 1)
