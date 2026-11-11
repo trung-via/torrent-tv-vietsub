@@ -29,6 +29,7 @@ def fake_g1() -> str:
         + "    }\n"
         + "    fun noteTrackChoice(ctx: Context, r: PlayRequest?, i: Int, choice: TrackChoice) {\n"
         + "        // Synthetic user's OFF/OTHER choice\n"
+        + '        p.edit().putString("selection.$k", value).apply()' + "\n"
         + "    }\n"
         + "    fun hasSaved(ctx: Context, r: PlayRequest?, i: Int): Boolean { return false }\n"
         + "}\n"
