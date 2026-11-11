@@ -1,0 +1,55 @@
+# P4 scoped CI: owner PR #120 only. Builds disposable OMP+G1+G2+P4
+# Debug without ADB, install, device/network mutation, APK uploads or release.
+name: Torrent TV - P4 Composed Android Debug CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p4-auto-sub/**'
+      - 'poc/p2-aisub/test_p4_*.py'
+      - '.github/workflows/tv-p4-composed-android-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: torrent-tv-p4-android-pr120
+  cancel-in-progress: false
+
+jobs:
+  p4-android:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.number == 120 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p4-native-auto-sub-g2-20261111' &&
+      github.event.pull_request.base.ref == 'feature/g2-refresh-vietsub-inplace-20261111'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact owner-controlled PR HEAD (no persist credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Compose exact pinned OMP G1+G2+P4 and Android Debug/unit build
+        shell: powershell
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\build-composed-on-runner.ps1') `
+            -AppRepoRoot $env:GITHUB_WORKSPACE `
+            -SourceCommit $env:PR_HEAD
+          if ($LASTEXITCODE -ne 0 -or -not $?) {
+            throw 'STOP: composed P4 Android Debug build did not pass'
+          }
+
+      - name: Confirm no device deployment or public APK upload performed
+        if: success()
+        shell: powershell
+        run: |
+          Write-Host 'P4_CI_SOURCE_BUILD_ONLY_NO_ADB_NO_TV_NO_ARTIFACT_UPLOAD_NO_RELEASE'
