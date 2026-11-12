@@ -149,7 +149,7 @@ class P4SourcePatchTest(unittest.TestCase):
             self.assertTrue((pkg/module.PAIRING_STORE_FILE).is_file())
             lan = (pkg/module.LAN_CLIENT_FILE).read_text(encoding="utf-8")
             self.assertIn("P4_LAN_MAIN_THREAD_FORBIDDEN", lan)
-            self.assertIn("private fun isPrivateIPv4(", lan)
+            self.assertIn("internal fun isPrivateIPv4(", lan)
             self.assertIn("connection.instanceFollowRedirects = false", lan)
             self.assertNotIn("ServerSocket", lan)
             activity = (pkg/"PlayerActivity.kt").read_text(encoding="utf-8")
