@@ -127,10 +127,23 @@ def _json(payload: bytes) -> dict:
 
 
 def _fmt(file_name: str) -> str | None:
-    if not isinstance(file_name, str):
+    """Source *hint* only, never proof of the downloadable subtitle bytes.
+
+    Provider entries may omit a usable extension or name a non-SRT source.
+    Rank these as 'provider'; conversion to SRT and content QA happen only
+    after an explicit user-authorized POST /download.
+    """
+    if not isinstance(file_name, str) or not file_name.strip():
+        return None
+    if any(ord(c) < 32 for c in file_name) or "/" in file_name or "\\" in file_name:
         return None
     ext = file_name.rsplit(".", 1)[-1].lower()
-    return ext if ext in ("srt", "vtt") else None
+    if ext in ("srt", "vtt"):
+        return ext
+    if ext in {"zip", "rar", "7z", "gz", "exe", "dll", "js", "html", "htm",
+               "mkv", "mp4", "avi", "pdf"}:
+        return None
+    return "provider"
 
 
 def parse_search_response(media: Media, body: bytes) -> Discovery:
@@ -358,14 +371,20 @@ class OpenSubtitles:
         matching = [c for c in discovery.candidates if c.subtitle.subtitle_id == winner.subtitle_id]
         if len(matching) != 1 or str(matching[0].file_id) != winner.subtitle_id:
             raise SubtitleApiError("CANDIDATE_BINDING_MISMATCH")
+        source_fmt = matching[0].subtitle.fmt
+        # Unknown source extension is not SRT evidence. Ask provider to
+        # convert specifically to SRT and still validate the actual bytes.
+        payload = {"file_id": matching[0].file_id}
+        if source_fmt == "provider":
+            payload["sub_format"] = "srt"
         response = _json(self._request("POST", BASE_URL + "/download", api=True,
-                                       payload={"file_id": matching[0].file_id}))
+                                       payload=payload))
         link = response.get("link")
         if not isinstance(link, str):
             raise SubtitleApiError("BAD_DOWNLOAD_SCHEMA")
         _safe_https(link, api=False)
         contents = self._request("GET_BINARY", link, api=False)
-        fmt = matching[0].subtitle.fmt
+        fmt = "srt" if source_fmt == "provider" else source_fmt
         count = validate_timed_text(contents, fmt)
         return Asset(matching[0].file_id, winner.language, fmt, contents,
                      hashlib.sha256(contents).hexdigest(), count)
