@@ -325,9 +325,12 @@ class OpenSubtitles:
         return self._transport(method, url, headers, body, cap)
 
     def search(self, media: Media, *, language: str,
-               query_mode: str = "release", imdb_id: str | None = None) -> Discovery:
+               query_mode: str = "release", imdb_id: str | None = None,
+               page: int = 1) -> Discovery:
         if language not in ("vi", "en"):
             raise SubtitleApiError("UNSUPPORTED_LANGUAGE")
+        if type(page) is not int or page not in (1, 2):
+            raise SubtitleApiError("UNSUPPORTED_PAGE")
         if query_mode not in ("release", "title", "imdb"):
             raise SubtitleApiError("UNSUPPORTED_QUERY_MODE")
         filename = re.split(r"[/\\]", media.filename)[-1]
@@ -351,6 +354,8 @@ class OpenSubtitles:
                 q["year"] = str(release.year)
             if media.movie_hash is not None:
                 q["moviehash"] = media.movie_hash.lower()
+        if page > 1:
+            q["page"] = str(page)
         url = BASE_URL + "/subtitles?" + urllib.parse.urlencode(sorted(q.items()))
         discovery = parse_search_response(media, self._request("GET", url, api=True))
         # Never let an unexpected EN row in a VI response trigger a download.
