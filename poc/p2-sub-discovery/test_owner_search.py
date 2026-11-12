@@ -38,15 +38,15 @@ class Stub:
         assert method == "GET" and body is None, "Search probe must never download"
         query = parse_qs(urlsplit(url).query)
         code = query["languages"][0]
-        mode = "release" if "TEAM" in query["query"][0] else "title"
+        mode = "imdb" if "imdb_id" in query else ("release" if "TEAM" in query["query"][0] else "title")
         self.calls.append((method, code, mode, headers["Api-Key"]))
         return self.table.get((code, mode), api_rows())
 
 
-def cli(table, name=NAME):
+def cli(table, name=NAME, imdb_id=None):
     spy = Stub(table)
     client = OpenSubtitles(api_key="test-private", transport=spy)
-    return search_status(client, name), spy.calls
+    return search_status(client, name, imdb_id=imdb_id), spy.calls
 
 
 class OwnerSearchTests(unittest.TestCase):
@@ -97,10 +97,53 @@ class OwnerSearchTests(unittest.TestCase):
 
     def test_provider_auth_failure_is_not_swallowed(self):
         class AuthFailure:
-            def search(self, media, *, language, query_mode):
+            def search(self, media, *, language, query_mode, imdb_id=None):
                 raise SubtitleApiError("API_AUTH_DENIED")
         with self.assertRaisesRegex(SubtitleApiError, "API_AUTH_DENIED"):
             search_status(AuthFailure(), NAME)
+
+    def test_api_zero_is_distinct_from_parser_rejection(self):
+        lines, _ = cli({})
+        self.assertIn("VI_TITLE_RAW_ROWS=0", lines)
+        self.assertIn("DIAGNOSTIC=API_RETURNED_ZERO_RAW_ROWS", lines)
+        # API may contain rows which the app discarded; do not mislabel them
+        # as OpenSubtitles having no data for the film.
+        lines, _ = cli({("vi", "title"): api_rows({"attributes": {"language": "vi", "files": []}})})
+        self.assertIn("VI_TITLE_RAW_ROWS=1", lines)
+        self.assertIn("VI_TITLE_CANDIDATES=0", lines)
+        self.assertIn("DIAGNOSTIC=API_HAS_ROWS_BUT_NO_RANKABLE_MATCH", lines)
+
+    def test_imdb_fallback_uses_id_without_year_or_title(self):
+        lines, calls = cli({("vi", "imdb"): api_rows(api_row(19, lang="vi", release=CONFIDENT))},
+                           imdb_id="3501632")
+        self.assertIn("VI_IMDB_DECISION=VI_MATCH", lines)
+        self.assertIn("VI_IMDB_RAW_ROWS=1", lines)
+        self.assertEqual([x[2] for x in calls], ["release", "title", "imdb"])
+        self.assertTrue(all(x[0] == "GET" for x in calls))
+        self.assertIn("DOWNLOAD_REQUESTS=0", lines)
+
+    def test_imdb_id_is_validated_before_network(self):
+        class Explode:
+            def __call__(self, *args):
+                raise AssertionError("Unexpected network")
+        client = OpenSubtitles(api_key="key", transport=Explode())
+        m = Media("owner", "torrent", 0, NAME)
+        for invalid in ("Thor", "tt", "../1", "x3501632", "", "1" * 13):
+            with self.subTest(imdb=invalid):
+                with self.assertRaisesRegex(SubtitleApiError, "INVALID_IMDB_ID"):
+                    client.search(m, language="vi", query_mode="imdb", imdb_id=invalid)
+
+    def test_api_total_diagnostic_without_private_text(self):
+        import json
+        response = json.dumps({"total_count": 51, "data": [
+            {"attributes": {"language": "vi", "release": WEAK,
+                            "files": [{"file_id": 7, "file_name": "sample.srt"}]}}
+        ]}).encode()
+        lines, _ = cli({("vi", "title"): response})
+        self.assertIn("VI_TITLE_API_TOTAL=51", lines)
+        self.assertIn("VI_TITLE_RAW_ROWS=1", lines)
+        self.assertNotIn("sample.srt", "\\n".join(lines))
+        self.assertIn("DOWNLOAD_REQUESTS=0", lines)
 
     def test_bad_query_mode_rejected_before_network(self):
         class Explode:
