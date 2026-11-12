@@ -76,7 +76,10 @@ def diagnostic_status(client: OpenSubtitles, filename: str,
         lines.append(f"{prefix}_RAW_ROWS={discovery.raw_rows}")
         lines.append(f"{prefix}_API_TOTAL={discovery.api_total if discovery.api_total is not None else 'UNKNOWN'}")
         lines.append(f"{prefix}_CANDIDATES={len(discovery.candidates)}")
-        lines.append(f"{prefix}_RANKED={len(discovery.decision.ranked)}")
+        ranked = discovery.decision.ranked
+        lines.append(f"{prefix}_RANKED={len(ranked)}")
+        lines.append(f"{prefix}_CONFIDENT={sum(1 for r in ranked if r.confident)}")
+        lines.append(f"{prefix}_GROUP_MATCHES={sum(1 for r in ranked if 'group' in r.evidence)}")
         lines.append(f"{prefix}_DECISION={discovery.decision.status}")
         for code, count in discovery.parse_rejections:
             if count:
