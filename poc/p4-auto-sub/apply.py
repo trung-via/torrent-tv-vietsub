@@ -20,6 +20,7 @@ LAN_CLIENT_FILE = "P4LanClient.kt"
 LEDGER_FILE = "P4AppliedLedger.kt"
 ACTIVATION_CLIENT_FILE = "P4ActivationClient.kt"
 PAIRING_STORE_FILE = "P4PairingStore.kt"
+TLS_CLIENT_FILE = "P4PinnedTls.kt"
 
 OLD_HEAD = '''    @Synchronized fun importSelected(ctx: Context, uri: Uri, r: PlayRequest, i: Int): Boolean {
         val k = mediaKey(r, i) ?: return false
@@ -242,7 +243,8 @@ def run(root: Path, *, apply: bool = False) -> None:
     patched = patch_g1(source.replace("\r\n", "\n")).replace("\n", line_sep)
     native_sources = [Path(__file__).with_name(name) for name in
                       (RECEIVER_FILE, LAN_CLIENT_FILE, LEDGER_FILE,
-                       ACTIVATION_CLIENT_FILE, PAIRING_STORE_FILE)]
+                       ACTIVATION_CLIENT_FILE, PAIRING_STORE_FILE,
+                       TLS_CLIENT_FILE)]
     native_targets = [pkg / p.name for p in native_sources]
     if any(not p.is_file() for p in native_sources) or any(p.exists() for p in native_targets):
         raise ValueError("P4_NATIVE_SOURCE_MISSING_OR_PRESENT")
