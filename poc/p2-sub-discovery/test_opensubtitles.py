@@ -175,6 +175,18 @@ class D2Tests(unittest.TestCase):
         self.assertEqual(reasons["missing_files"], 1)
         self.assertEqual(d.decision.status, "REVIEW_REQUIRED")
 
+    def test_release_group_from_provider_filename_without_release_attribute(self):
+        payload = response({"attributes": {
+            "language": "vi",
+            "files": [{"file_id": 88,
+                       "file_name": "Sample.Film.2017.1080p.BluRay.x265-TEAM.ass"}]
+        }})
+        disc = parse_search_response(media(), payload)
+        self.assertEqual(len(disc.candidates), 1)
+        self.assertEqual(disc.candidates[0].subtitle.fmt, "provider")
+        self.assertEqual(disc.decision.status, "VI_MATCH")
+        self.assertIn("group", disc.decision.winner.evidence)
+
     def test_explicit_srt_conversion_of_provider_format(self):
         mock = FakeTransport(search=response(row(99, name="Sample.Film.2017.ass")))
         cli = OpenSubtitles(api_key="x", transport=mock)
