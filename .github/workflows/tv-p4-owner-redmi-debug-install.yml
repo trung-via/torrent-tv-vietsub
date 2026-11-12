@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   install:
+    # Disarmed after the one-time PASS. Do not re-enable without new owner approval.
     if: >-
       github.repository == 'trung-via/torrent-tv-vietsub' &&
       github.event.pull_request.number == 120 &&
@@ -28,7 +29,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'feature/p4-native-auto-sub-g2-20261111' &&
       github.event.pull_request.base.ref == 'feature/g2-refresh-vietsub-inplace-20261111' &&
-      false # one-shot owner-approved install completed; no automatic re-install
+      false
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
