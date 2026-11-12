@@ -6,7 +6,6 @@ The caller must explicitly opt in and start its own private LAN listener.
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import time
