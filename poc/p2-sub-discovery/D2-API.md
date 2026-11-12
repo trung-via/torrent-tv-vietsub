@@ -147,3 +147,18 @@ actual media and track timing are checked.
 
 Official provider conversion parameter:
 https://ai.opensubtitles.com/api-docs
+
+## D2 Human-approved VI candidate trial — at most one POST (2026-11-12)
+
+Human authorized exactly one optional VI subtitle download **after seeing and selecting a local candidate**. No TV/OMP integration, EN translation, paid API, Windows service change, merge or torrent access is authorized.
+
+Run owner_vi_trial.py --imdb-id 3501632 with a temporary OPENSUBTITLES_API_KEY on the owner's laptop. Enter an authorized exact release name locally. This is a manual trial: the media identity is explicitly UNVERIFIED, and its random trial cache key is not a movie hash or torrent hash.
+
+1. Send one GET /subtitles for VI and the verified title IMDb ID. Show at most five VI candidates matched by title, ranked using D1, with provider release names displayed on the local console only. Prior real API result: VI 6 records, ranked 4, confident 0, YAWNTiC group matches 0; none is auto-selected as synchronized.
+2. Owner types a displayed ordinal or 0 to cancel. A missing or invalid choice sends zero download requests.
+3. Display chosen release metadata again. Require exact second interactive consent phrase: DOWNLOAD ONE. Anything else cancels.
+4. Check private LOCALAPPDATA/TorrentTVVietsub/subtitle-trials cache writability before spending any quota. No API key, raw subtitle text, temporary signed URLs or provider file IDs are written to GitHub or output logs.
+5. At most ONE POST /download with the selected VI file_id and requested sub_format=srt. The client latches a per-session manual attempt before POST. Never retry on HTTP, auth, quota, format or cache failure. A failed POST may still consume quota. Some provider authenticated flows require Bearer login, while this owner trial uses only Api-Key and never asks for or transmits login/password. On API_AUTH_DENIED stop, do not retry automatically.
+6. Validate returned UTF-8 SRT timeline, cues and byte size. Save locally only if valid, content-addressed, and report only cue count/hash/cache status. No claims about sync to the actual video, valid TorrServer binding, Redmi G1, production or release.
+
+Real OpenSubtitles download and SRT validity are NOT_RUN until Human executes the script. Never share key, subtitle dialogue, provider metadata or home paths in the PUBLIC repo. Report only sanitized status codes. CI success reflects synthetic tests, not provider quota or real subtitle timing.
