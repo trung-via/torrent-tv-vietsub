@@ -67,8 +67,11 @@ $untracked=@(& git -C $AppRepoRoot ls-files --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) {throw 'P4_INSTALL_STOP_WORKTREE_INSPECTION_FAILED'}
 foreach ($file in $untracked) {
     $normalized=([string]$file).Replace('\','/')
-    if ($normalized -notmatch '^poc/(g2-refresh|p4-auto-sub)/__pycache__/[A-Za-z0-9_.-]+\.pyc
-
+    if ($normalized -notmatch '^poc/(g2-refresh|p4-auto-sub)/__pycache__/[A-Za-z0-9_.-]+\.pyc\z') {
+        throw 'P4_INSTALL_STOP_UNEXPECTED_UNTRACKED_WORKTREE_CONTENT'
+    }
+}
+Write-Host 'P4_INSTALL_TRACKED_SOURCE_CLEAN_EPHEMERAL_PYC_ONLY'
 $apk=Join-Path $env:RUNNER_TEMP (
     'p1-g1-prod-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+
     '\android\app\build\outputs\apk\debug\app-armeabi-v7a-debug.apk')
