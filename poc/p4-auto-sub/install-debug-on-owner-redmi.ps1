@@ -191,8 +191,8 @@ try {
     $newCert=Get-VerifiedCert $apk 'CANDIDATE'
     if ($CertDiagnosticOnly) {
         Write-Host ('P4_SIGNER_DIAG_BOTH_PARSED=' + [bool]($oldCert -and $newCert))
-        Write-Host ('P4_SIGNER_DIAG_INSTALLED_EQUALS_CANDIDATE=' + [bool]($oldCert -and $oldCert -cne $newCert))
-        Write-Host ('P4_SIGNER_DIAG_CANDIDATE_EQUALS_PIN=' + [bool]($newCert -and $newCert -cne $expectedDebugCert))
+        Write-Host ('P4_SIGNER_DIAG_INSTALLED_EQUALS_CANDIDATE=' + [bool]($oldCert -and $newCert -and ($oldCert -ceq $newCert)))
+        Write-Host ('P4_SIGNER_DIAG_CANDIDATE_EQUALS_PIN=' + [bool]($newCert -and ($newCert -ceq $expectedDebugCert)))
         Write-Host 'P4_SIGNER_DIAGNOSTIC_READONLY_COMPLETE_NO_INSTALL'
         return
     }
