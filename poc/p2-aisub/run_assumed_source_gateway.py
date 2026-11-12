@@ -31,7 +31,7 @@ HEX_32 = re.compile(r"[0-9a-fA-F]{64}\Z")
 
 
 def build_controller(
-    *, media_key: str, source_file: Path, master_hex: str,
+    *, media_key: str, source_file: Path | None, master_hex: str,
     execute_api: bool, profile_file: Path, api_key: str,
     glossary: dict[str,str] | None = None,
     mock_revisions: bool = False,
