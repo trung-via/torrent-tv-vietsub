@@ -124,7 +124,9 @@ class Decision:
 
 def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
     lang = _LANG.get(candidate.language.lower())
-    if lang is None or candidate.fmt.lower() not in {"srt", "vtt"}:
+    # "provider" is OpenSubtitles metadata with an unverified output format.
+    # Rank the release; the D2 download gate must request/verify SRT before use.
+    if lang is None or candidate.fmt.lower() not in {"srt", "vtt", "provider"}:
         return None
     reference = parse_release(media.filename)
     proposed = parse_release(candidate.release_name)
