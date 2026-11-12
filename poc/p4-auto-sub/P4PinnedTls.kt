@@ -29,6 +29,9 @@ internal object P4PinnedTls {
 
     internal fun open(url: URL, rawPin: String): HttpsURLConnection {
         if (url.protocol != "https") throw IllegalArgumentException("P4_TLS_HTTPS_ONLY")
+        if (!P4LanClient.isPrivateIPv4(url.host)) {
+            throw IllegalArgumentException("P4_TLS_PRIVATE_IP_REQUIRED")
+        }
         val pin = normalizePin(rawPin)
         val expected = ByteArray(32) { i ->
             pin.substring(i * 2, i * 2 + 2).toInt(16).toByte()
@@ -45,6 +48,14 @@ internal object P4PinnedTls {
                 // Exact leaf pin from a trusted pairing step, not global trust.
                 val cert = chain[0]
                 cert.checkValidity()
+                val hasExactIpSan = try {
+                    cert.subjectAlternativeNames?.any { san ->
+                        san.size >= 2 && san[0] == 7 && san[1] == url.host
+                    } == true
+                } catch (_: Exception) { false }
+                if (!hasExactIpSan) {
+                    throw CertificateException("P4_TLS_IP_SAN_MISMATCH")
+                }
                 val actual = MessageDigest.getInstance("SHA-256").digest(cert.encoded)
                 if (!MessageDigest.isEqual(actual, expected)) {
                     throw CertificateException("P4_TLS_CERT_PIN_MISMATCH")
