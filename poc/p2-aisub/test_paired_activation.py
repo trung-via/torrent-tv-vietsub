@@ -116,11 +116,11 @@ class PCActivationTests(unittest.TestCase):
             protocol=ssl.PROTOCOL_TLS_SERVER,
             minimum_version=ssl.TLSVersion.TLSv1_2)
         with mock.patch("paired_activation.HTTPServer") as srv:
+            plain_socket=srv.return_value.socket
             create_paired_server(self.controller,host="192.168.1.15",
                                  port=19009,tls_context=ctx)
             self.assertEqual(srv.call_args.args[0],("192.168.1.15",19009))
-            ctx.wrap_socket.assert_called_once_with(srv.return_value.socket,
-                                                    server_side=True)
+            ctx.wrap_socket.assert_called_once_with(plain_socket,server_side=True)
         for ip in ("0.0.0.0","8.8.8.8","localhost"):
             with self.subTest(ip=ip),self.assertRaises(ValueError):
                 create_paired_server(self.controller,host=ip,port=19009,
