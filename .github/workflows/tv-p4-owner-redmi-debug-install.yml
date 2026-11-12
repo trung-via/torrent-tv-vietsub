@@ -47,7 +47,12 @@ jobs:
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
                 $f,[ref]$tokens,[ref]$errors) | Out-Null
-            if ($errors.Count -ne 0) { throw 'P4_INSTALL_STOP_POWERSHELL_PARSE_FAILED' }
+            if ($errors.Count -ne 0) {
+              foreach ($e in $errors) {
+                Write-Host ('P4_INSTALL_PARSER_ERROR_ID=' + $e.ErrorId + ' LINE=' + $e.Extent.StartLineNumber)
+              }
+              throw 'P4_INSTALL_STOP_POWERSHELL_PARSE_FAILED'
+            }
           }
           Write-Host 'P4_INSTALL_POWERSHELL_GUARD_PARSE_PASS'
 
