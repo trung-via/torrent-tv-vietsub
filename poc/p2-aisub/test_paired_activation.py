@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import ssl
 from dataclasses import replace
 import unittest
 from unittest import mock
@@ -111,14 +112,29 @@ class PCActivationTests(unittest.TestCase):
         self.assertFalse(feed.authorize_read(nonce,tag))
 
     def test_no_finder_or_server_or_paid_api_on_import(self):
+        ctx=mock.Mock(
+            protocol=ssl.PROTOCOL_TLS_SERVER,
+            minimum_version=ssl.TLSVersion.TLSv1_2)
         with mock.patch("paired_activation.HTTPServer") as srv:
-            create_paired_server(self.controller,host="192.168.1.15",port=19009)
+            create_paired_server(self.controller,host="192.168.1.15",
+                                 port=19009,tls_context=ctx)
             self.assertEqual(srv.call_args.args[0],("192.168.1.15",19009))
+            ctx.wrap_socket.assert_called_once_with(srv.return_value.socket,
+                                                    server_side=True)
         for ip in ("0.0.0.0","8.8.8.8","localhost"):
             with self.subTest(ip=ip),self.assertRaises(ValueError):
-                create_paired_server(self.controller,host=ip,port=19009)
+                create_paired_server(self.controller,host=ip,port=19009,
+                                     tls_context=ctx)
         with self.assertRaises(ValueError):
-            create_paired_server(self.controller,host="192.168.1.15",port=80)
+            create_paired_server(self.controller,host="192.168.1.15",
+                                 port=80,tls_context=ctx)
+        with self.assertRaisesRegex(ValueError,"TLS_CONTEXT_REQUIRED"):
+            create_paired_server(self.controller,host="192.168.1.15",
+                                 port=19009,tls_context=None)
+        ctx.minimum_version=ssl.TLSVersion.TLSv1_1
+        with self.assertRaisesRegex(ValueError,"TLS_CONTEXT_REQUIRED"):
+            create_paired_server(self.controller,host="192.168.1.15",
+                                 port=19009,tls_context=ctx)
         self.assertFalse(self.queued)
 
     def test_activation_http_contract_and_signed_reader(self):
