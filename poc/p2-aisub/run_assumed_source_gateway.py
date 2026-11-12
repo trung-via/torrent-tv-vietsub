@@ -23,6 +23,9 @@ from assumed_source_handoff import (
 )
 from lean120_api import load_profile
 from paired_activation import PairedActivation, create_paired_server
+from synthetic_mock_feed import (
+    publish_synthetic_revisions, synthetic_source_srt,
+)
 
 HEX_32 = re.compile(r"[0-9a-fA-F]{64}\Z")
 
@@ -31,14 +34,24 @@ def build_controller(
     *, media_key: str, source_file: Path, master_hex: str,
     execute_api: bool, profile_file: Path, api_key: str,
     glossary: dict[str,str] | None = None,
+    mock_revisions: bool = False,
 ) -> PairedActivation:
     if not isinstance(master_hex,str) or not HEX_32.fullmatch(master_hex):
         raise ValueError("P4_DEVICE_PAIRING_KEY_REQUIRED")
-    if not source_file.is_file() or source_file.suffix.lower() not in (".srt",".vtt"):
-        raise ValueError("P4_TIMED_SOURCE_FILE_REQUIRED")
-    source=AssumedEnglishSubtitle.from_supplied(
-        media_key=media_key,fmt=source_file.suffix.lower()[1:],
-        source_bytes=source_file.read_bytes())
+    if mock_revisions and execute_api:
+        raise ValueError("P4_MOCK_CANNOT_CALL_API")
+    if mock_revisions:
+        if source_file is not None:
+            raise ValueError("P4_MOCK_REJECTS_REAL_SOURCE_FILE")
+        source=AssumedEnglishSubtitle.from_supplied(
+            media_key=media_key,fmt="srt",source_bytes=synthetic_source_srt())
+    else:
+        if (source_file is None or not source_file.is_file() or
+                source_file.suffix.lower() not in (".srt",".vtt")):
+            raise ValueError("P4_TIMED_SOURCE_FILE_REQUIRED")
+        source=AssumedEnglishSubtitle.from_supplied(
+            media_key=media_key,fmt=source_file.suffix.lower()[1:],
+            source_bytes=source_file.read_bytes())
     profile=load_profile(profile_file)
     if execute_api and not api_key:
         raise ValueError("GEMINI_API_KEY_ENV_REQUIRED")
@@ -46,6 +59,16 @@ def build_controller(
     # No finder/ASR or semantic match claim from this function.
     if glossary is None:glossary={}
     def on_activate(feed,handoff):
+        if mock_revisions:
+            def run_mock():
+                try:
+                    publish_synthetic_revisions(handoff.media_key,feed)
+                    print("P4_SYNTHETIC_120_240_PUBLISHED_NOT_REAL_TV_PASS")
+                except Exception:
+                    print("P4_SYNTHETIC_PUBLISH_FAILED")
+            threading.Thread(target=run_mock,daemon=True,
+                             name="p4-synthetic-feed").start()
+            return
         if not execute_api:
             # Local activation dry-run; no paid API request and no fake captions.
             return
@@ -69,8 +92,10 @@ def main() -> int:
     parser.add_argument("--bind",required=True,help="Explicit RFC1918 IPv4 PC LAN interface")
     parser.add_argument("--port",required=True,type=int)
     parser.add_argument("--media-key",required=True)
-    parser.add_argument("--source",required=True,type=Path,
-                        help="PRE-SUPPLIED and authorized English timed SRT/VTT")
+    parser.add_argument("--source",type=Path,
+                        help="PRE-SUPPLIED and authorized EN SRT/VTT (not in mock mode)")
+    parser.add_argument("--mock-revisions",action="store_true",
+                        help="Dev-only synthetic 120→240; no source file or Gemini API")
     parser.add_argument("--profile",type=Path,
         default=Path(__file__).with_name("translator_profile.json"))
     parser.add_argument("--glossary-json",type=Path)
@@ -86,7 +111,8 @@ def main() -> int:
     controller=build_controller(
         media_key=args.media_key,source_file=args.source,
         master_hex=key,execute_api=args.execute_api,
-        profile_file=args.profile,api_key=api_key,glossary=glossary)
+        profile_file=args.profile,api_key=api_key,glossary=glossary,
+        mock_revisions=args.mock_revisions)
     server=create_paired_server(controller,host=args.bind,port=args.port)
     print("P4_PC_PAIRED_GATEWAY_START_USER_INITIATED_PRIVATE_LAN_ONLY")
     try:server.serve_forever(poll_interval=0.5)
