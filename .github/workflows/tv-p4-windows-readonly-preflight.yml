@@ -111,9 +111,16 @@ jobs:
               Write-Host ('P4_TV_API=' + $api)
               Write-Host ('P4_TV_ABI=' + $abi)
               Write-Host ('P4_TV_BUILD=' + $fw)
-              $ompInstalled = @(& $adbPath -s $serial shell pm path com.spacesarmat.omp 2>$null) |
-                  Where-Object { $_ -match '^package:' }
-              Write-Host ('P4_OMP_PACKAGE_PRESENT=' + (@($ompInstalled).Count -gt 0).ToString().ToLowerInvariant())
+              # OMP debug has applicationIdSuffix ".test"; do not confuse it with release.
+              $stablePaths = @(& $adbPath -s $serial shell pm path com.spacesarmat.omp 2>$null)
+              $stableCode = $LASTEXITCODE
+              $debugPaths = @(& $adbPath -s $serial shell pm path com.spacesarmat.omp.test 2>$null)
+              $debugCode = $LASTEXITCODE
+              $global:LASTEXITCODE = 0
+              $stablePresent = ($stableCode -eq 0) -and (@($stablePaths | Where-Object { $_ -match '^package:' }).Count -gt 0)
+              $debugPresent = ($debugCode -eq 0) -and (@($debugPaths | Where-Object { $_ -match '^package:' }).Count -gt 0)
+              Write-Host ('P4_OMP_RELEASE_PRESENT=' + $stablePresent.ToString().ToLowerInvariant())
+              Write-Host ('P4_OMP_DEBUG_PRESENT=' + $debugPresent.ToString().ToLowerInvariant())
             } else {
               Write-Host 'P4_DEVICE_INVENTORY=SKIPPED_AMBIGUOUS_OR_ABSENT'
             }
@@ -130,3 +137,6 @@ jobs:
           # These flags only prove configuration presence, NOT valid cert/IP SAN,
           # PC listener, usable port, or real Redmi transport.
           Write-Host 'P4_REAL_LAN_AND_REDMi_E2E=NOT_RUN'
+          # ADB pm path can return 1 for an absent app; that is an observed state,
+          # not a failed read-only preflight or an overall job failure.
+          $global:LASTEXITCODE = 0
