@@ -35,7 +35,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
 
     private data class P4LanScope(
         val host: String, val port: Int, val sessionId: String,
-        val readSecret: ByteArray,
+        val readSecret: ByteArray, val certPinSha256: String,
     )
     private var p4LanScope: P4LanScope? = null
     private var p4LanGeneration = 0
@@ -57,7 +57,8 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                 p4LanInFlight = true
                 Thread {
                     val offer = try {
-                        P4LanClient.pollOnce(scope.host, scope.port, scope.sessionId, scope.readSecret)
+                        P4LanClient.pollOnce(scope.host, scope.port, scope.sessionId,
+                            scope.readSecret, scope.certPinSha256)
                     } catch (_: Exception) { null }
                     runOnUiThread {
                         if (gen != p4LanGeneration || p4LanScope !== scope) return@runOnUiThread
@@ -84,7 +85,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             return
         }
         val field = android.widget.EditText(this)
-        field.hint = "192.168.1.10:19009|64 ký tự hex"
+        field.hint = "IP:port|64 hex key|64 hex TLS cert SHA256"
         field.inputType = android.text.InputType.TYPE_CLASS_TEXT or
             android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
         val dialogP4 = AlertDialog.Builder(this, R.style.OmpPlayerDialog)
@@ -92,7 +93,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             .setView(field)
             .setPositiveButton("Lưu") { _, _ ->
                 val entered = field.text?.toString()?.trim().orEmpty()
-                val match = Regex("([0-9.]{7,15}):([0-9]{4,5})[|]([0-9a-fA-F]{64})")
+                val match = Regex("([0-9.]{7,15}):([0-9]{4,5})[|]([0-9a-fA-F]{64})[|]([0-9a-fA-F]{64})")
                     .matchEntire(entered)
                 if (match == null) {
                     showMessage("Dữ liệu ghép đôi PC không hợp lệ.", true)
@@ -103,7 +104,8 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                     val key = ByteArray(32) { i ->
                         hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
                     }
-                    val stored = P4PairingStore(applicationContext).save(host, port, key)
+                    val stored = P4PairingStore(applicationContext).save(
+                        host, port, key, match.groupValues[4])
                     key.fill(0)
                     showMessage(
                         if (stored) "Đã lưu ghép đôi PC. Chọn Bật Vietsub AI cho phim."
@@ -137,7 +139,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         Thread {
             val result = try {
                 P4ActivationClient.activate(device.host, device.port,
-                    media, device.deviceSecret)
+                    media, device.deviceSecret, device.certPinSha256)
             } catch (_: Exception) { null }
             device.deviceSecret.fill(0)
             runOnUiThread {
@@ -155,7 +157,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                     P1ProductionSubtitles.mediaKey(session.request, idx) == media
                 val started = same && startP4LanSession(
                     device.host, device.port, result.sessionId,
-                    result.sourceSha256, result.sessionSecret)
+                    result.sourceSha256, result.sessionSecret, device.certPinSha256)
                 result.sessionSecret.fill(0)
                 showMessage(
                     if (started) "Đã bật Vietsub AI. Đang chờ bản dịch đầu tiên..."
@@ -170,11 +172,13 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
      */
     internal fun startP4LanSession(
         host: String, port: Int, sessionId: String,
-        sourceSha256: String, secret: ByteArray,
+        sourceSha256: String, secret: ByteArray, certPinSha256: String,
     ): Boolean {
         if (Looper.myLooper() != Looper.getMainLooper() || p4LanScope != null) return false
-        try { P4LanClient.endpoint(host, port, sessionId) }
-        catch (_: IllegalArgumentException) { return false }
+        try {
+            P4LanClient.endpoint(host, port, sessionId)
+            P4PinnedTls.normalizePin(certPinSha256)
+        } catch (_: IllegalArgumentException) { return false }
         if (!bindP4Session(sessionId, sourceSha256, secret)) return false
         val r = session.request
         if (!P1ProductionSubtitles.setAutomaticOptIn(applicationContext, r, index(), true)) {
@@ -182,7 +186,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             return false
         }
         p4LanGeneration++
-        p4LanScope = P4LanScope(host, port, sessionId, secret.clone())
+        p4LanScope = P4LanScope(host, port, sessionId, secret.clone(), certPinSha256)
         handler.post(p4LanPoll)
         return true
     }
