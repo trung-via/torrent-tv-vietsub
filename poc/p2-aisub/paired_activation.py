@@ -198,9 +198,10 @@ def create_paired_server(
     private_lan_ip(host)
     if type(port) is not int or port not in range(1024,65536):
         raise ValueError("P4_PAIRED_PORT_INVALID")
+    minimum=getattr(tls_context,"minimum_version",None)
     if (tls_context is None or
         getattr(tls_context,"protocol",None) != ssl.PROTOCOL_TLS_SERVER or
-        getattr(tls_context,"minimum_version",None) < ssl.TLSVersion.TLSv1_2):
+        minimum is None or minimum < ssl.TLSVersion.TLSv1_2):
         raise ValueError("P4_HTTPS_TLS_CONTEXT_REQUIRED")
     server=HTTPServer((host,port),make_paired_handler(controller))
     try:
