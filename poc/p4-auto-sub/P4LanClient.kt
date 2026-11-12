@@ -36,7 +36,7 @@ internal object P4LanClient {
         return URL("https://$host:$port/p4/activate")
     }
 
-    private fun isPrivateIPv4(value: String): Boolean {
+    internal fun isPrivateIPv4(value: String): Boolean {
         if (!Regex("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}").matches(value)) return false
         val values = value.split(".").mapNotNull { it.toIntOrNull() }
         if (values.size != 4 || values.any { it !in 0..255 }) return false
