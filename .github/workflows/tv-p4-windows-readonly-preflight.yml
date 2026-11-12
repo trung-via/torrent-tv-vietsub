@@ -85,6 +85,38 @@ jobs:
             $unauthorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+unauthorized(\s|$)' }).Count -gt 0
             Write-Host ('P4_ADB_AUTHORIZED_DEVICE_PRESENT=' + $authorized.ToString().ToLowerInvariant())
             Write-Host ('P4_ADB_UNAUTHORIZED_DEVICE_PRESENT=' + $unauthorized.ToString().ToLowerInvariant())
+            $authorizedLines = @($lines | Where-Object { $_ -match '^[^\s]+\s+device(\s|$)' })
+            Write-Host ('P4_ADB_SINGLE_AUTHORIZED_DEVICE=' + ($authorizedLines.Count -eq 1).ToString().ToLowerInvariant())
+            if ($authorizedLines.Count -eq 1) {
+              # Serial is held only in this process; never printed to CI log.
+              $serial = ($authorizedLines[0].Trim() -split '\s+')[0]
+              function Get-RedmiProp([string]$prop) {
+                $raw = @(& $adbPath -s $serial shell getprop $prop 2>$null)
+                if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { return 'UNKNOWN' }
+                $value = [string]$raw[0]
+                $value = ($value -replace '[^\p{L}\p{N} ._-]', '').Trim()
+                if ($value.Length -gt 80) { return 'UNKNOWN' }
+                if ([string]::IsNullOrWhiteSpace($value)) { return 'UNKNOWN' }
+                return $value
+              }
+              $model = Get-RedmiProp 'ro.product.model'
+              $brand = Get-RedmiProp 'ro.product.brand'
+              $android = Get-RedmiProp 'ro.build.version.release'
+              $api = Get-RedmiProp 'ro.build.version.sdk'
+              $abi = Get-RedmiProp 'ro.product.cpu.abi'
+              $fw = Get-RedmiProp 'ro.build.version.incremental'
+              Write-Host ('P4_TV_BRAND=' + $brand)
+              Write-Host ('P4_TV_MODEL=' + $model)
+              Write-Host ('P4_TV_ANDROID=' + $android)
+              Write-Host ('P4_TV_API=' + $api)
+              Write-Host ('P4_TV_ABI=' + $abi)
+              Write-Host ('P4_TV_BUILD=' + $fw)
+              $ompInstalled = @(& $adbPath -s $serial shell pm path com.spacesarmat.omp 2>$null) |
+                  Where-Object { $_ -match '^package:' }
+              Write-Host ('P4_OMP_PACKAGE_PRESENT=' + (@($ompInstalled).Count -gt 0).ToString().ToLowerInvariant())
+            } else {
+              Write-Host 'P4_DEVICE_INVENTORY=SKIPPED_AMBIGUOUS_OR_ABSENT'
+            }
           }
           $tlsCert = [Environment]::GetEnvironmentVariable('TTV_P4_TLS_CERT_FILE','Process')
           $tlsKey = [Environment]::GetEnvironmentVariable('TTV_P4_TLS_KEY_FILE','Process')
