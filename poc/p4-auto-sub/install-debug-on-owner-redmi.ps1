@@ -131,9 +131,29 @@ $verifyTemp=Join-Path $env:RUNNER_TEMP (
 if (Test-Path -LiteralPath $verifyTemp) {throw 'P4_INSTALL_STOP_VERIFY_TEMP_ALREADY_EXISTS'}
 New-Item -ItemType Directory -Path $verifyTemp -ErrorAction Stop | Out-Null
 try {
+    # Windows PowerShell 5.1 turns native stderr (including SUCCESSFUL adb
+    # progress output) into NativeCommandError when ErrorActionPreference=Stop.
+    # Capture both streams privately and decide success by native exit code.
+    function Invoke-QuietAdb([string[]]$subArgs) {
+        $outFile=Join-Path $verifyTemp 'adb-private-stdout.txt'
+        $errFile=Join-Path $verifyTemp 'adb-private-stderr.txt'
+        try {
+            $proc=Start-Process -FilePath $adb -ArgumentList (@('-s',$serial)+$subArgs) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile -ErrorAction Stop
+            $lines=if (Test-Path -LiteralPath $outFile -PathType Leaf) {
+                @(Get-Content -LiteralPath $outFile -ErrorAction Stop)
+            } else { @() }
+            return @{ code=[int]$proc.ExitCode; lines=@($lines) }
+        } finally {
+            foreach ($file in @($outFile,$errFile)) {
+                if (Test-Path -LiteralPath $file) {
+                    Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
     $oldApk=Join-Path $verifyTemp 'installed-before.apk'
-    $pullOutput=@(& $adb -s $serial pull $remoteBase $oldApk 2>&1)
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $oldApk -PathType Leaf)) {
+    $pullResult=Invoke-QuietAdb @('pull',$remoteBase,$oldApk)
+    if ($pullResult.code -ne 0 -or -not (Test-Path -LiteralPath $oldApk -PathType Leaf)) {
         throw 'P4_INSTALL_STOP_CANNOT_READ_INSTALLED_DEBUG_APK'
     }
     function Get-PackageAndVersion([string]$apkFile) {
@@ -173,9 +193,9 @@ try {
     Write-Host ('P4_INSTALL_EXPECTED_ARM32_SHA256='+$expectedApkHash)
 
     # Sole TV write: install -r preserves data. No -d, uninstall, clear, reboot.
-    $installResult=@(& $adb -s $serial install -r $apk 2>&1)
-    if ($LASTEXITCODE -ne 0 -or
-        @($installResult | Where-Object { ([string]$_).Trim() -eq 'Success' }).Count -ne 1) {
+    $installResult=Invoke-QuietAdb @('install','-r',$apk)
+    if ($installResult.code -ne 0 -or
+        @($installResult.lines | Where-Object { ([string]$_).Trim() -eq 'Success' }).Count -ne 1) {
         throw 'P4_INSTALL_STOP_ADB_REPLACE_FAILED_NO_RECOVERY_MUTATION'
     }
     Write-Host 'P4_INSTALL_ADB_REPLACE_SUCCESS_DATA_PRESERVED_BY_REPLACE_FLAG'
@@ -186,8 +206,8 @@ try {
     if ($afterBases.Count -ne 1) {throw 'P4_INSTALL_STOP_POST_BASE_APK_UNKNOWN'}
     $remoteAfter=([string]$afterBases[0]).Trim().Substring(8)
     $afterLocal=Join-Path $verifyTemp 'installed-after.apk'
-    $ignored=@(& $adb -s $serial pull $remoteAfter $afterLocal 2>&1)
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $afterLocal -PathType Leaf)) {
+    $postPullResult=Invoke-QuietAdb @('pull',$remoteAfter,$afterLocal)
+    if ($postPullResult.code -ne 0 -or -not (Test-Path -LiteralPath $afterLocal -PathType Leaf)) {
         throw 'P4_INSTALL_STOP_POST_APK_READ_FAILED'
     }
     $observedHash=(Get-FileHash -LiteralPath $afterLocal -Algorithm SHA256).Hash.ToLowerInvariant()
