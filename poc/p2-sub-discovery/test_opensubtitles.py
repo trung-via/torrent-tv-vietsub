@@ -107,11 +107,11 @@ class D2Tests(unittest.TestCase):
         self.assertEqual(found.decision.status, "VI_MATCH")
 
     def test_header_control_characters_rejected(self):
-        for token in ("bad\\nheader", "bad\\rheader"):
+        for token in ("bad" + chr(10) + "header", "bad" + chr(13) + "header"):
             with self.assertRaisesRegex(SubtitleApiError, "INVALID_BEARER_TOKEN"):
-                OpenSubtitles(api_key="x", bearer=token.replace("\\\\n", "\\n").replace("\\\\r", "\\r"))
+                OpenSubtitles(api_key="x", bearer=token)
         with self.assertRaisesRegex(SubtitleApiError, "API_KEY_NOT_CONFIGURED"):
-            OpenSubtitles(api_key="bad\\nheader")
+            OpenSubtitles(api_key="bad" + chr(10) + "header")
 
     def test_bad_key_or_language_no_request(self):
         with self.assertRaisesRegex(SubtitleApiError, "API_KEY_NOT_CONFIGURED"):
