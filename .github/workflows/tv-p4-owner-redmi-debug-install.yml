@@ -1,4 +1,6 @@
-# Explicit Human-approved Debug update; owner PR #120, dedicated runner only.
+# RETIRED ONE-SHOT workflow after owner-approved P4 Debug upgrade SUCCESS.
+# Run 43273786878 installed exact ARM32 debug SHA256 615ae630f2f545c68cbc048f7d45bc8ac50cd28d0dc1690b0db4a10584b38bf6.
+# Job-level condition is permanently false; no automatic reinstallation.
 # Source is rebuilt from exact head and pre-install package/certificate/version
 # guards must pass. Windows PowerShell ADB stdout/stderr is captured privately.
 # Never uninstall, clear app data, downgrade or ship artifacts.
@@ -25,7 +27,8 @@ jobs:
       github.event.pull_request.user.login == 'trung-via' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'feature/p4-native-auto-sub-g2-20261111' &&
-      github.event.pull_request.base.ref == 'feature/g2-refresh-vietsub-inplace-20261111'
+      github.event.pull_request.base.ref == 'feature/g2-refresh-vietsub-inplace-20261111' &&
+      false # one-shot owner-approved install completed; no automatic re-install
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
