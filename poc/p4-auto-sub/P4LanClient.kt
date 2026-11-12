@@ -5,7 +5,6 @@ import android.os.Looper
 import android.util.Base64
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
 import javax.crypto.Mac
@@ -16,8 +15,8 @@ import javax.crypto.spec.SecretKeySpec
  *
  * No TV listener, exported activity, hostname/DNS or WAN endpoints. A signed
  * P4 offer must still pass P4SignedReceiver HMAC, media, session and ON checks.
- * HMAC provides authenticity/integrity, but HTTP is NOT encrypted. Never send
- * passwords/API keys/copyrighted source film to this endpoint.
+ * All P4 traffic is certificate-pinned HTTPS (not legacy OMP HTTP).
+ * HMAC provides an independent media/session/read-authentication boundary.
  */
 internal object P4LanClient {
     private const val MAX_WIRE_BYTES = 400_000
@@ -28,13 +27,13 @@ internal object P4LanClient {
         if (!isPrivateIPv4(host)) throw IllegalArgumentException("P4_LAN_IP_REQUIRED")
         if (port !in 1024..65535) throw IllegalArgumentException("P4_LAN_PORT_INVALID")
         if (!SESSION_RX.matches(sessionId)) throw IllegalArgumentException("P4_SESSION_ID_INVALID")
-        return URL("http://$host:$port/p4/revision/$sessionId")
+        return URL("https://$host:$port/p4/revision/$sessionId")
     }
 
     internal fun activationEndpoint(host: String, port: Int): URL {
         if (!isPrivateIPv4(host)) throw IllegalArgumentException("P4_LAN_IP_REQUIRED")
         if (port !in 1024..65535) throw IllegalArgumentException("P4_LAN_PORT_INVALID")
-        return URL("http://$host:$port/p4/activate")
+        return URL("https://$host:$port/p4/activate")
     }
 
     private fun isPrivateIPv4(value: String): Boolean {
@@ -50,6 +49,7 @@ internal object P4LanClient {
     /** Must be called off the UI thread. No redirects or unbounded response. */
     internal fun pollOnce(
         host: String, port: Int, sessionId: String, pairedSecret: ByteArray,
+        certPinSha256: String,
     ): P4SubtitleOffer? {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw IllegalStateException("P4_LAN_MAIN_THREAD_FORBIDDEN")
@@ -64,7 +64,7 @@ internal object P4LanClient {
         mac.init(SecretKeySpec(pairedSecret, "HmacSHA256"))
         val authorization = mac.doFinal(authBody.toByteArray(Charsets.US_ASCII))
             .joinToString("") { "%02x".format(it.toInt() and 255) }
-        val connection = (url.openConnection() as HttpURLConnection)
+        val connection = P4PinnedTls.open(url, certPinSha256)
         try {
             connection.requestMethod = "GET"
             connection.instanceFollowRedirects = false
