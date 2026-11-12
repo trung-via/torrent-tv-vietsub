@@ -40,3 +40,36 @@ Repo is currently PUBLIC even though older documentation says PRIVATE. No privat
 3. The script calls **only** `GET https://api.opensubtitles.com/api/v1/infos/languages`. It never logs in, sends a movie title, consumes subtitle-download quota, or posts the key to any third-party host.
 4. Report only a sanitized code: `API_READONLY_SMOKE_PASS`, `API_KEY_NOT_CONFIGURED`, `API_AUTH_DENIED`, `RATE_LIMITED_429`, `API_NETWORK_ERROR`, or `API_RESPONSE_INVALID`. **No screenshots of Consumer/key page**, password, Bearer token, home IP or full HTTP response.
 5. This read-only probe establishes API-key access **only**. A separate Human-authorized real search and `POST /download` for a rights-cleared subtitle fixture will be necessary to prove login/account quota/redirects and actual SRT behavior. No TV pairing required for this D2 stage.
+
+## D2 Human real search-only checkpoint (after API readonly smoke)
+
+The prior `GET /infos/languages` success only establishes endpoint connectivity.
+It may not authenticate the key because language-list access may be public.
+Only a real `GET /subtitles` response establishes authorized search access.
+
+**On Windows with a reviewed checkout of this D2 Draft branch** run
+`& .\poc\p2-sub-discovery\owner-search.ps1` as a single PowerShell command.
+The script hides the API key as it is typed and prompts for **one authorized
+media release filename**. The input is not committed to GitHub or printed
+by the tool. Provider sees the selected filename/title in the API query.
+
+The owner search does at most four API GET calls:
+
+1. VI query = full filename release (without extension), optional year.
+2. VI query = parsed movie title, optional year (only if first has no confident match).
+3. EN release query (only if no confidently ranked VI).
+4. EN title query (only if earlier searches had no confident match).
+
+It prints sanitized counts/decisions:
+`VI_RELEASE_CANDIDATES=N`, `VI_RELEASE_DECISION=...`,
+`BEST_LANGUAGE=VI|EN`, `BEST_MATCH_EVIDENCE=...`,
+`NEXT_GATE=VI_MATCH|EN_TRANSLATE|REVIEW_REQUIRED|NO_MATCH`,
+and `DOWNLOAD_REQUESTS=0`. If API key is invalid, expect sanitized
+`API_AUTH_DENIED`. Do not share key, password, full URL, original filename
+or subtitle dialogue with PUBLIC GitHub. Share only these codes.
+
+**This is a standalone search proof only.** It uses a clearly labeled unverified
+placeholder identity rather than reading the actual TorrServer file hash,
+index, embedded subtitles or bytes. No movie hash matching claim, no
+`POST /download`, no SRT/VTT payload and no TV auto-refresh claim.
+Real title/release results are unverified until the owner runs the command.
