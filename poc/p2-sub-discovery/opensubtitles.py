@@ -47,6 +47,8 @@ class Discovery:
     decision: Decision
     raw_rows: int = 0
     api_total: int | None = None
+    # Counts only: do not return, persist or log provider filenames or dialog.
+    parse_rejections: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -138,30 +140,50 @@ def parse_search_response(media: Media, body: bytes) -> Discovery:
         raise SubtitleApiError("BAD_SEARCH_SCHEMA")
     out: list[Candidate] = []
     seen: set[int] = set()
+    reasons = {
+        "missing_attributes": 0, "unexpected_language": 0,
+        "missing_files": 0, "invalid_file_entry": 0,
+        "invalid_file_id": 0, "missing_file_name": 0,
+        "unsupported_extension": 0, "duplicate_file_id": 0,
+        "oversized_name": 0,
+    }
     for row in rows:
         if not isinstance(row, dict) or not isinstance(row.get("attributes"), dict):
+            reasons["missing_attributes"] += 1
             continue
         attrs = row["attributes"]
         language = attrs.get("language")
         if language not in ("vi", "en"):
+            reasons["unexpected_language"] += 1
             continue
         files = attrs.get("files")
-        if not isinstance(files, list):
+        if not isinstance(files, list) or not files:
+            reasons["missing_files"] += 1
             continue
         release = attrs.get("release")
         for sub_file in files:
             if not isinstance(sub_file, dict):
+                reasons["invalid_file_entry"] += 1
                 continue
             file_id = sub_file.get("file_id")
             name = sub_file.get("file_name")
-            if type(file_id) is not int or file_id <= 0 or file_id in seen or not isinstance(name, str):
+            if type(file_id) is not int or file_id <= 0:
+                reasons["invalid_file_id"] += 1
+                continue
+            if file_id in seen:
+                reasons["duplicate_file_id"] += 1
+                continue
+            if not isinstance(name, str) or not name:
+                reasons["missing_file_name"] += 1
+                continue
+            if len(name) > 300 or (isinstance(release, str) and len(release) > 300):
+                reasons["oversized_name"] += 1
                 continue
             fmt = _fmt(name)
             if fmt is None:
+                reasons["unsupported_extension"] += 1
                 continue
             release_name = release if isinstance(release, str) and release.strip() else name
-            if len(release_name) > 300 or len(name) > 300:
-                continue
             seen.add(file_id)
             # API moviehash_match is only useful when the source hash was
             # separately verified on the selected media, not guessed from name.
@@ -173,7 +195,8 @@ def parse_search_response(media: Media, body: bytes) -> Discovery:
     # Aggregate numeric diagnostics only: no raw provider payload or release titles.
     safe_total = total if type(total) is int and 0 <= total <= 10000000 else None
     return Discovery(media.key, items, tuple(out), choose(media, items),
-                     raw_rows=len(rows), api_total=safe_total)
+                     raw_rows=len(rows), api_total=safe_total,
+                     parse_rejections=tuple(reasons.items()))
 
 
 def _milliseconds(stamp: str, fmt: str) -> int:
@@ -321,7 +344,8 @@ class OpenSubtitles:
         candidates = tuple(c for c in discovery.candidates if c.subtitle.language == language)
         results = SearchResults(media.key, tuple(c.subtitle for c in candidates))
         return Discovery(media.key, results, candidates, choose(media, results),
-                         raw_rows=discovery.raw_rows, api_total=discovery.api_total)
+                         raw_rows=discovery.raw_rows, api_total=discovery.api_total,
+                         parse_rejections=discovery.parse_rejections)
 
     def download_selected(self, media: Media, discovery: Discovery) -> Asset:
         """Exactly one explicit quota-incurring POST for a confident D1 winner."""
