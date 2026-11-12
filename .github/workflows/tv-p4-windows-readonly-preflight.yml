@@ -41,6 +41,14 @@ jobs:
           $sdkRoots = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT,
               (Join-Path $env:LOCALAPPDATA 'Android\Sdk')) |
               Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          # Trusted historical Torrent TV HostOps ADB pin, not a generic drive search.
+          if ($null -eq $adbPath) {
+            $ownerAdb = 'C:\TOOL\Android-SDK\platform-tools\adb.exe'
+            if (Test-Path -LiteralPath $ownerAdb -PathType Leaf) {
+              $adbPath = $ownerAdb
+              $adbOrigin = 'HOSTOPS_PIN'
+            }
+          }
           if ($null -eq $adbPath) {
             foreach ($sdk in $sdkRoots) {
               $candidate = Join-Path $sdk 'platform-tools\adb.exe'
