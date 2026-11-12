@@ -1,0 +1,68 @@
+# Read-only owner-scoped host preflight. Never start ADB, bind listeners, install
+# APKs, read subtitle files, change firewall/router/services or expose secrets.
+name: Torrent TV - P4 Windows Redmi Readonly Preflight
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/tv-p4-windows-readonly-preflight.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: torrent-tv-p4-readonly-preflight-pr120
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.number == 120 &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/p4-native-auto-sub-g2-20261111' &&
+      github.event.pull_request.base.ref == 'feature/g2-refresh-vietsub-inplace-20261111'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 8
+    steps:
+      - name: Check runtime without starting services or printing device identifiers
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host 'P4_PREFLIGHT_READONLY_NO_HOST_MUTATION=true'
+          Write-Host 'P4_PREFLIGHT_REPO_ISOLATED_RUNNER_LABEL=true'
+          $adb = Get-Command adb.exe -ErrorAction SilentlyContinue
+          if ($null -eq $adb) {
+            Write-Host 'P4_ADB_AVAILABLE=false'
+            Write-Host 'P4_ADB_ALREADY_RUNNING=false'
+            Write-Host 'P4_ADB_AUTHORIZED_DEVICE_PRESENT=UNKNOWN'
+          } else {
+            Write-Host 'P4_ADB_AVAILABLE=true'
+            $running = @(Get-Process -Name adb -ErrorAction SilentlyContinue).Count -gt 0
+            Write-Host ('P4_ADB_ALREADY_RUNNING=' + $running.ToString().ToLowerInvariant())
+            if (-not $running) {
+              # Do not invoke adb: it would spawn a new ADB server.
+              Write-Host 'P4_ADB_AUTHORIZED_DEVICE_PRESENT=UNKNOWN'
+            } else {
+              # Capture ADB output privately, report only booleans (no serial/IP).
+              $lines = @(& $adb.Source devices 2>$null)
+              $authorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+device(\s|$)' }).Count -gt 0
+              $unauthorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+unauthorized(\s|$)' }).Count -gt 0
+              Write-Host ('P4_ADB_AUTHORIZED_DEVICE_PRESENT=' + $authorized.ToString().ToLowerInvariant())
+              Write-Host ('P4_ADB_UNAUTHORIZED_DEVICE_PRESENT=' + $unauthorized.ToString().ToLowerInvariant())
+            }
+          }
+          $tlsCert = [Environment]::GetEnvironmentVariable('TTV_P4_TLS_CERT_FILE','Process')
+          $tlsKey = [Environment]::GetEnvironmentVariable('TTV_P4_TLS_KEY_FILE','Process')
+          $tlsPair = [Environment]::GetEnvironmentVariable('TTV_P4_PAIRING_MASTER_HEX','Process')
+          $certPresent = (-not [string]::IsNullOrWhiteSpace($tlsCert)) -and (Test-Path -LiteralPath $tlsCert -PathType Leaf)
+          $keyPresent = (-not [string]::IsNullOrWhiteSpace($tlsKey)) -and (Test-Path -LiteralPath $tlsKey -PathType Leaf)
+          $pairPresent = $null -ne $tlsPair -and $tlsPair -match '^[a-fA-F0-9]{64}$'
+          Write-Host ('P4_TLS_CERT_PATH_READY=' + $certPresent.ToString().ToLowerInvariant())
+          Write-Host ('P4_TLS_KEY_PATH_READY=' + $keyPresent.ToString().ToLowerInvariant())
+          Write-Host ('P4_PAIRING_KEY_CONFIGURED=' + $pairPresent.ToString().ToLowerInvariant())
+          # These flags only prove configuration presence, NOT valid cert/IP SAN,
+          # PC listener, usable port, or real Redmi transport.
+          Write-Host 'P4_REAL_LAN_AND_REDMi_E2E=NOT_RUN'
