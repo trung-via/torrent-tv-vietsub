@@ -4,10 +4,9 @@ DOES NOT execute on import or in GitHub CI. No source discovery, no
 TorrServer/admin operations, no Windows service/firewall/UPnP modifications.
 One permitted PC LAN interface, one pre-supplied timed SRT/VTT and media key.
 
-Dev prototype transport is authenticated with HMAC over PRIVATE HTTP, NOT
-encrypted. Do not use for confidential subtitle text on an untrusted LAN.
-A production release must replace it with certificate-pinned HTTPS or an
-equivalent authenticated encrypted channel before public distribution.
+PC only serves HTTPS with an explicit certificate/key outside the repository.
+The TV must pin the PC leaf certificate's SHA256 and verify its IP-SAN.
+No listener starts without --start-lan, --tls-cert and --tls-key.
 """
 from __future__ import annotations
 
@@ -23,6 +22,7 @@ from assumed_source_handoff import (
 )
 from lean120_api import load_profile
 from paired_activation import PairedActivation, create_paired_server
+from p4_tls import certificate_fingerprint_sha256, create_tls_context
 from synthetic_mock_feed import (
     publish_synthetic_revisions, synthetic_source_srt,
 )
@@ -101,9 +101,15 @@ def main() -> int:
     parser.add_argument("--glossary-json",type=Path)
     parser.add_argument("--execute-api",action="store_true")
     parser.add_argument("--start-lan",action="store_true")
+    parser.add_argument("--tls-cert",type=Path,
+                        help="Explicit owner-generated PEM with IP-SAN for --bind")
+    parser.add_argument("--tls-key",type=Path,
+                        help="Matching owner-held private key outside repository")
     args=parser.parse_args()
     if not args.start_lan:
         parser.error("EXPLICIT_START_LAN_REQUIRED")
+    if args.tls_cert is None or args.tls_key is None:
+        parser.error("P4_TLS_CERT_AND_KEY_REQUIRED")
     key=os.environ.get("P4_PAIRING_MASTER_HEX","")
     api_key=os.environ.get("GEMINI_API_KEY","")
     glossary=(json.loads(args.glossary_json.read_text(encoding="utf-8"))
@@ -113,8 +119,12 @@ def main() -> int:
         master_hex=key,execute_api=args.execute_api,
         profile_file=args.profile,api_key=api_key,glossary=glossary,
         mock_revisions=args.mock_revisions)
-    server=create_paired_server(controller,host=args.bind,port=args.port)
-    print("P4_PC_PAIRED_GATEWAY_START_USER_INITIATED_PRIVATE_LAN_ONLY")
+    tls_context=create_tls_context(args.tls_cert,args.tls_key)
+    fingerprint=certificate_fingerprint_sha256(args.tls_cert)
+    server=create_paired_server(
+        controller,host=args.bind,port=args.port,tls_context=tls_context)
+    print("P4_TLS_CERT_SHA256="+fingerprint)
+    print("P4_PC_PAIRED_GATEWAY_START_EXPLICIT_TLS_LAN_ONLY")
     try:server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:pass
     finally:server.server_close()
