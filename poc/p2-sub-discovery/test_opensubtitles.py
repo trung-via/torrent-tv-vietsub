@@ -156,6 +156,40 @@ class D2Tests(unittest.TestCase):
             row(1, name="a.zip"), row(2, language="fr"), row(3, name="movie.vtt")))
         self.assertEqual([x.file_id for x in d.candidates], [3])
 
+    def test_raw_rows_with_unsupported_extensions_explain_zero_candidates(self):
+        # Regression from Human-reported OpenSubtitles response with nonzero
+        # rows but zero admitted files. Exact reason remains unverified live.
+        d = parse_search_response(media(), response(
+            row(1, name="Sample.Film.2017.sub"),
+            row(2, name="Sample.Film.2017.txt"),
+            {"attributes": {"language": "vi", "files": []}},
+        ))
+        self.assertEqual(d.raw_rows, 3)
+        self.assertEqual(len(d.candidates), 0)
+        reasons = dict(d.parse_rejections)
+        self.assertEqual(reasons["unsupported_extension"], 2)
+        self.assertEqual(reasons["missing_files"], 1)
+        self.assertEqual(d.decision.status, "NO_MATCH")
+
+    def test_parser_counts_invalid_schema_without leaking_values(self):
+        secret_title = "Private.User.Release.2017"
+        data = json.dumps({"total_count": 4, "data": [
+            {"attributes": {"language": "unknown", "release": secret_title,
+                            "files": [{"file_id": 8, "file_name": secret_title + ".srt"}]}},
+            {"attributes": {"language": "en", "files": [{"file_id": -1, "file_name": "x.srt"}]}},
+            {"attributes": {"language": "en", "files": [{"file_id": 3, "file_name": ""}]}},
+            {"attributes": {"language": "en", "release": secret_title, "files": []}},
+        ]}).encode()
+        d = parse_search_response(media(), data)
+        self.assertEqual(d.raw_rows, 4)
+        self.assertEqual(d.api_total, 4)
+        self.assertEqual(len(d.candidates), 0)
+        self.assertEqual(dict(d.parse_rejections)["unexpected_language"], 1)
+        self.assertEqual(dict(d.parse_rejections)["invalid_file_id"], 1)
+        self.assertEqual(dict(d.parse_rejections)["missing_file_name"], 1)
+        self.assertEqual(dict(d.parse_rejections)["missing_files"], 1)
+        self.assertNotIn(secret_title, str(d.parse_rejections))
+
     def test_no_untrusted_download_link_or_quota_chaining(self):
         for url in ("http://dl.opensubtitles.com/sub.srt",
                     "https://evil.example.com/sub.srt",
