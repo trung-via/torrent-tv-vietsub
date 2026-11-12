@@ -308,6 +308,7 @@ class OpenSubtitles:
         self._api_key = api_key
         self._bearer = bearer
         self._transport = transport
+        self._manual_vi_post_attempted = False
 
     def _request(self, method: str, url: str, *, api: bool,
                  payload: dict | None = None) -> bytes:
@@ -387,6 +388,11 @@ class OpenSubtitles:
                   and "title" in item.evidence]
         if len(matching) != 1 or len(ranked) != 1:
             raise SubtitleApiError("NO_APPROVED_MANUAL_CANDIDATE")
+        if self._manual_vi_post_attempted:
+            raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
+        # Latch BEFORE POST: a provider/network/QA failure never silently
+        # triggers another quota-bearing request for this client session.
+        self._manual_vi_post_attempted = True
         # Request exactly one SRT output. The source file extension is only a
         # hint and cannot certify the returned byte stream or synchronization.
         response = _json(self._request("POST", BASE_URL + "/download", api=True,
