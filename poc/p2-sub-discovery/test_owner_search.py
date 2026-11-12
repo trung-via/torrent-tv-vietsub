@@ -4,7 +4,7 @@ import unittest
 
 from matcher import Media
 from opensubtitles import OpenSubtitles, SubtitleApiError
-from owner_search import search_status, diagnostic_status
+from owner_search import search_status, diagnostic_status, review_status
 
 
 NAME = "Sample.Film.2017.1080p.BluRay.x265-TEAM.mkv"
@@ -179,6 +179,87 @@ class OwnerSearchTests(unittest.TestCase):
         self.assertIn("VI_IMDB_RAW_ROWS=1", lines)
         self.assertIn("EN_IMDB_RAW_ROWS=0", lines)
         self.assertEqual(len(spy.calls), 2)
+
+    def test_owner_review_bounded_page2_gets_and_release_hints(self):
+        import json
+
+        class PageTransport:
+            def __init__(self):
+                self.calls = []
+
+            def __call__(self, method, url, headers, body, cap):
+                query = parse_qs(urlsplit(url).query)
+                self.calls.append((method, query, headers, body))
+                self_test.assertEqual(method, "GET")
+                self_test.assertIsNone(body)
+                language = query["languages"][0]
+                page = int(query.get("page", ["1"])[0])
+                if language == "vi":
+                    self_test.assertEqual(page, 1)
+                    return json.dumps({"total_count": 1, "data": [
+                        api_row(60, lang="vi", release=WEAK),
+                    ]}).encode()
+                if page == 1:
+                    data = [api_row(i, lang="en", release=WEAK) for i in range(1, 51)]
+                    return json.dumps({"total_count": 58, "data": data}).encode()
+                self_test.assertEqual(page, 2)
+                data = [api_row(100, lang="en", release=CONFIDENT)]
+                data.extend(api_row(i, lang="en", release=WEAK) for i in range(101, 108))
+                return json.dumps({"total_count": 58, "data": data}).encode()
+
+        self_test = self
+        spy = PageTransport()
+        client = OpenSubtitles(api_key="private", transport=spy)
+        lines = review_status(client, NAME, imdb_id="3501632")
+        self.assertIn("D2_RELEASE_REVIEW", lines)
+        self.assertIn("EN_PAGE1_RAW_ROWS=50", lines)
+        self.assertIn("EN_PAGE2_RAW_ROWS=8", lines)
+        self.assertIn("EN_RETRIEVED_ROWS=58", lines)
+        self.assertIn("EN_COVERAGE=FIRST_PAGE_OR_COMPLETE", lines)
+        self.assertIn("EN_GROUP_MATCHES=1", lines)
+        self.assertIn("EN_TOP1_GROUP=YES", lines)
+        self.assertIn("EN_TOP1_SOURCE=YES", lines)
+        self.assertIn("VI_GROUP_MATCHES=0", lines)
+        self.assertIn("SEARCH_REQUESTS=3", lines)
+        self.assertIn("DOWNLOAD_REQUESTS=0", lines)
+        self.assertIn("AUTO_DOWNLOAD_ALLOWED=NO", lines)
+        output = "\n".join(lines)
+        self.assertNotIn("private", output)
+        self.assertNotIn("Sample.Film", output)
+        self.assertNotIn("100", "\n".join(x for x in lines if "_TOP" in x and "_SCORE=" not in x))
+        self.assertEqual([x[0] for x in spy.calls], ["GET", "GET", "GET"])
+
+    def test_owner_review_no_extra_page_on_short_result(self):
+        spy = Stub({("vi", "imdb"): api_rows(api_row(7, lang="vi", release=WEAK)),
+                    ("en", "imdb"): api_rows(api_row(8, lang="en", release=WEAK))})
+        result = review_status(OpenSubtitles(api_key="fake", transport=spy),
+                               NAME, imdb_id="3501632")
+        self.assertIn("SEARCH_REQUESTS=2", result)
+        self.assertIn("DOWNLOAD_REQUESTS=0", result)
+        self.assertNotIn("EN_PAGE2_RAW_ROWS=0", result)
+
+    def test_owner_review_refuses_bad_filename(self):
+        class NoNetwork:
+            def search(self, *args, **kwargs):
+                raise AssertionError("network should not run")
+
+        for value in ("", "../bad", "C:\\media\\bad", "a\nb", " "):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(SubtitleApiError, "BAD_MEDIA_FILENAME"):
+                    review_status(NoNetwork(), value, imdb_id="3501632")
+
+    def test_bounded_second_page_input(self):
+        class NoNetwork:
+            def __call__(self, *args):
+                raise AssertionError("network should not run")
+
+        cli = OpenSubtitles(api_key="fake", transport=NoNetwork())
+        m = Media("profile", "hash", 0, NAME)
+        for page in (0, -1, 3, True, "2"):
+            with self.subTest(page=page):
+                with self.assertRaisesRegex(SubtitleApiError, "UNSUPPORTED_PAGE"):
+                    cli.search(m, language="en", query_mode="imdb",
+                               imdb_id="3501632", page=page)
 
     def test_bad_query_mode_rejected_before_network(self):
         class Explode:
