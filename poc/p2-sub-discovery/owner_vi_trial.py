@@ -10,6 +10,7 @@ import argparse
 import os
 from pathlib import Path
 import sys
+import tempfile
 import unicodedata
 import uuid
 from typing import Callable
@@ -91,14 +92,26 @@ def owner_trial(client: OpenSubtitles, filename: str, imdb_id: str, *,
         emit("DOWNLOAD_POST_ATTEMPTS=0")
         return 0
 
-    emit("DOWNLOAD_POST_ATTEMPTS=1")
-    asset = client.download_manual_vi(media, discovery, file_id=chosen.file_id, authorized=True)
-    # Fail-closed: no cache until UTF-8/timings have been verified in API client.
+    # Check the owner-private cache target BEFORE spending quota. Never leave
+    # a preflight probe behind, and never POST when the target is not writable.
     if cache_root is None:
         local = os.environ.get("LOCALAPPDATA")
         if not local:
             raise SubtitleApiError("PRIVATE_CACHE_LOCATION_NOT_CONFIGURED")
         cache_root = Path(local) / "TorrentTVVietsub" / "subtitle-trials"
+    cache_root = Path(cache_root)
+    if cache_root.is_symlink():
+        raise SubtitleApiError("UNSAFE_CACHE_ROOT")
+    cache_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, probe = tempfile.mkstemp(prefix=".owner-vi-preflight-", dir=cache_root)
+    try:
+        os.close(fd)
+    finally:
+        os.unlink(probe)
+
+    emit("DOWNLOAD_POST_ATTEMPTS=1")
+    asset = client.download_manual_vi(media, discovery, file_id=chosen.file_id, authorized=True)
+    # Fail-closed: no cache until UTF-8/timings have been verified in API client.
     path = write_private_cache(cache_root, media, asset)
     emit("DOWNLOAD_AND_SRT_QA=PASS")
     emit(f"CUES={asset.cues}")
