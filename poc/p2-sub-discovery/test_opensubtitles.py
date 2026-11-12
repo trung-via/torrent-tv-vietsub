@@ -99,6 +99,20 @@ class D2Tests(unittest.TestCase):
         self.assertEqual(client.download_selected(m, disc).language, "en")
         self.assertEqual(len(mock.calls), 3)
 
+    def test_search_filters_unexpected_other_language(self):
+        mock = FakeTransport(search=response(row(81, language="en"), row(82, language="vi")))
+        client = OpenSubtitles(api_key="x", transport=mock)
+        found = client.search(media(), language="vi")
+        self.assertEqual([c.file_id for c in found.candidates], [82])
+        self.assertEqual(found.decision.status, "VI_MATCH")
+
+    def test_header_control_characters_rejected(self):
+        for token in ("bad\\nheader", "bad\\rheader"):
+            with self.assertRaisesRegex(SubtitleApiError, "INVALID_BEARER_TOKEN"):
+                OpenSubtitles(api_key="x", bearer=token.replace("\\\\n", "\\n").replace("\\\\r", "\\r"))
+        with self.assertRaisesRegex(SubtitleApiError, "API_KEY_NOT_CONFIGURED"):
+            OpenSubtitles(api_key="bad\\nheader")
+
     def test_bad_key_or_language_no_request(self):
         with self.assertRaisesRegex(SubtitleApiError, "API_KEY_NOT_CONFIGURED"):
             OpenSubtitles(api_key="")
