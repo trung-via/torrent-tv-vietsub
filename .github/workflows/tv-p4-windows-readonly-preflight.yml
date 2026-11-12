@@ -33,26 +33,38 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Write-Host 'P4_PREFLIGHT_READONLY_NO_HOST_MUTATION=true'
           Write-Host 'P4_PREFLIGHT_REPO_ISOLATED_RUNNER_LABEL=true'
-          $adb = Get-Command adb.exe -ErrorAction SilentlyContinue
-          if ($null -eq $adb) {
-            Write-Host 'P4_ADB_AVAILABLE=false'
-            Write-Host 'P4_ADB_ALREADY_RUNNING=false'
+          # ADB may exist inside an Android SDK even if absent from PATH.
+          # Check known SDK roots only; do not print directories or serials.
+          $adbCmd = Get-Command adb.exe -ErrorAction SilentlyContinue
+          $adbPath = if ($null -ne $adbCmd) { $adbCmd.Source } else { $null }
+          $adbOrigin = if ($null -ne $adbCmd) { 'PATH' } else { 'NONE' }
+          $sdkRoots = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT,
+              (Join-Path $env:LOCALAPPDATA 'Android\Sdk')) |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          if ($null -eq $adbPath) {
+            foreach ($sdk in $sdkRoots) {
+              $candidate = Join-Path $sdk 'platform-tools\adb.exe'
+              if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $adbPath = $candidate
+                $adbOrigin = 'ANDROID_SDK'
+                break
+              }
+            }
+          }
+          Write-Host ('P4_ADB_AVAILABLE=' + ($null -ne $adbPath).ToString().ToLowerInvariant())
+          Write-Host ('P4_ADB_ORIGIN=' + $adbOrigin)
+          $running = @(Get-Process -Name adb -ErrorAction SilentlyContinue).Count -gt 0
+          Write-Host ('P4_ADB_ALREADY_RUNNING=' + $running.ToString().ToLowerInvariant())
+          if ($null -eq $adbPath -or -not $running) {
+            # Do not invoke adb: it could spawn an ADB server.
             Write-Host 'P4_ADB_AUTHORIZED_DEVICE_PRESENT=UNKNOWN'
           } else {
-            Write-Host 'P4_ADB_AVAILABLE=true'
-            $running = @(Get-Process -Name adb -ErrorAction SilentlyContinue).Count -gt 0
-            Write-Host ('P4_ADB_ALREADY_RUNNING=' + $running.ToString().ToLowerInvariant())
-            if (-not $running) {
-              # Do not invoke adb: it would spawn a new ADB server.
-              Write-Host 'P4_ADB_AUTHORIZED_DEVICE_PRESENT=UNKNOWN'
-            } else {
-              # Capture ADB output privately, report only booleans (no serial/IP).
-              $lines = @(& $adb.Source devices 2>$null)
-              $authorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+device(\s|$)' }).Count -gt 0
-              $unauthorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+unauthorized(\s|$)' }).Count -gt 0
-              Write-Host ('P4_ADB_AUTHORIZED_DEVICE_PRESENT=' + $authorized.ToString().ToLowerInvariant())
-              Write-Host ('P4_ADB_UNAUTHORIZED_DEVICE_PRESENT=' + $unauthorized.ToString().ToLowerInvariant())
-            }
+            # Capture output privately; report only booleans (no serial/IP).
+            $lines = @(& $adbPath devices 2>$null)
+            $authorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+device(\s|$)' }).Count -gt 0
+            $unauthorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+unauthorized(\s|$)' }).Count -gt 0
+            Write-Host ('P4_ADB_AUTHORIZED_DEVICE_PRESENT=' + $authorized.ToString().ToLowerInvariant())
+            Write-Host ('P4_ADB_UNAUTHORIZED_DEVICE_PRESENT=' + $unauthorized.ToString().ToLowerInvariant())
           }
           $tlsCert = [Environment]::GetEnvironmentVariable('TTV_P4_TLS_CERT_FILE','Process')
           $tlsKey = [Environment]::GetEnvironmentVariable('TTV_P4_TLS_KEY_FILE','Process')
