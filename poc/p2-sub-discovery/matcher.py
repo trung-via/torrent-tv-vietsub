@@ -79,6 +79,9 @@ def parse_release(filename: str) -> Release:
     basename = re.split(r"[/\\]", filename)[-1]
     stem = _VIDEO_EXT.sub("", basename)
     group_match = _GROUP.search(stem)
+    if group_match and (group_match.group(1).casefold() in {"dl", "rip", "x264", "x265", "h264", "h265", "720p", "1080p", "2160p"}
+                        or _YEAR.fullmatch(group_match.group(1))):
+        group_match = None
     group = group_match.group(1).casefold() if group_match else None
     if group_match:
         stem = stem[:group_match.start()]
