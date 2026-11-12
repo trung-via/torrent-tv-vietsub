@@ -9,13 +9,13 @@ from dataclasses import dataclass
 import re
 
 
-_HASH = re.compile(r"[0-9a-fA-F]{16}\\Z")
-_YEAR = re.compile(r"(?<!\\d)(?:19|20)\\d{2}(?!\\d)")
-_VIDEO_EXT = re.compile(r"\\.(?:mkv|mp4|avi|mov|webm|srt|vtt)\\Z", re.I)
-_GROUP = re.compile(r"-([a-z0-9]{2,30})\\Z", re.I)
-_RESOLUTION = re.compile(r"(?<!\\w)(720p|1080p|2160p|4k)(?!\\w)", re.I)
-_CODEC = re.compile(r"(?<!\\w)(x264|x265|h264|h265|hevc|av1)(?!\\w)", re.I)
-_SOURCE = re.compile(r"(?<!\\w)(bluray|blu ray|bdrip|brrip|web[- ]?dl|webrip|hdtv)(?!\\w)", re.I)
+_HASH = re.compile(r"[0-9a-fA-F]{16}\Z")
+_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+_VIDEO_EXT = re.compile(r"\.(?:mkv|mp4|avi|mov|webm|srt|vtt)\Z", re.I)
+_GROUP = re.compile(r"-([a-z0-9]{2,30})\Z", re.I)
+_RESOLUTION = re.compile(r"(?<!\w)(720p|1080p|2160p|4k)(?!\w)", re.I)
+_CODEC = re.compile(r"(?<!\w)(x264|x265|h264|h265|hevc|av1)(?!\w)", re.I)
+_SOURCE = re.compile(r"(?<!\w)(bluray|blu ray|bdrip|brrip|web[- ]?dl|webrip|hdtv)(?!\w)", re.I)
 _LANG = {"vi": "vi", "vie": "vi", "vietnamese": "vi", "en": "en", "eng": "en", "english": "en"}
 
 
@@ -76,7 +76,7 @@ class Release:
 
 def parse_release(filename: str) -> Release:
     """Filename hint parser, not authoritative metadata or content verification."""
-    basename = re.split(r"[/\\\\]", filename)[-1]
+    basename = re.split(r"[/\\]", filename)[-1]
     stem = _VIDEO_EXT.sub("", basename)
     group_match = _GROUP.search(stem)
     group = group_match.group(1).casefold() if group_match else None
