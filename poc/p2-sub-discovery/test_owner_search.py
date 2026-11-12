@@ -162,6 +162,10 @@ class OwnerSearchTests(unittest.TestCase):
         self.assertIn("VI_IMDB_RANKED=0", lines)  # Provider metadata without title match
         self.assertNotIn("VI_IMDB_REJECT_UNSUPPORTED_EXTENSION=1", lines)
         self.assertIn("EN_IMDB_CANDIDATES=1", lines)
+        self.assertIn("EN_IMDB_CONFIDENT=1", lines)
+        self.assertIn("EN_IMDB_GROUP_MATCHES=1", lines)
+        self.assertIn("VI_IMDB_CONFIDENT=0", lines)
+        self.assertIn("VI_IMDB_GROUP_MATCHES=0", lines)
         self.assertIn("DOWNLOAD_REQUESTS=0", lines)
         self.assertNotIn("very-secret", "\\n".join(lines))
         self.assertNotIn("Private Synthetic Title", "\\n".join(lines))
