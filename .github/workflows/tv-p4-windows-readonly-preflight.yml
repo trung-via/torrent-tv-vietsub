@@ -1,5 +1,7 @@
 # Read-only owner-scoped host preflight. Never start ADB, bind listeners, install
 # APKs, read subtitle files, change firewall/router/services or expose secrets.
+# A temporary read of the installed *code APK* to inspect signer output shape
+# is permitted; temporary files are deleted, and no fingerprint is printed.
 name: Torrent TV - P4 Windows Redmi Readonly Preflight
 
 on:
@@ -140,3 +142,35 @@ jobs:
           # ADB pm path can return 1 for an absent app; that is an observed state,
           # not a failed read-only preflight or an overall job failure.
           $global:LASTEXITCODE = 0
+- name: Checkout exact owner PR HEAD for temporary certificate-format inspection
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Inspect installed OMP Debug signer LINE FORMAT ONLY (no fingerprint or install)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\inspect-signer-morphology.ps1'
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $path,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            foreach ($e in $errors) {
+              Write-Host ('P4_SIGNER_MORPH_PARSER_ID='+$e.ErrorId+' LINE='+$e.Extent.StartLineNumber)
+            }
+            throw 'P4_SIGNER_MORPH_STOP_PARSER_ERROR'
+          }
+          $jdk=@(Get-ChildItem -LiteralPath 'C:\Program Files\Eclipse Adoptium' -Directory |
+            Where-Object { $_.Name -like 'jdk-21*' -and
+              (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\java.exe')) } |
+            Sort-Object Name -Descending | Select-Object -First 1)
+          if ($jdk.Count -ne 1) {throw 'P4_SIGNER_MORPH_STOP_JDK21_UNAVAILABLE'}
+          $env:JAVA_HOME=$jdk[0].FullName
+          $env:PATH=(Join-Path $env:JAVA_HOME 'bin')+';'+$env:PATH
+          & $path
+          if (-not $?) {throw 'P4_SIGNER_MORPH_STOP_SCRIPT_FAILED'}
+
