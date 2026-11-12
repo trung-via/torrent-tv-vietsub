@@ -73,3 +73,39 @@ placeholder identity rather than reading the actual TorrServer file hash,
 index, embedded subtitles or bytes. No movie hash matching claim, no
 `POST /download`, no SRT/VTT payload and no TV auto-refresh claim.
 Real title/release results are unverified until the owner runs the command.
+
+## Diagnostic repair after real owner search returned nonzero rows and no candidates (2026-11-12)
+
+**HUMAN_REPORTED:** selected filename entry `thor 2017`, search-only `imdb_id=3501632`.
+VI IMDb API returned 6 of 6 rows; EN IMDb returned 50 of 58 rows.
+Both languages had `CANDIDATES=0`, `RANKED=0`, `DOWNLOAD_REQUESTS=0`.
+
+This is **not** OpenSubtitles lacking subtitles, nor proof that any SRT is
+available. The parser rejected rows for an as-yet unverified reason.
+The current parser explicitly accepts only file names ending `.srt` or
+`.vtt`; provider may return other formats or incomplete metadata.
+Do **not** auto-download or infer format until a real response validates
+conversion via `POST /download` with optional `sub_format`.
+
+**New targeted owner diagnostic:** `owner_search.py --imdb-id 3501632 --diagnose-imdb`
+sends only **two** API GET requests (`languages=vi` and `en`, no
+filename/year filters), then prints `VI_IMDB_RAW_ROWS`, `VI_IMDB_CANDIDATES`,
+`VI_IMDB_RANKED`, and `VI_IMDB_REJECT_...` counts (similarly EN).
+Safe codes include: `MISSING_ATTRIBUTES`, `UNEXPECTED_LANGUAGE`,
+`MISSING_FILES`, `INVALID_FILE_ENTRY`, `INVALID_FILE_ID`,
+`MISSING_FILE_NAME`, `UNSUPPORTED_EXTENSION`, `DUPLICATE_FILE_ID`,
+`OVERSIZED_NAME`. Real release name, user identity, API key,
+server/TV address, file id and text are NOT printed.
+Still **zero** subtitle downloads. Do not claim verified
+TorrServer identity or matching `YAWNTiC` if the owner only supplied
+`thor 2017` instead of the selected video's exact filename.
+
+Official schema for `/subtitles` response includes `attributes.language`,
+`attributes.files[].file_id` and `attributes.files[].file_name`;
+official `POST /download` optionally accepts `sub_format`, but it
+still costs a download-quota event and remains **NOT_RUN**.
+Reference: https://ai.opensubtitles.com/api-docs
+
+Next accepted step after diagnosing: targeted fix for the observed provider
+schema with synthetic fixtures, CI, and explicit review of the conversion/
+format gate. No untrusted raw API response may be attached to the public repo.
