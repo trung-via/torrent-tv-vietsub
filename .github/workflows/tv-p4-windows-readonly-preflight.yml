@@ -142,7 +142,7 @@ jobs:
           # ADB pm path can return 1 for an absent app; that is an observed state,
           # not a failed read-only preflight or an overall job failure.
           $global:LASTEXITCODE = 0
-- name: Checkout exact owner PR HEAD for temporary certificate-format inspection
+      - name: Checkout exact owner PR HEAD for temporary certificate-format inspection
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
