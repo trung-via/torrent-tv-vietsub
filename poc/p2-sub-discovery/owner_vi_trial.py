@@ -74,7 +74,7 @@ def owner_trial(client: OpenSubtitles, filename: str, imdb_id: str, *,
         emit("OWNER_CANCELLED")
         emit("DOWNLOAD_POST_ATTEMPTS=0")
         return 0
-    if not choice.isascii() or not choice.isdecimal() or not 1 <= int(choice) <= len(ranked):
+    if len(choice) != 1 or not choice.isascii() or not choice.isdecimal() or not 1 <= int(choice) <= len(ranked):
         emit("INVALID_SELECTION")
         emit("DOWNLOAD_POST_ATTEMPTS=0")
         return 1
