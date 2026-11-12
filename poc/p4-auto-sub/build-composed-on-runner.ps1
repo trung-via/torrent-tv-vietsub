@@ -9,7 +9,16 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = 'trung-via/torrent-tv-vietsub'
 $branch = 'feature/p4-native-auto-sub-g2-20261111'
-$workflow = '.github/workflows/tv-p4-composed-android-ci.yml'
+# Two explicit owner-only PR #120 workflows may compose this identical guarded tree.
+# The installer workflow calls this builder first, then a separate signature gate.
+$allowedWorkflows = @(
+    '.github/workflows/tv-p4-composed-android-ci.yml',
+    '.github/workflows/tv-p4-owner-redmi-debug-install.yml'
+)
+$workflowRefValid = @($allowedWorkflows | Where-Object {
+    $env:GITHUB_WORKFLOW_REF -and
+        $env:GITHUB_WORKFLOW_REF.StartsWith(($repo + '/' + $_ + '@'),[StringComparison]::Ordinal)
+}).Count -eq 1
 $runnerRoot = 'C:\TOOL\TorrentTV-Runner\_work'
 $ompPin = '52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f'
 $playerPin = '6ba6edd39f5d986ddfae29b5425b8ac0b319844e'
@@ -18,7 +27,7 @@ if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_EVENT_NAME -cne 'pull_reques
     $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REF -cne 'refs/pull/120/merge' -or
     $env:GITHUB_HEAD_REF -cne $branch -or
     $env:GITHUB_BASE_REF -cne 'feature/g2-refresh-vietsub-inplace-20261111' -or
-    -not $env:GITHUB_WORKFLOW_REF.StartsWith(($repo + '/' + $workflow + '@'),[StringComparison]::Ordinal)) {
+    -not $workflowRefValid) {
     throw 'STOP: event, branch, workflow or dedicated runner identity mismatch'
 }
 if ($SourceCommit -notmatch '^[a-f0-9]{40}$' -or $env:GITHUB_SHA -notmatch '^[a-f0-9]{40}$') {
