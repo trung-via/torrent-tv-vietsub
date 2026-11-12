@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import re
 import secrets
+import ssl
 from threading import Lock
 import time
 from typing import Callable, Type
@@ -190,11 +191,24 @@ def make_paired_handler(controller: PairedActivation) -> Type[BaseHTTPRequestHan
     return PairedHandler
 
 
-def create_paired_server(controller:PairedActivation,*,host:str,port:int)->HTTPServer:
+def create_paired_server(
+    controller:PairedActivation,*,host:str,port:int,
+    tls_context:ssl.SSLContext,
+)->HTTPServer:
     private_lan_ip(host)
     if type(port) is not int or port not in range(1024,65536):
         raise ValueError("P4_PAIRED_PORT_INVALID")
-    return HTTPServer((host,port),make_paired_handler(controller))
+    if (tls_context is None or
+        getattr(tls_context,"protocol",None) != ssl.PROTOCOL_TLS_SERVER or
+        getattr(tls_context,"minimum_version",None) < ssl.TLSVersion.TLSv1_2):
+        raise ValueError("P4_HTTPS_TLS_CONTEXT_REQUIRED")
+    server=HTTPServer((host,port),make_paired_handler(controller))
+    try:
+        server.socket=tls_context.wrap_socket(server.socket,server_side=True)
+    except Exception:
+        server.server_close()
+        raise
+    return server
 
 
 # Future configured owner-only runtime supplies a real authorized source and
