@@ -1,0 +1,319 @@
+"""D2 OpenSubtitles REST acquisition for owner-authorized media.
+
+Free-first; all network and local-cache side effects require an explicit caller.
+No TorrServer, TV, model, login or background worker integration in this module.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Callable
+
+from matcher import Decision, Media, SearchResults, Subtitle, choose, parse_release
+
+
+BASE_URL = "https://api.opensubtitles.com/api/v1"
+MAX_SUBTITLE_BYTES = 256 * 1024
+MAX_JSON_BYTES = 2 * 1024 * 1024
+_USER_AGENT = "TorrentTVVietsub/0.1 (personal-local-client)"
+_ALLOWED_HOSTS = {"api.opensubtitles.com", "vip-api.opensubtitles.com"}
+_ALLOWED_DOWNLOAD_SUFFIX = ".opensubtitles.com"
+_STAMP_SRT = re.compile(r"^\d{2}:\d{2}:\d{2},\d{3}$")
+_STAMP_VTT = re.compile(r"^(?:\d{2}:)?\d{2}:\d{2}\.\d{3}$")
+
+
+class SubtitleApiError(Exception):
+    """Safe error: no API key, temporary download URL or subtitle text."""
+
+
+@dataclass(frozen=True)
+class Candidate:
+    file_id: int
+    subtitle: Subtitle
+
+
+@dataclass(frozen=True)
+class Discovery:
+    media_key: tuple[str, str, int]
+    results: SearchResults
+    candidates: tuple[Candidate, ...]
+    decision: Decision
+
+
+@dataclass(frozen=True)
+class Asset:
+    file_id: int
+    language: str
+    fmt: str
+    contents: bytes
+    sha256: str
+    cues: int
+
+
+def _safe_https(url: str, *, api: bool) -> None:
+    try:
+        u = urllib.parse.urlsplit(url)
+        hostname = (u.hostname or "").casefold()
+        _ = u.port
+    except (TypeError, ValueError) as exc:
+        raise SubtitleApiError("UNTRUSTED_URL") from exc
+    if (u.scheme != "https" or not hostname or u.username or u.password or u.fragment
+            or (api and (hostname not in _ALLOWED_HOSTS or u.port not in (None, 443)))
+            or (not api and not (hostname == "opensubtitles.com" or hostname.endswith(_ALLOWED_DOWNLOAD_SUFFIX)))):
+        raise SubtitleApiError("UNTRUSTED_URL")
+    if u.port not in (None, 443):
+        raise SubtitleApiError("UNTRUSTED_URL")
+
+
+class _SafeRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _safe_https(newurl, api=False)
+        prior = urllib.parse.urlsplit(req.full_url).hostname
+        after = urllib.parse.urlsplit(newurl).hostname
+        if prior != after and any(k.lower() in {"authorization", "api-key"} for k in req.headers):
+            raise SubtitleApiError("CROSS_HOST_AUTH_REDIRECT")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def urllib_transport(method: str, url: str, headers: dict[str, str],
+                     body: bytes | None, cap: int) -> bytes:
+    """HTTPS-only transport; strict response cap and bounded redirects.
+
+    The temporary provider link is *never* sent in an error message or log.
+    """
+    _safe_https(url, api=(method != "GET_BINARY"))
+    action = "GET" if method == "GET_BINARY" else method
+    req = urllib.request.Request(url, data=body, headers=headers, method=action)
+    opener = urllib.request.build_opener(_SafeRedirects())
+    try:
+        with opener.open(req, timeout=15) as res:
+            data = res.read(cap + 1)
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        if status == 429:
+            raise SubtitleApiError("RATE_LIMITED_429") from None
+        if status in (401, 403):
+            raise SubtitleApiError("API_AUTH_DENIED") from None
+        raise SubtitleApiError(f"API_HTTP_{status}") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise SubtitleApiError("API_NETWORK_ERROR") from None
+    if len(data) > cap:
+        raise SubtitleApiError("RESPONSE_TOO_LARGE")
+    return data
+
+
+Transport = Callable[[str, str, dict[str, str], bytes | None, int], bytes]
+
+
+def _json(payload: bytes) -> dict:
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (ValueError, UnicodeError) as exc:
+        raise SubtitleApiError("BAD_API_JSON") from None
+    if not isinstance(value, dict):
+        raise SubtitleApiError("BAD_API_JSON")
+    return value
+
+
+def _fmt(file_name: str) -> str | None:
+    if not isinstance(file_name, str):
+        return None
+    ext = file_name.rsplit(".", 1)[-1].lower()
+    return ext if ext in ("srt", "vtt") else None
+
+
+def parse_search_response(media: Media, body: bytes) -> Discovery:
+    payload = _json(body)
+    rows = payload.get("data")
+    if not isinstance(rows, list) or len(rows) > 1000:
+        raise SubtitleApiError("BAD_SEARCH_SCHEMA")
+    out: list[Candidate] = []
+    seen: set[int] = set()
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("attributes"), dict):
+            continue
+        attrs = row["attributes"]
+        language = attrs.get("language")
+        if language not in ("vi", "en"):
+            continue
+        files = attrs.get("files")
+        if not isinstance(files, list):
+            continue
+        release = attrs.get("release")
+        for sub_file in files:
+            if not isinstance(sub_file, dict):
+                continue
+            file_id = sub_file.get("file_id")
+            name = sub_file.get("file_name")
+            if type(file_id) is not int or file_id <= 0 or file_id in seen or not isinstance(name, str):
+                continue
+            fmt = _fmt(name)
+            if fmt is None:
+                continue
+            release_name = release if isinstance(release, str) and release.strip() else name
+            if len(release_name) > 300 or len(name) > 300:
+                continue
+            seen.add(file_id)
+            # API moviehash_match is only useful when the source hash was
+            # separately verified on the selected media, not guessed from name.
+            matched_hash = media.movie_hash if attrs.get("moviehash_match") is True else None
+            out.append(Candidate(file_id, Subtitle(str(file_id), release_name, language,
+                                                   fmt=fmt, movie_hash=matched_hash)))
+    items = SearchResults(media.key, tuple(x.subtitle for x in out))
+    return Discovery(media.key, items, tuple(out), choose(media, items))
+
+
+def _milliseconds(stamp: str, fmt: str) -> int:
+    pattern = _STAMP_SRT if fmt == "srt" else _STAMP_VTT
+    if not pattern.fullmatch(stamp):
+        raise SubtitleApiError("BAD_SUBTITLE_TIMELINE")
+    numbers = [int(x) for x in re.split("[:,.]", stamp)]
+    if len(numbers) == 4:
+        h, m, s, ms = numbers
+    else:
+        h, m, s, ms = 0, *numbers
+    if m > 59 or s > 59:
+        raise SubtitleApiError("BAD_SUBTITLE_TIMELINE")
+    return 1000 * (h * 3600 + m * 60 + s) + ms
+
+
+def validate_timed_text(contents: bytes, fmt: str) -> int:
+    if not contents or len(contents) > MAX_SUBTITLE_BYTES or fmt not in ("srt", "vtt"):
+        raise SubtitleApiError("INVALID_SUBTITLE_SIZE_OR_FORMAT")
+    try:
+        text = contents.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise SubtitleApiError("SUBTITLE_NOT_UTF8") from None
+    if "\0" in text or "<script" in text.lower() or "<!doctype" in text.lower():
+        raise SubtitleApiError("UNSAFE_SUBTITLE_TEXT")
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if fmt == "vtt":
+        if not (text == "WEBVTT" or text.startswith("WEBVTT\n")):
+            raise SubtitleApiError("BAD_VTT_HEADER")
+        blocks = re.split(r"\n[ \t]*\n", text)
+        blocks = blocks[1:]
+    else:
+        blocks = re.split(r"\n[ \t]*\n", text)
+    count = 0
+    previous_start = -1
+    for block in blocks:
+        lines = [line.strip() for line in block.split("\n")]
+        if not any(lines):
+            continue
+        if fmt == "vtt" and (lines[0].startswith(("NOTE", "STYLE", "REGION"))):
+            continue
+        timing = next((i for i, line in enumerate(lines[:2]) if "-->" in line), -1)
+        if timing < 0 or timing + 1 >= len(lines):
+            raise SubtitleApiError("BAD_SUBTITLE_TIMELINE")
+        parts = lines[timing].split("-->")
+        if len(parts) != 2:
+            raise SubtitleApiError("BAD_SUBTITLE_TIMELINE")
+        start = _milliseconds(parts[0].strip(), fmt)
+        end = _milliseconds(parts[1].strip().split(" ", 1)[0], fmt)
+        if end <= start or start < previous_start or not any(lines[timing + 1:]):
+            raise SubtitleApiError("BAD_SUBTITLE_TIMELINE")
+        previous_start = start
+        count += 1
+    if count == 0:
+        raise SubtitleApiError("EMPTY_SUBTITLE")
+    return count
+
+
+def write_private_cache(directory: Path, media: Media, asset: Asset) -> Path:
+    """On-demand file write only, keyed by *actual* video and subtitle provenance."""
+    if asset.sha256 != hashlib.sha256(asset.contents).hexdigest():
+        raise SubtitleApiError("BAD_CONTENT_DIGEST")
+    if asset.cues != validate_timed_text(asset.contents, asset.fmt):
+        raise SubtitleApiError("BAD_CUE_COUNT")
+    key_data = json.dumps([*media.key, asset.file_id, asset.language, asset.sha256],
+                          separators=(",", ":"), ensure_ascii=True).encode()
+    filename = hashlib.sha256(key_data).hexdigest() + "." + asset.fmt
+    root = Path(directory)
+    if root.is_symlink():
+        raise SubtitleApiError("UNSAFE_CACHE_ROOT")
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    dest = root / filename
+    try:
+        fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        if dest.is_symlink() or dest.read_bytes() != asset.contents:
+            raise SubtitleApiError("CACHE_COLLISION")
+        return dest
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(asset.contents)
+    except BaseException:
+        dest.unlink(missing_ok=True)
+        raise
+    return dest
+
+
+class OpenSubtitles:
+    def __init__(self, *, api_key: str, bearer: str | None = None,
+                 transport: Transport = urllib_transport):
+        if not isinstance(api_key, str) or not api_key.strip() or "\n" in api_key or "\r" in api_key:
+            raise SubtitleApiError("API_KEY_NOT_CONFIGURED")
+        self._api_key = api_key
+        self._bearer = bearer
+        self._transport = transport
+
+    def _request(self, method: str, url: str, *, api: bool,
+                 payload: dict | None = None) -> bytes:
+        _safe_https(url, api=api)
+        headers = {"User-Agent": _USER_AGENT, "Accept": "application/json"}
+        body = None
+        if api:
+            headers["Api-Key"] = self._api_key
+            if self._bearer:
+                headers["Authorization"] = "Bearer " + self._bearer
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        cap = MAX_JSON_BYTES if api else MAX_SUBTITLE_BYTES
+        return self._transport(method, url, headers, body, cap)
+
+    def search(self, media: Media, *, language: str) -> Discovery:
+        if language not in ("vi", "en"):
+            raise SubtitleApiError("UNSUPPORTED_LANGUAGE")
+        filename = re.split(r"[/\\]", media.filename)[-1]
+        if len(filename) > 255 or any(ord(c) < 32 for c in filename):
+            raise SubtitleApiError("BAD_MEDIA_FILENAME")
+        release = parse_release(filename)
+        # Query by specific release string, not an invented movie or torrent index.
+        q = {"languages": language, "query": filename.rsplit(".", 1)[0]}
+        if release.year is not None:
+            q["year"] = str(release.year)
+        if media.movie_hash is not None:
+            q["moviehash"] = media.movie_hash.lower()
+        url = BASE_URL + "/subtitles?" + urllib.parse.urlencode(sorted(q.items()))
+        return parse_search_response(media, self._request("GET", url, api=True))
+
+    def download_selected(self, media: Media, discovery: Discovery) -> Asset:
+        """Exactly one explicit quota-incurring POST for a confident D1 winner."""
+        if discovery.media_key != media.key or discovery.results.media_key != media.key:
+            raise SubtitleApiError("MEDIA_BINDING_MISMATCH")
+        decision = choose(media, discovery.results)
+        if decision.status not in ("VI_MATCH", "EN_TRANSLATE") or decision.winner is None:
+            raise SubtitleApiError("NO_APPROVED_DOWNLOAD")
+        winner = decision.winner
+        matching = [c for c in discovery.candidates if c.subtitle.subtitle_id == winner.subtitle_id]
+        if len(matching) != 1 or str(matching[0].file_id) != winner.subtitle_id:
+            raise SubtitleApiError("CANDIDATE_BINDING_MISMATCH")
+        response = _json(self._request("POST", BASE_URL + "/download", api=True,
+                                       payload={"file_id": matching[0].file_id}))
+        link = response.get("link")
+        if not isinstance(link, str):
+            raise SubtitleApiError("BAD_DOWNLOAD_SCHEMA")
+        _safe_https(link, api=False)
+        contents = self._request("GET_BINARY", link, api=False)
+        fmt = matching[0].subtitle.fmt
+        count = validate_timed_text(contents, fmt)
+        return Asset(matching[0].file_id, winner.language, fmt, contents,
+                     hashlib.sha256(contents).hexdigest(), count)
