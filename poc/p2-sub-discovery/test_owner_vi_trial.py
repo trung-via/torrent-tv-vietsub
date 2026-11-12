@@ -136,6 +136,26 @@ class ManualTrialTests(unittest.TestCase):
             client.download_manual_vi(other, disc, file_id=30, authorized=True)
         self.assertEqual([x[0] for x in fake.calls], ["GET"])
 
+    def test_manual_vi_one_post_latch_even_if_repeat_requested(self):
+        fake = Fake()
+        client = OpenSubtitles(api_key="secret", transport=fake)
+        media = Media("owner", "test-hash", 0, FILE)
+        disc = client.search(media, language="vi", query_mode="imdb", imdb_id="3501632")
+        asset = client.download_manual_vi(media, disc, file_id=30, authorized=True)
+        self.assertEqual(asset.cues, 2)
+        with self.assertRaisesRegex(SubtitleApiError, "MANUAL_DOWNLOAD_ALREADY_ATTEMPTED"):
+            client.download_manual_vi(media, disc, file_id=30, authorized=True)
+        self.assertEqual([x[0] for x in fake.calls], ["GET", "POST", "GET_BINARY"])
+
+    def test_unwritable_cache_preflight_blocks_post(self):
+        fake = Fake()
+        with tempfile.TemporaryDirectory() as temp:
+            obstructed = Path(temp) / "not_a_folder"
+            obstructed.write_text("file", encoding="utf-8")
+            with self.assertRaises(OSError):
+                run(fake, ["1", "DOWNLOAD ONE"], root=obstructed)
+            self.assertEqual([x[0] for x in fake.calls], ["GET"])
+
     def test_remote_wrong_language_cannot_be_manually_downloaded_as_vi(self):
         fake = Fake(rows=[row(30, "Sample.Film.2017.1080p.BluRay.x265-TEAM", language="en")])
         client = OpenSubtitles(api_key="secret", transport=fake)
