@@ -171,7 +171,7 @@ class D2Tests(unittest.TestCase):
         self.assertEqual(reasons["missing_files"], 1)
         self.assertEqual(d.decision.status, "NO_MATCH")
 
-    def test_parser_counts_invalid_schema_without leaking_values(self):
+    def test_parser_counts_invalid_schema_without_leaking_values(self):
         secret_title = "Private.User.Release.2017"
         data = json.dumps({"total_count": 4, "data": [
             {"attributes": {"language": "unknown", "release": secret_title,
