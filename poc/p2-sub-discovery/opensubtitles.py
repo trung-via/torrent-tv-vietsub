@@ -365,6 +365,41 @@ class OpenSubtitles:
                          raw_rows=discovery.raw_rows, api_total=discovery.api_total,
                          parse_rejections=discovery.parse_rejections)
 
+    def download_manual_vi(self, media: Media, discovery: Discovery, *,
+                           file_id: int, authorized: bool = False) -> Asset:
+        """One explicit manual VI selection; not an automatic confidence override.
+
+        Caller must display the candidate and receive in-session consent. The
+        selected file must belong to this exact search and be ranked for the
+        chosen movie title. Never choose by a stale or external file ID alone.
+        Every call to POST /download can spend quota, even when QA later fails.
+        """
+        if authorized is not True:
+            raise SubtitleApiError("MANUAL_CONSENT_REQUIRED")
+        if (discovery.media_key != media.key or
+                discovery.results.media_key != media.key or
+                type(file_id) is not int or file_id <= 0):
+            raise SubtitleApiError("MEDIA_BINDING_MISMATCH")
+        matching = [item for item in discovery.candidates
+                    if item.file_id == file_id and item.subtitle.language == "vi"]
+        ranked = [item for item in discovery.decision.ranked
+                  if item.subtitle_id == str(file_id) and item.language == "vi"
+                  and "title" in item.evidence]
+        if len(matching) != 1 or len(ranked) != 1:
+            raise SubtitleApiError("NO_APPROVED_MANUAL_CANDIDATE")
+        # Request exactly one SRT output. The source file extension is only a
+        # hint and cannot certify the returned byte stream or synchronization.
+        response = _json(self._request("POST", BASE_URL + "/download", api=True,
+                                       payload={"file_id": file_id, "sub_format": "srt"}))
+        link = response.get("link")
+        if not isinstance(link, str):
+            raise SubtitleApiError("BAD_DOWNLOAD_SCHEMA")
+        _safe_https(link, api=False)
+        contents = self._request("GET_BINARY", link, api=False)
+        count = validate_timed_text(contents, "srt")
+        return Asset(file_id, "vi", "srt", contents,
+                     hashlib.sha256(contents).hexdigest(), count)
+
     def download_selected(self, media: Media, discovery: Discovery) -> Asset:
         """Exactly one explicit quota-incurring POST for a confident D1 winner."""
         if discovery.media_key != media.key or discovery.results.media_key != media.key:
