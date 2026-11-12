@@ -32,3 +32,11 @@ Synthetic tests exercise API query, candidate matching, signed exact-media decis
 - Real OpenSubtitles API/login/download/quota: NOT_RUN. Redmi LAN pairing, G1/G2/G3/G4 and release: NOT_RUN. Rollback by discarding this isolated branch.
 
 Repo is currently PUBLIC even though older documentation says PRIVATE. No private filename, movie dialogue, secrets, magnet URL, tracker passkey or home IP may be placed in GitHub.
+
+## One-time Human action for real-key testing (no password shared)
+
+1. Open https://www.opensubtitles.com and register/login; navigate to https://www.opensubtitles.com/en/consumers and generate a **free API Consumer key** for the personal app. Keep all credentials private on the owner's laptop, never GitHub comments/PR/ChatGPT.
+2. From a trusted checkout of this reviewed Draft branch on Windows, use PowerShell and run the local script `./poc/p2-sub-discovery/owner-smoke.ps1` (relative to repo root). It prompts for key without showing typed characters and clears the API key from that script's environment after the request.
+3. The script calls **only** `GET https://api.opensubtitles.com/api/v1/infos/languages`. It never logs in, sends a movie title, consumes subtitle-download quota, or posts the key to any third-party host.
+4. Report only a sanitized code: `API_READONLY_SMOKE_PASS`, `API_KEY_NOT_CONFIGURED`, `API_AUTH_DENIED`, `RATE_LIMITED_429`, `API_NETWORK_ERROR`, or `API_RESPONSE_INVALID`. **No screenshots of Consumer/key page**, password, Bearer token, home IP or full HTTP response.
+5. This read-only probe establishes API-key access **only**. A separate Human-authorized real search and `POST /download` for a rights-cleared subtitle fixture will be necessary to prove login/account quota/redirects and actual SRT behavior. No TV pairing required for this D2 stage.
