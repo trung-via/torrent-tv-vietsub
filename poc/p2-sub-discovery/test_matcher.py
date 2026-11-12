@@ -18,6 +18,10 @@ class MatcherTests(unittest.TestCase):
         self.assertEqual((r.title, r.year, r.resolution, r.source, r.codec, r.group),
                          ("sample film", 2017, "1080p", "bluray", "x265", "team"))
 
+    def test_no_false_release_group_for_web_dl(self):
+        r = parse_release("Sample.Film.2017.1080p.WEB-DL.srt")
+        self.assertEqual((r.title, r.year, r.source, r.group), ("sample film", 2017, "web", None))
+
     def test_same_release_vi_wins(self):
         media = film()
         vi = Subtitle("vi1", "Sample.Film.2017.1080p.BluRay.x265-TEAM.srt", "vi")
