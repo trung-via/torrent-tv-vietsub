@@ -1,6 +1,7 @@
 # Explicit Human-approved Debug update; owner PR #120, dedicated runner only.
 # Source is rebuilt from exact head and pre-install package/certificate/version
-# guards must pass. Never uninstall, clear app data, downgrade or ship artifacts.
+# guards must pass. Retry includes generated-Python-cache source guard and JDK21.
+# Never uninstall, clear app data, downgrade or ship artifacts.
 name: Torrent TV - P4 Owner Redmi Debug Install
 
 on:
@@ -68,6 +69,15 @@ jobs:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
+          # This is a new runner step: the builder's process-local JAVA_HOME
+          # does not carry across steps. Set an existing dedicated JDK for apksigner.
+          $jdk = @(Get-ChildItem -LiteralPath 'C:\Program Files\Eclipse Adoptium' -Directory |
+            Where-Object { $_.Name -like 'jdk-21*' -and
+              (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\java.exe')) } |
+            Sort-Object Name -Descending | Select-Object -First 1)
+          if ($jdk.Count -ne 1) { throw 'P4_INSTALL_STOP_JDK21_UNAVAILABLE' }
+          $env:JAVA_HOME = $jdk[0].FullName
+          $env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
           & (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\install-debug-on-owner-redmi.ps1') `
             -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PR_HEAD
           if ($LASTEXITCODE -ne 0 -or -not $?) {
