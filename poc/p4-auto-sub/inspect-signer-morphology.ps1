@@ -20,8 +20,12 @@ if ([int]$eventData.number -ne 120 -or
     $eventData.pull_request.head.repo.full_name -cne $repo -or
     $eventData.pull_request.user.login -cne 'trung-via' -or
     $eventData.pull_request.head.ref -cne $env:GITHUB_HEAD_REF -or
-    $eventData.pull_request.head.sha -cne $env:GITHUB_SHA) {
+    -not $env:GITHUB_WORKSPACE) {
     throw 'P4_SIGNER_MORPH_STOP_PR_IDENTITY'
+}
+$checkoutSha=(& git -C $env:GITHUB_WORKSPACE rev-parse HEAD | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $checkoutSha -cne $eventData.pull_request.head.sha) {
+    throw 'P4_SIGNER_MORPH_STOP_CHECKOUT_SHA_DRIFT'
 }
 $root = 'C:\TOOL\TorrentTV-Runner\_work\'
 if (-not $env:RUNNER_TEMP -or
