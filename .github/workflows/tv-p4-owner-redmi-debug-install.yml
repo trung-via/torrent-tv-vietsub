@@ -74,7 +74,7 @@ jobs:
             throw 'P4_INSTALL_STOP_COMPOSED_SOURCE_BUILD_FAILED'
           }
 
-      - name: Check installed APK certificate/version then conditionally update Debug only
+      - name: Diagnose existing and candidate APK signer output READ-ONLY, no installation
         shell: powershell
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
@@ -90,14 +90,14 @@ jobs:
           $env:JAVA_HOME = $jdk[0].FullName
           $env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
           & (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\install-debug-on-owner-redmi.ps1') `
-            -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PR_HEAD
+            -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PR_HEAD -CertDiagnosticOnly
           if ($LASTEXITCODE -ne 0 -or -not $?) {
-            throw 'P4_INSTALL_STOP_NO_UNINSTALL_OR_DATA_CLEAR_PERMITTED'
+            throw 'P4_SIGNER_DIAGNOSTIC_FAILED_WITHOUT_INSTALL'
           }
 
       - name: Scope receipt
         if: success()
         shell: powershell
         run: |
-          Write-Host 'P4_OWNER_DEBUG_UPGRADE_ONLY_NOT_REAL_LAN_OR_SUBTITLE_PASS'
+          Write-Host 'P4_SIGNATURE_DIAGNOSTIC_ONLY_NO_DEBUG_APK_INSTALL'
           Write-Host 'P4_NO_UNINSTALL_NO_DATA_CLEAR_NO_RELEASE_NO_APK_UPLOAD'
