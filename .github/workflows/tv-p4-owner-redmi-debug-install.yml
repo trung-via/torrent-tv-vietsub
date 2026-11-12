@@ -54,6 +54,12 @@ jobs:
               throw 'P4_INSTALL_STOP_POWERSHELL_PARSE_FAILED'
             }
           }
+          $installSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\install-debug-on-owner-redmi.ps1') -Raw
+          if (([regex]::Matches($installSource,'P4_INSTALL_DEBUG_ARM32_PASS_NOT_LAN_OR_SUBTITLE_E2E')).Count -ne 1 -or
+              ([regex]::Matches($installSource,'\$global:LASTEXITCODE=0')).Count -ne 1) {
+            throw 'P4_INSTALL_STOP_DUPLICATED_INSTALL_SCRIPT_TAIL'
+          }
+          Write-Host 'P4_INSTALL_SCRIPT_SINGLE_TAIL_PASS'
           Write-Host 'P4_INSTALL_POWERSHELL_GUARD_PARSE_PASS'
 
       - name: Build pinned OMP G1 G2 P4 Debug ARM32 on dedicated Windows runner
