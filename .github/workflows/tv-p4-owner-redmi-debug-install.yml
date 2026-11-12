@@ -1,6 +1,6 @@
 # Explicit Human-approved Debug update; owner PR #120, dedicated runner only.
 # Source is rebuilt from exact head and pre-install package/certificate/version
-# guards must pass. Retry includes generated-Python-cache source guard and JDK21.
+# guards must pass. Windows PowerShell ADB stdout/stderr is captured privately.
 # Never uninstall, clear app data, downgrade or ship artifacts.
 name: Torrent TV - P4 Owner Redmi Debug Install
 
