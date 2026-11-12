@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from matcher import Media
+from matcher import Media, parse_release
 from opensubtitles import OpenSubtitles, SubtitleApiError
 
 _UNVERIFIED_PROFILE = "owner-interactive-search-only"
@@ -88,10 +88,86 @@ def diagnostic_status(client: OpenSubtitles, filename: str,
     return tuple(lines)
 
 
+def review_status(client: OpenSubtitles, filename: str, *, imdb_id: str,
+                  top_n: int = 5) -> tuple[str, ...]:
+    """Read-only per-release review, max three GET requests. No IDs or filenames emitted.
+
+    The local filename and API key go to OpenSubtitles on an authenticated GET;
+    returned data is kept in process memory and only safe scored flags are printed.
+    This function never elevates a weak match to automatic download authority.
+    """
+    if not isinstance(filename, str) or not (1 <= len(filename.strip()) <= 255):
+        raise SubtitleApiError("BAD_MEDIA_FILENAME")
+    if any(ord(c) < 32 for c in filename) or "/" in filename or "\\" in filename:
+        raise SubtitleApiError("BAD_MEDIA_FILENAME")
+    if type(top_n) is not int or not 1 <= top_n <= 5:
+        raise SubtitleApiError("INVALID_TOP_N")
+    media = Media(_UNVERIFIED_PROFILE, _UNVERIFIED_HASH, 0, filename.strip())
+    source = parse_release(media.filename)
+    output = ["D2_RELEASE_REVIEW", "TORRSERVER_MEDIA_BINDING=UNVERIFIED",
+              "AUTO_DOWNLOAD_ALLOWED=NO"]
+    total_gets = 0
+    for language in ("vi", "en"):
+        first = client.search(media, language=language, query_mode="imdb",
+                              imdb_id=imdb_id, page=1)
+        total_gets += 1
+        discoveries = [first]
+        prefix = language.upper()
+        output.append(f"{prefix}_PAGE1_RAW_ROWS={first.raw_rows}")
+        # Fetch one extra page only when it is known that page 1 was incomplete.
+        if first.api_total is not None and first.api_total > first.raw_rows and first.raw_rows == 50:
+            second = client.search(media, language=language, query_mode="imdb",
+                                   imdb_id=imdb_id, page=2)
+            total_gets += 1
+            discoveries.append(second)
+            output.append(f"{prefix}_PAGE2_RAW_ROWS={second.raw_rows}")
+        combined_rows = sum(x.raw_rows for x in discoveries)
+        output.append(f"{prefix}_API_TOTAL={first.api_total if first.api_total is not None else 'UNKNOWN'}")
+        output.append(f"{prefix}_RETRIEVED_ROWS={combined_rows}")
+        output.append(f"{prefix}_COVERAGE={'PARTIAL' if first.api_total is not None and combined_rows < first.api_total else 'FIRST_PAGE_OR_COMPLETE'}")
+        candidates = {}
+        ranked = {}
+        for discovery in discoveries:
+            for candidate in discovery.candidates:
+                candidates.setdefault(candidate.subtitle.subtitle_id, candidate)
+            for item in discovery.decision.ranked:
+                ranked.setdefault(item.subtitle_id, item)
+        ordered = sorted(ranked.values(), key=lambda item: (-item.score, item.subtitle_id))
+        output.append(f"{prefix}_CANDIDATES={len(candidates)}")
+        output.append(f"{prefix}_RANKED={len(ordered)}")
+        output.append(f"{prefix}_CONFIDENT={sum(1 for item in ordered if item.confident)}")
+        output.append(f"{prefix}_GROUP_MATCHES={sum('group' in item.evidence for item in ordered)}")
+
+        def compare(expected, actual):
+            if expected is None or actual is None:
+                return "UNKNOWN"
+            return "YES" if expected == actual else "NO"
+
+        for i, rank in enumerate(ordered[:top_n], 1):
+            candidate = candidates.get(rank.subtitle_id)
+            if candidate is None:
+                continue
+            prop = parse_release(candidate.subtitle.release_name)
+            evidence = ",".join(rank.evidence)
+            output.append(f"{prefix}_TOP{i}_SCORE={rank.score}")
+            output.append(f"{prefix}_TOP{i}_YEAR={compare(source.year, prop.year)}")
+            output.append(f"{prefix}_TOP{i}_SOURCE={compare(source.source, prop.source)}")
+            output.append(f"{prefix}_TOP{i}_RESOLUTION={compare(source.resolution, prop.resolution)}")
+            output.append(f"{prefix}_TOP{i}_CODEC={compare(source.codec, prop.codec)}")
+            output.append(f"{prefix}_TOP{i}_GROUP={compare(source.group, prop.group)}")
+            output.append(f"{prefix}_TOP{i}_EVIDENCE={evidence}")
+            output.append(f"{prefix}_TOP{i}_FORMAT_VALIDATED=NO")
+    output.append(f"SEARCH_REQUESTS={total_gets}")
+    output.append("DOWNLOAD_REQUESTS=0")
+    output.append("NEXT_GATE=MANUAL_REVIEW_OR_VERIFIED_MOVIEHASH")
+    return tuple(output)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Owner-side search only; no downloads")
     parser.add_argument("--imdb-id", default=None, help="verified IMDb id without leading tt")
     parser.add_argument("--diagnose-imdb", action="store_true", help="two IMDb GETs with safe parser rejection counts")
+    parser.add_argument("--review-imdb", action="store_true", help="VI/EN top-five release evidence, two or three GETs")
     args = parser.parse_args()
     key = os.environ.get("OPENSUBTITLES_API_KEY")
     if not key or not key.strip() or "\n" in key or "\r" in key:
@@ -100,7 +176,13 @@ def main() -> int:
     try:
         release = input("Authorized video release filename (local input only): ").strip()
         client = OpenSubtitles(api_key=key)
-        if args.diagnose_imdb:
+        if args.diagnose_imdb and args.review_imdb:
+            raise SubtitleApiError("CONFLICTING_SEARCH_MODES")
+        if args.review_imdb:
+            if args.imdb_id is None:
+                raise SubtitleApiError("INVALID_IMDB_ID")
+            lines = review_status(client, release, imdb_id=args.imdb_id)
+        elif args.diagnose_imdb:
             if args.imdb_id is None:
                 raise SubtitleApiError("INVALID_IMDB_ID")
             lines = diagnostic_status(client, release, imdb_id=args.imdb_id)
