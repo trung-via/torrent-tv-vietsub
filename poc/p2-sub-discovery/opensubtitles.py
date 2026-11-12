@@ -260,6 +260,9 @@ class OpenSubtitles:
                  transport: Transport = urllib_transport):
         if not isinstance(api_key, str) or not api_key.strip() or "\n" in api_key or "\r" in api_key:
             raise SubtitleApiError("API_KEY_NOT_CONFIGURED")
+        if bearer is not None and (not isinstance(bearer, str) or not bearer.strip()
+                                   or "\r" in bearer or "\n" in bearer):
+            raise SubtitleApiError("INVALID_BEARER_TOKEN")
         self._api_key = api_key
         self._bearer = bearer
         self._transport = transport
@@ -293,7 +296,11 @@ class OpenSubtitles:
         if media.movie_hash is not None:
             q["moviehash"] = media.movie_hash.lower()
         url = BASE_URL + "/subtitles?" + urllib.parse.urlencode(sorted(q.items()))
-        return parse_search_response(media, self._request("GET", url, api=True))
+        discovery = parse_search_response(media, self._request("GET", url, api=True))
+        # Never let an unexpected EN row in a VI response trigger a download.
+        candidates = tuple(c for c in discovery.candidates if c.subtitle.language == language)
+        results = SearchResults(media.key, tuple(c.subtitle for c in candidates))
+        return Discovery(media.key, results, candidates, choose(media, results))
 
     def download_selected(self, media: Media, discovery: Discovery) -> Asset:
         """Exactly one explicit quota-incurring POST for a confident D1 winner."""
