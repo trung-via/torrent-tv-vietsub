@@ -60,9 +60,35 @@ def search_status(client: OpenSubtitles, filename: str,
     return tuple(messages)
 
 
+def diagnostic_status(client: OpenSubtitles, filename: str,
+                      *, imdb_id: str) -> tuple[str, ...]:
+    """Only VI+EN IMDb search: two GETs, no downloads or raw API payload."""
+    if not isinstance(filename, str) or not (1 <= len(filename.strip()) <= 255):
+        raise SubtitleApiError("BAD_MEDIA_FILENAME")
+    if any(ord(c) < 32 for c in filename) or "/" in filename or "\\" in filename:
+        raise SubtitleApiError("BAD_MEDIA_FILENAME")
+    media = Media(_UNVERIFIED_PROFILE, _UNVERIFIED_HASH, 0, filename.strip())
+    lines = ["D2_SCHEMA_DIAGNOSTIC", "TORRSERVER_MEDIA_BINDING=UNVERIFIED"]
+    for language in ("vi", "en"):
+        discovery = client.search(media, language=language, query_mode="imdb",
+                                  imdb_id=imdb_id)
+        prefix = language.upper() + "_IMDB"
+        lines.append(f"{prefix}_RAW_ROWS={discovery.raw_rows}")
+        lines.append(f"{prefix}_API_TOTAL={discovery.api_total if discovery.api_total is not None else 'UNKNOWN'}")
+        lines.append(f"{prefix}_CANDIDATES={len(discovery.candidates)}")
+        lines.append(f"{prefix}_RANKED={len(discovery.decision.ranked)}")
+        lines.append(f"{prefix}_DECISION={discovery.decision.status}")
+        for code, count in discovery.parse_rejections:
+            if count:
+                lines.append(f"{prefix}_REJECT_{code.upper()}={count}")
+    lines.append("DOWNLOAD_REQUESTS=0")
+    return tuple(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Owner-side search only; no downloads")
     parser.add_argument("--imdb-id", default=None, help="verified IMDb id without leading tt")
+    parser.add_argument("--diagnose-imdb", action="store_true", help="two IMDb GETs with safe parser rejection counts")
     args = parser.parse_args()
     key = os.environ.get("OPENSUBTITLES_API_KEY")
     if not key or not key.strip() or "\n" in key or "\r" in key:
@@ -71,7 +97,13 @@ def main() -> int:
     try:
         release = input("Authorized video release filename (local input only): ").strip()
         client = OpenSubtitles(api_key=key)
-        for line in search_status(client, release, imdb_id=args.imdb_id):
+        if args.diagnose_imdb:
+            if args.imdb_id is None:
+                raise SubtitleApiError("INVALID_IMDB_ID")
+            lines = diagnostic_status(client, release, imdb_id=args.imdb_id)
+        else:
+            lines = search_status(client, release, imdb_id=args.imdb_id)
+        for line in lines:
             print(line)
         return 0
     except SubtitleApiError as exc:
