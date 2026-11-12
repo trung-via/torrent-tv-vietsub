@@ -158,8 +158,9 @@ class OwnerSearchTests(unittest.TestCase):
         self.assertEqual([(x[0], x[1], x[2]) for x in spy.calls],
                          [("GET", "vi", "imdb"), ("GET", "en", "imdb")])
         self.assertIn("VI_IMDB_RAW_ROWS=1", lines)
-        self.assertIn("VI_IMDB_REJECT_UNSUPPORTED_EXTENSION=1", lines)
-        self.assertIn("VI_IMDB_CANDIDATES=0", lines)
+        self.assertIn("VI_IMDB_CANDIDATES=1", lines)
+        self.assertIn("VI_IMDB_RANKED=0", lines)  # Provider metadata without title match
+        self.assertNotIn("VI_IMDB_REJECT_UNSUPPORTED_EXTENSION=1", lines)
         self.assertIn("EN_IMDB_CANDIDATES=1", lines)
         self.assertIn("DOWNLOAD_REQUESTS=0", lines)
         self.assertNotIn("very-secret", "\\n".join(lines))
