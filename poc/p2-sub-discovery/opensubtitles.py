@@ -45,6 +45,8 @@ class Discovery:
     results: SearchResults
     candidates: tuple[Candidate, ...]
     decision: Decision
+    raw_rows: int = 0
+    api_total: int | None = None
 
 
 @dataclass(frozen=True)
@@ -167,7 +169,11 @@ def parse_search_response(media: Media, body: bytes) -> Discovery:
             out.append(Candidate(file_id, Subtitle(str(file_id), release_name, language,
                                                    fmt=fmt, movie_hash=matched_hash)))
     items = SearchResults(media.key, tuple(x.subtitle for x in out))
-    return Discovery(media.key, items, tuple(out), choose(media, items))
+    total = payload.get("total_count")
+    # Aggregate numeric diagnostics only: no raw provider payload or release titles.
+    safe_total = total if type(total) is int and 0 <= total <= 10000000 else None
+    return Discovery(media.key, items, tuple(out), choose(media, items),
+                     raw_rows=len(rows), api_total=safe_total)
 
 
 def _milliseconds(stamp: str, fmt: str) -> int:
@@ -282,31 +288,40 @@ class OpenSubtitles:
         cap = MAX_JSON_BYTES if api else MAX_SUBTITLE_BYTES
         return self._transport(method, url, headers, body, cap)
 
-    def search(self, media: Media, *, language: str, query_mode: str = "release") -> Discovery:
+    def search(self, media: Media, *, language: str,
+               query_mode: str = "release", imdb_id: str | None = None) -> Discovery:
         if language not in ("vi", "en"):
             raise SubtitleApiError("UNSUPPORTED_LANGUAGE")
-        if query_mode not in ("release", "title"):
+        if query_mode not in ("release", "title", "imdb"):
             raise SubtitleApiError("UNSUPPORTED_QUERY_MODE")
         filename = re.split(r"[/\\]", media.filename)[-1]
         if len(filename) > 255 or any(ord(c) < 32 for c in filename):
             raise SubtitleApiError("BAD_MEDIA_FILENAME")
         release = parse_release(filename)
-        # Release-first for exact scene matches; title-only is a separate,
-        # explicitly requested fallback (same verified media identity).
-        query = filename.rsplit(".", 1)[0] if query_mode == "release" else release.title
-        if not query:
-            raise SubtitleApiError("BAD_MEDIA_TITLE")
-        q = {"languages": language, "query": query}
-        if release.year is not None:
-            q["year"] = str(release.year)
-        if media.movie_hash is not None:
-            q["moviehash"] = media.movie_hash.lower()
+        if query_mode == "imdb":
+            # The ID must be independently verified for the selected film.
+            # Search by ID without restrictive year/query filters.
+            if not isinstance(imdb_id, str) or not re.fullmatch(r"(?:tt)?[0-9]{1,12}", imdb_id):
+                raise SubtitleApiError("INVALID_IMDB_ID")
+            q = {"languages": language, "imdb_id": str(int(imdb_id.removeprefix("tt")))}
+        else:
+            # Release-first for exact scene names; title fallback may return
+            # subtitles named after other encodes (still review before use).
+            query = filename.rsplit(".", 1)[0] if query_mode == "release" else release.title
+            if not query:
+                raise SubtitleApiError("BAD_MEDIA_TITLE")
+            q = {"languages": language, "query": query}
+            if release.year is not None:
+                q["year"] = str(release.year)
+            if media.movie_hash is not None:
+                q["moviehash"] = media.movie_hash.lower()
         url = BASE_URL + "/subtitles?" + urllib.parse.urlencode(sorted(q.items()))
         discovery = parse_search_response(media, self._request("GET", url, api=True))
         # Never let an unexpected EN row in a VI response trigger a download.
         candidates = tuple(c for c in discovery.candidates if c.subtitle.language == language)
         results = SearchResults(media.key, tuple(c.subtitle for c in candidates))
-        return Discovery(media.key, results, candidates, choose(media, results))
+        return Discovery(media.key, results, candidates, choose(media, results),
+                         raw_rows=discovery.raw_rows, api_total=discovery.api_total)
 
     def download_selected(self, media: Media, discovery: Discovery) -> Asset:
         """Exactly one explicit quota-incurring POST for a confident D1 winner."""
