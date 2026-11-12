@@ -166,32 +166,19 @@ try {
         }
         return @{ package=$Matches[1]; version=[long]::Parse($Matches[2]) }
     }
+    # Parser is pure, source-pinned and unit-tested before the Android build.
+    $parserPath=Join-Path $AppRepoRoot 'poc\p4-auto-sub\cert-parser.ps1'
+    if (-not (Test-Path -LiteralPath $parserPath -PathType Leaf)) {
+        throw 'P4_INSTALL_STOP_SIGNER_PARSER_MISSING'
+    }
+    . $parserPath
     function Get-VerifiedCert([string]$apkFile, [string]$label) {
         $out=@(& $apksigner verify --verbose --print-certs $apkFile 2>$null)
         if ($LASTEXITCODE -ne 0) {throw 'P4_INSTALL_STOP_APK_SIGNATURE_VERIFY_FAILED'}
-        $signerLabels=@($out | ForEach-Object {
-            if ([string]$_ -match '(?i)^\s*Signer\s*#\s*([0-9]+)\b') { $Matches[1] }
-        } | Sort-Object -Unique)
-        $certPrefixes=@($out | ForEach-Object {
-            if ([string]$_ -match '(?i)^\s*(Signer\s*#\s*[0-9]+\s+certificate\s+[^:]{1,72}):') {
-                ($Matches[1] -replace '[^A-Za-z0-9 #\-]','_').Trim()
-            }
-        } | Sort-Object -Unique)
-        $certDigests=@($out | ForEach-Object {
-            if ([string]$_ -match '(?i)^\s*Signer\s*#1\s+certificate\s+SHA-256\s+digest:\s*([a-f0-9]{64})\s*$') {
-                $Matches[1].ToLowerInvariant()
-            }
-        })
-        # All receipts are structural only. NEVER log installed signer fingerprints, APK paths or serials.
-        Write-Host ('P4_SIGNER_DIAG_'+$label+'_TOTAL_LINES='+$out.Count)
-        Write-Host ('P4_SIGNER_DIAG_'+$label+'_SIGNERS='+($signerLabels -join ','))
-        Write-Host ('P4_SIGNER_DIAG_'+$label+'_CERT_PREFIXES='+($certPrefixes -join '|'))
-        Write-Host ('P4_SIGNER_DIAG_'+$label+'_SHA256_MATCH_COUNT='+$certDigests.Count)
-        if ($signerLabels.Count -ne 1 -or [string]$signerLabels[0] -cne '1' -or $certDigests.Count -ne 1) {
-            if ($CertDiagnosticOnly) { return '' }
-            throw 'P4_INSTALL_STOP_APK_SIGNER_COUNT_INVALID'
-        }
-        return [string]$certDigests[0]
+        $result=Get-P4SingleSignerDigest -Lines $out
+        # Do NOT log certificate fingerprints or signer raw text.
+        Write-Host ('P4_SIGNER_'+$label+'_SINGLE_CERT_PARSED=true')
+        return [string]$result
     }
     $current=Get-PackageAndVersion $oldApk
     $new=Get-PackageAndVersion $apk
