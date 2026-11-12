@@ -4,7 +4,6 @@ package com.spacesarmat.omp.player
 import android.os.Looper
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
 import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Mac
@@ -14,7 +13,7 @@ import javax.crypto.spec.SecretKeySpec
  * PC already has matching EN timed subtitle; TV sends only opaque mediaKey.
  * Device pairing key is provisioned separately and never leaves this method.
  * Host creates a fresh per-film session+sourceHash; TV derives matching key.
- * Signed metadata, no DNS/WAN, no TV listener. Plain HTTP is not confidential.
+ * Signed metadata via cert-pinned HTTPS; no DNS/WAN or TV listener.
  */
 internal object P4ActivationClient {
     internal data class Activated(
@@ -30,6 +29,7 @@ internal object P4ActivationClient {
     /** Never on UI thread; every request has a new 128-bit nonce. */
     internal fun activate(
         host: String, port: Int, mediaKey: String, deviceSecret: ByteArray,
+        certPinSha256: String,
     ): Activated {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw IllegalStateException("P4_ACTIVATE_MAIN_THREAD_FORBIDDEN")
@@ -46,7 +46,8 @@ internal object P4ActivationClient {
             .put("auth", sign(deviceSecret,"TTV-P4-ACTIVATE-V1\n$mediaKey\n$nonce"))
             .toString().toByteArray(Charsets.US_ASCII)
         if (request.size > 800) throw IllegalArgumentException("P4_ACTIVATE_SIZE_INVALID")
-        val conn = P4LanClient.activationEndpoint(host,port).openConnection() as HttpURLConnection
+        val conn = P4PinnedTls.open(
+            P4LanClient.activationEndpoint(host,port),certPinSha256)
         try {
             conn.requestMethod = "POST"
             conn.instanceFollowRedirects = false
