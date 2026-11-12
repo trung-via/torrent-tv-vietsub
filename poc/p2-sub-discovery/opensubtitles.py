@@ -282,15 +282,21 @@ class OpenSubtitles:
         cap = MAX_JSON_BYTES if api else MAX_SUBTITLE_BYTES
         return self._transport(method, url, headers, body, cap)
 
-    def search(self, media: Media, *, language: str) -> Discovery:
+    def search(self, media: Media, *, language: str, query_mode: str = "release") -> Discovery:
         if language not in ("vi", "en"):
             raise SubtitleApiError("UNSUPPORTED_LANGUAGE")
+        if query_mode not in ("release", "title"):
+            raise SubtitleApiError("UNSUPPORTED_QUERY_MODE")
         filename = re.split(r"[/\\]", media.filename)[-1]
         if len(filename) > 255 or any(ord(c) < 32 for c in filename):
             raise SubtitleApiError("BAD_MEDIA_FILENAME")
         release = parse_release(filename)
-        # Query by specific release string, not an invented movie or torrent index.
-        q = {"languages": language, "query": filename.rsplit(".", 1)[0]}
+        # Release-first for exact scene matches; title-only is a separate,
+        # explicitly requested fallback (same verified media identity).
+        query = filename.rsplit(".", 1)[0] if query_mode == "release" else release.title
+        if not query:
+            raise SubtitleApiError("BAD_MEDIA_TITLE")
+        q = {"languages": language, "query": query}
         if release.year is not None:
             q["year"] = str(release.year)
         if media.movie_hash is not None:
