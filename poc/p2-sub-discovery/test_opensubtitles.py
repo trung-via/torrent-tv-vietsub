@@ -156,20 +156,54 @@ class D2Tests(unittest.TestCase):
             row(1, name="a.zip"), row(2, language="fr"), row(3, name="movie.vtt")))
         self.assertEqual([x.file_id for x in d.candidates], [3])
 
-    def test_raw_rows_with_unsupported_extensions_explain_zero_candidates(self):
-        # Regression from Human-reported OpenSubtitles response with nonzero
-        # rows but zero admitted files. Exact reason remains unverified live.
+    def test_provider_extensions_are_ranked_without_claiming_srt(self):
+        # Real owner diagnostic: all VI/EN rows had unsupported extensions.
+        # Source metadata must not be filtered before release matching.
         d = parse_search_response(media(), response(
             row(1, name="Sample.Film.2017.sub"),
             row(2, name="Sample.Film.2017.txt"),
+            row(3, name="Sample.Film.2017.ass"),
+            row(4, name="Sample.Film.2017.1080p.BluRay.x265-TEAM"),
             {"attributes": {"language": "vi", "files": []}},
         ))
-        self.assertEqual(d.raw_rows, 3)
-        self.assertEqual(len(d.candidates), 0)
+        self.assertEqual(d.raw_rows, 5)
+        self.assertEqual(len(d.candidates), 4)
+        self.assertTrue(all(c.subtitle.fmt == "provider" for c in d.candidates))
+        self.assertEqual(len(d.decision.ranked), 4)
         reasons = dict(d.parse_rejections)
-        self.assertEqual(reasons["unsupported_extension"], 2)
+        self.assertEqual(reasons["unsupported_extension"], 0)
         self.assertEqual(reasons["missing_files"], 1)
-        self.assertEqual(d.decision.status, "NO_MATCH")
+        self.assertEqual(d.decision.status, "REVIEW_REQUIRED")
+
+    def test_explicit_srt_conversion_of_provider_format(self):
+        mock = FakeTransport(search=response(row(99, name="Sample.Film.2017.ass")))
+        cli = OpenSubtitles(api_key="x", transport=mock)
+        m = media()
+        disc = cli.search(m, language="vi")
+        self.assertEqual(disc.candidates[0].subtitle.fmt, "provider")
+        self.assertEqual(disc.decision.status, "VI_MATCH")
+        asset = cli.download_selected(m, disc)
+        self.assertEqual(json.loads(mock.calls[1][3]),
+                         {"file_id": 99, "sub_format": "srt"})
+        self.assertEqual((asset.fmt, asset.cues, asset.contents), ("srt", 2, SRT))
+
+    def test_provider_conversion_failure_does_not_claim_valid_caption(self):
+        mock = FakeTransport(search=response(row(99, name="Sample.Film.2017.ass")),
+                             content=b"[Script Info]\\nTitle: Not SRT")
+        cli = OpenSubtitles(api_key="x", transport=mock)
+        m = media()
+        disc = cli.search(m, language="vi")
+        with self.assertRaisesRegex(SubtitleApiError, "BAD_SUBTITLE_TIMELINE"):
+            cli.download_selected(m, disc)
+        self.assertEqual(json.loads(mock.calls[1][3]),
+                         {"file_id": 99, "sub_format": "srt"})
+
+    def test_binary_archives_remain_rejected(self):
+        d = parse_search_response(media(), response(
+            row(1, name="source.zip"), row(2, name="source.exe"),
+            row(3, name="source.pdf"), row(4, name="source.mkv")))
+        self.assertEqual(len(d.candidates), 0)
+        self.assertEqual(dict(d.parse_rejections)["unsupported_extension"], 4)
 
     def test_parser_counts_invalid_schema_without_leaking_values(self):
         secret_title = "Private.User.Release.2017"
