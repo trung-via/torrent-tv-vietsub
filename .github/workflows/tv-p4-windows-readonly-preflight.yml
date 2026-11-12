@@ -51,9 +51,21 @@ jobs:
               }
             }
           }
+          $adbProcesses = @(Get-Process -Name adb -ErrorAction SilentlyContinue)
+          $running = $adbProcesses.Count -gt 0
+          if ($null -eq $adbPath -and $running) {
+            foreach ($proc in $adbProcesses) {
+              $candidate = try { $proc.Path } catch { $null }
+              if (-not [string]::IsNullOrWhiteSpace($candidate) -and
+                  (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+                $adbPath = $candidate
+                $adbOrigin = 'RUNNING_PROCESS'
+                break
+              }
+            }
+          }
           Write-Host ('P4_ADB_AVAILABLE=' + ($null -ne $adbPath).ToString().ToLowerInvariant())
           Write-Host ('P4_ADB_ORIGIN=' + $adbOrigin)
-          $running = @(Get-Process -Name adb -ErrorAction SilentlyContinue).Count -gt 0
           Write-Host ('P4_ADB_ALREADY_RUNNING=' + $running.ToString().ToLowerInvariant())
           if ($null -eq $adbPath -or -not $running) {
             # Do not invoke adb: it could spawn an ADB server.
