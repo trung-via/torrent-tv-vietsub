@@ -58,7 +58,7 @@ class SyntheticP4FeedTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(payload.encode("utf-8")).hexdigest(),
                          latest["payload_sha256"])
         self.assertEqual(latest["source_sha256"],synthetic_source_sha256())
-        self.assertTrue(synthetic_source_srt().startswith(b"1\\n"))
+        self.assertTrue(synthetic_source_srt().startswith(b"1\n"))
 
     def test_wrong_media_or_source_rejected_before_publication(self):
         feed=self.new_feed()
