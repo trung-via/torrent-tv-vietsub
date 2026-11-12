@@ -4,7 +4,7 @@ import unittest
 
 from matcher import Media
 from opensubtitles import OpenSubtitles, SubtitleApiError
-from owner_search import search_status
+from owner_search import search_status, diagnostic_status
 
 
 NAME = "Sample.Film.2017.1080p.BluRay.x265-TEAM.mkv"
@@ -144,6 +144,36 @@ class OwnerSearchTests(unittest.TestCase):
         self.assertIn("VI_TITLE_RAW_ROWS=1", lines)
         self.assertNotIn("sample.srt", "\\n".join(lines))
         self.assertIn("DOWNLOAD_REQUESTS=0", lines)
+
+    def test_targeted_imdb_schema_diagnostic_exactly_two_gets(self):
+        import json
+        only_rows = json.dumps({"total_count": 6, "data": [
+            {"attributes": {"language": "vi", "release": "Private Synthetic Title",
+                            "files": [{"file_id": 11, "file_name": "subtitle.ass"}]}}
+        ]}).encode()
+        spy = Stub({("vi", "imdb"): only_rows,
+                    ("en", "imdb"): api_rows(api_row(12, lang="en", release=CONFIDENT))})
+        client = OpenSubtitles(api_key="very-secret", transport=spy)
+        lines = diagnostic_status(client, NAME, imdb_id="3501632")
+        self.assertEqual([(x[0], x[1], x[2]) for x in spy.calls],
+                         [("GET", "vi", "imdb"), ("GET", "en", "imdb")])
+        self.assertIn("VI_IMDB_RAW_ROWS=1", lines)
+        self.assertIn("VI_IMDB_REJECT_UNSUPPORTED_EXTENSION=1", lines)
+        self.assertIn("VI_IMDB_CANDIDATES=0", lines)
+        self.assertIn("EN_IMDB_CANDIDATES=1", lines)
+        self.assertIn("DOWNLOAD_REQUESTS=0", lines)
+        self.assertNotIn("very-secret", "\\n".join(lines))
+        self.assertNotIn("Private Synthetic Title", "\\n".join(lines))
+
+    def test_schema_diagnostic_empty_api_vs_missing_files(self):
+        spy = Stub({("vi", "imdb"): api_rows({"attributes": {
+            "language": "vi", "files": []}})})
+        client = OpenSubtitles(api_key="key", transport=spy)
+        lines = diagnostic_status(client, NAME, imdb_id="3501632")
+        self.assertIn("VI_IMDB_REJECT_MISSING_FILES=1", lines)
+        self.assertIn("VI_IMDB_RAW_ROWS=1", lines)
+        self.assertIn("EN_IMDB_RAW_ROWS=0", lines)
+        self.assertEqual(len(spy.calls), 2)
 
     def test_bad_query_mode_rejected_before_network(self):
         class Explode:
