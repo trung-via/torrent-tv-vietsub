@@ -79,7 +79,7 @@ jobs:
             throw 'P4_INSTALL_STOP_COMPOSED_SOURCE_BUILD_FAILED'
           }
 
-      - name: Diagnose existing and candidate APK signer output READ-ONLY, no installation
+      - name: Signature-gated replacement of existing OMP Debug APK (preserve data)
         shell: powershell
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
@@ -95,14 +95,14 @@ jobs:
           $env:JAVA_HOME = $jdk[0].FullName
           $env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
           & (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\install-debug-on-owner-redmi.ps1') `
-            -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PR_HEAD -CertDiagnosticOnly
+            -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PR_HEAD
           if ($LASTEXITCODE -ne 0 -or -not $?) {
-            throw 'P4_SIGNER_DIAGNOSTIC_FAILED_WITHOUT_INSTALL'
+            throw 'P4_INSTALL_STOP_SIGNATURE_OR_REPLACE_OR_READBACK_FAILED'
           }
 
       - name: Scope receipt
         if: success()
         shell: powershell
         run: |
-          Write-Host 'P4_SIGNATURE_DIAGNOSTIC_ONLY_NO_DEBUG_APK_INSTALL'
+          Write-Host 'P4_OWNER_DEBUG_UPGRADE_RECEIPT_SIGNER_PIN_AND_READBACK_PASS'
           Write-Host 'P4_NO_UNINSTALL_NO_DATA_CLEAR_NO_RELEASE_NO_APK_UPLOAD'
