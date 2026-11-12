@@ -109,3 +109,41 @@ Reference: https://ai.opensubtitles.com/api-docs
 Next accepted step after diagnosing: targeted fix for the observed provider
 schema with synthetic fixtures, CI, and explicit review of the conversion/
 format gate. No untrusted raw API response may be attached to the public repo.
+
+## D2 parser format gate root cause (HUMAN_REPORTED 2026-11-12)
+
+Owner's two-GET IMDb diagnostic on selected release
+`Thor Ragnarok 2017 1080p BluRay x265-YAWNTiC` showed:
+- VI: 6/6 provider rows rejected as `UNSUPPORTED_EXTENSION`.
+- EN: 50 of 58 provider rows (page 1) rejected as `UNSUPPORTED_EXTENSION`.
+- `DOWNLOAD_REQUESTS=0`, no TorrServer media binding.
+
+**Proven:** Original parser was discarding valid provider search **metadata**
+before release ranking because `files[].file_name` did not have an accepted
+`.srt`/`.vtt` suffix. The precise unknown source filename extensions were
+not disclosed and must not be guessed.
+
+**Change:** D2 source accepts sanitized provider metadata with a valid
+`file_id` even when the filename suffix is not SRT/VTT. Common subtitle
+suffixes (`.ass`, `.ssa`, `.sub`, `.txt`, etc.) are stripped for
+release matching. Obvious non-subtitle binaries/archives remain rejected.
+`Subtitle.fmt=provider` means **unverified** source formatting, not "SRT".
+Source format and trustworthy sync are not proved by the candidate title.
+
+**Future owner-authorized download** for a confident provider candidate:
+OpenSubtitles `POST /download` with `sub_format=srt`, then strict UTF-8
+SRT timeline/cue/size QA **before** returning any asset/cache path. Requesting
+conversion may spend a download-quota event even if the returned file is
+invalid. There is no attempt to download in CI or owner search-only tools.
+This path remains NOT_RUN with real credentials/film.
+
+**Targeted same-release verification:** Re-run only two read-only queries with
+`--imdb-id 3501632 --diagnose-imdb`; print `CANDIDATES`, `RANKED`,
+`CONFIDENT`, `GROUP_MATCHES`, `DECISION`, `DOWNLOAD_REQUESTS=0`.
+All output is aggregate counts, never provider filenames or user tokens.
+The owner must use the exact selected file release, not a shorthand such as
+`thor 2017`. Even a group match is only a provisional sync hint until
+actual media and track timing are checked.
+
+Official provider conversion parameter:
+https://ai.opensubtitles.com/api-docs
