@@ -40,13 +40,14 @@ class Fake:
         raise AssertionError("unexpected transport")
 
 
-def run(fake, answer, root):
+def run(fake, answer, root, *, search_policy="VI_FAST"):
     messages = []
     def ask(prompt):
         return answer
     result = owner_fallback_trial(
         OpenSubtitles(api_key="private-key", transport=fake),
-        MEDIA, "3501632", ask=ask, emit=messages.append, cache_root=root)
+        MEDIA, "3501632", ask=ask, emit=messages.append, cache_root=root,
+        search_policy=search_policy)
     return result, messages
 
 
@@ -110,6 +111,30 @@ class TrialTests(unittest.TestCase):
             bad_root.write_text("already file")
             with self.assertRaises(OSError):
                 run(fake, "DOWNLOAD ONE", bad_root)
+            self.assertEqual([x[0] for x in fake.calls], ["GET", "GET"])
+
+    def test_en_direct_skips_vi_in_local_workflow(self):
+        fake = Fake(vi=[row(5, "vi", SAME)], en=[row(7, "en", SAME)])
+        with tempfile.TemporaryDirectory() as root:
+            code, lines = run(fake, "no", Path(root),
+                              search_policy="EN_DIRECT")
+            self.assertEqual(code, 0)
+            self.assertIn("SEARCH_POLICY=EN_DIRECT", lines)
+            self.assertIn("VI_PROBE_STATUS=SKIPPED", lines)
+            self.assertIn("ROUTE=EN_TRANSLATE", lines)
+            self.assertEqual([x[0] for x in fake.calls], ["GET"])
+            self.assertIn("DOWNLOAD_POST_ATTEMPTS=0", lines)
+
+    def test_weak_en_review_shortlist_does_not_download(self):
+        weak_but_plausible = "Example.Film.2017.1080p.BluRay.x265"
+        fake = Fake(en=[row(70, "en", weak_but_plausible)])
+        with tempfile.TemporaryDirectory() as root:
+            code, lines = run(fake, "DOWNLOAD ONE", Path(root))
+            self.assertEqual(code, 0)
+            self.assertIn("ROUTE=REVIEW_REQUIRED", lines)
+            self.assertIn("REVIEW_EN_COUNT=1", lines)
+            self.assertIn("REVIEW_EN_TOP1_EVIDENCE=title,year,source,resolution,codec", lines)
+            self.assertIn("DOWNLOAD_POST_ATTEMPTS=0", lines)
             self.assertEqual([x[0] for x in fake.calls], ["GET", "GET"])
 
     def test_invalid_filename_stops_before_network(self):
