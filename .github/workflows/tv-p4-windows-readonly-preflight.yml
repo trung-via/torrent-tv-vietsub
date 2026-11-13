@@ -191,3 +191,26 @@ jobs:
           }
           & $script
           if (-not $?) { throw 'P4_PC_PREFLIGHT_STOP_SCRIPT_FAILED' }
+
+      - name: Check owner profile and Debug run-as eligibility for silent PC bootstrap READ ONLY
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\P4'
+          $pair=Join-Path $root 'pairing-token.txt'
+          $pcReady=Test-Path -LiteralPath $pair -PathType Leaf
+          Write-Host ('P4_ONE_PC_OWNER_PAIRING_FILE_VISIBLE_TO_RUNNER=' + $pcReady.ToString().ToLowerInvariant())
+          $adb='C:\TOOL\Android-SDK\platform-tools\adb.exe'
+          $runAs=$false
+          if (Test-Path -LiteralPath $adb -PathType Leaf) {
+            $devices=@(& $adb devices)
+            $items=@($devices | Where-Object { $_ -match '^[^\s]+\s+device(\s|$)' })
+            if ($LASTEXITCODE -eq 0 -and $items.Count -eq 1) {
+              $serial=(([string]$items[0]).Trim() -split '\s+')[0]
+              $proof=@(& $adb -s $serial shell run-as com.spacesarmat.omp.test pwd 2>$null)
+              $runAs=($LASTEXITCODE -eq 0 -and $proof.Count -eq 1)
+            }
+          }
+          Write-Host ('P4_DEBUG_RUN_AS_READONLY_ELIGIBLE=' + $runAs.ToString().ToLowerInvariant())
+          Write-Host 'P4_OWNER_ADB_BOOTSTRAP_NOT_RUN=true'
+          $global:LASTEXITCODE=0
