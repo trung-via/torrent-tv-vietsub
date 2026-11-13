@@ -14,20 +14,26 @@ import uuid
 from matcher import Media
 from opensubtitles import OpenSubtitles, SubtitleApiError, write_private_cache
 from owner_vi_trial import _safe_display
-from vi_en_fallback import select_vi_then_en
+from vi_en_fallback import SEARCH_POLICIES, select_vi_then_en
 
 
 def owner_fallback_trial(client: OpenSubtitles, filename: str, imdb_id: str, *,
-                         ask=input, emit=print, cache_root: Path | None = None) -> int:
+                         ask=input, emit=print, cache_root: Path | None = None,
+                         search_policy: str = "VI_FAST") -> int:
     if not isinstance(filename, str) or not 1 <= len(filename.strip()) <= 255:
         raise SubtitleApiError("BAD_MEDIA_FILENAME")
     if any(ord(c) < 32 for c in filename) or "/" in filename or "\\" in filename:
         raise SubtitleApiError("BAD_MEDIA_FILENAME")
     media = Media("owner-fallback-unverified", uuid.uuid4().hex, 0, filename.strip())
-    route = select_vi_then_en(client, media, imdb_id=imdb_id)
+    route = select_vi_then_en(client, media, imdb_id=imdb_id,
+                              policy=search_policy)
 
     emit("D2_VI_EN_FALLBACK_OWNER")
     emit("REAL_VIDEO_BINDING=UNVERIFIED")
+    emit(f"SEARCH_POLICY={route.search_policy}")
+    emit(f"VI_PROBE_STATUS={route.vi_probe_status}")
+    emit(f"VI_SEARCH_ELAPSED_MS={route.vi_elapsed_ms}")
+    emit(f"EN_SEARCH_ELAPSED_MS={route.en_elapsed_ms}")
     emit(f"VI_RANKED={len(route.vi.decision.ranked)}")
     emit(f"EN_RANKED={len(route.en.decision.ranked) if route.en else 0}")
     emit(f"ROUTE={route.status}")
@@ -37,6 +43,19 @@ def owner_fallback_trial(client: OpenSubtitles, filename: str, imdb_id: str, *,
     emit("TRANSLATION_REQUESTS=0")
 
     if route.status not in ("VI_READY", "EN_TRANSLATE"):
+        # Weak EN release names are useful owner-facing evidence, but NEVER
+        # authorize a quota POST through this branch.
+        if route.en and route.en.decision.ranked:
+            by_id = {c.subtitle.subtitle_id: c
+                     for c in route.en.candidates}
+            reviewed = [r for r in route.en.decision.ranked
+                        if r.subtitle_id in by_id][:3]
+            emit(f"REVIEW_EN_COUNT={len(route.en.decision.ranked)}")
+            for index, item in enumerate(reviewed, 1):
+                hint = by_id[item.subtitle_id].subtitle.release_name
+                emit(f"REVIEW_EN_TOP{index}_SCORE={item.score}")
+                emit(f"REVIEW_EN_TOP{index}_EVIDENCE={','.join(item.evidence)}")
+                emit(f"REVIEW_EN_TOP{index}_RELEASE_HINT={_safe_display(hint)}")
         emit("DOWNLOAD_POST_ATTEMPTS=0")
         emit("NEXT_GATE=MANUAL_SOURCE_REVIEW")
         return 0
@@ -99,6 +118,8 @@ def owner_fallback_trial(client: OpenSubtitles, filename: str, imdb_id: str, *,
 def main() -> int:
     parser = argparse.ArgumentParser(description="VI-first with optional matched EN fallback")
     parser.add_argument("--imdb-id", required=True)
+    parser.add_argument("--search-policy", choices=SEARCH_POLICIES,
+                        default="VI_FAST", help="VI_FAST (default), EN_DIRECT, VI_FULL")
     args = parser.parse_args()
     token = os.environ.get("OPENSUBTITLES_API_KEY")
     if not token or not token.strip() or "\r" in token or "\n" in token:
@@ -106,7 +127,8 @@ def main() -> int:
         return 1
     try:
         name = input("Authorized video release filename (local input only): ")
-        return owner_fallback_trial(OpenSubtitles(api_key=token), name, args.imdb_id)
+        return owner_fallback_trial(OpenSubtitles(api_key=token), name, args.imdb_id,
+                                    search_policy=args.search_policy)
     except SubtitleApiError as exc:
         print(str(exc))
         return 1
