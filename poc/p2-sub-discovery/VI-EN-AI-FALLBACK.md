@@ -44,3 +44,23 @@ A production AI adapter is **not yet connected**: the user requested an API path
 - [ ] D3 real TorrServer media binding + Windows/NAS → OMP subtitle delivery, and P1 G1 auto-render-after-reopen repair on real Redmi.
 
 Do not infer any of the unchecked gates from CI PASS. No AIOS dependency, TV installation, public media path, or extra OpenSubtitles quota action in this branch.
+
+## Local VI/EN owner workflow (added after initial draft)
+
+Run `owner_vi_en_trial.py --imdb-id <verified-title-id>` only in the owner's
+local, explicitly authorized shell with temporary `OPENSUBTITLES_API_KEY`.
+It performs read-only VI-first search and EN fallback, prints the chosen release
+hint privately, and prompts for the literal `DOWNLOAD ONE` before one quota
+POST. The selected EN or VI SRT is cached privately and structurally validated.
+An EN result reports `NEXT_GATE=EN_TRANSLATION_PROVIDER_AUTHORIZATION`,
+`AI_TEXT_UPLOADED=NO`, and never invokes any translation model. A local
+release filename is not an actual TorrServer media binding.
+
+`translation_api_contract.py` provides the provider-agnostic LEAN120 system
+rules, untrusted EN subtitle source wrapper, stable glossary input and strict
+`ID|VI` response parser. A concrete API client must place the system rules
+separately from source data, handle its own auth/budget/timeouts/retries safely,
+and pass validated per-batch mappings to `timed_translation.py`.
+Neither module opens network connections. No translator-provider choice or
+subtitle-upload authority is presumed by these files. Real semantic accuracy
+must be independently reviewed after structural QA.
