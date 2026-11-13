@@ -66,7 +66,7 @@ jobs:
           $launcher = Get-Content -LiteralPath $scripts[1] -Raw
           foreach ($phrase in @('P4_MOCK_GATEWAY_STOP_CI_NOT_ALLOWED',
             'P4_MOCK_GATEWAY_OWNER_FOREGROUND_ONLY',
-            '--mock-revisions','--start-lan')) {
+            '--mock-revisions','--mock-single-paired-media','--start-lan')) {
             if (-not $launcher.Contains($phrase)) {throw 'P4_PC_STATIC_STOP_LAUNCHER_UNSAFE'}
           }
           $adbSource=Get-Content -LiteralPath $scripts[2] -Raw
@@ -78,5 +78,9 @@ jobs:
               throw 'P4_PC_STATIC_STOP_ADB_BOOTSTRAP_GUARD_MISSING'
             }
           }
+          if ($launcher.Contains('--media-key $MediaKey')) {
+            throw 'P4_PC_STATIC_STOP_MANUAL_MEDIA_KEY_REGRESSION'
+          }
+          Write-Host 'P4_PC_STATIC_NO_MANUAL_TV_MEDIA_KEY_PASS=true'
           Write-Host 'P4_PC_STATIC_POWERSHELL_PARSE_PASS=true'
           Write-Host 'P4_PC_STATIC_CI_DOES_NOT_EXECUTE_LOCAL_SETUP=true'
