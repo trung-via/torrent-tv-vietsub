@@ -93,8 +93,14 @@ class AutomaticLean120Worker:
         self.transport = transport
 
     def run(self, handoff: AssumedEnglishSubtitle, *,
-            on_revision: Callable[[SubtitleRevision], object] | None = None
+            on_revision: Callable[[SubtitleRevision], object] | None = None,
+            max_new_windows: int | None = None
             ) -> SubtitleRevision:
+        # Explicit one-new-call pilot mode; default behavior still completes
+        # the entire film. Old checkpoints are replayed without quota spend.
+        if max_new_windows is not None and (
+                type(max_new_windows) is not int or max_new_windows != 1):
+            raise ValueError("AUTO_LEAN120_PILOT_WINDOW_LIMIT_INVALID")
         if (not isinstance(handoff, AssumedEnglishSubtitle) or
             handoff.source_status != "ASSUMED_MATCHED_EN_TIMED_TEXT"):
             raise ValueError("AUTO_LEAN120_AUTHORIZED_EN_HANDOFF_REQUIRED")
@@ -120,6 +126,7 @@ class AutomaticLean120Worker:
         # An existing/stale lock is deliberately NOT broken or auto-replayed.
         _write_new_synced(lock, b"TTV-P2-LOCK-V1\n")
         try:
+            newly_called = 0
             for window in session.windows:
                 version = window.number
                 checkpoint = folder / f"batch-{version:04d}.json"
@@ -152,6 +159,10 @@ class AutomaticLean120Worker:
                 else:
                     if inflight.exists():
                         raise ValueError("AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE")
+                    if max_new_windows is not None and newly_called >= max_new_windows:
+                        # Clean pause: do NOT create an in-flight marker for the
+                        # next window, do not send the next paid request.
+                        break
                     _write_new_synced(inflight, _json_bytes({
                         "schema": "TTV-P2-INFLIGHT-V1", "job": digest,
                         "version": version}))
@@ -161,6 +172,7 @@ class AutomaticLean120Worker:
                     translations = translate_window(
                         window, self.profile, glossary=self.glossary,
                         api_key=self.api_key, transport=self.transport)
+                    newly_called += 1
                     revision = session.commit(
                         window, translations, expected_version=version - 1,
                         source_sha256=source.source_sha256, media_key=source.media_key)
@@ -178,8 +190,14 @@ class AutomaticLean120Worker:
                 if on_revision is not None:
                     on_revision(revision)
             final = session.revision
-            if final is None or not final.complete:
+            if final is None:
                 raise ValueError("AUTO_LEAN120_INCOMPLETE")
+            if not final.complete:
+                if max_new_windows is None:
+                    raise ValueError("AUTO_LEAN120_INCOMPLETE")
+                # Partial cumulative SRT has already passed strict commit QA.
+                # No vi-final.srt is written until the full film is complete.
+                return final
             # Independent strict parser/timeline check of the final artifact.
             out = parse_cues(final.payload, final.fmt)
             inp = parse_cues(source.source_bytes, source.fmt)
