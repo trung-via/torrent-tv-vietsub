@@ -6,11 +6,14 @@ the entire controller across both previously independent repository branches.
 from __future__ import annotations
 
 from dataclasses import replace
+from contextlib import redirect_stdout
 import hashlib
+import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 # The composed controller wires the fixed sibling P2 source path before
@@ -19,6 +22,7 @@ from owner_vietsub_pipeline import (
     acquire_and_translate_en_once,
     translate_existing_en,
     validate_existing_en,
+    main,
 )
 from cached_en_direct_handoff import CachedEnReceipt
 from automatic_lean120_worker import AutomaticLean120Worker
@@ -153,6 +157,69 @@ class ComposedPipelineTests(unittest.TestCase):
         self.assertEqual(len(self.provider.calls), provider_calls)
         self.assertEqual(len(self.gemini.calls), gemini_calls)
         self.assertEqual(len(list(self.cache.glob("*.srt"))), 1)
+
+    def _owner_cli_fixture(self):
+        base = self.root
+        root = base / "TorrentTVVietsub" / "subtitle-trials"
+        root.mkdir(parents=True, exist_ok=True)
+        data = _srt()
+        digest = hashlib.sha256(data).hexdigest()
+        name = digest + ".srt"
+        (root / name).write_bytes(data)
+        return base, name, digest
+
+    def test_owner_cli_read_only_existing_en_no_provider_keys(self):
+        local, basename, sha = self._owner_cli_fixture()
+        output = io.StringIO()
+        with mock.patch.dict("os.environ", {
+            "LOCALAPPDATA": str(local),
+            "GEMINI_API_KEY": "",
+            "OPENSUBTITLES_API_KEY": "",
+        }), redirect_stdout(output):
+            code = main(["--cache-filename", basename,
+                         "--sha256", sha, "--cues", "125"])
+        self.assertEqual(code, 0)
+        self.assertIn("P2_CACHED_EN_REVALIDATED=PASS", output.getvalue())
+        self.assertIn("GEMINI_API_REQUESTS=0", output.getvalue())
+        self.assertIn("OPEN_SUBTITLES_GET_POST=0", output.getvalue())
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+        self.assertFalse(list(self.root.rglob("verified-en-manifest.json")))
+
+    def test_owner_cli_rejects_cloud_execution_without_grant(self):
+        local, basename, sha = self._owner_cli_fixture()
+        output = io.StringIO()
+        with mock.patch.dict("os.environ", {"LOCALAPPDATA": str(local)}), redirect_stdout(output):
+            code = main(["--cache-filename", basename,
+                         "--sha256", sha, "--cues", "125",
+                         "--execute-api"])
+        self.assertEqual(code, 1)
+        self.assertIn("CLOUD_UPLOAD_AUTHORIZATION_REQUIRED", output.getvalue())
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+
+    def test_owner_cli_requires_gemini_key_for_authorized_execution(self):
+        local, basename, sha = self._owner_cli_fixture()
+        output = io.StringIO()
+        with mock.patch.dict("os.environ", {
+            "LOCALAPPDATA": str(local), "GEMINI_API_KEY": "",
+            "CI": "", "GITHUB_ACTIONS": "",
+        }), redirect_stdout(output):
+            code = main(["--cache-filename", basename,
+                         "--sha256", sha, "--cues", "125",
+                         "--execute-api", "--authorize-cloud-upload"])
+        self.assertEqual(code, 1)
+        self.assertIn("P2_GEMINI_API_KEY_REQUIRED", output.getvalue())
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+
+    def test_owner_cli_rejects_injected_path_before_any_disk_read(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = main(["--cache-filename", "../outside.srt",
+                         "--sha256", "a"*64, "--cues", "125"])
+        self.assertEqual(code, 1)
+        self.assertIn("P2_CACHE_RECEIPT_ARGS_INVALID", output.getvalue())
 
     def test_cloud_consent_missing_refuses_even_d2_search(self):
         with self.assertRaisesRegex(ValueError, "CLOUD_UPLOAD_CONSENT_REQUIRED"):
