@@ -308,7 +308,7 @@ class OpenSubtitles:
         self._api_key = api_key
         self._bearer = bearer
         self._transport = transport
-        self._manual_vi_post_attempted = False
+        self._manual_post_attempted = False
 
     def _request(self, method: str, url: str, *, api: bool,
                  payload: dict | None = None) -> bytes:
@@ -388,11 +388,11 @@ class OpenSubtitles:
                   and "title" in item.evidence]
         if len(matching) != 1 or len(ranked) != 1:
             raise SubtitleApiError("NO_APPROVED_MANUAL_CANDIDATE")
-        if self._manual_vi_post_attempted:
+        if self._manual_post_attempted:
             raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
         # Latch BEFORE POST: a provider/network/QA failure never silently
         # triggers another quota-bearing request for this client session.
-        self._manual_vi_post_attempted = True
+        self._manual_post_attempted = True
         # Request exactly one SRT output. The source file extension is only a
         # hint and cannot certify the returned byte stream or synchronization.
         response = _json(self._request("POST", BASE_URL + "/download", api=True,
@@ -405,6 +405,43 @@ class OpenSubtitles:
         count = validate_timed_text(contents, "srt")
         return Asset(file_id, "vi", "srt", contents,
                      hashlib.sha256(contents).hexdigest(), count)
+
+    def download_manual_en(self, media: Media, discovery: Discovery, *,
+                           file_id: int, authorized: bool = False) -> Asset:
+        """Exactly one separately consented EN SRT download for translation.
+
+        An EN release must be confidently matched and unambiguous. This does
+        not prove subtitle/video synchronization and never invokes AI itself.
+        """
+        if authorized is not True:
+            raise SubtitleApiError("MANUAL_CONSENT_REQUIRED")
+        if (discovery.media_key != media.key or
+                discovery.results.media_key != media.key or
+                type(file_id) is not int or file_id <= 0):
+            raise SubtitleApiError("MEDIA_BINDING_MISMATCH")
+        decision = choose(media, discovery.results)
+        if (decision.status != "EN_TRANSLATE" or decision.winner is None
+                or decision.winner.subtitle_id != str(file_id)):
+            raise SubtitleApiError("NO_CONFIDENT_EN_CANDIDATE")
+        matching = [c for c in discovery.candidates if c.file_id == file_id
+                    and c.subtitle.language == "en"]
+        if len(matching) != 1:
+            raise SubtitleApiError("NO_CONFIDENT_EN_CANDIDATE")
+        if self._manual_post_attempted:
+            raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
+        # Set latch before the first quota-bearing POST, including failures.
+        self._manual_post_attempted = True
+        response = _json(self._request("POST", BASE_URL + "/download", api=True,
+                                       payload={"file_id": file_id,
+                                                "sub_format": "srt"}))
+        link = response.get("link")
+        if not isinstance(link, str):
+            raise SubtitleApiError("BAD_DOWNLOAD_SCHEMA")
+        _safe_https(link, api=False)
+        contents = self._request("GET_BINARY", link, api=False)
+        cues = validate_timed_text(contents, "srt")
+        return Asset(file_id, "en", "srt", contents,
+                     hashlib.sha256(contents).hexdigest(), cues)
 
     def download_selected(self, media: Media, discovery: Discovery) -> Asset:
         """Exactly one explicit quota-incurring POST for a confident D1 winner."""
