@@ -75,6 +75,52 @@ class PCActivationTests(unittest.TestCase):
             self.controller.activate(invalid)
         self.assertEqual(len(self.queued),1)
 
+    def test_dev_mock_binds_first_authenticated_media_only_and_never_before_auth(self):
+        calls=[]
+        def fixture(media):
+            calls.append(media)
+            return AssumedEnglishSubtitle.from_supplied(
+                media_key=media,fmt="srt",source_bytes=src())
+        paired=PairedActivation(
+            device_secret=MASTER,supplied={},
+            authenticated_mock_source_factory=fixture)
+        wrong=self.request(media=MEDIA,nonce="5"*32,secret=b"x"*32)
+        with self.assertRaisesRegex(ValueError,"AUTH_INVALID"):
+            paired.activate(wrong)
+        self.assertEqual(calls,[])
+        first=paired.activate(self.request(media=MEDIA,nonce="6"*32))
+        self.assertEqual(first["media_key"],MEDIA)
+        self.assertEqual(calls,[MEDIA])
+        self.assertIsNotNone(paired.feed_for(first["session_id"]))
+        # The first media remains locked for the whole process, even if
+        # the second request carries a valid pairing HMAC.
+        with self.assertRaisesRegex(ValueError,"P4_MOCK_ONE_MEDIA_ONLY"):
+            paired.activate(self.request(media=OTHER,nonce="7"*32))
+        self.assertEqual(calls,[MEDIA])
+        with self.assertRaisesRegex(ValueError,"REPLAY"):
+            paired.activate(self.request(media=MEDIA,nonce="6"*32))
+        second=paired.activate(self.request(media=MEDIA,nonce="8"*32))
+        self.assertEqual(second["media_key"],MEDIA)
+        self.assertEqual(calls,[MEDIA])
+        self.assertNotEqual(first["session_id"],second["session_id"])
+
+    def test_dev_mock_factory_cannot_override_explicit_source(self):
+        with self.assertRaisesRegex(ValueError,"MOCK_SOURCE_FACTORY_SCOPE_INVALID"):
+            PairedActivation(
+                device_secret=MASTER,supplied={MEDIA:self.handoff},
+                authenticated_mock_source_factory=lambda _:self.handoff)
+        with self.assertRaisesRegex(ValueError,"MOCK_SOURCE_FACTORY_SCOPE_INVALID"):
+            PairedActivation(
+                device_secret=MASTER,supplied={},
+                authenticated_mock_source_factory="not callable")
+        paired=PairedActivation(
+            device_secret=MASTER,supplied={},
+            authenticated_mock_source_factory=lambda _:self.handoff)
+        # The returned handoff must be bound to authenticated media, not
+        # an arbitrary fixture or another profile.
+        with self.assertRaisesRegex(ValueError,"P4_MOCK_FACTORY_MEDIA_MISMATCH"):
+            paired.activate(self.request(media=OTHER,nonce="9"*32))
+
     def test_assumed_english_source_activation_to_lean120_signed_feed(self):
         from assumed_source_handoff import translate_supplied_to_feed
         from lean120_api import ModelProfile
