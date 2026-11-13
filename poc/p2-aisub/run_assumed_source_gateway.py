@@ -22,6 +22,7 @@ from assumed_source_handoff import (
 )
 from lean120_api import load_profile
 from automatic_lean120_worker import AutomaticLean120Worker
+from verified_source_manifest import verified_source_from_manifest
 from paired_activation import PairedActivation, create_paired_server
 from p4_tls import certificate_fingerprint_sha256, create_tls_context
 from synthetic_mock_feed import (
@@ -38,6 +39,7 @@ def build_controller(
     mock_revisions: bool = False,
     mock_single_paired_media: bool = False,
     auto_state_dir: Path | None = None,
+    source_manifest: Path | None = None,
 ) -> PairedActivation:
     if not isinstance(master_hex,str) or not HEX_32.fullmatch(master_hex):
         raise ValueError("P4_DEVICE_PAIRING_KEY_REQUIRED")
@@ -48,7 +50,14 @@ def build_controller(
         source_file is not None or execute_api
     ):
         raise ValueError("P4_MOCK_SINGLE_PAIRED_MEDIA_SCOPE_INVALID")
-    if mock_revisions:
+    if source_manifest is not None:
+        if (not execute_api or mock_revisions or mock_single_paired_media or
+            media_key is not None or source_file is not None or
+            not source_manifest.is_absolute() or
+            not source_manifest.is_file() or source_manifest.is_symlink()):
+            raise ValueError("P2_OWNER_SOURCE_MANIFEST_SCOPE_INVALID")
+        source = None
+    elif mock_revisions:
         if source_file is not None:
             raise ValueError("P4_MOCK_REJECTS_REAL_SOURCE_FILE")
         source=(None if mock_single_paired_media else
@@ -104,6 +113,12 @@ def build_controller(
             device_secret=bytes.fromhex(master_hex),supplied={},
             on_activate=on_activate,
             authenticated_mock_source_factory=authenticated_fixture)
+    if source_manifest is not None:
+        return PairedActivation(
+            device_secret=bytes.fromhex(master_hex), supplied={},
+            on_activate=on_activate,
+            authenticated_source_factory=lambda media: verified_source_from_manifest(
+                source_manifest, media))
     return PairedActivation(
         device_secret=bytes.fromhex(master_hex),
         supplied={media_key:source},on_activate=on_activate)
@@ -117,6 +132,8 @@ def main() -> int:
                         help="Required for real/source-supplied mode; omitted only in paired mock mode")
     parser.add_argument("--source",type=Path,
                         help="PRE-SUPPLIED and authorized EN SRT/VTT (not in mock mode)")
+    parser.add_argument("--source-manifest",type=Path,
+                        help="Owner-private verified EN source registry; exact TV media lookup AFTER HMAC")
     parser.add_argument("--mock-revisions",action="store_true",
                         help="Dev-only synthetic 120→240; no source file or Gemini API")
     parser.add_argument("--mock-single-paired-media",action="store_true",
@@ -147,7 +164,8 @@ def main() -> int:
         profile_file=args.profile,api_key=api_key,glossary=glossary,
         mock_revisions=args.mock_revisions,
         mock_single_paired_media=args.mock_single_paired_media,
-        auto_state_dir=args.auto_state_dir)
+        auto_state_dir=args.auto_state_dir,
+        source_manifest=args.source_manifest)
     tls_context=create_tls_context(args.tls_cert,args.tls_key)
     fingerprint=certificate_fingerprint_sha256(args.tls_cert)
     server=create_paired_server(
