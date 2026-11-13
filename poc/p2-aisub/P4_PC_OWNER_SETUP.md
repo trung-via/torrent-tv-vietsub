@@ -6,7 +6,7 @@
 
 - Source and Windows CI/Android builds have passed in the separate PRs. Owner Debug APK installation on Redmi was verified in Actions run `43273786878` by `adb install -r` and post-install SHA256.
 - Gateway `run_assumed_source_gateway.py` supports HTTPS with a matching private key/certificate, per-device 32-byte key, exact `media.<64hex>` source identity, signed activation/read and mock 120→240 cumulative SRT.
-- **Not yet demonstrated:** Windows private IP-SAN certificate/owner pairing provisioned, a PC listener accessible by Redmi, the native player submitting the matching media key, or 120→240/cue131 visibly rendered.
+- **Not yet demonstrated:** Windows private IP-SAN certificate/owner pairing provisioned, a PC listener accessible by Redmi, a live authenticated activation from the native player, or 120→240/cue131 visibly rendered.
 
 ## One owner laptop setup (not CI)
 
@@ -37,17 +37,31 @@ The preparation script:
 
 **Do not use this self-signed developer cert as an Internet-facing public service.** After the 30-day certificate expires, explicit revocation/re-pairing is required.
 
-## Start synthetic-only HTTPS after choosing the exact media identity
+## Run synthetic-only HTTPS without entering a film identity
 
-The gateway uses the **exact OMP active `media.<64hex>` key**. The current prototype does not expose a trusted, automated media-key export to PC. Obtaining/validating that key through the local TV UI or a bounded private handoff is a separate acceptance blocker. Do not substitute a hardcoded demo key to claim real TV delivery.
+**Debug acceptance only:** the TV's existing **Bật Vietsub AI** action sends
+its opaque `media.<64hex>` identity in an HMAC-authenticated HTTPS activation
+request. The trusted owner PC checks the pinned pairing secret first, then
+binds the **first authenticated film** to synthetic SRT cues 1–240. This
+acceptance fixture does **not** claim to find matching real subtitles, and
+refuses activation for any second film. Real subtitle/API operation still
+requires a matching authorized SRT/VTT and exact media/source identity.
 
-After that key is established *privately* and the owner chooses to run a temporary PC LAN listener:
+The owner explicitly starts this temporary home-LAN listener in the local
+PowerShell session, from an up-to-date checkout of Draft PR #118:
 
 ```powershell
-# Run only from the owner PC, not from GitHub CI; foreground until Ctrl+C
-$activeMediaKey = '<EXACT_CURRENT_OMP_MEDIA_KEY>'
-& .\poc\p2-aisub\start_p4_mock_gateway_owner.ps1 -MediaKey $activeMediaKey
+# No media key, token, TV confirmation or extra pairing input required.
+# No API call, firewall service or public WAN listener is started.
+& .\poc\p2-aisub\start_p4_mock_gateway_owner.ps1
 ```
+
+While that foreground command is running, play an authorized test item in OMP
+VLC and select **Bật Vietsub AI**. This is per-film subtitle opt-in, *not*
+a pairing request. Expect the PC to publish mock versions 120 and then 240.
+At normal playback timestamps near cue 131 (4m22s) check Vietnamese synthetic
+caption only after the TV actually ingests it; do not claim an E2E PASS from
+PC publishing alone. Use Ctrl+C to close the listener.
 
 The script reads the local, ACL-protected materials and launches the P2 CLI using `--start-lan --mock-revisions` with **no `--source` and no `--execute-api`**. It does not invoke TorrServer, Gemini, a background scheduled task or a Windows service. It does not open/configure Windows Firewall; if inbound traffic is blocked, **stop and request a specific owner firewall decision**, never disable TLS checks or open WAN.
 
