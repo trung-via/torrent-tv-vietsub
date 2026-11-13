@@ -72,6 +72,26 @@ class SmokeTests(unittest.TestCase):
         self.assertNotIn("file_id", text)
         self.assertNotIn("source.ass", text)
 
+    def test_exact_group_ordinary_en_beats_sdh_and_no_download(self):
+        # Synthetic replay of the newly observed real provider naming family.
+        regular = "Example.Film.2017.1080p.BluRay.x265-GRP_eng"
+        sdh = "Example.Film.2017.1080p.BluRay.x265-GRP_eng SDH"
+        out, calls = self.probe({
+            ("vi", 1): ([row(4, ALTERNATE, "vi")], 1),
+            ("en", 1): ([row(10, sdh, "en"), row(11, regular, "en")], 2),
+        }, imdb_id=None)
+        self.assertEqual(calls, [("GET", "vi", 1), ("GET", "en", 1)])
+        self.assertIn("QUERY_MODE=PARSED_TITLE_YEAR", out)
+        self.assertIn("EN_GROUP_MATCHES=2", out)
+        self.assertIn("EN_TOP1_GROUP=YES", out)
+        self.assertIn("EN_TOP1_SCORE=97", out)
+        self.assertIn("EN_TOP1_RELEASE_HINT=" + regular, out)
+        self.assertIn("EN_TOP2_SCORE=87", out)
+        self.assertIn("EN_TOP2_RELEASE_HINT=" + sdh, out)
+        self.assertIn("ROUTE=EN_TRANSLATE", out)
+        self.assertIn("DOWNLOAD_POST_REQUESTS=0", out)
+        self.assertIn("TRANSLATION_REQUESTS=0", out)
+
     def test_vi_confident_stops_after_one_get(self):
         out, calls = self.probe({
             ("vi", 1): ([row(5, MATCHED, "vi")], 1),
