@@ -1,6 +1,6 @@
-# NEW one-shot Human-requested one-laptop auto-pair Debug upgrade, 2026-11-13.
+# ONE-SHOT install scheduled in run #43341784632; subsequent commits disarmed.
 # Run 43273786878 installed exact ARM32 debug SHA256 615ae630f2f545c68cbc048f7d45bc8ac50cd28d0dc1690b0db4a10584b38bf6.
-# One exact owner PR Debug replacement with signer/version/hash gates; disarm after outcome.
+# Do not execute further Debug installs when source changes.
 # Source is rebuilt from exact head and pre-install package/certificate/version
 # guards must pass. Windows PowerShell ADB stdout/stderr is captured privately.
 # Never uninstall, clear app data, downgrade or ship artifacts.
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   install:
-    # Re-enabled by explicit 2026-11-13 Human one-laptop no-confirmation install request.
+    # Disarmed for all later heads; existing run #43341784632 remains independent.
     if: >-
       github.repository == 'trung-via/torrent-tv-vietsub' &&
       github.event.pull_request.number == 120 &&
@@ -29,7 +29,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'feature/p4-native-auto-sub-g2-20261111' &&
       github.event.pull_request.base.ref == 'feature/g2-refresh-vietsub-inplace-20261111' &&
-      true
+      false
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
