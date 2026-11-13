@@ -8,6 +8,7 @@ on:
     paths:
       - 'poc/p2-aisub/prepare_p4_owner_pc.ps1'
       - 'poc/p2-aisub/start_p4_mock_gateway_owner.ps1'
+      - 'poc/p2-aisub/auto_pair_owner_redmi_adb.ps1'
       - '.github/workflows/tv-p4-pc-local-static.yml'
 
 permissions:
@@ -38,7 +39,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $scripts = @(
             (Join-Path $env:GITHUB_WORKSPACE 'poc\p2-aisub\prepare_p4_owner_pc.ps1'),
-            (Join-Path $env:GITHUB_WORKSPACE 'poc\p2-aisub\start_p4_mock_gateway_owner.ps1')
+            (Join-Path $env:GITHUB_WORKSPACE 'poc\p2-aisub\start_p4_mock_gateway_owner.ps1'),
+            (Join-Path $env:GITHUB_WORKSPACE 'poc\p2-aisub\auto_pair_owner_redmi_adb.ps1')
           )
           foreach ($script in $scripts) {
           $t = $null
@@ -66,6 +68,15 @@ jobs:
             'P4_MOCK_GATEWAY_OWNER_FOREGROUND_ONLY',
             '--mock-revisions','--start-lan')) {
             if (-not $launcher.Contains($phrase)) {throw 'P4_PC_STATIC_STOP_LAUNCHER_UNSAFE'}
+          }
+          $adbSource=Get-Content -LiteralPath $scripts[2] -Raw
+          foreach ($required in @('P4_ADB_BOOTSTRAP_STOP_CI_FORBIDDEN',
+              'P4_ADB_BOOTSTRAP_STOP_SINGLE_AUTHORIZED_REDMi_REQUIRED',
+              'P4_ADB_BOOTSTRAP_STOP_DEBUG_RUN_AS_REQUIRED',
+              '-RedirectStandardInput $pair')) {
+            if (-not $adbSource.Contains($required)) {
+              throw 'P4_PC_STATIC_STOP_ADB_BOOTSTRAP_GUARD_MISSING'
+            }
           }
           Write-Host 'P4_PC_STATIC_POWERSHELL_PARSE_PASS=true'
           Write-Host 'P4_PC_STATIC_CI_DOES_NOT_EXECUTE_LOCAL_SETUP=true'
