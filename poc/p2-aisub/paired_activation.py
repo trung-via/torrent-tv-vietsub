@@ -72,7 +72,8 @@ class PairedActivation:
     def __init__(self, *, device_secret: bytes,
                  supplied: dict[str, AssumedEnglishSubtitle],
                  on_activate: Callable[[SessionRevisionFeed, AssumedEnglishSubtitle], None] | None = None,
-                 authenticated_mock_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None):
+                 authenticated_mock_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None,
+                 authenticated_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None):
         if not isinstance(device_secret, bytes) or len(device_secret) != 32:
             raise ValueError("P4_DEVICE_SECRET_INVALID")
         if len(supplied) > 32 or any(
@@ -84,10 +85,14 @@ class PairedActivation:
         # The FIRST correctly authenticated TV media is bound for the entire
         # process; different media is always refused, even with a valid key.
         if authenticated_mock_source_factory is not None and (
-            not callable(authenticated_mock_source_factory) or supplied
+            not callable(authenticated_mock_source_factory) or supplied or
+            authenticated_source_factory is not None
         ):
             raise ValueError("P4_MOCK_SOURCE_FACTORY_SCOPE_INVALID")
+        if authenticated_source_factory is not None and not callable(authenticated_source_factory):
+            raise ValueError("P4_SOURCE_FACTORY_INVALID")
         self.__mock_factory = authenticated_mock_source_factory
+        self.__source_factory = authenticated_source_factory
         self.__locked_mock_media: str | None = None
         self.__key = bytes(device_secret)
         self.__sources = dict(supplied)
@@ -127,6 +132,19 @@ class PairedActivation:
                 source = candidate
                 self.__sources[media] = source
                 self.__locked_mock_media = media
+            if source is None and self.__source_factory is not None:
+                # After HMAC validation only: resolve an exact local, owner-
+                # approved EN handoff. No blind first-film fallback for real
+                # subtitles or paid AI calls.
+                if len(self.__sources) >= 32:
+                    raise ValueError("P4_TOO_MANY_SOURCES")
+                candidate = self.__source_factory(media)
+                if (not isinstance(candidate, AssumedEnglishSubtitle) or
+                    candidate.media_key != media or
+                    candidate.source_status != "ASSUMED_MATCHED_EN_TIMED_TEXT"):
+                    raise ValueError("P4_SOURCE_FACTORY_MEDIA_MISMATCH")
+                source = candidate
+                self.__sources[media] = source
             if source is None:
                 raise ValueError("P4_ASSUMED_SOURCE_MISSING")
             if len(self.__feeds)>=16:
