@@ -45,6 +45,16 @@ if ($null -eq $python) {
   $pythonArgs=@('-3')
 }
 if ($null -eq $python) {throw 'P4_MOCK_GATEWAY_STOP_PYTHON_NOT_AVAILABLE'}
+# No separate pairing step: the only trusted laptop silently stages its
+# existing private key to the one authorized Debug TV over ADB ONCE.
+$bootstrap=Join-Path $PSScriptRoot 'auto_pair_owner_redmi_adb.ps1'
+if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
+  throw 'P4_MOCK_GATEWAY_STOP_ADB_BOOTSTRAP_SCRIPT_MISSING'
+}
+& $bootstrap
+if ($LASTEXITCODE -ne 0 -or -not $?) {
+  throw 'P4_MOCK_GATEWAY_STOP_OWNER_PC_BOOTSTRAP_FAILED'
+}
 Write-Host 'P4_MOCK_GATEWAY_OWNER_FOREGROUND_ONLY=true'
 Write-Host 'P4_MOCK_GATEWAY_SYNTHETIC_ONLY_NO_PROVIDER_OR_TORRSERVER=true'
 Write-Host 'P4_MOCK_GATEWAY_NO_WINDOWS_FIREWALL_CHANGES=true'
