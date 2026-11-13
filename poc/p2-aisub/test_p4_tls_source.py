@@ -52,8 +52,13 @@ class P4TlsSourceContracts(unittest.TestCase):
         bridge=self.read("activity_patch.py")
         self.assertIn("device.certPinSha256",bridge)
         self.assertIn("scope.certPinSha256",bridge)
-        self.assertIn("match.groupValues[4]",bridge)
-        self.assertIn("P4PinnedTls.normalizePin",bridge)
+        self.assertIn("P4OwnerBootstrap.consume(applicationContext)",bridge)
+        self.assertNotIn("match.groupValues[4]",bridge)
+        self.assertNotIn("openP4PairingDialog()",bridge)
+        onepc=self.read("P4OwnerBootstrap.kt")
+        self.assertIn("store.load() != null",onepc)
+        self.assertIn("file.delete()",onepc)
+        self.assertIn("P4PinnedTls.normalizePin",onepc)
 
     def test_overlay_packs_tls_source_in_real_composed_build(self):
         overlay=self.read("apply.py")
