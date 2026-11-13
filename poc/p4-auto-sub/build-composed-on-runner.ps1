@@ -200,7 +200,7 @@ if (-not (Test-Path -LiteralPath $p4 -PathType Leaf)) { throw 'STOP: missing P4 
 if ($LASTEXITCODE -ne 0) { throw 'STOP: P4 dry-run preflight failed' }
 & $pythonExe $p4 --omp-root $omp --apply
 if ($LASTEXITCODE -ne 0) { throw 'STOP: P4 source compose failed' }
-foreach ($fn in @('P4SignedReceiver.kt','P4LanClient.kt','P4AppliedLedger.kt','P4ActivationClient.kt','P4PairingStore.kt','P1ProductionSubtitles.kt','PlayerActivity.kt')) {
+foreach ($fn in @('P4SignedReceiver.kt','P4LanClient.kt','P4AppliedLedger.kt','P4ActivationClient.kt','P4PairingStore.kt','P4OwnerBootstrap.kt','P1ProductionSubtitles.kt','PlayerActivity.kt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $playerDir $fn) -PathType Leaf)) {
         throw ('STOP: missing P4 composed source ' + $fn)
     }
@@ -209,8 +209,8 @@ $activityP4 = [IO.File]::ReadAllText((Join-Path $playerDir 'PlayerActivity.kt'))
 $g1P4 = [IO.File]::ReadAllText((Join-Path $playerDir 'P1ProductionSubtitles.kt'))
 foreach ($anchor in @('internal fun bindP4Session(', 'internal fun receiveP4Revision(',
                       'internal fun startP4LanSession(', 'internal fun stopP4LanSession()',
-                      'private fun openP4PairingDialog()', 'private fun beginP4Activation()',
-                      'P4ActivationClient.activate(', 'P4PairingStore(applicationContext).save(',
+                      'P4OwnerBootstrap.consume(applicationContext)', 'private fun beginP4Activation()',
+                      'P4ActivationClient.activate(', 'P4PairingStore(applicationContext).load(',
                       'P4AppliedLedger(applicationContext, sessionId, mediaKey, sourceSha256)',
                       'P4LanClient.pollOnce(', 'handler.removeCallbacks(p4LanPoll)',
                       'p4ExpectedRefresh = newRequest',
