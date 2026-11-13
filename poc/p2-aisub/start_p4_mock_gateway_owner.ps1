@@ -1,11 +1,9 @@
 # Owner-local foreground P4 synthetic HTTPS gateway. Never used by CI.
-# Requires prior prepare_p4_owner_pc.ps1, exact current OMP media key,
+# Requires prior prepare_p4_owner_pc.ps1; never asks for a media key,
 # and explicit approval to open only the selected trusted LAN interface.
 # NO firewall/router/service changes, no Gemini API or real subtitles.
 [CmdletBinding()]
-param(
-  [Parameter(Mandatory=$true)][ValidatePattern('^media\.[0-9a-f]{64}$')][string]$MediaKey
-)
+param()
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ($env:GITHUB_ACTIONS -eq 'true' -or $env:CI -eq 'true' -or $env:TF_BUILD) {
@@ -62,7 +60,7 @@ $prior=[Environment]::GetEnvironmentVariable('P4_PAIRING_MASTER_HEX','Process')
 try {
   $env:P4_PAIRING_MASTER_HEX=$key
   # This command owns the foreground process until Ctrl+C. No background service.
-  & $python.Source @pythonArgs $gateway --bind $ip --port $port --media-key $MediaKey --mock-revisions --start-lan --tls-cert $cert --tls-key $private
+  & $python.Source @pythonArgs $gateway --bind $ip --port $port --mock-revisions --mock-single-paired-media --start-lan --tls-cert $cert --tls-key $private
   if ($LASTEXITCODE -ne 0) {throw 'P4_MOCK_GATEWAY_STOP_P2_PROCESS_ERROR'}
 } finally {
   if ($null -eq $prior) {Remove-Item -LiteralPath 'Env:P4_PAIRING_MASTER_HEX' -ErrorAction SilentlyContinue}
