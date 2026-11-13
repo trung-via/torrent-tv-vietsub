@@ -39,6 +39,11 @@ if (-not (Test-Path -LiteralPath $gateway -PathType Leaf)) {
   throw 'P4_MOCK_GATEWAY_STOP_P2_GATEWAY_SOURCE_NOT_FOUND'
 }
 $python=Get-Command 'python.exe' -ErrorAction SilentlyContinue
+$pythonArgs=@()
+if ($null -eq $python) {
+  $python=Get-Command 'py.exe' -ErrorAction SilentlyContinue
+  $pythonArgs=@('-3')
+}
 if ($null -eq $python) {throw 'P4_MOCK_GATEWAY_STOP_PYTHON_NOT_AVAILABLE'}
 Write-Host 'P4_MOCK_GATEWAY_OWNER_FOREGROUND_ONLY=true'
 Write-Host 'P4_MOCK_GATEWAY_SYNTHETIC_ONLY_NO_PROVIDER_OR_TORRSERVER=true'
@@ -47,7 +52,7 @@ $prior=[Environment]::GetEnvironmentVariable('P4_PAIRING_MASTER_HEX','Process')
 try {
   $env:P4_PAIRING_MASTER_HEX=$key
   # This command owns the foreground process until Ctrl+C. No background service.
-  & $python.Source $gateway --bind $ip --port $port --media-key $MediaKey --mock-revisions --start-lan --tls-cert $cert --tls-key $private
+  & $python.Source @pythonArgs $gateway --bind $ip --port $port --media-key $MediaKey --mock-revisions --start-lan --tls-cert $cert --tls-key $private
   if ($LASTEXITCODE -ne 0) {throw 'P4_MOCK_GATEWAY_STOP_P2_PROCESS_ERROR'}
 } finally {
   if ($null -eq $prior) {Remove-Item -LiteralPath 'Env:P4_PAIRING_MASTER_HEX' -ErrorAction SilentlyContinue}
