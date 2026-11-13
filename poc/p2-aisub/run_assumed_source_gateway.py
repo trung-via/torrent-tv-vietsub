@@ -150,6 +150,11 @@ def main() -> int:
     parser.add_argument("--tls-key",type=Path,
                         help="Matching owner-held private key outside repository")
     args=parser.parse_args()
+    if args.execute_api and (
+        os.environ.get("GITHUB_ACTIONS", "").lower() == "true" or
+        os.environ.get("CI", "").lower() == "true"
+    ):
+        parser.error("P2_AUTO_LIVE_PROVIDER_IN_CI_FORBIDDEN")
     if not args.start_lan:
         parser.error("EXPLICIT_START_LAN_REQUIRED")
     if args.tls_cert is None or args.tls_key is None:
