@@ -11,12 +11,13 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+from typing import Callable
 import re
 import tempfile
 import uuid
 
 from matcher import Media, _release_stem_and_accessibility, parse_release
-from opensubtitles import OpenSubtitles, SubtitleApiError, write_private_cache
+from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache
 from vi_en_fallback import select_vi_then_en
 
 _SAFE_GROUP = re.compile(r"[a-zA-Z0-9]{2,30}\Z")
@@ -56,7 +57,10 @@ def _claim_one_post(root: Path, filename: str, release: str) -> None:
 def download_one_exact_en(client: OpenSubtitles, filename: str, expected_release: str,
                           expected_group: str, *, ask=input, emit=print,
                           cache_root: Path | None = None,
-                          imdb_id: str | None = None) -> int:
+                          imdb_id: str | None = None,
+                          on_cached_en: Callable[[Path, Asset], object] | None = None) -> int:
+    if on_cached_en is not None and not callable(on_cached_en):
+        raise SubtitleApiError("INVALID_EN_CACHE_CALLBACK")
     if (not isinstance(filename, str) or not filename.strip()
             or len(filename) > 255 or "/" in filename or "\\" in filename
             or any(ord(ch) < 32 for ch in filename)):
@@ -131,7 +135,15 @@ def download_one_exact_en(client: OpenSubtitles, filename: str, expected_release
     emit("PRIVATE_CACHE_SAVED=YES")
     emit("AI_TEXT_UPLOADED=NO")
     emit("TV_SYNC_VERIFIED=NO")
-    emit("NEXT_GATE=LOCAL_EN_CONTENT_AND_TRANSLATION_REVIEW")
+    # Optional in-process P2 integration. D2 itself never imports or invokes
+    # Gemini: the caller owns any cloud-upload authorization. No duplicate
+    # manifest or subtitle file is created. The one-POST marker remains even
+    # if the downstream worker fails after the SRT has been safely cached.
+    if on_cached_en is None:
+        emit("NEXT_GATE=LOCAL_EN_CONTENT_AND_TRANSLATION_REVIEW")
+    else:
+        emit("NEXT_GATE=LOCAL_P2_DIRECT_HANDOFF")
+        on_cached_en(destination, asset)
     return 0
 
 
