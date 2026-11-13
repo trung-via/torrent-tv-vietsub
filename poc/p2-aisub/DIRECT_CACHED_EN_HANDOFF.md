@@ -36,9 +36,16 @@ EXISTING AutomaticLean120Worker #118      |
       v                                    |
 Private VI SRT <--------------------------+
       |
-      | *only when real OMP+TorrServer binding and authenticated P4 are ready*
+      | *when a real TV session is present and authorized*
       v
 D3 verified media/session binding → Existing P4 receiver #120 → OMP/G2
+
+Production note: D3 trust verification may run **before the first P2
+translation batch** so the existing P2 worker can use the authenticated P4
+media key and `on_revision=feed.publish` for 120→240 progressive subtitles.
+For a translation-only test, it is SKIPPED and only the private final VI
+artifact is produced. There is no need to send the source *through* D3
+merely to translate it.
 ```
 
 ## Code ownership and data contract
@@ -103,3 +110,38 @@ composed, source-pinned integration test**: the D2 in-memory successful
 download receipt invokes this P2 bridge, using fake provider transport,
 without a second file copy/search, and preserving D3 for delivery. No new
 daemon or standalone translator is needed.
+
+## One controller, two delivery modes — avoid future rework
+
+A future composition of D2 Draft #130 and P2 Draft #118 should have a single
+owner-local `VietsubController` (not another long-running subsystem):
+
+```python
+result = source_selector.find_and_cache(selected_video)
+if result.language == "vi":
+    vietsub = result.validated_vi
+else:
+    # Already-downloaded EN receipt. No extra GET/POST/review/cache copy.
+    source = cache_bridge.prepare(result.en_receipt)
+    vietsub = existing_p2_lean120.run(source, on_revision=delivery_callback)
+```
+
+The `delivery_callback` is **None** for LOCAL_TRANSLATION_ONLY. No OMP,
+TorrServer, manifest, TV key or local LAN service is needed in this mode.
+
+For LIVE_TV the controller must first have a **real verified active
+TorrServer→OMP media mapping and authenticated P4 session**, then construct
+the source using that **real media key** (not the synthetic local-only key)
+and set `delivery_callback=existing_p4_feed.publish`, retaining the worker's
+exact progressive 120→240 revisions. The composed TV pathway must ensure
+revision media identity matches the active signed session, otherwise refuse
+publication. This is a separate implementation/evidence gate, not part of
+the local-only bridge. If no TV binding is available, the controller should
+still be able to complete a permitted local translation, but it must never
+push those synthetic-key revisions to OMP.
+
+No new message bus, second Python translator, repeated source acquisition,
+per-batch consent prompt, duplicate cache copy or D3 manifest is required
+to do local translation. Validation of SHA/cues after reopening private
+cache is not a redundant business step: it protects the source against
+changes between the original successful D2 download and a later P2 run.
