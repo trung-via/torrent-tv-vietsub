@@ -160,6 +160,48 @@ class D3OwnerHandoffTests(unittest.TestCase):
                         vi_probe_status="NETWORK_ERROR_FALLBACK")
         self.assertTrue(self.stage(route=route).is_file())
 
+    def test_real_router_to_d3_contract_on_incomplete_vi(self):
+        # Exercise the actual route constructor and D3 consumer together,
+        # not merely a manually forged Route dataclass.
+        from urllib.parse import parse_qs, urlsplit
+        from opensubtitles import OpenSubtitles
+        from vi_en_fallback import select_vi_then_en
+
+        vi_good = "Original.Film.2024.WEB-DL.1080p-GRP.srt"
+        vi_weak = "Original.Film.2024.BluRay.720p-OTHER.srt"
+        calls = []
+
+        def row(file_id, language, release):
+            return {"attributes": {"language": language, "release": release,
+                                    "files": [{"file_id": file_id,
+                                               "file_name": "metadata.ass"}]}}
+
+        def transport(method, url, headers, body, cap):
+            self.assertEqual(method, "GET")
+            self.assertIsNone(body)
+            q = parse_qs(urlsplit(url).query)
+            lang = q["languages"][0]
+            page = int(q.get("page", ["1"])[0])
+            calls.append((lang, page))
+            if lang == "vi":
+                rows = [row(14, "vi", vi_good)]
+                rows.extend(row(100 + i, "vi", vi_weak) for i in range(49))
+                return json.dumps({"data": rows,
+                                   "total_count": 60}).encode("utf-8")
+            return json.dumps({"data": [row(7, "en", vi_good)],
+                               "total_count": 1}).encode("utf-8")
+
+        route = select_vi_then_en(
+            OpenSubtitles(api_key="synthetic", transport=transport),
+            self.media, imdb_id="1234", policy="VI_FAST")
+        self.assertEqual(route.vi.decision.status, "VI_MATCH")
+        self.assertEqual(route.vi_probe_status, "INCOMPLETE")
+        self.assertEqual(route.status, "EN_TRANSLATE")
+        self.assertEqual(calls, [("vi", 1), ("en", 1)])
+        output = self.stage(route=route)
+        self.assertEqual(json.loads(output.read_text("utf-8"))["schema"],
+                         "TTV-P2-OWNER-MATCHED-EN-V1")
+
     def test_reject_digest_and_changed_cache_bytes(self):
         with self.assertRaises(SubtitleApiError):
             self.stage(asset=replace(self.asset, sha256="0" * 64))
