@@ -174,3 +174,20 @@ jobs:
           & $path
           if (-not $?) {throw 'P4_SIGNER_MORPH_STOP_SCRIPT_FAILED'}
 
+      - name: Inspect PC HTTPS prerequisites without host or network changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\pc-https-readiness.ps1'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $script,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            foreach ($e in $errors) {
+              Write-Host ('P4_PC_PREFLIGHT_PARSE_ERROR_ID=' + $e.ErrorId + ' LINE=' + $e.Extent.StartLineNumber)
+            }
+            throw 'P4_PC_PREFLIGHT_STOP_PARSE_FAILED'
+          }
+          & $script
+          if (-not $?) { throw 'P4_PC_PREFLIGHT_STOP_SCRIPT_FAILED' }
