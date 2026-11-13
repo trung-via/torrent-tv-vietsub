@@ -96,8 +96,9 @@ class AutomaticLean120Worker:
             on_revision: Callable[[SubtitleRevision], object] | None = None,
             max_new_windows: int | None = None
             ) -> SubtitleRevision:
-        # Explicit one-new-call pilot mode; default behavior still completes
-        # the entire film. Old checkpoints are replayed without quota spend.
+        # Explicit first-window-only pilot mode; default behavior still
+        # completes the entire film. Rerunning this pilot never advances
+        # beyond batch one, even when its checkpoint already exists.
         if max_new_windows is not None and (
                 type(max_new_windows) is not int or max_new_windows != 1):
             raise ValueError("AUTO_LEAN120_PILOT_WINDOW_LIMIT_INVALID")
@@ -126,8 +127,12 @@ class AutomaticLean120Worker:
         # An existing/stale lock is deliberately NOT broken or auto-replayed.
         _write_new_synced(lock, b"TTV-P2-LOCK-V1\n")
         try:
-            newly_called = 0
             for window in session.windows:
+                # Pilot means the FIRST window of this source across ALL
+                # invocations, not one fresh API call on every rerun.
+                # Re-running the same pilot must never advance to batch 2.
+                if max_new_windows is not None and window.number > max_new_windows:
+                    break
                 version = window.number
                 checkpoint = folder / f"batch-{version:04d}.json"
                 inflight = folder / f"batch-{version:04d}.inflight"
@@ -159,10 +164,6 @@ class AutomaticLean120Worker:
                 else:
                     if inflight.exists():
                         raise ValueError("AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE")
-                    if max_new_windows is not None and newly_called >= max_new_windows:
-                        # Clean pause: do NOT create an in-flight marker for the
-                        # next window, do not send the next paid request.
-                        break
                     _write_new_synced(inflight, _json_bytes({
                         "schema": "TTV-P2-INFLIGHT-V1", "job": digest,
                         "version": version}))
@@ -172,7 +173,6 @@ class AutomaticLean120Worker:
                     translations = translate_window(
                         window, self.profile, glossary=self.glossary,
                         api_key=self.api_key, transport=self.transport)
-                    newly_called += 1
                     revision = session.commit(
                         window, translations, expected_version=version - 1,
                         source_sha256=source.source_sha256, media_key=source.media_key)
