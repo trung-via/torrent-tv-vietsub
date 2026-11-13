@@ -1,7 +1,7 @@
 # D3-A: EN subtitle source → existing P2 verified manifest
 
 Tracking: [D3 Issue #127](https://github.com/trung-via/torrent-tv-vietsub/issues/127).
-Candidate stacked on **D1 #122 → D2 #124 → D2.5 #126**. Existing API
+Candidate stacked on **D1 #122 → D2 #124 → D2.5 #126 → search policy #130**. Existing API
 translator and P4 TV transport remain in **Draft #118 and Draft #120**.
 This is a source-only **trusted OWNER handoff boundary**, not D3 E2E.
 
@@ -62,3 +62,26 @@ Synthetic offline test command from the stacked #126 source:
 `python -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -q`.
 The tests are source-level only. Rollback by closing the Draft PR; no private
 owner file is created until the owner explicitly calls the function locally.
+
+## Search-policy precedence (VI_FAST / EN_DIRECT / VI_FULL)
+
+This D3 revision reconciles the source route from the reviewed VI search
+policy in Draft #130. **Do not judge VI authority solely from the isolated
+`route.vi.decision.status`**: in `VI_FAST`, an incomplete single VI page may
+contain a provisional `VI_MATCH`, but that cannot prove the missing rows lack
+a better or conflicting VI candidate. The owner-approved policy chooses to
+continue EN in that situation, rather than scanning VI page two.
+
+- `VI_FAST` with `INCOMPLETE` or transient VI `NETWORK_ERROR_FALLBACK` may
+  pass a *separately confident* and fully reviewed EN route after all trusted
+  binding, source, SRT and owner/sync requirements. `VI_FAST` with
+  `COMPLETE` and confident VI still blocks EN.
+- `EN_DIRECT` requires `SKIPPED` plus empty VI discovery. This mode skips
+  **online VI only**; a verified local/embedded VI track must be checked
+  upstream, not by this manifest writer.
+- `VI_FULL` requires completed VI coverage with no confident VI winner.
+  Unknown/malformed policy or probe states stop before manifest writes.
+
+The owner-private manifest remains **EN-only** and uses the same existing P2
+schema `TTV-P2-OWNER-MATCHED-EN-V1`. No new Gemini client or TV receiver is
+introduced; #118 and #120 remain the shared consumer branches.
