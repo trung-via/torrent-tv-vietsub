@@ -24,12 +24,14 @@ class GetOnly:
     def __init__(self, table):
         self.table = table
         self.calls = []
+        self.urls = []
 
     def __call__(self, method, url, headers, body, cap):
         self.assert_get_only(method, body)
         q = parse_qs(urlsplit(url).query)
         lang, page = q["languages"][0], int(q.get("page", ["1"])[0])
         self.calls.append((method, lang, page))
+        self.urls.append(q)
         rows, total = self.table.get((lang, page), ([], 0))
         return json.dumps({"data": rows, "total_count": total}).encode("utf-8")
 
@@ -40,10 +42,10 @@ class GetOnly:
 
 
 class SmokeTests(unittest.TestCase):
-    def probe(self, table, policy="VI_FAST"):
+    def probe(self, table, policy="VI_FAST", imdb_id="3501632"):
         transport = GetOnly(table)
         client = OpenSubtitles(api_key="OWNER_SECRET_NEVER_PRINT", transport=transport)
-        result = search_only_status(client, FILM, "3501632", policy=policy)
+        result = search_only_status(client, FILM, imdb_id, policy=policy)
         return result, transport.calls
 
     def test_fast_vi_one_get_and_en_page2_eight_rows(self):
@@ -89,6 +91,51 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("VI_SEARCHED=NO", out)
         self.assertIn("ROUTE=EN_TRANSLATE", out)
         self.assertIn("DOWNLOAD_POST_REQUESTS=0", out)
+
+    def test_title_year_search_from_filename_without_imdb_id(self):
+        transport = GetOnly({
+            ("vi", 1): ([row(5, WEAK, "vi")], 1),
+            ("en", 1): ([row(6, MATCHED, "en")], 1),
+        })
+        client = OpenSubtitles(api_key="LOCAL", transport=transport)
+        status = search_only_status(client, FILM, policy="VI_FAST")
+        self.assertIn("QUERY_MODE=PARSED_TITLE_YEAR", status)
+        self.assertIn("PARSED_TITLE=Example Film", status)
+        self.assertIn("PARSED_YEAR=2017", status)
+        self.assertIn("PARSED_SOURCE=bluray", status)
+        self.assertIn("PARSED_CODEC=x265", status)
+        self.assertIn("VIDEO_RELEASE_GROUP=grp", status)
+        self.assertIn("VIDEO_RESOLUTION=1080p", status)
+        self.assertIn("ROUTE=EN_TRANSLATE", status)
+        self.assertEqual(transport.calls, [("GET", "vi", 1), ("GET", "en", 1)])
+        self.assertEqual([x["query"] for x in transport.urls],
+                         [["example film"], ["example film"]])
+        self.assertEqual([x["year"] for x in transport.urls],
+                         [["2017"], ["2017"]])
+        self.assertTrue(all("imdb_id" not in x for x in transport.urls))
+        self.assertTrue(all("GRP" not in str(x) and "x265" not in str(x)
+                            for x in transport.urls))
+        self.assertIn("DOWNLOAD_POST_REQUESTS=0", status)
+
+    def test_title_year_raw_no_extension_remains_parsable(self):
+        # Authorized TorrServer filenames often have no trailing .mkv.
+        transport = GetOnly({("vi", 1): ([row(7, MATCHED, "vi")], 1)})
+        client = OpenSubtitles(api_key="LOCAL", transport=transport)
+        name = "Example Film 2017 1080p BluRay x265-GRP"
+        status = search_only_status(client, name)
+        self.assertIn("PARSED_TITLE=Example Film", status)
+        self.assertIn("PARSED_YEAR=2017", status)
+        self.assertIn("VIDEO_RELEASE_GROUP=grp", status)
+        self.assertIn("ROUTE=VI_READY", status)
+        self.assertEqual(transport.urls[0]["query"], ["example film"])
+        self.assertEqual(transport.calls, [("GET", "vi", 1)])
+
+    def test_no_year_title_mode_rejects_before_provider(self):
+        transport = GetOnly({})
+        client = OpenSubtitles(api_key="LOCAL", transport=transport)
+        with self.assertRaisesRegex(SubtitleApiError, "BAD_MEDIA_YEAR"):
+            search_only_status(client, "Example Film 1080p BluRay-GRP")
+        self.assertEqual(transport.calls, [])
 
     def test_invalid_filename_rejected_before_network(self):
         transport = GetOnly({})
