@@ -10,6 +10,12 @@ if ($env:GITHUB_ACTIONS -eq 'true' -or $env:CI -eq 'true' -or $env:TF_BUILD) {
 if (-not $env:LOCALAPPDATA) {throw 'P4_ADB_BOOTSTRAP_STOP_OWNER_PROFILE'}
 $folder=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\P4'
 $pair=Join-Path $folder 'pairing-token.txt'
+$receipt=Join-Path $folder 'adb-staged-v1.receipt'
+if (Test-Path -LiteralPath $receipt -PathType Leaf) {
+  Write-Host 'P4_ONE_OWNER_PC_ALREADY_STAGED=true'
+  $global:LASTEXITCODE=0
+  return
+}
 if (-not (Test-Path -LiteralPath $pair -PathType Leaf) -or
     (Get-Item -LiteralPath $pair).Length -notin 130..240) {
   throw 'P4_ADB_BOOTSTRAP_STOP_OWNER_TOKEN_NOT_READY'
@@ -61,6 +67,8 @@ try {
     'of=files/p4-owner-bootstrap-v1.txt'
   ) -NoNewWindow -Wait -PassThru -RedirectStandardInput $pair -RedirectStandardOutput $stdout -RedirectStandardError $stderr -ErrorAction Stop
   if ($proc.ExitCode -ne 0) {throw 'P4_ADB_BOOTSTRAP_STOP_PRIVATE_STREAM_FAILED'}
+  [IO.File]::WriteAllText($receipt,'staged',(
+    New-Object System.Text.UTF8Encoding($false)))
   Write-Host 'P4_SINGLE_OWNER_LAPTOP_PRIVATE_BOOTSTRAP_STAGED=true'
   Write-Host 'P4_NO_TV_TOKEN_INPUT_NO_SECRET_LOGGING=true'
   Write-Host 'P4_KEYSTORE_IMPORT_PENDING_NEXT_PLAYER_LOAD=true'
