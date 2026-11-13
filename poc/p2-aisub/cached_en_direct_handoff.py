@@ -16,6 +16,7 @@ from typing import Protocol
 
 from assumed_source_handoff import AssumedEnglishSubtitle, MAX_SOURCE_BYTES
 from automatic_lean120_worker import AutomaticLean120Worker
+from lean120_api import _https_post
 from progressive_handoff import SubtitleRevision
 
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -105,7 +106,8 @@ def run_local_translation(
         raise ValueError("P2_CLOUD_UPLOAD_AUTHORIZATION_REQUIRED")
     if (os.environ.get("CI", "").lower() == "true"
             or os.environ.get("GITHUB_ACTIONS", "").lower() == "true"):
-        if isinstance(worker, AutomaticLean120Worker):
+        if (isinstance(worker, AutomaticLean120Worker)
+                and worker.transport is _https_post):
             raise ValueError("P2_LIVE_PROVIDER_FORBIDDEN_IN_CI")
     if not callable(getattr(worker, "run", None)):
         raise ValueError("P2_LEAN120_WORKER_REQUIRED")
