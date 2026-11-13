@@ -214,3 +214,22 @@ jobs:
           Write-Host ('P4_DEBUG_RUN_AS_READONLY_ELIGIBLE=' + $runAs.ToString().ToLowerInvariant())
           Write-Host 'P4_OWNER_ADB_BOOTSTRAP_NOT_RUN=true'
           $global:LASTEXITCODE=0
+
+      - name: Inspect P4 pairing import READ ONLY (boolean-only, no key content)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\inspect-pairing-import-readonly.ps1'
+          $t=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $path,[ref]$t,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            foreach($e in $errors) {
+              Write-Host ('P4_PAIR_READONLY_PARSER_ID='+$e.ErrorId+' LINE='+$e.Extent.StartLineNumber)
+            }
+            throw 'P4_PAIR_READONLY_STOP_PARSER_ERROR'
+          }
+          & $path
+          if (-not $?) {throw 'P4_PAIR_READONLY_STOP_PROBE_FAILED'}
+
