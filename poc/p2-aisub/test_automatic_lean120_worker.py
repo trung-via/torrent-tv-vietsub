@@ -93,6 +93,50 @@ class AutoLean120WorkerTests(unittest.TestCase):
     def folders(self):
         return list(self.root.iterdir())
 
+    def test_first_window_pilot_never_translates_second_window_on_rerun(self):
+        source = handoff(242)
+        first = self.worker().run(source, max_new_windows=1)
+        self.assertFalse(first.complete)
+        self.assertEqual(first.translated_count, 120)
+        self.assertEqual(first.total_count, 242)
+        self.assertEqual([len(ids) for ids in self.provider.calls], [120])
+        folder = self.folders()[0]
+        self.assertTrue((folder / "batch-0001.json").is_file())
+        self.assertFalse((folder / "batch-0002.inflight").exists())
+        self.assertFalse((folder / "batch-0002.json").exists())
+        self.assertFalse((folder / "vi-final.srt").exists())
+        self.assertFalse((folder / "active.lock").exists())
+
+        # Rerunning the PILOT may replay batch 1; it must NOT issue a new
+        # billable call for batch 2 (otherwise a forgotten flag is risky).
+        replay = self.worker().run(source, max_new_windows=1)
+        self.assertFalse(replay.complete)
+        self.assertEqual(replay.sha256, first.sha256)
+        self.assertEqual(len(self.provider.calls), 1)
+
+        # A separate explicit full-film workflow can reuse the checkpoint.
+        full = self.worker().run(source)
+        self.assertTrue(full.complete)
+        self.assertEqual([len(x) for x in self.provider.calls], [120, 120, 2])
+        self.assertTrue((folder / "vi-final.srt").is_file())
+
+    def test_one_window_source_still_produces_complete_file(self):
+        source = handoff(50)
+        final = self.worker().run(source, max_new_windows=1)
+        self.assertTrue(final.complete)
+        self.assertEqual(final.translated_count, 50)
+        self.assertEqual([len(x) for x in self.provider.calls], [50])
+        self.assertTrue((self.folders()[0] / "vi-final.srt").exists())
+
+    def test_pilot_window_limit_invalid_before_disk_and_provider(self):
+        source = handoff(242)
+        for invalid in (0, 2, True, "1", -1):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "PILOT_WINDOW_LIMIT_INVALID"):
+                    self.worker().run(source, max_new_windows=invalid)
+        self.assertEqual(self.provider.calls, [])
+        self.assertFalse(self.root.exists())
+
     def test_automatic_120_240_242_private_final_vietsub_and_p4_feed(self):
         source = handoff(242)
         feed = SessionRevisionFeed(
