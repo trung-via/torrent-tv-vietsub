@@ -42,6 +42,42 @@ class PCGatewayBootstrapTests(unittest.TestCase):
                     master_hex=MASTER.hex(),execute_api=False,
                     profile_file=profile,api_key="")
 
+    def test_single_paired_mock_autobinds_tv_media_without_any_manual_key(self):
+        from synthetic_mock_feed import synthetic_source_sha256
+        profile=Path(__file__).with_name("translator_profile.json")
+        with mock.patch("run_assumed_source_gateway.publish_synthetic_revisions"):
+            gateway=build_controller(
+                media_key=None,source_file=None,master_hex=MASTER.hex(),
+                execute_api=False,profile_file=profile,api_key="",
+                mock_revisions=True,mock_single_paired_media=True)
+            nonce="a"*32
+            reply=gateway.activate({
+                "schema":"TTV-P4-ACTIVATE-V1","media_key":MEDIA,
+                "nonce":nonce,"auth":activation_request_mac(MASTER,MEDIA,nonce)})
+            self.assertEqual(reply["media_key"],MEDIA)
+            self.assertEqual(reply["source_sha256"],synthetic_source_sha256())
+            self.assertIsNotNone(gateway.feed_for(reply["session_id"]))
+            other="media."+"b"*64
+            with self.assertRaisesRegex(ValueError,"P4_MOCK_ONE_MEDIA_ONLY"):
+                gateway.activate({
+                    "schema":"TTV-P4-ACTIVATE-V1","media_key":other,
+                    "nonce":"b"*32,
+                    "auth":activation_request_mac(MASTER,other,"b"*32)})
+        with self.assertRaisesRegex(ValueError,"SINGLE_PAIRED_MEDIA_SCOPE_INVALID"):
+            build_controller(
+                media_key=MEDIA,source_file=None,master_hex=MASTER.hex(),
+                execute_api=False,profile_file=profile,api_key="",
+                mock_revisions=True,mock_single_paired_media=True)
+        with self.assertRaisesRegex(ValueError,"SINGLE_PAIRED_MEDIA_SCOPE_INVALID"):
+            build_controller(
+                media_key=None,source_file=None,master_hex=MASTER.hex(),
+                execute_api=False,profile_file=profile,api_key="",
+                mock_revisions=False,mock_single_paired_media=True)
+        with self.assertRaisesRegex(ValueError,"TIMED_SOURCE_FILE_REQUIRED"):
+            build_controller(
+                media_key=None,source_file=None,master_hex=MASTER.hex(),
+                execute_api=False,profile_file=profile,api_key="")
+
     def test_import_never_starts_server_or_calls_api(self):
         import run_assumed_source_gateway as module
         self.assertTrue(callable(module.main))
