@@ -13,16 +13,18 @@ import tempfile
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
-from cached_en_direct_handoff import CachedEnReceipt
-from automatic_lean120_worker import AutomaticLean120Worker
-from cue_pipeline import parse_cues
-from lean120_api import ModelProfile
-from opensubtitles import OpenSubtitles
+# The composed controller wires the fixed sibling P2 source path before
+# importing the existing P2 modules; the isolated D2 CI only adds D2 to Python.
 from owner_vietsub_pipeline import (
     acquire_and_translate_en_once,
     translate_existing_en,
     validate_existing_en,
 )
+from cached_en_direct_handoff import CachedEnReceipt
+from automatic_lean120_worker import AutomaticLean120Worker
+from cue_pipeline import parse_cues
+from lean120_api import ModelProfile
+from opensubtitles import OpenSubtitles
 
 VIDEO = "Example.Film.2017.1080p.BluRay.x265-GRP"
 STANDARD = VIDEO + "_eng"
