@@ -43,6 +43,34 @@ class OwnerBinding:
     owner_confirmed_release_and_sync: bool
 
 
+def _respects_vi_precedence(route: Route) -> bool:
+    """D3 must respect the discovery policy, not reinterpret one VI page.
+
+    Under VI_FAST an incomplete VI page may have a provisional VI_MATCH,
+    but is *not* authoritative: a later VI page could reveal ambiguity.
+    Thus a correctly selected confident EN is permitted for that policy.
+    EN_DIRECT intentionally skips online VI; VI_FULL stays exhaustive.
+    These are routing consistency checks, not real-media trust evidence.
+    """
+    if route.reason != "CONFIDENT_EN_RELEASE" or route.language != "en":
+        return False
+    policy = route.search_policy
+    state = route.vi_probe_status
+    if policy == "EN_DIRECT":
+        return (state == "SKIPPED"
+                and not route.vi.candidates
+                and not route.vi.decision.ranked)
+    if policy == "VI_FAST":
+        if state == "INCOMPLETE":
+            return True
+        if state == "NETWORK_ERROR_FALLBACK":
+            return not route.vi.candidates and not route.vi.decision.ranked
+        return state == "COMPLETE" and route.vi.decision.status != "VI_MATCH"
+    if policy == "VI_FULL":
+        return state == "COMPLETE" and route.vi.decision.status != "VI_MATCH"
+    return False
+
+
 def stage_confirmed_en_manifest(*, media: Media, route: Route, asset: Asset,
                                 cached_file: Path, private_root: Path,
                                 binding: OwnerBinding) -> Path:
@@ -67,7 +95,7 @@ def stage_confirmed_en_manifest(*, media: Media, route: Route, asset: Asset,
         route.selected_file_id <= 0 or
         route.vi.media_key != media.key or
         route.vi.results.media_key != media.key or
-        route.vi.decision.status == "VI_MATCH" or
+        not _respects_vi_precedence(route) or
         route.en is None or route.en.media_key != media.key or
         route.en.results.media_key != media.key or
         route.en.decision.status != "EN_TRANSLATE" or
