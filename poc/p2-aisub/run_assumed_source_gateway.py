@@ -35,16 +35,23 @@ def build_controller(
     execute_api: bool, profile_file: Path, api_key: str,
     glossary: dict[str,str] | None = None,
     mock_revisions: bool = False,
+    mock_single_paired_media: bool = False,
 ) -> PairedActivation:
     if not isinstance(master_hex,str) or not HEX_32.fullmatch(master_hex):
         raise ValueError("P4_DEVICE_PAIRING_KEY_REQUIRED")
     if mock_revisions and execute_api:
         raise ValueError("P4_MOCK_CANNOT_CALL_API")
+    if mock_single_paired_media and (
+        not mock_revisions or media_key is not None or
+        source_file is not None or execute_api
+    ):
+        raise ValueError("P4_MOCK_SINGLE_PAIRED_MEDIA_SCOPE_INVALID")
     if mock_revisions:
         if source_file is not None:
             raise ValueError("P4_MOCK_REJECTS_REAL_SOURCE_FILE")
-        source=AssumedEnglishSubtitle.from_supplied(
-            media_key=media_key,fmt="srt",source_bytes=synthetic_source_srt())
+        source=(None if mock_single_paired_media else
+            AssumedEnglishSubtitle.from_supplied(
+                media_key=media_key,fmt="srt",source_bytes=synthetic_source_srt()))
     else:
         if (source_file is None or not source_file.is_file() or
                 source_file.suffix.lower() not in (".srt",".vtt")):
@@ -82,6 +89,14 @@ def build_controller(
                 # Never include provider replies, API keys, subtitle text.
                 print("P4_LOCAL_LEAN120_FAILED_CHECK_PRIVATE_HOST_LOG")
         threading.Thread(target=run,daemon=True,name="p4-lean120").start()
+    if mock_single_paired_media:
+        def authenticated_fixture(media: str) -> AssumedEnglishSubtitle:
+            return AssumedEnglishSubtitle.from_supplied(
+                media_key=media,fmt="srt",source_bytes=synthetic_source_srt())
+        return PairedActivation(
+            device_secret=bytes.fromhex(master_hex),supplied={},
+            on_activate=on_activate,
+            authenticated_mock_source_factory=authenticated_fixture)
     return PairedActivation(
         device_secret=bytes.fromhex(master_hex),
         supplied={media_key:source},on_activate=on_activate)
@@ -91,11 +106,14 @@ def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bind",required=True,help="Explicit RFC1918 IPv4 PC LAN interface")
     parser.add_argument("--port",required=True,type=int)
-    parser.add_argument("--media-key",required=True)
+    parser.add_argument("--media-key",
+                        help="Required for real/source-supplied mode; omitted only in paired mock mode")
     parser.add_argument("--source",type=Path,
                         help="PRE-SUPPLIED and authorized EN SRT/VTT (not in mock mode)")
     parser.add_argument("--mock-revisions",action="store_true",
                         help="Dev-only synthetic 120→240; no source file or Gemini API")
+    parser.add_argument("--mock-single-paired-media",action="store_true",
+                        help="Dev only: auto-bind one correctly HMAC-authenticated TV media, no manual key")
     parser.add_argument("--profile",type=Path,
         default=Path(__file__).with_name("translator_profile.json"))
     parser.add_argument("--glossary-json",type=Path)
@@ -118,7 +136,8 @@ def main() -> int:
         media_key=args.media_key,source_file=args.source,
         master_hex=key,execute_api=args.execute_api,
         profile_file=args.profile,api_key=api_key,glossary=glossary,
-        mock_revisions=args.mock_revisions)
+        mock_revisions=args.mock_revisions,
+        mock_single_paired_media=args.mock_single_paired_media)
     tls_context=create_tls_context(args.tls_cert,args.tls_key)
     fingerprint=certificate_fingerprint_sha256(args.tls_cert)
     server=create_paired_server(
