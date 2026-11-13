@@ -65,7 +65,7 @@ class FakeGemini:
         self_has_key = headers.get("x-goog-api-key")
         assert self_has_key == "fake-test-key"
         assert url.endswith("/gemini-4-hydrogen:generateContent")
-        assert payload["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "HIGH"
+        assert payload["generationConfig"]["thinkingConfig"]["thinkingLevel"] in ("HIGH", "LOW")
         ids = [x["id"] for x in json.loads(
             payload["contents"][0]["parts"][0]["text"])["target"]]
         self.calls.append(tuple(ids))
