@@ -1,7 +1,8 @@
 """Read-only owner probe for VI_FAST/EN_DIRECT/VI_FULL on OpenSubtitles.
 
-Only GET /subtitles by verified title IMDb ID; no download, model or TV API.
-Releases are owner-local text, not uploaded to public GitHub or logs.
+Only GET /subtitles; search by parsed film title/year from video filename
+or by a separately verified IMDb ID. No download, model or TV API.
+Releases are owner-local text, never uploaded to public GitHub or logs.
 """
 from __future__ import annotations
 
@@ -29,7 +30,8 @@ def _compare(reference, actual):
     return "YES" if reference == actual else "NO"
 
 
-def search_only_status(client: OpenSubtitles, filename: str, imdb_id: str, *,
+def search_only_status(client: OpenSubtitles, filename: str,
+                       imdb_id: str | None = None, *,
                        policy: str = "VI_FAST") -> tuple[str, ...]:
     if (not isinstance(filename, str) or not 1 <= len(filename.strip()) <= 255
             or "/" in filename or "\\" in filename
@@ -41,11 +43,20 @@ def search_only_status(client: OpenSubtitles, filename: str, imdb_id: str, *,
     source = parse_release(media.filename)
     if not source.title:
         raise SubtitleApiError("BAD_MEDIA_TITLE")
+    if imdb_id is None and source.year is None:
+        # A title-only search can confuse remakes and editions. We require a
+        # parsed year for the automatic title-query trial.
+        raise SubtitleApiError("BAD_MEDIA_YEAR")
     route = select_vi_then_en(client, media, imdb_id=imdb_id, policy=policy)
 
     output = ["D25_SEARCH_ONLY", "META_GET_ONLY=YES",
               "REAL_MEDIA_BINDING=UNVERIFIED",
               f"SEARCH_POLICY={route.search_policy}",
+              f"QUERY_MODE={'IMDB_VERIFIED' if imdb_id is not None else 'PARSED_TITLE_YEAR'}",
+              f"PARSED_TITLE={source.title.title()}",
+              f"PARSED_YEAR={source.year or 'UNKNOWN'}",
+              f"PARSED_SOURCE={source.source or 'UNKNOWN'}",
+              f"PARSED_CODEC={source.codec or 'UNKNOWN'}",
               f"VIDEO_RELEASE_GROUP={source.group or 'UNKNOWN'}",
               f"VIDEO_RESOLUTION={source.resolution or 'UNKNOWN'}",
               f"VI_PROBE_STATUS={route.vi_probe_status}",
@@ -90,7 +101,10 @@ def search_only_status(client: OpenSubtitles, filename: str, imdb_id: str, *,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="GET-only OpenSubtitles VI_FAST owner probe")
-    parser.add_argument("--imdb-id", required=True)
+    parser.add_argument("--imdb-id", required=False,
+                        help="Optional independently verified IMDb title ID; otherwise use parsed title/year")
+    parser.add_argument("--release-name", required=False,
+                        help="Exact authorized TorrServer video filename (owner-local only)")
     parser.add_argument("--search-policy", choices=SEARCH_POLICIES, default="VI_FAST")
     args = parser.parse_args()
     key = os.environ.get("OPENSUBTITLES_API_KEY")
@@ -98,7 +112,9 @@ def main() -> int:
         print("API_KEY_NOT_CONFIGURED")
         return 1
     try:
-        release = input("Authorized release name (local input only): ")
+        release = args.release_name
+        if release is None:
+            release = input("Authorized release name (local input only): ")
         status = search_only_status(OpenSubtitles(api_key=key), release,
                                     args.imdb_id, policy=args.search_policy)
         for line in status:
