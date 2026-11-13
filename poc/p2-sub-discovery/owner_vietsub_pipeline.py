@@ -189,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"P2_LOCAL_TRANSLATED_CUES={result.translated_cues}")
         print("TV_DELIVERY=NOT_RUN")
         return 0
-    except (ValueError, OSError):
+    except Exception:
         # Never print raw errors: cloud adapters and local paths may contain
         # private data. Check the owner-private checkpoint state before retry.
         print("P2_LOCAL_TRANSLATION_STOP_PRIVATE_REVIEW")
