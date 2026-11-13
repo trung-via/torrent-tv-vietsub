@@ -18,9 +18,10 @@ import re
 import threading
 
 from assumed_source_handoff import (
-    AssumedEnglishSubtitle, translate_supplied_to_feed,
+    AssumedEnglishSubtitle,
 )
 from lean120_api import load_profile
+from automatic_lean120_worker import AutomaticLean120Worker
 from paired_activation import PairedActivation, create_paired_server
 from p4_tls import certificate_fingerprint_sha256, create_tls_context
 from synthetic_mock_feed import (
@@ -36,6 +37,7 @@ def build_controller(
     glossary: dict[str,str] | None = None,
     mock_revisions: bool = False,
     mock_single_paired_media: bool = False,
+    auto_state_dir: Path | None = None,
 ) -> PairedActivation:
     if not isinstance(master_hex,str) or not HEX_32.fullmatch(master_hex):
         raise ValueError("P4_DEVICE_PAIRING_KEY_REQUIRED")
@@ -62,6 +64,8 @@ def build_controller(
     profile=load_profile(profile_file)
     if execute_api and not api_key:
         raise ValueError("GEMINI_API_KEY_ENV_REQUIRED")
+    if execute_api and auto_state_dir is None:
+        raise ValueError("P2_AUTO_PRIVATE_STATE_DIR_REQUIRED")
     # The user-supplied file is assumed to be a correct English match.
     # No finder/ASR or semantic match claim from this function.
     if glossary is None:glossary={}
@@ -81,13 +85,16 @@ def build_controller(
             return
         def run():
             try:
-                translate_supplied_to_feed(
-                    handoff,profile,feed=feed,glossary=glossary,
-                    api_key=api_key,transport=__import__("lean120_api")._https_post)
-                print("P4_LOCAL_LEAN120_COMPLETE_CUES_RECEIVER_NOT_VERIFIED")
+                worker = AutomaticLean120Worker(
+                    state_root=auto_state_dir, profile=profile,
+                    glossary=glossary, api_key=api_key)
+                final = worker.run(handoff, on_revision=feed.publish)
+                print("P2_AUTO_LEAN120_COMPLETE_PRIVATE_VI_FILE=true")
+                print("P2_AUTO_LEAN120_CUE_COUNT="+str(final.translated_count))
+                print("P4_LAN_PUBLISHED_NOT_REAL_TV_PASS=true")
             except Exception:
                 # Never include provider replies, API keys, subtitle text.
-                print("P4_LOCAL_LEAN120_FAILED_CHECK_PRIVATE_HOST_LOG")
+                print("P2_AUTO_LEAN120_STOP_PRIVATE_OWNER_REVIEW_REQUIRED")
         threading.Thread(target=run,daemon=True,name="p4-lean120").start()
     if mock_single_paired_media:
         def authenticated_fixture(media: str) -> AssumedEnglishSubtitle:
@@ -118,6 +125,8 @@ def main() -> int:
         default=Path(__file__).with_name("translator_profile.json"))
     parser.add_argument("--glossary-json",type=Path)
     parser.add_argument("--execute-api",action="store_true")
+    parser.add_argument("--auto-state-dir",type=Path,
+        help="Required with --execute-api: private owner-only durable LEAN120 checkpoints")
     parser.add_argument("--start-lan",action="store_true")
     parser.add_argument("--tls-cert",type=Path,
                         help="Explicit owner-generated PEM with IP-SAN for --bind")
@@ -137,7 +146,8 @@ def main() -> int:
         master_hex=key,execute_api=args.execute_api,
         profile_file=args.profile,api_key=api_key,glossary=glossary,
         mock_revisions=args.mock_revisions,
-        mock_single_paired_media=args.mock_single_paired_media)
+        mock_single_paired_media=args.mock_single_paired_media,
+        auto_state_dir=args.auto_state_dir)
     tls_context=create_tls_context(args.tls_cert,args.tls_key)
     fingerprint=certificate_fingerprint_sha256(args.tls_cert)
     server=create_paired_server(
