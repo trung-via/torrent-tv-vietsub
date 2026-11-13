@@ -36,7 +36,8 @@ class D3OwnerHandoffTests(unittest.TestCase):
         vi = Discovery(self.media.key, vi_results, (),
                        choose(self.media, vi_results))
         self.route = Route("EN_TRANSLATE", "CONFIDENT_EN_RELEASE", "en", 7,
-                           vi, en, 2)
+                           vi, en, 2, search_policy="VI_FAST",
+                           vi_probe_status="COMPLETE")
         self.asset = Asset(7, "en", "srt", SRT,
                            hashlib.sha256(SRT).hexdigest(), 1)
         self.binding = OwnerBinding("media." + "b" * 64, self.media.key,
@@ -96,6 +97,68 @@ class D3OwnerHandoffTests(unittest.TestCase):
             with self.subTest(route=route.status):
                 with self.assertRaises(SubtitleApiError):
                     self.stage(route=route)
+
+    def test_vi_fast_incomplete_page_with_provisional_vi_match_can_handoff_en(self):
+        # A strong VI match from 50/60 rows must not become authoritative
+        # when VI_FAST purposely refuses a second VI search. EN can proceed
+        # only when EN itself has a confident complete match and owner binding.
+        vi_sub = Subtitle("14", "Original.Film.2024.WEB-DL.1080p-GRP.srt", "vi")
+        vi_results = SearchResults(self.media.key, (vi_sub,))
+        vi_decision = choose(self.media, vi_results)
+        self.assertEqual(vi_decision.status, "VI_MATCH")
+        vi = Discovery(self.media.key, vi_results, (Candidate(14, vi_sub),),
+                       vi_decision, raw_rows=50, api_total=60)
+        route = replace(self.route, vi=vi, vi_probe_status="INCOMPLETE",
+                        get_requests=2)
+        result = self.stage(route=route)
+        self.assertTrue(result.is_file())
+
+    def test_vi_fast_complete_confident_vi_still_blocks_en(self):
+        vi_sub = Subtitle("14", "Original.Film.2024.WEB-DL.1080p-GRP.srt", "vi")
+        vi_results = SearchResults(self.media.key, (vi_sub,))
+        vi = Discovery(self.media.key, vi_results, (Candidate(14, vi_sub),),
+                       choose(self.media, vi_results), raw_rows=1, api_total=1)
+        for policy in ("VI_FAST", "VI_FULL"):
+            with self.subTest(policy=policy):
+                route = replace(self.route, vi=vi, search_policy=policy,
+                                vi_probe_status="COMPLETE")
+                with self.assertRaisesRegex(SubtitleApiError,
+                                            "D3_CONFIDENT_EN_SELECTION_REQUIRED"):
+                    self.stage(route=route)
+        self.assertFalse((self.root / "verified-en-manifest.json").exists())
+
+    def test_en_direct_skipped_vi_accepted_but_not_fake_skip(self):
+        permitted = replace(self.route, search_policy="EN_DIRECT",
+                            vi_probe_status="SKIPPED", get_requests=1)
+        self.assertTrue(self.stage(route=permitted).is_file())
+
+    def test_en_direct_with_observed_vi_is_rejected(self):
+        vi_sub = Subtitle("14", "Original.Film.2024.WEB-DL.1080p-GRP.srt", "vi")
+        vi_results = SearchResults(self.media.key, (vi_sub,))
+        vi = Discovery(self.media.key, vi_results, (Candidate(14, vi_sub),),
+                       choose(self.media, vi_results), raw_rows=1, api_total=1)
+        route = replace(self.route, vi=vi, search_policy="EN_DIRECT",
+                        vi_probe_status="SKIPPED")
+        with self.assertRaisesRegex(SubtitleApiError,
+                                    "D3_CONFIDENT_EN_SELECTION_REQUIRED"):
+            self.stage(route=route)
+
+    def test_vi_full_incomplete_and_unknown_policy_block(self):
+        for policy, state in (("VI_FULL", "INCOMPLETE"),
+                              ("VI_FAST", "UNKNOWN"),
+                              ("BOGUS", "COMPLETE")):
+            with self.subTest(policy=policy, state=state):
+                route = replace(self.route, search_policy=policy,
+                                vi_probe_status=state)
+                with self.assertRaisesRegex(SubtitleApiError,
+                                            "D3_CONFIDENT_EN_SELECTION_REQUIRED"):
+                    self.stage(route=route)
+        self.assertFalse((self.root / "verified-en-manifest.json").exists())
+
+    def test_vi_fast_network_fallback_with_empty_vi_is_eligible(self):
+        route = replace(self.route, search_policy="VI_FAST",
+                        vi_probe_status="NETWORK_ERROR_FALLBACK")
+        self.assertTrue(self.stage(route=route).is_file())
 
     def test_reject_digest_and_changed_cache_bytes(self):
         with self.assertRaises(SubtitleApiError):
