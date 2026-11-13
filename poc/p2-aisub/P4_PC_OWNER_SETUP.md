@@ -8,7 +8,7 @@
 - Gateway `run_assumed_source_gateway.py` supports HTTPS with a matching private key/certificate, per-device 32-byte key, exact `media.<64hex>` source identity, signed activation/read and mock 120→240 cumulative SRT.
 - **Not yet demonstrated:** Windows private IP-SAN certificate/owner pairing provisioned, a PC listener accessible by Redmi, the native player submitting the matching media key, or 120→240/cue131 visibly rendered.
 
-## Owner-only PC preparation (not CI)
+## One owner laptop setup (not CI)
 
 Use the **Windows PC private IPv4 address**, not the Redmi TV's address. It must be assigned to this PC. Keep all values and files off public GitHub and ChatGPT logs.
 
@@ -51,7 +51,11 @@ $activeMediaKey = '<EXACT_CURRENT_OMP_MEDIA_KEY>'
 
 The script reads the local, ACL-protected materials and launches the P2 CLI using `--start-lan --mock-revisions` with **no `--source` and no `--execute-api`**. It does not invoke TorrServer, Gemini, a background scheduled task or a Windows service. It does not open/configure Windows Firewall; if inbound traffic is blocked, **stop and request a specific owner firewall decision**, never disable TLS checks or open WAN.
 
-On Redmi, open OMP native D-pad **Ghép đôi PC Vietsub AI**, and enter the contents of the **local private** `pairing-token.txt` as a single value. The TV stores the key and certificate pin in AndroidKeyStore-sealed app-private data. Then, on a permitted synthetic test film with matching media identity, use **Bật Vietsub AI**. If the source mapping fails, it must show a controlled failure, not generate or invent a replacement film subtitle.
+For this ONE-laptop setup, there is **no D-pad pairing dialog, token typing or confirmation**. The owner-local gateway launcher silently calls `auto_pair_owner_redmi_adb.ps1` once, which stages the existing private token via the authenticated owner ADB connection into the Debug app. The next native PlayerActivity load imports it into AndroidKeyStore and deletes the plaintext staging file. The Windows owner-local staging receipt prevents repeated ADB transfers on later launches.
+
+The app connects to the saved laptop's pinned HTTPS identity; it must **not** accept an arbitrary LAN responder just because only one laptop is expected. New TV installation requires the updated P4 Debug APK; an older installed build still has the manual dialog. If ADB is unavailable on first enrollment, stop safely rather than falling back to unauthenticated network pairing.
+
+The **Bật Vietsub AI** action is about explicit consent to process subtitles for the currently playing film, not a pairing confirmation. No per-film token entry is required.
 
 ## Actual proof required before P4 HTTPS E2E PASS
 
