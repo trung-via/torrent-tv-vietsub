@@ -74,50 +74,8 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         }
     }
 
-    /**
-     * Developer-stage one-time PC provisioning using a long, strong token.
-     * Later companion-phone/QR onboarding may replace keyboard entry.
-     * No key is logged or transmitted by the dialog itself.
-     */
-    private fun openP4PairingDialog() {
-        if (p4LanScope != null || p4ActivationInFlight) {
-            showMessage("Tắt Vietsub AI trước khi đổi máy tính.", true)
-            return
-        }
-        val field = android.widget.EditText(this)
-        field.hint = "IP:port|64 hex key|64 hex TLS cert SHA256"
-        field.inputType = android.text.InputType.TYPE_CLASS_TEXT or
-            android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        val dialogP4 = AlertDialog.Builder(this, R.style.OmpPlayerDialog)
-            .setTitle("Ghép đôi PC Vietsub AI (một lần)")
-            .setView(field)
-            .setPositiveButton("Lưu") { _, _ ->
-                val entered = field.text?.toString()?.trim().orEmpty()
-                val match = Regex("([0-9.]{7,15}):([0-9]{4,5})[|]([0-9a-fA-F]{64})[|]([0-9a-fA-F]{64})")
-                    .matchEntire(entered)
-                if (match == null) {
-                    showMessage("Dữ liệu ghép đôi PC không hợp lệ.", true)
-                } else {
-                    val host = match.groupValues[1]
-                    val port = match.groupValues[2].toIntOrNull() ?: 0
-                    val hex = match.groupValues[3].lowercase()
-                    val key = ByteArray(32) { i ->
-                        hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-                    }
-                    val stored = P4PairingStore(applicationContext).save(
-                        host, port, key, match.groupValues[4])
-                    key.fill(0)
-                    showMessage(
-                        if (stored) "Đã lưu ghép đôi PC. Chọn Bật Vietsub AI cho phim."
-                        else "Không thể lưu ghép đôi an toàn.", !stored)
-                }
-            }
-            .setNegativeButton("Hủy", null)
-            .create()
-        dialogP4.show()
-        dialog = dialogP4
-        field.requestFocus()
-    }
+    // Pairing is imported only from an app-private one-shot file staged by the
+    // already-authorized owner laptop over ADB. No TV text input or prompt.
 
     /** Explicit per-film UI only, with an already paired PC and supplied EN text. */
     private fun beginP4Activation() {
@@ -129,8 +87,10 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             showMessage("Không xác định được phim cho Vietsub AI.", true)
             return
         }
+        // Quiet one-time import. Existing pinned laptop is never overwritten.
+        P4OwnerBootstrap.consume(applicationContext)
         val device = P4PairingStore(applicationContext).load() ?: run {
-            openP4PairingDialog()
+            showMessage("Laptop chưa được kết nối an toàn.", true)
             return
         }
         p4ActivationInFlight = true
@@ -404,7 +364,6 @@ P4_MENU_ROWS = """        add(if (p4LanScope != null || p4ActivationInFlight)
                 beginP4Activation()
             }
         }
-        add("Ghép đôi PC Vietsub AI", "AD01.11") { openP4PairingDialog() }
         add("Hủy ghép đôi PC Vietsub AI", "AD01.12") {
             stopP4LanSession()
             val revoked = P4PairingStore(applicationContext).revoke()
@@ -437,6 +396,7 @@ def patch_activity(original: str) -> str:
             "        unbindP4Session()\n        handler.removeCallbacksAndMessages(null)"), "DESTROY"),
         LOAD_ANCHOR: (LOAD_ANCHOR.replace(
             "        clearG2Recovery()",
+            "        P4OwnerBootstrap.consume(applicationContext)\n" +
             "        unbindP4Session()\n        clearG2Recovery()"), "LOAD"),
         ITEM_ANCHOR: (ITEM_ANCHOR.replace(
             "        clearG2Recovery()",
