@@ -6,7 +6,7 @@ or production release.
 
 ## User experience / boundaries
 
-1. PC operator maintains a **unique device-level 32-byte random pairing key**,
+1. The single authorized PC maintains a **unique device-level 32-byte random pairing key**,
    and a TLS certificate/private key pair outside the public repository. The
    certificate contains a **subjectAltName of type IP Address**, matching the
    exact RFC1918 IPv4 PC address. Neither secrets nor subtitle source bytes
@@ -21,13 +21,19 @@ or production release.
    PEM leaf certificate's DER. Verify this fingerprint through a trusted
    local/out-of-band channel; this text is public, but the 32-byte device
    key is secret. No automatic network transfer of the master key.
-4. On the OMP Redmi native D-pad menu, one-time **Ghép đôi PC Vietsub AI**
-   developer-stage input format is
-   `<PRIVATE_IP>:<PORT>|<64_HEX_PAIRING_KEY>|<64_HEX_CERT_SHA256>`.
-   The AndroidKeyStore AES-GCM encrypts both key and pin. Legacy v1 HTTP
-   pairing is **not** reused, and revoke removes the stored TLS pairing.
-   This long-token entry remains a DEV prototype; QR/phone pairing with short
-   confirmation + host identity still needs a separate usability gate.
+4. **ONE OWNER LAPTOP DEBUG-ONLY:** the already authorized Windows PC
+   stages its existing owner-private pairing token over authenticated ADB
+   stdin, using Android `run-as` only for the Debug app. OMP consumes
+   `files/p4-owner-bootstrap-v1.txt` on native player entry, imports the
+   unique PC IP:port, HMAC key and SHA256 certificate pin into AndroidKeyStore
+   AES-GCM and deletes the temporary plaintext input. No D-pad token input,
+   confirmation dialogs, discovery broadcast or trust-on-first-use network
+   handshake. A different laptop is never silently accepted; an existing
+   pinned pairing is not overwritten. This is **owner-PC auto-recognition**,
+   not general-purpose insecure discovery of any LAN host. An expired/change
+   of certificate requires a controlled re-provision, not TLS bypass.
+   `Hủy ghép đôi PC Vietsub AI` remains a deliberate revoke action.
+   Legacy HTTP credentials are not reused.
 5. **Bật Vietsub AI** for the current film creates signed paired activation
    over **HTTPS**, then pulls signed revisions over **HTTPS** only. The Android
    TLS client requires an exact RFC1918 IPv4 host, TLS 1.2, nonexpired leaf
