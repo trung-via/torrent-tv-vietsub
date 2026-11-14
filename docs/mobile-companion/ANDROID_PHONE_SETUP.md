@@ -13,6 +13,18 @@ Upstream chính thức: [OMP README.en.md](https://github.com/spacesarmat/omp/bl
 - `OMP-0.30.0-armv7.apk` cho OS 32-bit;
 - `OMP-0.30.0.apk` universal khi chưa chắc ABI.
 
+### APK SHA-256 đối chiếu từ GitHub Release API (v0.30.0)
+
+Dùng đúng file trong [release chính thức](https://github.com/spacesarmat/omp/releases/tag/v0.30.0). Mã SHA-256 bên dưới được đọc từ trường `assets[].digest` của GitHub Releases API ngày 2026-11-14; chỉ chứng minh tệp tải về khớp *asset được đăng trên release đó*, không phải kiểm toán độc lập khóa ký APK hoặc tương thích với Redmi.
+
+| APK | SHA-256 |
+| --- | --- |
+| `OMP-0.30.0-arm64.apk` | `aaf241dc759ca2e361ade2bc978362c1598c02533600e677150b5f33ede24c84` |
+| `OMP-0.30.0-armv7.apk` | `c52af8f3aadc7985c35c4de9da122edc3b2b404bb2d045f3fac6c4b2584e2f02` |
+| `OMP-0.30.0.apk` | `a7b8cc1c1df3b76bb3aedd783f198484b9cd4de5ff7c69a588a0fb0887bac3a4` |
+
+Nếu APK được tải về Windows để chuyển thủ công sang điện thoại, tính checksum tại laptop bằng `Get-FileHash -Algorithm SHA256 -LiteralPath '<file.apk>'`. Không ghi lại đường dẫn cá nhân/checksum trong GitHub issue; so sánh **cục bộ** với bảng. Nếu checksum khác, dừng cài và xác minh lại release/filename; không tắt kiểm tra chữ ký.
+
 **Không suy ABI chỉ từ tên CPU hoặc dòng điện thoại.** Người dùng kiểm tra Android version/ABI trong Settings hoặc qua hệ thống thông tin đáng tin cậy trước khi chọn APK. Không cài file APK phát tán lại từ nguồn không rõ. Những bản phát hành mới hơn phải xác minh lại tên asset, chữ ký và compatibility; phiên bản số trong tài liệu này là *pin kiểm toán*, không phải lệnh cấm cập nhật.
 
 **Cảnh báo tương thích:** các overlay G1/G2/P4 trên Redmi được xây từ OMP upstream pin `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f`, trong khi APK điện thoại từ upstream v0.30.0. Tài liệu upstream có chức năng phone pairing, **nhưng ghép phone v0.30.0 với TV Debug đã tùy biến chưa được thử thật**. Không thay APK TV để “sửa” lỗi pairing.
