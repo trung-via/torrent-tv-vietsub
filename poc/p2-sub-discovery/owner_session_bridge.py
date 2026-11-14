@@ -34,6 +34,8 @@ _ID = re.compile(r"[a-f0-9]{32}\Z")
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_EVENT_BYTES = 768
 _MAX_EVENTS_PER_POLL = 3
+_HEALTH_STATES = frozenset({"STARTING", "READY", "STOPPED", "BLOCKED"})
+_HEALTH_SCHEMA = "TTV-OWNER-AGENT-HEALTH-V1"
 
 
 @dataclass(frozen=True)
@@ -189,6 +191,73 @@ def poll_private_events(
     return processed
 
 
+def write_owner_agent_health(*, owner_root: Path, state: str) -> None:
+    """Owner-private heartbeat, no API keys, dialogue, media IDs or paths.
+
+    A READY line only means the owner Python loop is alive. It cannot prove
+    model availability, signed TV pairing, movie identity or TV subtitles.
+    Owner-local observers must check freshness (e.g. within 30 seconds).
+    """
+    if state not in _HEALTH_STATES or not isinstance(state, str):
+        raise ValueError("OWNER_BRIDGE_HEALTH_STATE_INVALID")
+    root = _private_dir(owner_root).parent
+    target = root / "agent-health.json"
+    if target.is_symlink():
+        raise ValueError("OWNER_BRIDGE_HEALTH_SYMLINK")
+    doc = {
+        "schema": _HEALTH_SCHEMA,
+        "state": state,
+        "observed_utc_epoch": int(time.time()),
+        "pid": os.getpid(),
+    }
+    contents = json.dumps(doc, separators=(",", ":"), sort_keys=True).encode()
+    temporary = root / ("agent-health-" + secrets.token_hex(8) + ".tmp")
+    try:
+        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(contents)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def read_owner_agent_health(*, owner_root: Path, now: float | None = None
+                            ) -> str:
+    """Owner-only read-only status: READY / STALE / BLOCKED / NOT_INSTALLED.
+
+    This function never reads keys, cache entries or subtitle text.
+    """
+    if (not isinstance(owner_root, Path) or not owner_root.is_absolute()
+            or owner_root.is_symlink()):
+        raise ValueError("OWNER_BRIDGE_PRIVATE_ROOT_INVALID")
+    path = owner_root / "agent-health.json"
+    if not path.exists():
+        return "NOT_INSTALLED"
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 512:
+        return "INVALID"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return "INVALID"
+    if (not isinstance(doc, dict) or set(doc) != {
+            "schema", "state", "observed_utc_epoch", "pid"}
+            or doc["schema"] != _HEALTH_SCHEMA
+            or doc["state"] not in _HEALTH_STATES
+            or type(doc["observed_utc_epoch"]) is not int
+            or type(doc["pid"]) is not int):
+        return "INVALID"
+    if doc["state"] != "READY":
+        return doc["state"]
+    checked_at = time.time() if now is None else now
+    if (not isinstance(checked_at, (int, float))
+            or checked_at < doc["observed_utc_epoch"]
+            or checked_at - doc["observed_utc_epoch"] > 30):
+        return "STALE"
+    return "READY"
+
+
 def consume_inert_runner_wakes(*, shared_wake_root: Path | None = None) -> int:
     """Read only a fixed no-payload wake marker, NEVER a runner command.
 
@@ -272,17 +341,33 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
     if (os.environ.get("CI", "").lower() == "true"
             or os.environ.get("GITHUB_ACTIONS", "").lower() == "true"):
         raise ValueError("OWNER_BRIDGE_NO_OWNER_RUNTIME_IN_CI")
-    # OS releases this process mutex automatically after Windows logoff,
-    # crash or unexpected exit. Provider and event claims are NOT deleted.
+    # OS releases the process mutex on Windows logoff/crash; durable
+    # D2/Gemini one-post/inflight claims are never automatically deleted.
     with _owner_process_lock(private_root):
-        from automatic_vietsub_flow import build_owner_auto_flow
-        flow = build_owner_auto_flow(
-            enabled=True, cache_root=cache_root, state_root=state_root)
+        write_owner_agent_health(owner_root=private_root, state="STARTING")
+        try:
+            from automatic_vietsub_flow import build_owner_auto_flow
+            # Never call Gemini at startup: VI-only work remains usable.
+            flow = build_owner_auto_flow(
+                enabled=True, cache_root=cache_root, state_root=state_root)
+        except Exception:
+            write_owner_agent_health(owner_root=private_root, state="BLOCKED")
+            raise
         emit("OWNER_BRIDGE_STARTED")
-        while True:
-            consume_inert_runner_wakes()
-            poll_private_events(owner_root=private_root, processor=flow, emit=emit)
-            time.sleep(interval_seconds)
+        last_health = 0.0
+        try:
+            while True:
+                if time.monotonic() - last_health > 10.0:
+                    write_owner_agent_health(owner_root=private_root,
+                                             state="READY")
+                    last_health = time.monotonic()
+                consume_inert_runner_wakes()
+                poll_private_events(owner_root=private_root,
+                                    processor=flow, emit=emit)
+                time.sleep(interval_seconds)
+        finally:
+            write_owner_agent_health(owner_root=private_root,
+                                     state="STOPPED")
 
 
 def main(argv: list[str] | None = None) -> int:
