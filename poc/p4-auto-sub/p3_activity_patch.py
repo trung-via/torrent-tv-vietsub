@@ -105,6 +105,10 @@ P3_RETRY = """    /** Bound only to explicit request, never to a native Play eve
                 return
             }
             if (!p4ActivationInFlight) {
+                if (p3ActivationAttempts > 0) {
+                    P3SelectedMediaPublisher.reaffirmViewer(
+                        applicationContext, playing, index(), engine is VlcEngine)
+                }
                 p3ActivationAttempts++
                 beginP4Activation()
             }
