@@ -25,6 +25,18 @@ Canonical MAC lines: schema / boot / sequence / kind / session / hash / fileInde
 
 `p3_p4_shared_https_route` preserves existing /p4/activate and /p4/revision and P3 /p3/selection semantics; /p3/state is optional and is 404 until explicitly configured with the paired cache. It receives HMAC status but **does not enqueue a job or run providers merely because a heartbeat arrived**.
 
+## One existing owner gateway/worker composition
+
+`p3_owner_state_wiring.compose_owner_redmi_status` is the concrete typed glue between the already built components. An explicit owner-local process supplies:
+- the **existing** P4 `PairedActivation` controller and its same P4-paired key;
+- the already owner-pinned `OwnerTorrServerReader` from #153;
+- absolute private owner inbox/media roots and exact per-media file mapping;
+- **separate** owner AUTO consent, media rights and local VI-track inventory readers, none derived from TV JSON.
+
+The composition returns `handler` for the already approved P4 TLS server, `cache` for signed native status, `signal` for selection HMAC and `trusted_v3_factory` for the **existing #146 owner agent**, not a new translator/queue. The factory supplies the #148 `VerifiedV3Processor` read-only selected-media checks. A synthetic test proves that without a distinct signed current state a perfectly valid Play HMAC cannot queue work, while valid state + exact media does reach the **same existing V3 worker once**. Status alone cannot trigger translation.
+
+The composition intentionally has no `serve_forever()`, Windows background service, credential loader, pairing-installer, model call or on-TV operation; no owner runtime invokes it until separately approved.
+
 ## Remaining security and release gates
 
 The current cache's boot/sequence/nonce high-water marks are in-process: **not persistent across owner process restart**. This remains a real acceptance blocker for an unattended network service. A production owner runtime must durably persist replay high-water marks, verify paired identity and restrict concurrency. Same paired secret must be provisioned and owner-local Windows port explicitly approved; no development test creates a Windows LAN endpoint.
