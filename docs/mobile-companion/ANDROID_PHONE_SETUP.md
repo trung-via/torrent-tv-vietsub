@@ -1,6 +1,6 @@
 # P3-MOBILE — Thiết lập OMP trên điện thoại Android (owner-only)
 
-**Status:** `SOURCE_SETUP_PREPARED / PHONE_INSTALL_NOT_RUN / WINDOWS_SERVER_CONNECT_NOT_RUN / REDMI_PAIR_NOT_RUN`  
+**Status:** `SOURCE_SETUP_PREPARED / G-MOBILE-INSTALL_HUMAN_REPORTED_PASS / G-MOBILE-SERVER_HUMAN_REPORTED_PASS / G-MOBILE-ADD_HUMAN_REPORTED_PASS / G-MOBILE-TV_HUMAN_REPORTED_PASS`  
 **Issue:** [#138](https://github.com/trung-via/torrent-tv-vietsub/issues/138)  
 **Ngày đối chiếu:** 2026-11-14. **Repo công khai** — tuyệt đối không đăng địa chỉ IP LAN, mật khẩu, link private tracker, tên media cá nhân, log màn hình pairing hoặc mã 6 chữ số lên GitHub.
 
@@ -27,7 +27,17 @@ Nếu APK được tải về Windows để chuyển thủ công sang điện th
 
 **Không suy ABI chỉ từ tên CPU hoặc dòng điện thoại.** Người dùng kiểm tra Android version/ABI trong Settings hoặc qua hệ thống thông tin đáng tin cậy trước khi chọn APK. Không cài file APK phát tán lại từ nguồn không rõ. Những bản phát hành mới hơn phải xác minh lại tên asset, chữ ký và compatibility; phiên bản số trong tài liệu này là *pin kiểm toán*, không phải lệnh cấm cập nhật.
 
-**Cảnh báo tương thích:** các overlay G1/G2/P4 trên Redmi được xây từ OMP upstream pin `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f`, trong khi APK điện thoại từ upstream v0.30.0. Tài liệu upstream có chức năng phone pairing, **nhưng ghép phone v0.30.0 với TV Debug đã tùy biến chưa được thử thật**. Không thay APK TV để “sửa” lỗi pairing.
+**Tương thích thực tế (Human reported, 2026-11-14):** các overlay G1/G2/P4 trên Redmi được xây từ OMP upstream pin `52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f`, trong khi APK điện thoại được hướng dẫn tải từ upstream v0.30.0. Chủ thiết bị đã xác nhận ghép thành công và điều khiển thực tế Pause/Resume/Seek trên Redmi OMP Vietsub Debug; đây là **HUMAN_REPORTED_PASS** cho phiên đã thử, không phải chứng minh mọi bản APK/firmware hay checksum trên thiết bị. Không thay APK TV vì một phiên ghép khác bị lỗi.
+
+## Nghiệm thu thực tế — 2026-11-14 (owner-reported, không phải CI/device instrumentation)
+
+- Xiaomi 17 Pro đã cài OMP Android: **HUMAN_REPORTED_PASS**.
+- Điện thoại kết nối TorrServer hiện có trên laptop Windows và hiện thư viện trong `Catalog → Mine`: **HUMAN_REPORTED_PASS**, có ảnh UI riêng trong cuộc trò chuyện, không đưa ảnh/tựa phim lên repo PUBLIC.
+- Ghép OMP phone với Redmi A Pro 55 OMP Vietsub Debug: **HUMAN_REPORTED_PASS**, ảnh UI có biểu tượng TV màu xanh và tab `Remote`.
+- **Pause / Resume / Seek** từ điện thoại điều khiển phim trên Redmi: chủ thiết bị báo **HUMAN_REPORTED_PASS** ngày 2026-11-14.
+- Thêm torrent vào TorrServer từ OMP phone: chủ thiết bị báo **HUMAN_REPORTED_PASS** ngày 2026-11-14. Chưa có log server độc lập, hash/ID torrent hay audit quyền media; không suy ra chức năng crawler tự động, AI, remote ngoài LAN hoặc mọi phim đều tương thích.
+- Ứng dụng điện thoại, Windows TorrServer và TV đã được thử ở mức chức năng người dùng; **không có** chứng cứ chạy preflight Windows, instrumented network, kiểm tra checksum APK sau cài, provider API, P4 tự động Vietsub hay G4 Release.
+- Tài liệu dưới đây giữ lại các **bước setup/rollback tái sử dụng** cho thiết bị khác; lịch sử lúc tạo Draft là `NOT_RUN`, nay được thay bằng kết quả báo cáo ở trên, không tái kiểm tra qua CI.
 
 ## M0. Cài trên điện thoại (thực hiện trên máy của owner)
 
@@ -71,12 +81,12 @@ Nếu APK được tải về Windows để chuyển thủ công sang điện th
 
 ## M4. Evidence matrix và rollback
 
-| Gate | Evidence chấp nhận | Trạng thái ban đầu |
+| Gate | Evidence thực tế / điều chưa xác minh độc lập | Báo cáo ngày 2026-11-14 |
 | --- | --- | --- |
-| G-MOBILE-INSTALL | Version/ABI/tên APK/hash + owner thấy app chạy trên điện thoại | NOT_RUN |
-| G-MOBILE-SERVER | OMP phone mở được thư viện Windows TorrServer thật | NOT_RUN |
-| G-MOBILE-ADD | Owner chủ động thêm một media hợp lệ, xác minh trên Windows | NOT_RUN |
-| G-MOBILE-TV | TV hiện pairing, code được nhập cục bộ, remote phát/pause/seek | NOT_RUN |
+| G-MOBILE-INSTALL | Owner xác nhận đã cài OMP Android trên Xiaomi 17 Pro; checksum/chữ ký APK cục bộ chưa đối chiếu độc lập | **HUMAN_REPORTED_PASS** |
+| G-MOBILE-SERVER | Owner xác nhận kết nối laptop TorrServer; ảnh điện thoại hiển thị Catalog → Mine với thư viện có sẵn | **HUMAN_REPORTED_PASS** |
+| G-MOBILE-ADD | Owner báo cáo thao tác thêm torrent từ OMP điện thoại thành công; không có log TorrServer/ID torrent công khai, không khẳng định kiểm chứng độc lập | **HUMAN_REPORTED_PASS** |
+| G-MOBILE-TV | Owner báo cáo ghép Redmi OMP Vietsub Debug; ảnh điện thoại hiển thị biểu tượng TV xanh và tab Remote; owner xác nhận Pause/Resume/Seek tác động thực trên TV | **HUMAN_REPORTED_PASS** |
 
 Nếu có lỗi: không đổi cấu hình TV/Windows. Trước tiên bỏ lựa chọn server sai trong app điện thoại hoặc ngắt kết nối phone→TV trong OMP; nếu cần, gỡ **chỉ OMP trên điện thoại** sau khi chủ thiết bị đồng ý. Không xóa cache/user data của Redmi, không xóa torrent trong TorrServer, không ảnh hưởng P2/P4.
 
