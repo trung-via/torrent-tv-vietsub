@@ -17,6 +17,7 @@ import re
 from typing import Callable
 
 from matcher import Media, _release_stem_and_accessibility, parse_release
+from local_en_direct import LocalMediaSelection, find_local_english
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
 from owner_en_single_trial import _claim_one_post, _preflight_cache
 from owner_vietsub_pipeline import (
@@ -188,7 +189,9 @@ class AutomaticVietsubFlow:
         return result
 
     def selected_media(self, video_name: str, *,
-                       source_fingerprint: str | None = None) -> AutoResult:
+                       source_fingerprint: str | None = None,
+                       verified_media: Media | None = None,
+                       local_source: LocalMediaSelection | None = None) -> AutoResult:
         """A single owner-local call from an existing TV/media selection event.
 
         Search exactly once, download the unique highest-confidence source
@@ -208,15 +211,64 @@ class AutomaticVietsubFlow:
                 not isinstance(source_fingerprint, str) or
                 re.fullmatch(r"[0-9a-f]{64}", source_fingerprint) is None):
             raise ValueError("AUTO_VIETSUB_SOURCE_FINGERPRINT_INVALID")
+        # V3 path: source identity is derived from CURRENT TV and exact
+        # TorrServer selected-file metadata by VerifiedV3Processor, not an
+        # arbitrary browser filename or an owner-inbox boolean.
+        if verified_media is not None:
+            if (not isinstance(verified_media, Media)
+                    or verified_media.filename != video_name
+                    or source_fingerprint is None):
+                raise ValueError("AUTO_V3_VERIFIED_MEDIA_REQUIRED")
+            expected_fp = hashlib.sha256(("\x00".join((
+                verified_media.server_profile_id,
+                verified_media.torrent_hash.lower(),
+                str(verified_media.file_index)))).encode("utf-8")).hexdigest()
+            if expected_fp != source_fingerprint:
+                raise ValueError("AUTO_V3_SOURCE_FINGERPRINT_MISMATCH")
+        elif local_source is not None:
+            raise ValueError("AUTO_V3_LOCAL_SOURCE_REQUIRES_MEDIA")
+
+        local = None
+        if local_source is not None:
+            if (not isinstance(local_source, LocalMediaSelection)
+                    or local_source.video_name != video_name
+                    or (local_source.server_id,
+                        local_source.torrent_hash.lower(),
+                        local_source.file_index) != (
+                        verified_media.server_profile_id,
+                        verified_media.torrent_hash.lower(),
+                        verified_media.file_index)):
+                raise ValueError("AUTO_V3_LOCAL_SOURCE_IDENTITY_MISMATCH")
+            # Identity and local source QA run BEFORE cache reuse. Otherwise
+            # stale/tampered local inputs could be masked by a prior index.
+            local = find_local_english(
+                local_source, cache_root=self.cache_root)
+
         cached = self._reuse_source(
             video_name, source_fingerprint=source_fingerprint)
         if cached is not None:
             return cached
+        if local is not None:
+            # No OpenSubtitles GET/POST for a valid local EN. Preserve the
+            # same private per-source receipt and existing P2 checkpoint.
+            self._ensure_en_model_ready()
+            self._remember_source(
+                video_name, local.private_cache_file, local.asset,
+                source_fingerprint=source_fingerprint)
+            translated = self.after_en_cached(
+                local.asset, local.private_cache_file)
+            if not translated.translation_complete:
+                raise ValueError("AUTO_LOCAL_EN_INCOMPLETE_TRANSLATION")
+            self.emit("AUTO_EN_SOURCE=LOCAL_DIRECT")
+            return AutoResult(
+                "VIETSUB_READY", cue_count=local.asset.cues,
+                translated_cues=translated.translated_cues)
+
         # Stable local-only key used for deduplicating owner-local work.
         # NEVER treat this key as an authenticated TorrServer/OMP media key.
         media_key = source_fingerprint or hashlib.sha256(
             video_name.casefold().encode("utf-8")).hexdigest()
-        media = Media("owner-auto-unverified", media_key, 0, video_name)
+        media = verified_media or Media("owner-auto-unverified", media_key, 0, video_name)
         route = select_vi_then_en(self.client, media, policy="VI_FAST")
         self.emit(f"AUTO_SOURCE_ROUTE={route.status}")
         if route.status not in ("VI_READY", "EN_TRANSLATE"):
@@ -245,7 +297,16 @@ class AutomaticVietsubFlow:
         # The same private one-POST claim used by the owner trial: no duplicate
         # quota requests after an error or repeat media event.
         _preflight_cache(self.cache_root)
-        _claim_one_post(self.cache_root, video_name, release)
+        # The paid download claim belongs to the exact V3 server/torrent/file
+        # when verified; the legacy filename-only claim remains unchanged.
+        # Legacy V1/V2 remains filename-scoped and conservative. Only
+        # separately verified V3 media may split the outer claim by actual
+        # server/hash/index. The existing provider manual-once claim still
+        # prevents ambiguous second downloads of the same release.
+        _claim_one_post(
+            self.cache_root,
+            source_fingerprint if verified_media is not None else video_name,
+            release)
         self.emit("AUTO_PROVIDER_DOWNLOAD=ATTEMPTED_ONCE")
         if route.status == "EN_TRANSLATE":
             asset = self.client.download_manual_en(
