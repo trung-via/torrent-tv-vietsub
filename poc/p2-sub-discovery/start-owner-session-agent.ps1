@@ -50,9 +50,27 @@ try {
     $env:GEMINI_API_KEY = Get-OwnerSecret (Join-Path $secrets 'gemini.dpapi')
     $env:PYTHONUTF8 = '1'
     # Owner-only Python; no keys or film data in GitHub runner context.
-    & py -3 $agent --owner-root $root --cache-root $cache --state-root $state
-    if ($LASTEXITCODE -ne 0) {
-        throw 'OWNER_BRIDGE_AGENT_EXITED_WITH_ERROR'
+    # Optional P3/P4 mode is explicitly enrolled by the same Windows owner
+    # via p3-p4-policy.json; never enabled by an OMP Play or GitHub runner.
+    # With no policy, preserve the already accepted owner bridge unchanged.
+    $p3p4Policy = Join-Path $root 'p3-p4-policy.json'
+    if (Test-Path -LiteralPath $p3p4Policy) {
+        if (-not (Test-Path -LiteralPath $p3p4Policy -PathType Leaf)) {
+            throw 'OWNER_BRIDGE_P3_P4_PRIVATE_POLICY_INVALID'
+        }
+        $p3p4 = Join-Path $app 'poc\p2-sub-discovery\owner_p3_p4_entrypoint.py'
+        if (-not (Test-Path -LiteralPath $p3p4 -PathType Leaf)) {
+            throw 'OWNER_BRIDGE_P3_P4_SOURCE_NOT_DEPLOYED'
+        }
+        & py -3 $p3p4 --owner-root $root --cache-root $cache --state-root $state --start-lan
+        if ($LASTEXITCODE -ne 0) {
+            throw 'OWNER_BRIDGE_P3_P4_STARTUP_BLOCKED'
+        }
+    } else {
+        & py -3 $agent --owner-root $root --cache-root $cache --state-root $state
+        if ($LASTEXITCODE -ne 0) {
+            throw 'OWNER_BRIDGE_AGENT_EXITED_WITH_ERROR'
+        }
     }
 }
 finally {
