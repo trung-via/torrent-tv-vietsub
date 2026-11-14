@@ -106,6 +106,16 @@ class ActivationDeduplicator:
     def consider(self, event: PlaybackSelected) -> TriggerDecision:
         decision = evaluate_playback(event)
         if decision.status != "DISPATCH":
+            # A different selected item may have VI already, be waiting for
+            # track inventory, or have viewer OFF. It still breaks the active
+            # A->B->A sequence even though B never needed a provider call.
+            # Never let stale/untrusted/non-playback noise reset this guard.
+            if (event.kind in _TRIGGER_EVENTS
+                    and event.attested is True and event.active is True
+                    and decision.reason in (
+                        "REUSE_EXISTING_VI", "CHECK_LOCAL_VI_TRACKS",
+                        "VIEWER_OFF_OR_OTHER", "OWNER_AUTO_DISABLED")):
+                self._last = None
             return decision
         token = (event.tv_session_id, decision.local_fingerprint or "")
         if token == self._last:
