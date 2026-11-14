@@ -168,6 +168,7 @@ class V3CompositionTests(unittest.TestCase):
         return count, emitted
 
     def test_owner_off_other_missing_vi_unknown_blocks_before_provider(self):
+        original = self.state
         for patch in ({"viewer_choice": "OFF"}, {"viewer_choice": "OTHER"},
                       {"owner_auto_enabled": False},
                       {"local_vi_state": "PRESENT"},
@@ -181,10 +182,7 @@ class V3CompositionTests(unittest.TestCase):
                         VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
                         tv_session_id=SESSION)
                 self.assertEqual(self.capture.calls, [])
-                self.state = replace(self.state, **{k: getattr(
-                    CurrentPlaying("PLAY_REQUEST_ACCEPTED", True, True,
-                      SERVER, SESSION, HASH, 5, VIDEO, True, "ON", True, "ABSENT"), k)
-                     for k in patch})
+                self.state = original
 
     def test_playback_changed_on_final_read_is_not_dispatched(self):
         def changes():
