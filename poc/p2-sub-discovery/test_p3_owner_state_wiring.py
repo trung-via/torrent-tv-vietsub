@@ -6,7 +6,15 @@ pairing keys and PC profile are artificial and private to temporary fixture.
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 import json
+
+# Legacy D1/D2 CI loads this test without PYTHONPATH for siblings.
+_POC = Path(__file__).resolve().parent.parent
+for _part in ("p2-aisub", "p3-vietsub-trigger"):
+    _sub = str(_POC / _part)
+    if _sub not in sys.path:
+        sys.path.insert(0, _sub)
 import tempfile
 import unittest
 
