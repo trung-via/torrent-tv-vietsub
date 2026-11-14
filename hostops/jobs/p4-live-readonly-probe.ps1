@@ -114,16 +114,73 @@ try {
         Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
         exit 0
     }
+    # Only sanitized device properties go to PUBLIC Actions logs; no serial/IP/model string.
     $model = @(& $adbPath -s $serial shell getprop ro.product.model 2>$null)
-    Write-Host ('P4_ANDROID_MODEL_READABLE=' + ($LASTEXITCODE -eq 0 -and $model.Count -gt 0).ToString().ToUpperInvariant())
+    $modelOk = $LASTEXITCODE -eq 0 -and $model.Count -gt 0
+    $brand = @(& $adbPath -s $serial shell getprop ro.product.brand 2>$null)
+    $brandOk = $LASTEXITCODE -eq 0 -and $brand.Count -gt 0
+    Write-Host ('P4_ANDROID_MODEL_READABLE=' + $modelOk.ToString().ToUpperInvariant())
+    Write-Host ('P4_ANDROID_BRAND_READABLE=' + $brandOk.ToString().ToUpperInvariant())
+    $redmiFamily = $brandOk -and ($brand[0].Trim() -match '^(?i:redmi|xiaomi)
+} catch {
+    Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_READONLY_ADB_PROBE_FAILED'
+}
+Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
+)
+    $modelFamily = $modelOk -and ($model[0].Trim() -match '(?i:redmi|a.?pro|mi.?tv|l55)')
+    Write-Host ('P4_REDMi_XIAOMI_BRAND_HINT=' + $redmiFamily.ToString().ToUpperInvariant())
+    Write-Host ('P4_REDMi_TV_MODEL_HINT=' + $modelFamily.ToString().ToUpperInvariant())
+    # Explicitly check both upstream application IDs. build.gradle sets
+    # applicationIdSuffix '.test' in debug, so release-only probes are invalid.
     $packages = @(& $adbPath -s $serial shell pm list packages 2>$null)
     if ($LASTEXITCODE -ne 0) { throw 'ADB_PM_FAILED' }
-    $isOmp = @($packages | Where-Object { $_ -match '^package:com\.spacesarmat\.omp\s*$' }).Count -gt 0
-    Write-Host ('P4_OMP_PACKAGE_INSTALLED=' + $isOmp.ToString().ToUpperInvariant())
-    if (-not $isOmp) {
-        Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_OMP_APP_NOT_FOUND'
+    $release = @($packages | Where-Object { $_.Trim() -ceq 'package:com.spacesarmat.omp' }).Count -gt 0
+    $debug = @($packages | Where-Object { $_.Trim() -ceq 'package:com.spacesarmat.omp.test' }).Count -gt 0
+    Write-Host ('P4_OMP_RELEASE_INSTALLED=' + $release.ToString().ToUpperInvariant())
+    Write-Host ('P4_OMP_DEBUG_INSTALLED=' + $debug.ToString().ToUpperInvariant())
+    foreach ($candidate in @(
+        @{ id='com.spacesarmat.omp'; variant='RELEASE'; installed=$release },
+        @{ id='com.spacesarmat.omp.test'; variant='DEBUG'; installed=$debug }
+    )) {
+        if (-not $candidate.installed) { continue }
+        $target = $candidate.id
+        $variant = $candidate.variant
+        # pm path confirms installed package; do not log private APK/data paths.
+        $paths = @(& $adbPath -s $serial shell pm path $target 2>$null)
+        $hasApkPath = $LASTEXITCODE -eq 0 -and
+            @($paths | Where-Object { $_ -match '^package:' }).Count -gt 0
+        Write-Host ('P4_OMP_' + $variant + '_APK_PATH_CONFIRMED=' + $hasApkPath.ToString().ToUpperInvariant())
+        # dumpsys gives version metadata, never output its raw package dump.
+        $pkgDump = @(& $adbPath -s $serial shell dumpsys package $target 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            $summary = $pkgDump -join "`n"
+            $version = [regex]::Match($summary, '(?m)^\s*versionName=([A-Za-z0-9.+_-]{1,60})\s*
+} catch {
+    Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_READONLY_ADB_PROBE_FAILED'
+}
+Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
+)
+            if ($version.Success) {
+                Write-Host ('P4_OMP_' + $variant + '_VERSION=' + $version.Groups[1].Value)
+            } else {
+                Write-Host ('P4_OMP_' + $variant + '_VERSION=UNAVAILABLE')
+            }
+        } else {
+            Write-Host ('P4_OMP_' + $variant + '_VERSION=UNAVAILABLE')
+        }
+        $pidText = @(& $adbPath -s $serial shell pidof $target 2>$null)
+        $isRunning = $LASTEXITCODE -eq 0 -and (@($pidText | Where-Object { $_ -match '^\d+(?:\s+\d+)*\s*
+} catch {
+    Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_READONLY_ADB_PROBE_FAILED'
+}
+Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
+ }).Count -gt 0)
+        Write-Host ('P4_OMP_' + $variant + '_PROCESS_RUNNING=' + $isRunning.ToString().ToUpperInvariant())
+    }
+    if (-not $release -and -not $debug) {
+        Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_BOTH_OMP_VARIANTS_ABSENT'
     } else {
-        Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=DEVICE_REACHABLE_ONLY_PAIRED_LAN_NOT_TESTED'
+        Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=OMP_PRESENT_PAIRED_LAN_AND_RENDER_UNVERIFIED'
     }
 } catch {
     Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_READONLY_ADB_PROBE_FAILED'
