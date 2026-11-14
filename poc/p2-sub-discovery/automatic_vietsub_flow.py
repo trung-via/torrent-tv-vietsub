@@ -220,3 +220,55 @@ class AutomaticVietsubFlow:
         return AutoResult("VIETSUB_READY", cue_count=asset.cues,
                           translated_cues=translated.translated_cues,
                           get_requests=route.get_requests, download_posts=1)
+
+
+
+def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
+                          model_preflight: Callable[[object, str], None] | None = None
+                          ) -> AutomaticVietsubFlow:
+    """Owner-process bootstrap. One permission/secret load, never per-media UI.
+
+    Host app resolves owner-local preference (enabled) once at startup and
+    supplies user-owned credential environment. None of these credentials
+    may be stored in GitHub, repository configs or Windows runner logs.
+
+    The model check is one NO-SUBTITLE GET at startup, never an interactive
+    confirmation between D2 and P2. The authenticated OMP media-event
+    consumer must call returned_flow.selected_media(video_name).
+    """
+    if enabled is not True:
+        raise ValueError("AUTO_VIETSUB_OWNER_SETTING_DISABLED")
+    if (os.environ.get("CI", "").lower() == "true"
+            or os.environ.get("GITHUB_ACTIONS", "").lower() == "true"):
+        raise ValueError("AUTO_VIETSUB_LIVE_PROVIDER_FORBIDDEN_IN_CI")
+    if (not isinstance(cache_root, Path) or not cache_root.is_absolute()
+            or not isinstance(state_root, Path) or not state_root.is_absolute()
+            or cache_root.is_symlink() or state_root.is_symlink()):
+        raise ValueError("AUTO_VIETSUB_PRIVATE_ROOT_REQUIRED")
+    open_key = os.environ.get("OPENSUBTITLES_API_KEY", "")
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if (not open_key.strip() or not gemini_key.strip()
+            or any(ch in open_key + gemini_key for ch in "\r\n")):
+        raise ValueError("AUTO_VIETSUB_OWNER_KEYS_NOT_PROVISIONED")
+    from automatic_lean120_worker import AutomaticLean120Worker
+    from lean120_api import load_profile
+    from owner_vietsub_pipeline import _P2, verify_gemini_developer_endpoint
+
+    profile = load_profile(_P2 / "translator_profile.json")
+    if (profile.provider, profile.model, profile.thinking_level) != (
+            "gemini", "gemini-4-hydrogen", "high"):
+        raise ValueError("AUTO_VIETSUB_OWNER_PROFILE_MISMATCH")
+
+    # Once at process startup, never once per movie or per subtitle window.
+    preflight = model_preflight or verify_gemini_developer_endpoint
+    preflight(profile, gemini_key)
+    worker = AutomaticLean120Worker(
+        state_root=state_root, profile=profile, glossary={},
+        api_key=gemini_key,
+    )
+    return AutomaticVietsubFlow(
+        client=OpenSubtitles(api_key=open_key),
+        worker=worker, cache_root=cache_root,
+        permissions=AutoPermissions(
+            auto_download=True, auto_translate_en=True),
+    )
