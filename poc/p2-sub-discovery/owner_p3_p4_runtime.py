@@ -29,6 +29,25 @@ class OwnerRuntimeBlocked(ValueError):
     """Fixed, non-sensitive failure reason; never report media or key."""
 
 
+def _interactive_windows_session() -> bool:
+    """Kernel-sourced Windows session ID, never trust a caller assertion.
+
+    Session 0 (including the GitHub NETWORK_SERVICE runner) is forbidden.
+    The owner-only PowerShell launcher also checks WindowsIdentity SID.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        session = wintypes.DWORD()
+        ok = ctypes.windll.kernel32.ProcessIdToSessionId(
+            os.getpid(), ctypes.byref(session))
+        return bool(ok) and session.value > 0
+    except Exception:
+        return False
+
+
 def _validate_wiring(wiring: OwnerP3StatusComposition) -> None:
     if (not isinstance(wiring, OwnerP3StatusComposition)
             or wiring.ready_registry is None
@@ -101,7 +120,7 @@ def run_owner_p3_p4_runtime(*, wiring: OwnerP3StatusComposition,
     """
     _validate_wiring(wiring)
     if (explicit_start_lan is not True
-            or os.name != "nt"
+            or not _interactive_windows_session()
             or os.environ.get("CI", "").lower() == "true"
             or os.environ.get("GITHUB_ACTIONS", "").lower() == "true"):
         raise OwnerRuntimeBlocked("P3_P4_EXPLICIT_INTERACTIVE_OWNER_START_REQUIRED")
