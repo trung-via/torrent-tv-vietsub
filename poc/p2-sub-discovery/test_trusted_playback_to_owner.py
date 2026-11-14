@@ -36,8 +36,8 @@ class FakePipeline:
     def __init__(self):
         self.calls = []
 
-    def selected_media(self, video_filename):
-        self.calls.append(video_filename)
+    def selected_media(self, video_filename, *, source_fingerprint=None):
+        self.calls.append((video_filename, source_fingerprint))
         return type("Receipt", (), {"status": "VIETSUB_READY"})()
 
 
@@ -70,7 +70,9 @@ class TriggerToOwnerTests(unittest.TestCase):
         fake = FakePipeline()
         self.assertEqual(poll_private_events(
             owner_root=self.root, processor=fake, emit=self.lines.append), 1)
-        self.assertEqual(fake.calls, [self.event.video_name])
+        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual(fake.calls[0][0], self.event.video_name)
+        self.assertRegex(fake.calls[0][1], r"^[0-9a-f]{64}$")
         self.assertIn("OWNER_PLAYBACK_PRIVATE_ENQUEUED", self.lines)
         self.assertIn("OWNER_BRIDGE_EVENT_COMPLETE", self.lines)
 
@@ -132,6 +134,18 @@ class TriggerToOwnerTests(unittest.TestCase):
             self.adapter.on_current_selection_accepted().status, "DISPATCH")
         self.assertEqual(len(list((self.root / "inbox").glob("event-*.json"))), 1)
         self.assertNotIn("secret", str(self.lines))
+
+    def test_same_filename_different_torrent_preserves_media_identity(self):
+        self.adapter.on_current_selection_accepted()
+        self.event = accepted(torrent_hash="b" * 40)
+        result = self.adapter.on_current_selection_accepted()
+        self.assertEqual(result.status, "DISPATCH")
+        fake = FakePipeline()
+        poll_private_events(owner_root=self.root, processor=fake,
+                            emit=self.lines.append)
+        self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(fake.calls[0][0], fake.calls[1][0])
+        self.assertNotEqual(fake.calls[0][1], fake.calls[1][1])
 
     def test_repeated_play_same_session_new_media_hash_is_distinct(self):
         self.adapter.on_current_selection_accepted()
