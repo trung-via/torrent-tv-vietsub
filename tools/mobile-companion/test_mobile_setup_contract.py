@@ -35,10 +35,15 @@ class MobileSetupContractTests(unittest.TestCase):
         self.assertIn("6 chữ số", self.guide)
         self.assertIn("COMPATIBILITY_BLOCKED", self.guide)
 
-    def test_phone_cannot_be_pretended_to_have_connected(self):
-        for state in ("PHONE_INSTALL_NOT_RUN", "WINDOWS_SERVER_CONNECT_NOT_RUN",
-                      "REDMI_PAIR_NOT_RUN"):
+    def test_phone_observed_pass_is_not_confused_with_instrumented_proof(self):
+        for state in ("G-MOBILE-INSTALL_HUMAN_REPORTED_PASS",
+                      "G-MOBILE-SERVER_HUMAN_REPORTED_PASS",
+                      "G-MOBILE-ADD_HUMAN_REPORTED_PASS",
+                      "G-MOBILE-TV_HUMAN_REPORTED_PASS"):
             self.assertIn(state, self.guide)
+        self.assertIn("HUMAN_REPORTED_PASS 4/4 gates", self.roadmap)
+        self.assertIn("Pause / Resume / Seek", self.guide)
+        self.assertIn("không có log TorrServer/ID torrent công khai", self.guide)
         self.assertIn("PHONE_NOT_VERIFIED", self.script)
 
     def test_windows_inspector_uses_only_read_only_net_inventory(self):
