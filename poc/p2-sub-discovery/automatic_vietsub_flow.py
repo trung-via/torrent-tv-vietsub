@@ -50,19 +50,37 @@ class AutomaticVietsubFlow:
 
     def __init__(self, *, client: OpenSubtitles, worker: object,
                  cache_root: Path, permissions: AutoPermissions,
-                 emit: Callable[[str], object] | None = None):
+                 emit: Callable[[str], object] | None = None,
+                 model_preflight: Callable[[], None] | None = None):
         if (not isinstance(client, OpenSubtitles)
                 or not isinstance(cache_root, Path) or not cache_root.is_absolute()
                 or not isinstance(permissions, AutoPermissions)
                 or type(permissions.auto_download) is not bool
                 or type(permissions.auto_translate_en) is not bool
-                or not callable(getattr(worker, "run", None))):
+                or not callable(getattr(worker, "run", None))
+                or (model_preflight is not None
+                    and not callable(model_preflight))):
             raise ValueError("AUTO_VIETSUB_INVALID_CONFIGURATION")
         self.client = client
         self.worker = worker
         self.cache_root = cache_root
         self.permissions = permissions
         self.emit = emit or (lambda _: None)
+        self._model_preflight = model_preflight
+        self._model_ready = False
+
+    def _ensure_en_model_ready(self) -> None:
+        # Only a source that actually needs EN->VI invokes this no-content
+        # model availability check. A missing Hydrogen endpoint must not
+        # prevent automatic VI downloads or terminate the Windows agent.
+        # Success is cached for the lifetime of the owner process; failures
+        # remain fail-closed and never trigger an alternate model.
+        if self._model_ready:
+            return
+        if self._model_preflight is not None:
+            self._model_preflight()
+        self._model_ready = True
+        self.emit("AUTO_GEMINI_MODEL_AVAILABLE=YES")
 
     def _cache_index(self, video_name: str, *,
                      source_fingerprint: str | None = None) -> Path:
@@ -158,6 +176,9 @@ class AutomaticVietsubFlow:
         if not self.permissions.auto_translate_en:
             raise ValueError("AUTO_VIETSUB_TRANSLATION_NOT_ENABLED")
         receipt = _receipt(file_path, asset)
+        # Revalidate the local receipt BEFORE a model request. For already
+        # cached EN, no OpenSubtitles request is necessary or permitted.
+        self._ensure_en_model_ready()
         self.emit("AUTO_EN_TO_P2=STARTED")
         result = translate_existing_en(
             receipt, cache_root=self.cache_root,
@@ -216,6 +237,11 @@ class AutomaticVietsubFlow:
                 or any(part not in discovery.decision.winner.evidence
                        for part in ("title", "year", "source", "group", "resolution", "codec"))):
             return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
+        # If only EN is available, check the configured model BEFORE
+        # spending the OpenSubtitles download POST quota. This check sends
+        # no subtitle text and runs automatically, without Human prompts.
+        if route.status == "EN_TRANSLATE":
+            self._ensure_en_model_ready()
         # The same private one-POST claim used by the owner trial: no duplicate
         # quota requests after an error or repeat media event.
         _preflight_cache(self.cache_root)
@@ -255,9 +281,10 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     supplies user-owned credential environment. None of these credentials
     may be stored in GitHub, repository configs or Windows runner logs.
 
-    The model check is one NO-SUBTITLE GET at startup, never an interactive
-    confirmation between D2 and P2. The authenticated OMP media-event
-    consumer must call returned_flow.selected_media(video_name).
+    The model GET is DEFERRED until an EN source needs Gemini and runs only
+    once on first success per process. An unavailable Hydrogen endpoint
+    must never prevent VI-only work or kill the owner agent at startup.
+    The authenticated OMP event consumer calls selected_media(video_name).
     """
     if enabled is not True:
         raise ValueError("AUTO_VIETSUB_OWNER_SETTING_DISABLED")
@@ -282,9 +309,10 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
             "gemini", "gemini-4-hydrogen", "high"):
         raise ValueError("AUTO_VIETSUB_OWNER_PROFILE_MISMATCH")
 
-    # Once at process startup, never once per movie or per subtitle window.
+    # No model network request at owner process startup. Gemini Developer
+    # API availability can differ from the documented Enterprise endpoint;
+    # defer the no-subtitle GET until EN translation is truly needed.
     preflight = model_preflight or verify_gemini_developer_endpoint
-    preflight(profile, gemini_key)
     worker = AutomaticLean120Worker(
         state_root=state_root, profile=profile, glossary={},
         api_key=gemini_key,
@@ -294,4 +322,5 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
         worker=worker, cache_root=cache_root,
         permissions=AutoPermissions(
             auto_download=True, auto_translate_en=True),
+        model_preflight=lambda: preflight(profile, gemini_key),
     )
