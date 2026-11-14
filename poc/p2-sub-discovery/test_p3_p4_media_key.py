@@ -50,10 +50,13 @@ class P4MediaIdentityTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(P4MediaKeyError,"IDENTITY_NOT_READY"):
             p4_media_key(bads[0],vlc_selected=False)
+        # The shared matcher rejects a negative file index even before
+        # the native P4 adapter is reached. Keep that early gate intact.
+        with self.assertRaisesRegex(ValueError,"incomplete media identity"):
+            Media(PROFILE,HASH,-1,FILE)
         for media in (
             Media(PROFILE,"a"*64,3,FILE),
             Media("bad profile",HASH,3,FILE),
-            Media(PROFILE,HASH,-1,FILE),
             Media(PROFILE,HASH,True,FILE),
         ):
             with self.subTest(media=media):
