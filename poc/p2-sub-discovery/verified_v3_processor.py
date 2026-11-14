@@ -104,6 +104,7 @@ class VerifiedV3Processor:
         read_verified_current_playback: Callable[[], CurrentPlaying],
         read_verified_torrserver_file: Callable[[str, str, int], TorrServerSelectedFile],
         locate_owner_pinned_files: Callable[[str, str, int, str], OwnerPinnedFiles | None],
+        on_vietsub_ready: Callable[..., object] | None = None,
     ) -> None:
         if not callable(getattr(flow, "selected_media", None)):
             raise V3IdentityError("V3_EXISTING_WORKER_REQUIRED")
@@ -120,7 +121,10 @@ class VerifiedV3Processor:
         self.media_root = private_media_root
         self.read_current = read_verified_current_playback
         self.read_server = read_verified_torrserver_file
+        if on_vietsub_ready is not None and not callable(on_vietsub_ready):
+            raise V3IdentityError("V3_READY_CALLBACK_INVALID")
         self.locate_owner = locate_owner_pinned_files
+        self.on_ready = on_vietsub_ready
 
     def selected_media(
         self, video_filename: str, *,
@@ -173,9 +177,18 @@ class VerifiedV3Processor:
                 or latest != current):
             raise V3IdentityError("V3_TV_SELECTION_CHANGED")
 
-        return self.flow.selected_media(
+        outcome = self.flow.selected_media(
             video_filename,
             source_fingerprint=source_fingerprint,
             verified_media=lookup.media,
             local_source=local,
         )
+        if self.on_ready is not None and getattr(outcome, "status", None) in (
+                "VI_READY", "VIETSUB_READY"):
+            # Only the original source-discovery/LEAN120 result may create a
+            # ready source. Registration independently revalidates the live
+            # TV session, owner rights, exact file and private cache output.
+            self.on_ready(
+                media=lookup.media, source_fingerprint=source_fingerprint,
+                tv_session_id=tv_session_id, flow=self.flow, result=outcome)
+        return outcome
