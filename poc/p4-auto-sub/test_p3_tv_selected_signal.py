@@ -25,11 +25,11 @@ class PlayerActivity {
     internal fun receiveP4Revision(offer: P4SubtitleOffer): String { return "" }
     private fun load(r: PlayRequest, choose: Boolean = true) {
         P4OwnerBootstrap.consume(applicationContext)
-        session.load(r, next)
+        session.load(production.request, next)
         flow.reset()
     }
     private fun playItem(i: Int) {
-        if (!switcher.goTo(i)) return
+        if (!switcher.goTo(i, itemTransition?.picks)) return
         cancelCountdown()
     }
     private fun emitClosed(replaced: Boolean) {
@@ -51,8 +51,8 @@ class P3TvSourceContractTests(unittest.TestCase):
         cls.patched = cls.p.patch_activity(fake_p4_activity())
 
     def test_only_actual_accepted_load_and_successful_next_emit(self):
-        self.assertIn('session.load(r, next)\n        P3SelectedMediaPublisher.accepted(', self.patched)
-        self.assertIn('if (!switcher.goTo(i)) return\n        P3SelectedMediaPublisher.accepted(', self.patched)
+        self.assertIn('session.load(production.request, next)\n        P3SelectedMediaPublisher.accepted(', self.patched)
+        self.assertIn('if (!switcher.goTo(i, itemTransition?.picks)) return\n        P3SelectedMediaPublisher.accepted(', self.patched)
         self.assertEqual(self.patched.count("P3SelectedMediaPublisher.accepted("), 2)
         self.assertIn('P3SelectedMediaPublisher.closed(applicationContext)', self.patched)
         self.assertNotIn("P3SelectedMediaPublisher.accepted(", fake_p4_activity())
