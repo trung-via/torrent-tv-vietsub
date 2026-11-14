@@ -155,10 +155,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--owner-root", required=True)
     parser.add_argument("--cache-root", required=True)
     parser.add_argument("--state-root", required=True)
-    parser.add_argument("--start-lan", action="store_true")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--start-lan", action="store_true")
+    mode.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args(argv)
-    if (args.start_lan is not True
-            or os.name != "nt"
+    if (os.name != "nt"
             or not _interactive_windows_session()
             or os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
             or os.environ.get("CI", "").lower() == "true"):
@@ -203,6 +204,12 @@ def main(argv: list[str] | None = None) -> int:
             locate_owner_pinned_files=verified.locate_owner_pinned_files,
             enable_verified_vietsub_ready=True)
         print("P3_P4_PRIVATE_OWNER_POLICY_PAIRING_VERIFIED")
+        if args.preflight_only:
+            # Owner-only deployment gate: verify genuine private policy and
+            # reuse identical paired PEM bytes without opening LAN, enqueueing
+            # media, contacting providers or starting a background worker.
+            print("P3_P4_OWNER_PREFLIGHT=PASS_NO_LAN_NO_PROVIDER")
+            return 0
         run_owner_p3_p4_runtime(
             wiring=wiring, owner_root=owner, cache_root=cache,
             state_root=state, host=host, port=port,
