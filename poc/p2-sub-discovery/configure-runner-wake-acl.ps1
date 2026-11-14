@@ -48,6 +48,11 @@ $netService = [Security.Principal.SecurityIdentifier]::new('S-1-5-20')
 $createOnly = [Security.AccessControl.FileSystemAccessRule]::new(
     $netService, 'CreateFiles', 'None', 'None', 'Allow')
 $acl.AddAccessRule($createOnly)
+# The runner must write the eight-byte inert contents to the new file;
+# grant file-only WriteData, not read/list/write on owner-private folders.
+$fileOnlyWrite = [Security.AccessControl.FileSystemAccessRule]::new(
+    $netService, 'WriteData', 'ObjectInherit', 'InheritOnly', 'Allow')
+$acl.AddAccessRule($fileOnlyWrite)
 Set-Acl -LiteralPath $wake -AclObject $acl -ErrorAction Stop
 
 Write-Host 'OWNER_BRIDGE_RUNNER_WAKE_ACL=ONE_TIME_PROVISIONED'
