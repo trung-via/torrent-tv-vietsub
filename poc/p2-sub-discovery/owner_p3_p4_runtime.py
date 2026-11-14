@@ -57,6 +57,20 @@ def _validate_wiring(wiring: OwnerP3StatusComposition) -> None:
         raise OwnerRuntimeBlocked("P3_P4_VERIFIED_READY_WIRING_REQUIRED")
 
 
+def _validate_owner_root(wiring: OwnerP3StatusComposition,
+                         owner_root: Path) -> None:
+    """P3 producer and existing owner V3 consumer MUST use one inbox root."""
+    _validate_wiring(wiring)
+    if (not isinstance(owner_root, Path) or not owner_root.is_absolute()
+            or owner_root.is_symlink()
+            or not isinstance(wiring.owner_root, Path)
+            or not wiring.owner_root.is_absolute()
+            or wiring.owner_root.is_symlink()
+            or owner_root.resolve(strict=False) !=
+               wiring.owner_root.resolve(strict=False)):
+        raise OwnerRuntimeBlocked("P3_P4_PRIVATE_INBOX_ROOT_MISMATCH")
+
+
 def make_integrated_https_server(*, wiring: OwnerP3StatusComposition,
                                  host: str, port: int,
                                  tls_context: ssl.SSLContext) -> HTTPServer:
@@ -119,6 +133,7 @@ def run_owner_p3_p4_runtime(*, wiring: OwnerP3StatusComposition,
     this function neither invents consent nor reads a filename from TV wire.
     """
     _validate_wiring(wiring)
+    _validate_owner_root(wiring, owner_root)
     if (explicit_start_lan is not True
             or not _interactive_windows_session()
             or os.environ.get("CI", "").lower() == "true"
