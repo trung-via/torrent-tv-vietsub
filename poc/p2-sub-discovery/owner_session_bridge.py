@@ -363,7 +363,8 @@ def _owner_process_lock(private_root: Path):
 
 def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     interval_seconds: float = 2.0,
-                    emit: Callable[[str], object] = print) -> None:
+                    emit: Callable[[str], object] = print,
+                    trusted_v3_factory: Callable[[object], object] | None = None) -> None:
     if not 0.5 <= interval_seconds <= 60:
         raise ValueError("OWNER_BRIDGE_BAD_POLL_INTERVAL")
     if (os.environ.get("CI", "").lower() == "true"
@@ -381,6 +382,17 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
         except Exception:
             write_owner_agent_health(owner_root=private_root, state="BLOCKED")
             raise
+        # Native OMP/TorrServer authenticated readers are NOT installed by
+        # this CLI. An owner-controlled host may supply a V3 processor factory
+        # only after establishing the live trust boundary. Without one, V3
+        # events fail closed (unexpected TV session kwarg) before any provider.
+        processor = flow
+        if trusted_v3_factory is not None:
+            if not callable(trusted_v3_factory):
+                raise ValueError("OWNER_BRIDGE_TRUSTED_V3_FACTORY_INVALID")
+            processor = trusted_v3_factory(flow)
+            if not callable(getattr(processor, "selected_media", None)):
+                raise ValueError("OWNER_BRIDGE_TRUSTED_V3_PROCESSOR_INVALID")
         emit("OWNER_BRIDGE_STARTED")
         last_health = 0.0
         try:
@@ -391,7 +403,7 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     last_health = time.monotonic()
                 consume_inert_runner_wakes()
                 poll_private_events(owner_root=private_root,
-                                    processor=flow, emit=emit)
+                                    processor=processor, emit=emit)
                 time.sleep(interval_seconds)
         finally:
             write_owner_agent_health(owner_root=private_root,
