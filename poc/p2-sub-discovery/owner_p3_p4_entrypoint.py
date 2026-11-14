@@ -17,6 +17,20 @@ import os
 from pathlib import Path
 import re
 import ssl
+import sys
+
+# The installed Windows owner task runs this file directly, without PYTHONPATH.
+# Bootstrap ONLY our two adjacent, source-pinned plugin directories *before*
+# importing modules that themselves import paired_activation / matcher / P2.
+# This same layout is copied by install-owner-session-bridge.ps1.
+_POC_ROOT = Path(__file__).resolve().parent.parent
+for _sibling in ("p2-aisub", "p3-vietsub-trigger"):
+    _path = _POC_ROOT / _sibling
+    if not _path.is_dir():
+        raise RuntimeError("P3_P4_OWNER_PINNED_DEPENDENCY_NOT_INSTALLED")
+    _text = str(_path)
+    if _text not in sys.path:
+        sys.path.insert(0, _text)
 
 from owner_p3_p4_private_policy import PrivateP3P4Policy, OwnerPolicyBlocked
 from owner_p3_p4_runtime import (
