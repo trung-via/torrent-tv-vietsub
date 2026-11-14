@@ -20,7 +20,7 @@ from owner_session_bridge import (
     enqueue_selected_media, poll_private_events, _parse_event,
 )
 from verified_v3_processor import VerifiedV3Processor, V3IdentityError
-from automatic_vietsub_flow import AutomaticVietsubFlow, AutoPermissions, AutoResult
+from automatic_vietsub_flow import AutomaticVietsubFlow, AutoPermissions, AutoResult, select_vi_then_en
 from automatic_lean120_worker import AutomaticLean120Worker
 from lean120_api import ModelProfile
 from opensubtitles import OpenSubtitles
@@ -228,6 +228,34 @@ class V3CompositionTests(unittest.TestCase):
         self.assertEqual((processed, emitted),
                          (1, ["OWNER_BRIDGE_EVENT_COMPLETE"]))
         self.assertEqual(provider.calls, [])
+        self.assertEqual([len(part) for part in gemini.calls], [120, 5])
+
+    def test_no_local_source_sends_exact_verified_media_to_real_d1_d2_router(self):
+        # The release filename, torrent and *selected episode/file index* are
+        # the search origin, not an unverified UI title or synthetic hash.
+        self.mapping = None
+        provider = FakeProvider()
+        gemini = FakeGemini()
+        worker = AutomaticLean120Worker(
+            state_root=self.root / "work-d1",
+            profile=ModelProfile("gemini", "gemini-4-hydrogen", "high"),
+            glossary={}, api_key="synthetic-key", transport=gemini)
+        flow = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic", transport=provider),
+            worker=worker, cache_root=self.root / "cache-d1",
+            permissions=AutoPermissions(True, True))
+        with mock.patch(
+            "automatic_vietsub_flow.select_vi_then_en",
+            wraps=select_vi_then_en,
+        ) as router:
+            processed, emitted = self.dispatch(processor=self.processor(flow=flow))
+        self.assertEqual((processed, emitted),
+                         (1, ["OWNER_BRIDGE_EVENT_COMPLETE"]))
+        self.assertEqual(router.call_count, 1)
+        self.assertEqual(router.call_args.args[1],
+                         Media(SERVER, HASH, 5, VIDEO))
+        self.assertEqual([method for method, _ in provider.calls],
+                         ["GET", "GET", "POST", "GET_BINARY"])
         self.assertEqual([len(part) for part in gemini.calls], [120, 5])
 
     def test_wrong_or_ambiguous_en_sidecar_prevents_provider_or_model(self):
