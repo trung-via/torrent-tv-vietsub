@@ -266,9 +266,11 @@ class LocalDirectTests(unittest.TestCase):
             worker=worker, cache_root=self.cache,
             permissions=AutoPermissions(True, True),
         )
+        wrong = self.media / "Wrong.en.srt"
+        wrong.write_bytes(srt(2))
         with self.assertRaisesRegex(LocalSourceError, "EXACT_EN"):
             flow.selected_media(VIDEO, local_source=self.selected(
-                en_sidecar_path=self.media / "Wrong.en.srt"))
+                en_sidecar_path=wrong))
         self.assertEqual(provider.calls, [])
         self.assertEqual(gemini.calls, [])
 
