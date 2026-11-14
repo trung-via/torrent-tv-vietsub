@@ -13,8 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from activation_gate import PlaybackSelected, TriggerDecision
 from trusted_playback_to_owner import TrustedPlaybackToOwner
+from activation_gate import PlaybackSelected, TriggerDecision
 from p3_signed_playback_signal import (
     SignedPlaybackError, SignedPlaybackVerifier,
 )
