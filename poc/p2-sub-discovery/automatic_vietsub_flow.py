@@ -1,0 +1,144 @@
+"""Automatic selected-media subtitle source -> existing P2 LEAN120, no prompts.
+
+This is a *callable integration component* for the owner-local TV workflow.
+The caller configures bounded provider/model permissions and credentials
+ONCE when starting the owner-local process; selecting a media file then
+performs its full VI_FAST -> selected subtitle -> EN translation in-process.
+No new translator, queue, background timer, public GitHub upload or TV claims.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+import re
+from typing import Callable
+
+from matcher import Media, _release_stem_and_accessibility, parse_release
+from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache
+from owner_en_single_trial import _claim_one_post, _preflight_cache
+from owner_vietsub_pipeline import (
+    PipelineReceipt, _receipt, translate_existing_en,
+)
+from vi_en_fallback import select_vi_then_en
+
+@dataclass(frozen=True)
+class AutoPermissions:
+    """Session-level owner settings, never a per-film keyboard prompt."""
+    auto_download: bool = False
+    auto_translate_en: bool = False
+
+
+@dataclass(frozen=True)
+class AutoResult:
+    status: str  # VI_READY | VIETSUB_READY | REVIEW_REQUIRED
+    cue_count: int = 0
+    translated_cues: int = 0
+    get_requests: int = 0
+    download_posts: int = 0
+
+
+class AutomaticVietsubFlow:
+    """Integrate with selected-media event in existing owner/OMP backend.
+
+    No subtitle text, full paths or hashes leave this component as output.
+    Real media and authenticated TV binding are STILL downstream D3/P4 gates.
+    This P2-only local media ID is intentionally *not* a trusted TV key.
+    """
+
+    def __init__(self, *, client: OpenSubtitles, worker: object,
+                 cache_root: Path, permissions: AutoPermissions,
+                 emit: Callable[[str], object] | None = None):
+        if (not isinstance(client, OpenSubtitles)
+                or not isinstance(cache_root, Path) or not cache_root.is_absolute()
+                or not isinstance(permissions, AutoPermissions)
+                or type(permissions.auto_download) is not bool
+                or type(permissions.auto_translate_en) is not bool
+                or not callable(getattr(worker, "run", None))):
+            raise ValueError("AUTO_VIETSUB_INVALID_CONFIGURATION")
+        self.client = client
+        self.worker = worker
+        self.cache_root = cache_root
+        self.permissions = permissions
+        self.emit = emit or (lambda _: None)
+
+    def after_en_cached(self, asset: Asset, file_path: Path) -> PipelineReceipt:
+        """Called immediately by D2 after a successful private cache write.
+
+        If a different D2 download flow already saved EN, it hands over its
+        Asset/path directly. No second provider lookup, no user approval step.
+        """
+        if not self.permissions.auto_translate_en:
+            raise ValueError("AUTO_VIETSUB_TRANSLATION_NOT_ENABLED")
+        receipt = _receipt(file_path, asset)
+        self.emit("AUTO_EN_TO_P2=STARTED")
+        result = translate_existing_en(
+            receipt, cache_root=self.cache_root,
+            worker=self.worker, cloud_upload_authorized=True)
+        self.emit("AUTO_EN_TO_P2=COMPLETE")
+        self.emit(f"AUTO_VI_CUES={result.translated_cues}")
+        return result
+
+    def selected_media(self, video_name: str) -> AutoResult:
+        """A single owner-local call from an existing TV/media selection event.
+
+        Search exactly once, download the unique highest-confidence source
+        once, auto-trigger P2 after EN cache write. No manual per-film prompts.
+        """
+        if not (self.permissions.auto_download and self.permissions.auto_translate_en):
+            raise ValueError("AUTO_VIETSUB_PERMISSIONS_NOT_ENABLED")
+        if (not isinstance(video_name, str) or not video_name.strip()
+                or len(video_name) > 255 or "/" in video_name or "\\" in video_name
+                or any(ord(c) < 32 for c in video_name)):
+            raise ValueError("AUTO_VIETSUB_INVALID_MEDIA_NAME")
+        parsed = parse_release(video_name)
+        if not parsed.title or parsed.year is None or not parsed.group:
+            return AutoResult("REVIEW_REQUIRED")
+        # Stable local-only key used for deduplicating owner-local work.
+        # NEVER treat this key as an authenticated TorrServer/OMP media key.
+        media_key = hashlib.sha256(video_name.casefold().encode("utf-8")).hexdigest()
+        media = Media("owner-auto-unverified", media_key, 0, video_name)
+        route = select_vi_then_en(self.client, media, policy="VI_FAST")
+        self.emit(f"AUTO_SOURCE_ROUTE={route.status}")
+        if route.status not in ("VI_READY", "EN_TRANSLATE"):
+            return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
+        discovery = route.vi if route.status == "VI_READY" else route.en
+        if discovery is None or route.selected_file_id is None:
+            return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
+        matches = [c for c in discovery.candidates
+                   if c.file_id == route.selected_file_id
+                   and c.subtitle.language == route.language]
+        if len(matches) != 1:
+            return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
+        release = matches[0].subtitle.release_name
+        proposed = parse_release(release)
+        _, is_sdh = _release_stem_and_accessibility(release)
+        if (proposed.group != parsed.group or is_sdh
+                or discovery.decision.winner is None
+                or any(part not in discovery.decision.winner.evidence
+                       for part in ("title", "year", "source", "group", "resolution", "codec"))):
+            return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
+        # The same private one-POST claim used by the owner trial: no duplicate
+        # quota requests after an error or repeat media event.
+        _preflight_cache(self.cache_root)
+        _claim_one_post(self.cache_root, video_name, release)
+        self.emit("AUTO_PROVIDER_DOWNLOAD=ATTEMPTED_ONCE")
+        if route.status == "EN_TRANSLATE":
+            asset = self.client.download_manual_en(
+                media, discovery, file_id=route.selected_file_id, authorized=True)
+        else:
+            asset = self.client.download_selected(media, discovery)
+        file_path = write_private_cache(self.cache_root, media, asset)
+        self.emit("AUTO_SUBTITLE_CACHED=YES")
+        if asset.language == "vi":
+            self.emit("AUTO_GEMINI_REQUESTS=0")
+            return AutoResult("VI_READY", cue_count=asset.cues,
+                              get_requests=route.get_requests, download_posts=1)
+        if asset.language != "en":
+            raise SubtitleApiError("AUTO_VIETSUB_BAD_SOURCE_LANGUAGE")
+        translated = self.after_en_cached(asset, file_path)
+        if not translated.translation_complete:
+            raise ValueError("AUTO_VIETSUB_INCOMPLETE_TRANSLATION")
+        return AutoResult("VIETSUB_READY", cue_count=asset.cues,
+                          translated_cues=translated.translated_cues,
+                          get_requests=route.get_requests, download_posts=1)
