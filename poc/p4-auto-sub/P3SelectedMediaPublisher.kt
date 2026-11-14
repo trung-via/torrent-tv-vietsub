@@ -26,6 +26,8 @@ internal object P3SelectedMediaPublisher {
     private const val PREFS = "p3-owner-selected-media-v1"
     private const val ENABLED = "owner_enabled"
     private const val SCHEMA = "TTV-P3-TV-SELECTION-V1"
+    private const val STATUS_SCHEMA = "TTV-P3-TV-STATE-V1"
+    private const val STATUS_TIMEOUT_MS = 2_000L
     private val HASH_RX = Regex("(?:[a-f0-9]{40}|[a-f0-9]{64})")
     private val SESSION_RX = Regex("[a-f0-9]{32}")
     private val KINDS = setOf(
@@ -33,6 +35,8 @@ internal object P3SelectedMediaPublisher {
         "PLAYBACK_CLOSED",
     )
     private val random = SecureRandom()
+    private val bootId = randomHex()
+    private val statusSequence = AtomicLong(0L)
     private val generation = AtomicLong(0L)
     private val queue = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "p3-tv-signal").apply { isDaemon = true }
@@ -40,6 +44,7 @@ internal object P3SelectedMediaPublisher {
 
     private data class Current(
         val session: String, val hash: String, val fileIndex: Int,
+        val kind: String,
     )
     @Volatile private var active: Current? = null
 
@@ -65,14 +70,20 @@ internal object P3SelectedMediaPublisher {
     /** Called only AFTER PlayerActivity.load or successful goTo. */
     internal fun accepted(
         ctx: Context, request: PlayRequest?, itemIndex: Int, kind: String,
+        nativeVlc: Boolean,
     ) {
-        if (!enabled(ctx) || kind !in KINDS || kind == "PLAYBACK_CLOSED") return
+        if (!enabled(ctx) || !nativeVlc || request?.engine != EngineMode.VLC ||
+            kind !in KINDS || kind == "PLAYBACK_CLOSED") return
         val item = request?.queue?.getOrNull(itemIndex) ?: return
         val hash = item.hash?.lowercase() ?: return
         val fileIndex = item.fileIndex ?: return
         if (!HASH_RX.matches(hash) || fileIndex !in 0..65535) return
-        val selected = Current(randomHex(), hash, fileIndex)
+        val selected = Current(randomHex(), hash, fileIndex, kind)
         active = selected
+        generation.incrementAndGet()
+        // Same single executor: independently sampled ACTUAL PlayerSession
+        // G1/P4 choice is signed BEFORE the selection event is sent.
+        sample(ctx, request, itemIndex, nativeVlc)
         enqueue(ctx.applicationContext, selected, kind)
     }
 
@@ -80,7 +91,52 @@ internal object P3SelectedMediaPublisher {
     internal fun closed(ctx: Context) {
         val old = active ?: return
         active = null
-        if (enabled(ctx)) enqueue(ctx.applicationContext, old, "PLAYBACK_CLOSED")
+        generation.incrementAndGet()
+        if (enabled(ctx)) {
+            enqueue(ctx.applicationContext, old, "PLAYBACK_CLOSED")
+            enqueueStatus(ctx.applicationContext, old, false, "OTHER")
+        }
+    }
+
+    /** Native status must be sampled on PlayerActivity main thread, not
+     * replayed from the earlier Play event. Pause/resume retain the same
+     * session; only an actual selected-file change generates a new session.
+     */
+    internal fun sample(
+        ctx: Context, request: PlayRequest?, selectedIndex: Int,
+        nativeVlc: Boolean,
+    ) {
+        val current = active ?: return
+        if (!enabled(ctx)) return
+        val item = request?.queue?.getOrNull(selectedIndex)
+        val isSame = nativeVlc && request?.engine == EngineMode.VLC &&
+            item?.hash?.lowercase() == current.hash &&
+            item?.fileIndex == current.fileIndex
+        // Real per-media P4 ON/OFF/OTHER, NEVER infer ON from global consent.
+        val choice = if (isSame) P1ProductionSubtitles.automaticChoice(
+            ctx, request, selectedIndex) else "OTHER"
+        enqueueStatus(ctx.applicationContext, current, isSame, choice)
+    }
+
+    private fun enqueueStatus(ctx: Context, selected: Current,
+                              isActive: Boolean, actualChoice: String) {
+        val gen = generation.get()
+        val sampledAt = android.os.SystemClock.elapsedRealtime()
+        val sequence = statusSequence.incrementAndGet()
+        queue.execute {
+            if (generation.get() != gen || !enabled(ctx) ||
+                android.os.SystemClock.elapsedRealtime() - sampledAt > STATUS_TIMEOUT_MS) {
+                return@execute
+            }
+            val paired = P4PairingStore(ctx).load() ?: return@execute
+            try {
+                postStatusOnce(paired, selected, isActive, actualChoice, sequence)
+            } catch (_: Exception) {
+                // Signed status is best-effort, expiry on PC is fail-closed.
+            } finally {
+                paired.deviceSecret.fill(0)
+            }
+        }
     }
 
     private fun randomHex(): String {
@@ -90,7 +146,7 @@ internal object P3SelectedMediaPublisher {
     }
 
     private fun enqueue(ctx: Context, selected: Current, kind: String) {
-        val gen = generation.incrementAndGet()
+        val gen = generation.get()
         queue.execute {
             if (generation.get() != gen || !enabled(ctx)) return@execute
             val paired = P4PairingStore(ctx).load() ?: return@execute
@@ -133,10 +189,58 @@ internal object P3SelectedMediaPublisher {
             .put("signature", signature)
             .toString().toByteArray(Charsets.UTF_8)
         if (body.isEmpty() || body.size > 1024) return
+        postJson(paired, "/p3/selection", body)
+    }
 
-        // P4PinnedTls enforces the owner's pinned certificate. P4LanClient
-        // enforces private IPv4; no hostname resolution, redirects or WAN.
-        val url = URL("https://${paired.host}:${paired.port}/p3/selection")
+    private fun postStatusOnce(
+        paired: P4PairingStore.Pairing, current: Current,
+        isActive: Boolean, choice: String, sequence: Long,
+    ) {
+        if (!SESSION_RX.matches(bootId) || sequence < 1L ||
+            !SESSION_RX.matches(current.session) ||
+            !HASH_RX.matches(current.hash) || current.hash.length != 40 ||
+            current.fileIndex !in 0..65535 ||
+            choice !in setOf("ON", "OFF", "OTHER") ||
+            current.kind !in setOf("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED") ||
+            paired.deviceSecret.size != 32
+        ) return
+        val sent = System.currentTimeMillis()
+        val nonce = randomHex()
+        val flag = if (isActive) "1" else "0"
+        val canonical = "$STATUS_SCHEMA\n$bootId\n$sequence\n" +
+            "${current.kind}\n${current.session}\n${current.hash}\n" +
+            "${current.fileIndex}\n$flag\n$choice\n$sent\n$nonce"
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(paired.deviceSecret, "HmacSHA256"))
+        val signature = mac.doFinal(canonical.toByteArray(Charsets.US_ASCII))
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        val body = JSONObject()
+            .put("schema", STATUS_SCHEMA)
+            .put("boot_id", bootId)
+            .put("sequence", sequence)
+            .put("kind", current.kind)
+            .put("tv_session_id", current.session)
+            .put("torrent_hash", current.hash)
+            .put("file_index", current.fileIndex)
+            .put("active", isActive)
+            .put("subtitle_choice", choice)
+            .put("sent_at_ms", sent)
+            .put("nonce", nonce)
+            .put("signature", signature)
+            .toString().toByteArray(Charsets.UTF_8)
+        if (body.isEmpty() || body.size > 1024) return
+        postJson(paired, "/p3/state", body)
+    }
+
+    private fun postJson(
+        paired: P4PairingStore.Pairing, route: String, body: ByteArray,
+    ) {
+        if (!P4LanClient.isPrivateIPv4(paired.host) ||
+            paired.port !in 1024..65535 ||
+            route !in setOf("/p3/state", "/p3/selection")) return
+        // Reuse exactly the same paired PC certificate-pinned HTTPS transport.
+        // No device listener, cleartext, WAN or new PC port.
+        val url = URL("https://${paired.host}:${paired.port}$route")
         val conn = P4PinnedTls.open(url, paired.certPinSha256)
         try {
             conn.requestMethod = "POST"

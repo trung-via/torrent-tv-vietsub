@@ -22,7 +22,11 @@ def patcher():
 def fake_p4_activity() -> str:
     return """// Synthetic G1+G2+P4 activity, NOT a live APK
 class PlayerActivity {
+    private var g2Recovery: G2RefreshRecovery? = null
     internal fun receiveP4Revision(offer: P4SubtitleOffer): String { return "" }
+    override fun trackChosen(choice: TrackChoice) {
+        if (!closedSent && ::session.isInitialized) P1ProductionSubtitles.noteTrackChoice(this, session.request, index(), choice)
+    }
     private fun load(r: PlayRequest, choose: Boolean = true) {
         P4OwnerBootstrap.consume(applicationContext)
         session.load(production.request, next)
@@ -86,7 +90,7 @@ class P3TvSourceContractTests(unittest.TestCase):
     def test_proposed_hmac_and_session_are_domain_separated(self):
         self.assertIn('private const val SCHEMA = "TTV-P3-TV-SELECTION-V1"', self.kt)
         self.assertIn('Mac.getInstance("HmacSHA256")', self.kt)
-        self.assertIn('val selected = Current(randomHex(), hash, fileIndex)', self.kt)
+        self.assertIn('val selected = Current(randomHex(), hash, fileIndex, kind)', self.kt)
         self.assertIn('P4PairingStore.Pairing', self.kt)
         self.assertIn('Random', self.kt)
         self.assertIn('sent_at_ms', self.kt)
@@ -98,10 +102,28 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertNotIn('item.title', self.kt)
         self.assertNotIn('request.session', self.kt)
 
+    def test_true_current_status_samples_exact_native_and_g1_choice(self):
+        self.assertIn("private val p3StatusTick =", self.patched)
+        self.assertIn("handler.postDelayed(this, 3_000L)", self.patched)
+        self.assertIn("handler.removeCallbacks(p3StatusTick)", self.patched)
+        self.assertEqual(self.patched.count("P3SelectedMediaPublisher.sample("), 2)
+        self.assertIn("P1ProductionSubtitles.automaticChoice(", self.kt)
+        self.assertIn("request?.queue?.getOrNull(selectedIndex)", self.kt)
+        self.assertIn("engine is VlcEngine", self.patched)
+        self.assertIn('private const val STATUS_SCHEMA = "TTV-P3-TV-STATE-V1"', self.kt)
+        self.assertIn('postJson(paired, "/p3/state", body)', self.kt)
+        self.assertIn('postJson(paired, "/p3/selection", body)', self.kt)
+        self.assertIn('private val bootId = randomHex()', self.kt)
+        self.assertIn('private val statusSequence = AtomicLong(0L)', self.kt)
+        self.assertIn('val sampledAt = android.os.SystemClock.elapsedRealtime()', self.kt)
+        self.assertIn('STATUS_TIMEOUT_MS = 2_000L', self.kt)
+        self.assertNotIn('item.title', self.kt)
+        self.assertNotIn('"video_filename"', self.kt)
+
     def test_p4_source_guards_apply_once_and_fail_closed_on_drift(self):
         with self.assertRaisesRegex(ValueError, "P3_ACTIVITY_ALREADY_APPLIED"):
             self.p.patch_activity(self.patched)
-        for old in (self.p.LOAD, self.p.ITEM, self.p.CLOSE, self.p.MENU):
+        for old in (self.p.FIELD, self.p.CHOICE, self.p.LOAD, self.p.ITEM, self.p.CLOSE, self.p.MENU):
             with self.subTest(old=old[:30]):
                 with self.assertRaises(ValueError):
                     self.p.patch_activity(fake_p4_activity().replace(old, "DRIFT", 1))
