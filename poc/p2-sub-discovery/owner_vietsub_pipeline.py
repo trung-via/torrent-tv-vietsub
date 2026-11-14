@@ -132,8 +132,9 @@ def main(argv: list[str] | None = None) -> int:
     """Local cached EN entrypoint, never queries OpenSubtitles or starts TV.
 
     Default = READ-ONLY verification. --execute-api needs a second explicit
-    --authorize-cloud-upload and local GEMINI_API_KEY. Real provider use must
-    be separately authorized by Human, not inferred from a download receipt.
+    --authorize-cloud-upload and local GEMINI_API_KEY. Once authorized, it
+    translates the ENTIRE source in one command, without per-window prompts.
+    A single-window pilot is an optional diagnostic, not a default gate.
     """
     parser = argparse.ArgumentParser(description="Verify existing EN cache; opt-in P2 Gemini")
     parser.add_argument("--cache-filename", required=True)
@@ -141,8 +142,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cues", type=int, required=True)
     parser.add_argument("--execute-api", action="store_true")
     parser.add_argument("--authorize-cloud-upload", action="store_true")
-    parser.add_argument("--translate-all", action="store_true",
-                        help="Explicit full film; default paid pilot is FIRST window only")
+    parser.add_argument("--pilot-first-window", action="store_true",
+                        help="Optional diagnostic: stop after first LEAN120 window")
     args = parser.parse_args(argv)
 
     # Reject even malformed approval flags before reading a private subtitle.
@@ -154,8 +155,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.authorize_cloud_upload and not args.execute_api:
         print("P2_CLOUD_GRANT_WITHOUT_EXECUTION_INVALID")
         return 1
-    if args.translate_all and not (args.execute_api and args.authorize_cloud_upload):
-        print("P2_FULL_FILM_REQUIRES_EXPLICIT_CLOUD_GRANT")
+    if args.pilot_first_window and not (args.execute_api and args.authorize_cloud_upload):
+        print("P2_PILOT_REQUIRES_EXPLICIT_CLOUD_GRANT")
         return 1
     if args.execute_api and not args.authorize_cloud_upload:
         print("P2_CLOUD_UPLOAD_AUTHORIZATION_REQUIRED")
@@ -197,14 +198,16 @@ def main(argv: list[str] | None = None) -> int:
         result = translate_existing_en(
             receipt, cache_root=private_root, worker=worker,
             cloud_upload_authorized=True,
-            pilot_first_window=not args.translate_all)
+            pilot_first_window=args.pilot_first_window)
         print("P2_LOCAL_LEAN120=" + (
             "COMPLETE" if result.translation_complete else "FIRST_WINDOW_CHECKPOINTED"))
         print(f"P2_LOCAL_TRANSLATED_CUES={result.translated_cues}")
         print(f"P2_SOURCE_TOTAL_CUES={result.cue_count}")
-        if not args.translate_all:
+        if args.pilot_first_window:
             print("P2_PILOT_WINDOW_LIMIT=1")
             print("P2_NO_SECOND_MODEL_WINDOW=YES")
+        else:
+            print("P2_FULL_SOURCE_TRANSLATION=REQUESTED")
         print("TV_DELIVERY=NOT_RUN")
         return 0
     except Exception:
