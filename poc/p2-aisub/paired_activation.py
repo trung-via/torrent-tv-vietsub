@@ -193,7 +193,7 @@ class PairedActivation:
             "schema":"TTV-P4-ACTIVATED-V1",
             "media_key":media,"nonce":nonce,
             "session_id":sid,"source_sha256":source_sha,
-            "auth":activation_response_mac(self.__key,media,nonce,sid,source.source_sha256),
+            "auth":activation_response_mac(self.__key,media,nonce,sid,source_sha),
         }
 
     def feed_for(self, session_id: str) -> SessionRevisionFeed | None:
