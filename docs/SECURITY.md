@@ -25,10 +25,18 @@
 
 ## Development supply chain
 
-- Repo PRIVATE, runner/workspace/credentials/CI của Torrent TV riêng; **không** dùng AIOS runner, Runtime, token, task dispatch, review/admission.
+- Repo PRIVATE hoặc PUBLIC (Human-authorized), runner/workspace/credentials/CI của Torrent TV riêng; **không** dùng AIOS runner, Runtime, token, task dispatch, review/admission. PUBLIC không có nghĩa runtime LAN được đưa lên Internet.
 - Chỉ copy script/workflow từ AIOS sau provenance/commit/license review, secret scan, permission/trigger audit, đổi paths/labels/namespace và PR review.
 - SHA-pin third-party GitHub Actions, least privilege, tránh untrusted PR trên self-hosted runner có host access, artifacts private và retention giới hạn.
 - OMP upstream được audit là GPL-3.0-only; submodule 2160 Player, VLC, Media3 và dependencies cần inventory/license notices. Repo PRIVATE không miễn nghĩa vụ khi phân phối APK. TorrServer binary không bundle trong APK.
+
+## GitHub PUBLIC preflight và vận hành liên tục
+
+- **Không chặn phát triển vì PUBLIC:** vẫn dùng cùng repo/history/branches/PR/Issues và acceptance gates. Không có điều kiện bắt buộc chuyển về PRIVATE để tiếp tục task.
+- **Chỉ đổi visibility khi Human chủ động yêu cầu:** thực hiện review của Git history/commits/branches/tags/releases, source/fixtures, workflow, issues/PR/comments, artifacts nếu có thể truy cập; kiểm tra OMP GPL-3.0-only, NOTICE/dependencies, provenance và quyền phân phối.
+- **Secrets/privacy:** phát hiện token, tracker passkey, magnet riêng tư, real LAN IP, private media/transcripts, credential trong toàn bộ lịch sử. Nếu có rò rỉ, revoke/rotate secrets trước; việc xóa khỏi HEAD không xóa trong history và có thể cần remediation lịch sử được phê duyệt.
+- **Runner:** mọi PR/fork/issue comment và tài liệu từ bên ngoài đều untrusted. Self-hosted Windows với host access/secret **không chạy code từ untrusted PR**; những workflow có `issues`, `issue_comment`, `workflow_dispatch`, `pull_request_target` hoặc tự dispatch cần kiểm tra đường authorization/ref/code checkout. Chỉ trusted ref có kiểm soát được dùng runner đặc quyền; public PR có thể kiểm tra bằng CI cô lập/không secret nếu thiết kế và được duyệt.
+- **Publication boundaries:** public source code ≠ GitHub Release/APK tự động ≠ công khai TorrServer/gateway/ADB/SMB. Không lưu artifact riêng tư trong public release, logs hoặc issue. Chặn việc public hóa nếu PUBLIC preflight FAIL; vẫn tiếp tục các công việc riêng tư và an toàn.
 
 ## Evidence and stop conditions
 
