@@ -69,6 +69,13 @@ class StateTests(unittest.TestCase):
                 with self.assertRaisesRegex(RedmiStateRejected,"OFF_OR_INACTIVE"):
                     c.read_fresh(monotonic_s=101)
 
+    def test_viewer_requested_is_fresh_but_off_other_never_valid(self):
+        cache = SignedRedmiStateCache(KEY)
+        cache.receive(packet(subtitle_choice="REQUESTED"),
+                      now_ms=WHEN,monotonic_s=10)
+        self.assertEqual(cache.read_fresh(monotonic_s=11).subtitle_choice,
+                         "REQUESTED")
+
     def test_tamper_and_duplicate_and_clock_skew_refused(self):
         for key,value in (
             ("active",False),("subtitle_choice","OFF"),
