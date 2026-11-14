@@ -59,6 +59,11 @@ class SignedP3ToOwner:
                 self._bridge.on_session_closed()
                 self._active_selection = None
             return TriggerDecision("SKIP", "TV_PLAYBACK_CLOSED")
+        # Play and Next only identify the media and keep its session fresh.
+        # NEVER queue subtitle search merely because the viewer opened video.
+        # A distinct HMAC-authenticated tap on "Bật Vietsub AI" is required.
+        if signal.kind != "VIEWER_VIETSUB_REQUESTED":
+            return TriggerDecision("SKIP", "MEDIA_IDENTIFIED_AWAIT_VIEWER_REQUEST")
         try:
             current = self._read()
         except Exception:
@@ -66,12 +71,13 @@ class SignedP3ToOwner:
         if (not isinstance(current, PlaybackSelected)
                 or current.attested is not True
                 or current.active is not True
-                or current.kind != signal.kind
+                or current.kind not in ("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED")
+                or current.subtitle_choice != "REQUESTED"
                 or current.tv_session_id != signal.tv_session_id
                 or current.torrent_hash.lower() != signal.torrent_hash
                 or current.file_index != signal.file_index):
-            return TriggerDecision("HOLD", "TV_SIGNAL_CURRENT_SELECTION_MISMATCH")
-        # The existing P3 gate still enforces owner consent, viewer ON,
+            return TriggerDecision("HOLD", "TV_VIEWER_REQUEST_CURRENT_MEDIA_MISMATCH")
+        # The existing P3 gate still enforces owner consent, explicit REQUESTED,
         # rights, local VI and exact media. It will read the source again;
         # no trust/filename from the signed event is injected into gate.
         decision = self._bridge.on_current_selection_accepted()
