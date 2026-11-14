@@ -11,6 +11,8 @@ import unittest
 from unittest import mock
 
 from automatic_vietsub_flow import AutomaticVietsubFlow, AutoPermissions
+from matcher import Media
+from owner_selected_file_resolver import _fingerprint
 from automatic_lean120_worker import AutomaticLean120Worker
 from lean120_api import ModelProfile
 from opensubtitles import OpenSubtitles
@@ -35,6 +37,8 @@ class LocalDirectTests(unittest.TestCase):
         self.video = self.media / VIDEO
         self.sidecar = self.media / SIDECAR
         self.sidecar.write_bytes(srt(125))
+        self.verified_media = Media("laptop-torrserver", "a" * 40, 4, VIDEO)
+        self.source_fp = _fingerprint("laptop-torrserver", "a" * 40, 4)
         self.selection = LocalMediaSelection(
             attested=True, active=True, owner_authorized=True,
             viewer_choice="ON", local_vi_state="ABSENT",
@@ -263,8 +267,12 @@ class LocalDirectTests(unittest.TestCase):
             permissions=AutoPermissions(True, True),
         )
         with mock.patch("builtins.input", side_effect=AssertionError("NO_HUMAN_PROMPTS")):
-            done = flow.selected_media(VIDEO, local_source=self.selection)
-            again = flow.selected_media(VIDEO, local_source=self.selection)
+            done = flow.selected_media(VIDEO, local_source=self.selection,
+                                       verified_media=self.verified_media,
+                                       source_fingerprint=self.source_fp)
+            again = flow.selected_media(VIDEO, local_source=self.selection,
+                                       verified_media=self.verified_media,
+                                       source_fingerprint=self.source_fp)
         self.assertEqual((done.status, done.translated_cues, done.download_posts),
                          ("VIETSUB_READY", 125, 0))
         self.assertEqual(again.status, "VIETSUB_READY")
@@ -285,7 +293,9 @@ class LocalDirectTests(unittest.TestCase):
             worker=worker, cache_root=self.cache,
             permissions=AutoPermissions(True, True),
         )
-        out = flow.selected_media(VIDEO, local_source=self.selected(en_sidecar_path=None))
+        out = flow.selected_media(VIDEO, local_source=self.selected(en_sidecar_path=None),
+                                  verified_media=self.verified_media,
+                                  source_fingerprint=self.source_fp)
         self.assertEqual(out.status, "VIETSUB_READY")
         self.assertEqual([m for m, _ in provider.calls], ["GET", "GET", "POST", "GET_BINARY"])
 
@@ -306,7 +316,8 @@ class LocalDirectTests(unittest.TestCase):
         wrong.write_bytes(srt(2))
         with self.assertRaisesRegex(LocalSourceError, "EXACT_EN"):
             flow.selected_media(VIDEO, local_source=self.selected(
-                en_sidecar_path=wrong))
+                en_sidecar_path=wrong), verified_media=self.verified_media,
+                source_fingerprint=self.source_fp)
         self.assertEqual(provider.calls, [])
         self.assertEqual(gemini.calls, [])
 
