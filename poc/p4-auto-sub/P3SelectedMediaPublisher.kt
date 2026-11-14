@@ -80,6 +80,7 @@ internal object P3SelectedMediaPublisher {
         if (!HASH_RX.matches(hash) || fileIndex !in 0..65535) return
         val selected = Current(randomHex(), hash, fileIndex, kind)
         active = selected
+        generation.incrementAndGet()
         // Same single executor: independently sampled ACTUAL PlayerSession
         // G1/P4 choice is signed BEFORE the selection event is sent.
         sample(ctx, request, itemIndex, nativeVlc)
@@ -90,6 +91,7 @@ internal object P3SelectedMediaPublisher {
     internal fun closed(ctx: Context) {
         val old = active ?: return
         active = null
+        generation.incrementAndGet()
         if (enabled(ctx)) {
             enqueue(ctx.applicationContext, old, "PLAYBACK_CLOSED")
             enqueueStatus(ctx.applicationContext, old, false, "OTHER")
@@ -109,7 +111,7 @@ internal object P3SelectedMediaPublisher {
         val item = request?.queue?.getOrNull(selectedIndex)
         val isSame = nativeVlc && request?.engine == EngineMode.VLC &&
             item?.hash?.lowercase() == current.hash &&
-            item.fileIndex == current.fileIndex
+            item?.fileIndex == current.fileIndex
         // Real per-media P4 ON/OFF/OTHER, NEVER infer ON from global consent.
         val choice = if (isSame) P1ProductionSubtitles.automaticChoice(
             ctx, request, selectedIndex) else "OTHER"
@@ -144,7 +146,7 @@ internal object P3SelectedMediaPublisher {
     }
 
     private fun enqueue(ctx: Context, selected: Current, kind: String) {
-        val gen = generation.incrementAndGet()
+        val gen = generation.get()
         queue.execute {
             if (generation.get() != gen || !enabled(ctx)) return@execute
             val paired = P4PairingStore(ctx).load() ?: return@execute
