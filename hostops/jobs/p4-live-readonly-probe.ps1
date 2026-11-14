@@ -48,6 +48,14 @@ try {
             catch { $connected = $false }
         } else { $connected = $false }
         Write-Host ('P4_TORRSERVER_CANDIDATE_8090_TCP=' + $connected.ToString().ToUpperInvariant())
+        if ($connected) {
+            try {
+                $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:8090/echo' -Method Get -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+                Write-Host ('P4_TORRSERVER_CANDIDATE_8090_ECHO_HTTP=' + [int]$resp.StatusCode)
+            } catch {
+                Write-Host 'P4_TORRSERVER_CANDIDATE_8090_ECHO_HTTP=UNVERIFIED'
+            }
+        }
     } finally { $client.Dispose() }
 } catch {
     Write-Host 'P4_TORRSERVER_CANDIDATE_8090_TCP=UNKNOWN'
@@ -55,16 +63,41 @@ try {
 
 # ADB read-only device/APP metadata. No ADB shell writes, push, reboot,
 # install, logcat/private content, or device selection if multiple targets.
+# An Android build runner may keep platform-tools outside PATH.
 $adb = Get-Command adb.exe -ErrorAction SilentlyContinue
-if ($null -eq $adb) {
-    Write-Host 'P4_ADB=NOT_INSTALLED_ON_RUNNER'
+$adbPath = if ($null -ne $adb) { $adb.Source } else { $null }
+if ($null -eq $adbPath) {
+    $candidates = @()
+    foreach ($sdkRoot in @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT)) {
+        if (-not [string]::IsNullOrWhiteSpace($sdkRoot)) {
+            $candidates += Join-Path $sdkRoot 'platform-tools\adb.exe'
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $candidates += Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
+    }
+    $candidates += @(
+        'C:\TOOL\Android\Sdk\platform-tools\adb.exe',
+        'C:\TOOL\android-sdk\platform-tools\adb.exe',
+        'C:\Android\platform-tools\adb.exe',
+        'C:\platform-tools\adb.exe'
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $adbPath = $candidate
+            break
+        }
+    }
+}
+if ($null -eq $adbPath) {
+    Write-Host 'P4_ADB=NOT_FOUND_PATH_OR_STANDARD_SDK_ROOTS'
     Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=NOT_TESTED'
     Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
     exit 0
 }
 Write-Host 'P4_ADB=FOUND'
 try {
-    $rows = @(& $adb.Source devices 2>$null)
+    $rows = @(& $adbPath devices 2>$null)
     if ($LASTEXITCODE -ne 0) { throw 'ADB_FAILED' }
     $connectedRows = @($rows | Where-Object { $_ -match '^([^\s]+)\s+(device|unauthorized|offline)(\s|$)' })
     $authorized = @($connectedRows | Where-Object { $_ -match '^([^\s]+)\s+device(\s|$)' })
@@ -81,9 +114,9 @@ try {
         Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
         exit 0
     }
-    $model = @(& $adb.Source -s $serial shell getprop ro.product.model 2>$null)
+    $model = @(& $adbPath -s $serial shell getprop ro.product.model 2>$null)
     Write-Host ('P4_ANDROID_MODEL_READABLE=' + ($LASTEXITCODE -eq 0 -and $model.Count -gt 0).ToString().ToUpperInvariant())
-    $packages = @(& $adb.Source -s $serial shell pm list packages 2>$null)
+    $packages = @(& $adbPath -s $serial shell pm list packages 2>$null)
     if ($LASTEXITCODE -ne 0) { throw 'ADB_PM_FAILED' }
     $isOmp = @($packages | Where-Object { $_ -match '^package:com\.spacesarmat\.omp\s*$' }).Count -gt 0
     Write-Host ('P4_OMP_PACKAGE_INSTALLED=' + $isOmp.ToString().ToUpperInvariant())
