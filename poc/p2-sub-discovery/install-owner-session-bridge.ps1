@@ -25,10 +25,13 @@ if ([string]::IsNullOrWhiteSpace($loggedOnUser) -or
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $srcD2 = Join-Path $repo 'poc\p2-sub-discovery'
 $srcP2 = Join-Path $repo 'poc\p2-aisub'
+$srcTrigger = Join-Path $repo 'poc\p3-vietsub-trigger'
 foreach ($needed in @(
     (Join-Path $srcD2 'owner_session_bridge.py'),
     (Join-Path $srcD2 'automatic_vietsub_flow.py'),
+    (Join-Path $srcD2 'trusted_playback_to_owner.py'),
     (Join-Path $srcD2 'start-owner-session-agent.ps1'),
+    (Join-Path $srcTrigger 'activation_gate.py'),
     (Join-Path $srcP2 'automatic_lean120_worker.py'),
     (Join-Path $srcP2 'translator_profile.json')
 )) {
@@ -42,7 +45,8 @@ $secretsDir = Join-Path $root 'secrets'
 $installed = Join-Path $root 'app'
 $d2Target = Join-Path $installed 'poc\p2-sub-discovery'
 $p2Target = Join-Path $installed 'poc\p2-aisub'
-foreach ($directory in @($root, $secretsDir, $d2Target, $p2Target)) {
+$triggerTarget = Join-Path $installed 'poc\p3-vietsub-trigger'
+foreach ($directory in @($root, $secretsDir, $d2Target, $p2Target, $triggerTarget)) {
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
 }
 
@@ -59,6 +63,7 @@ Get-ChildItem -LiteralPath $srcD2 -Filter '*.py' -File |
 Get-ChildItem -LiteralPath $srcP2 -Filter '*.py' -File |
     ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $p2Target -Force }
 Copy-Item -LiteralPath (Join-Path $srcP2 'translator_profile.json') -Destination $p2Target -Force
+Copy-Item -LiteralPath (Join-Path $srcTrigger 'activation_gate.py') -Destination $triggerTarget -Force
 
 # Store each key only once. DPAPI binds ciphertext to this Windows account.
 # A later login can start the agent with NO prompts or key sent to GitHub.
