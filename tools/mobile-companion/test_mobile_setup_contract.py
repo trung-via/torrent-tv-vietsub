@@ -50,7 +50,6 @@ class MobileSetupContractTests(unittest.TestCase):
         self.assertIsNone(re.search(forbidden, self.script))
 
     def test_no_auto_server_or_remote_crawler(self):
-        self.assertIn("Do not", self.script) if False else None
         self.assertIn("MOBILE_PREFLIGHT_OWNER_LOCAL_ONLY_NO_CI", self.script)
         self.assertIn("LOCAL_LISTENER_OBSERVED_PHONE_NOT_VERIFIED", self.script)
         self.assertNotIn("https://api.opensubtitles", self.script)
