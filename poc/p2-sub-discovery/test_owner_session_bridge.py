@@ -7,6 +7,7 @@ import unittest
 from owner_session_bridge import (
     enqueue_selected_media, poll_private_events, run_owner_agent,
     consume_inert_runner_wakes,
+    _owner_process_lock,
 )
 
 
@@ -195,6 +196,30 @@ class OwnerSessionBridgeTests(unittest.TestCase):
         self.assertEqual(poll_private_events(
             owner_root=self.root, processor=worker, emit=self.lines.append), 0)
         self.assertEqual(worker.calls, [])
+
+    def test_owner_lock_exclusive_but_released_on_exit(self):
+        with _owner_process_lock(self.root):
+            with self.assertRaisesRegex(ValueError, "ALREADY_RUNNING"):
+                with _owner_process_lock(self.root):
+                    pass
+        # Exiting/crashing the *process lock* does not require a human to
+        # manually delete the file; provider claims are handled separately.
+        self.assertTrue((self.root / "owner-agent-active.lock").is_file())
+        with _owner_process_lock(self.root):
+            self.assertTrue((self.root / "owner-agent-active.lock").exists())
+
+    def test_old_stale_pid_marker_is_not_permanent_lock(self):
+        self.root.mkdir(parents=True)
+        (self.root / "owner-agent-active.lock").write_bytes(b"123456")
+        with _owner_process_lock(self.root):
+            pass
+
+    def test_owner_process_body_failure_does_not_fake_lock_conflict(self):
+        with self.assertRaisesRegex(OSError, "synthetic"):
+            with _owner_process_lock(self.root):
+                raise OSError("synthetic")
+        with _owner_process_lock(self.root):
+            pass
 
     def test_no_live_background_agent_in_ci(self):
         import os
