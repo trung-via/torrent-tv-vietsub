@@ -87,7 +87,8 @@ class _SafeRedirects(urllib.request.HTTPRedirectHandler):
 
 
 def urllib_transport(method: str, url: str, headers: dict[str, str],
-                     body: bytes | None, cap: int) -> bytes:
+                     body: bytes | None, cap: int, *,
+                     timeout_seconds: float = 15.0) -> bytes:
     """HTTPS-only transport; strict response cap and bounded redirects.
 
     The temporary provider link is *never* sent in an error message or log.
@@ -97,7 +98,9 @@ def urllib_transport(method: str, url: str, headers: dict[str, str],
     req = urllib.request.Request(url, data=body, headers=headers, method=action)
     opener = urllib.request.build_opener(_SafeRedirects())
     try:
-        with opener.open(req, timeout=15) as res:
+        # Per-socket timeout for the short VI probe. This is NOT a hard
+        # end-to-end wall-clock deadline across DNS, redirects and reads.
+        with opener.open(req, timeout=timeout_seconds) as res:
             data = res.read(cap + 1)
     except urllib.error.HTTPError as exc:
         status = exc.code
@@ -311,7 +314,8 @@ class OpenSubtitles:
         self._manual_post_attempted = False
 
     def _request(self, method: str, url: str, *, api: bool,
-                 payload: dict | None = None) -> bytes:
+                 payload: dict | None = None,
+                 timeout_seconds: float | None = None) -> bytes:
         _safe_https(url, api=api)
         headers = {"User-Agent": _USER_AGENT, "Accept": "application/json"}
         body = None
@@ -323,11 +327,19 @@ class OpenSubtitles:
             headers["Content-Type"] = "application/json"
             body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         cap = MAX_JSON_BYTES if api else MAX_SUBTITLE_BYTES
+        if timeout_seconds is not None:
+            if type(timeout_seconds) not in (float, int) or not 1 <= timeout_seconds <= 15:
+                raise SubtitleApiError("INVALID_SEARCH_TIMEOUT")
+            # Keep five-argument injected test transports source compatible.
+            # A real urllib GET can use the lower per-socket budget.
+            if self._transport is urllib_transport:
+                return urllib_transport(method, url, headers, body, cap,
+                                        timeout_seconds=float(timeout_seconds))
         return self._transport(method, url, headers, body, cap)
 
     def search(self, media: Media, *, language: str,
                query_mode: str = "release", imdb_id: str | None = None,
-               page: int = 1) -> Discovery:
+               page: int = 1, timeout_seconds: float | None = None) -> Discovery:
         if language not in ("vi", "en"):
             raise SubtitleApiError("UNSUPPORTED_LANGUAGE")
         if type(page) is not int or page not in (1, 2):
@@ -358,7 +370,9 @@ class OpenSubtitles:
         if page > 1:
             q["page"] = str(page)
         url = BASE_URL + "/subtitles?" + urllib.parse.urlencode(sorted(q.items()))
-        discovery = parse_search_response(media, self._request("GET", url, api=True))
+        discovery = parse_search_response(
+            media, self._request("GET", url, api=True,
+                                 timeout_seconds=timeout_seconds))
         # Never let an unexpected EN row in a VI response trigger a download.
         candidates = tuple(c for c in discovery.candidates if c.subtitle.language == language)
         results = SearchResults(media.key, tuple(c.subtitle for c in candidates))

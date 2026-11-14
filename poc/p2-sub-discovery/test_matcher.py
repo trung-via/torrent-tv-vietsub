@@ -18,6 +18,51 @@ class MatcherTests(unittest.TestCase):
         self.assertEqual((r.title, r.year, r.resolution, r.source, r.codec, r.group),
                          ("sample film", 2017, "1080p", "bluray", "x265", "team"))
 
+    def test_provider_language_and_sdh_suffix_do_not_hide_video_group(self):
+        examples = (
+            "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng",
+            "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng SDH",
+            "Sample.Film.2017.1080p.BluRay.x265-TEAM.eng.sdh.srt",
+            "Sample.Film.2017.1080p.BluRay.x265-TEAM-English",
+            "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng.hearing_impaired",
+        )
+        for name in examples:
+            with self.subTest(name=name):
+                parsed = parse_release(name)
+                self.assertEqual(parsed.group, "team")
+                self.assertEqual(parsed.title, "sample film")
+                self.assertEqual(parsed.year, 2017)
+                self.assertEqual(parsed.source, "bluray")
+                self.assertEqual(parsed.resolution, "1080p")
+                self.assertEqual(parsed.codec, "x265")
+
+    def test_true_group_mismatch_not_hidden_by_language_marker(self):
+        other = parse_release("Sample.Film.2017.1080p.BluRay.x265-OTHER_eng.srt")
+        self.assertEqual(other.group, "other")
+        d = choose(film(), batch(film(), Subtitle(
+            "en-other", "Sample.Film.2017.1080p.BluRay.x265-OTHER_eng", "en")))
+        self.assertEqual(d.status, "REVIEW_REQUIRED")
+
+    def test_non_sdh_selected_over_same_release_sdh_for_translation(self):
+        media = film()
+        plain = Subtitle("normal", "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng", "en")
+        sdh = Subtitle("sdh", "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng SDH", "en")
+        selected = choose(media, batch(media, sdh, plain))
+        self.assertEqual(selected.status, "EN_TRANSLATE")
+        self.assertEqual(selected.winner.subtitle_id, "normal")
+        self.assertEqual([r.score for r in selected.ranked], [97, 87])
+        self.assertTrue(all(r.confident for r in selected.ranked))
+        self.assertTrue(all("group" in r.evidence for r in selected.ranked))
+        self.assertIn("sdh_variant", selected.ranked[1].evidence)
+
+    def test_sdh_only_eligible_but_duplicate_plain_still_review(self):
+        media = film()
+        sdh = Subtitle("sdh", "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng SDH", "en")
+        self.assertEqual(choose(media, batch(media, sdh)).status, "EN_TRANSLATE")
+        a = Subtitle("a", "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng", "en")
+        b = Subtitle("b", "Sample.Film.2017.1080p.BluRay.x265-TEAM.english.srt", "en")
+        self.assertEqual(choose(media, batch(media, a, b)).status, "REVIEW_REQUIRED")
+
     def test_no_false_release_group_for_web_dl(self):
         r = parse_release("Sample.Film.2017.1080p.WEB-DL.srt")
         self.assertEqual((r.title, r.year, r.source, r.group), ("sample film", 2017, "web", None))
