@@ -1,0 +1,40 @@
+name: Torrent TV - P3 Native TV Selection Source CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p4-auto-sub/P3SelectedMediaPublisher.kt'
+      - 'poc/p4-auto-sub/p3_activity_patch.py'
+      - 'poc/p4-auto-sub/test_p3_tv_selected_signal.py'
+      - 'docs/subtitle-activation/P3_NATIVE_OMP_TV_SIGNAL.md'
+      - '.github/workflows/tv-p3-native-signal-source-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-only:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-omp-native-selection-sender-20261114' &&
+      github.event.pull_request.base.ref == 'feature/p4-expired-session-diagnosis-20261114'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate with no persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: P3 patcher source-only tests plus P4 session regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/p4-auto-sub -p 'test_p3_tv_*.py' -v
+          python3 -m unittest discover -s poc/p4-auto-sub -p 'test_session_loss_contract.py' -v
+          python3 -m py_compile poc/p4-auto-sub/p3_activity_patch.py
+          echo 'P3_TV_SOURCE_CI_ONLY_NOT_KOTLIN_COMPILED_NOT_ADB_NO_APK_NO_LAN_NO_TV'
