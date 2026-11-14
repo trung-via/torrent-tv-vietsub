@@ -116,6 +116,25 @@ class TriggerToOwnerTests(unittest.TestCase):
             self.adapter.on_current_selection_accepted().status, "DISPATCH")
         self.assertEqual(len(list((self.root / "inbox").glob("event-*.json"))), 2)
 
+    def test_missing_or_faulted_trusted_current_media_holds_without_enqueue(self):
+        self.event = None
+        r = self.adapter.on_current_selection_accepted()
+        self.assertEqual((r.status, r.reason), ("HOLD", "MALFORMED_EVENT"))
+        self.assertFalse(self.root.exists())
+
+        def broken_source():
+            raise RuntimeError("private media URI: do not print")
+        adapter = TrustedPlaybackToOwner(
+            read_verified_current_playback=broken_source,
+            owner_root=self.root,
+            emit=self.lines.append,
+        )
+        result = adapter.on_current_selection_accepted()
+        self.assertEqual((result.status, result.reason),
+                         ("HOLD", "TRUSTED_SOURCE_UNAVAILABLE"))
+        self.assertFalse(self.root.exists())
+        self.assertNotIn("private media URI", " ".join(self.lines))
+
     def test_no_trusted_provider_refused(self):
         with self.assertRaisesRegex(ValueError, "TRUSTED_SOURCE_REQUIRED"):
             TrustedPlaybackToOwner(read_verified_current_playback=None,
