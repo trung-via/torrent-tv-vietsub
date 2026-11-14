@@ -219,7 +219,7 @@ class AutomaticVietsubFlow:
                     or verified_media.filename != video_name
                     or source_fingerprint is None):
                 raise ValueError("AUTO_V3_VERIFIED_MEDIA_REQUIRED")
-            expected_fp = hashlib.sha256(("\\x00".join((
+            expected_fp = hashlib.sha256(("\x00".join((
                 verified_media.server_profile_id,
                 verified_media.torrent_hash.lower(),
                 str(verified_media.file_index)))).encode("utf-8")).hexdigest()
