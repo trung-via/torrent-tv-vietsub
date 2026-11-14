@@ -30,9 +30,8 @@ schema TTV-P3-P4-OWNER-POLICY-V1 and contain exactly:
 - enabled: boolean (true only on explicit owner opt-in)
 - profile_id: existing preconfigured TorrServer owner-local profile identifier
 - torrserver_port: existing local read-only TorrServer high port
-- private_media_root: absolute path for the owner's approved complete files
-- media: up to 32 owner-approved exact entries, each with torrent_hash,
-  file_index, torrserver_path, video_path, rights_approved boolean
+- private_media_root: an absolute owner-private directory for local files or stream-only state
+- media: up to 32 exact entries with torrent_hash, file_index, torrserver_path, video_path, rights_approved. Stream-only entries additionally require stream_only=true and video_path=null; each individual film requires explicit rights authorization.
 
 Example values below are SYNTHETIC and must never be taken as real permissions:
 profile_id=test-owner-profile, torrserver_port=8090, torrent_hash=40 'a'
@@ -40,15 +39,40 @@ characters, file_index=2, torrserver_path=Authorized/Synthetic.Film.2017.mkv,
 video_path=an owner-local absolute private path to that exact synthetic file.
 
 An approved entry is NOT a blanket right or proof of a Vietnamese track.
-Before positive rights, the real owner local TorrServer GET metadata must
-match the exact torrent/profile/file index and path and the local completed
-video size; the file must be inside the pinned root, no symlink or path
-traversal. Missing file, mismatch, stale TV state or absent approval is HOLD.
-VI state is assessed by real ffprobe on that exact local video, plus local
-Vietnamese sidecars. Missing ffprobe, unlabelled/ambiguous tracks or streaming
-without a local completed file gives UNKNOWN/HOLD, not fabricated ABSENT.
-Owner-side inventory is NOT independent proof of every subtitle track shown
-by the TV, which remains a real-device acceptance check.
+Both modes require current paired signed TV identity, explicit per-film user
+request, an exact owner-pinned localhost TorrServer GET /torrents selected file,
+and independent owner rights approval. A locally complete file is additionally
+pinned to the owner-private media root and matched by file size, with local
+ffprobe and VI-sidecar inspection.
+
+For stream-only, no fake video path is created. Reuse the upstream OMP
+TorrServerClient.probe() endpoint GET /ffp/<hash>/<index> constructed solely
+from the owner-pinned localhost port and independently checked selected hash/
+file index. Strict 3-second and 64-KiB bounds, no redirect/proxy/TV-supplied
+URL, no stream URL, no cloud request. The TorrServer ffprobe may internally
+request torrent data to inspect tracks, so it is invoked only for an explicitly
+rights-approved film. No video data is copied by this application.
+
+A response must contain an actual video stream and a bounded list of clearly
+identified subtitle languages. Vietnamese embedded stream -> PRESENT;
+known non-VI embedded languages or no embedded subtitles -> ABSENT for this
+EMBEDDED inventory only. Unknown/und language, empty/invalid ffprobe JSON,
+missing video, inaccessible endpoint (including auth), timeout, or stale
+TorrServer identity -> UNKNOWN/HOLD. This does NOT independently certify
+the absence of an external Vietnamese subtitle track selected on the TV;
+native OMP track inventory remains a required real-device acceptance gate.
+
+For an approved stream-only source, V3 passes local_source=None to the
+EXISTING VI_FAST OpenSubtitles D1/D2 route, then any EN source uses the
+EXISTING P2 Gemini 4 Hydrogen High LEAN120 adapter and the EXISTING
+authenticated P4 receiver. Neither a second translator nor a second
+subtitle picker/receiver is added.
+
+Synthetic stream-only policy values (NOT real permissions):
+video_path=null, stream_only=true, torrent_hash=40 'a' characters,
+file_index=2, torrserver_path=Synthetic/Synthetic.Authorized.2017.mkv,
+rights_approved=true. Keep all real hashes, private directories, keys, IPs
+and subtitles outside this PUBLIC GitHub repository.
 
 ## Deployment and consumer gate
 
