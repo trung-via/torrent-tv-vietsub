@@ -6,7 +6,9 @@ real subtitles. Config and file paths exist only under ephemeral test roots.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -145,6 +147,33 @@ class PrivateP3P4PolicyTests(unittest.TestCase):
                                    "--state-root",str(self.root/"state"),
                                    "--start-lan"]),1)
         self.assertFalse((self.owner/"p4-identity").exists())
+
+    def test_direct_owner_script_without_pythonpath_imports_before_ci_gate(self):
+        """Reproduce the installed ScheduledTask's -File/direct Python layout.
+
+        Even on a CI runner this must reach the EXPLICIT-OWNER guard rather
+        than crashing at import of lan_revision_feed / paired_activation.
+        The subprocess runs only a CI-blocked import; it never binds LAN.
+        """
+        script = Path(__file__).resolve().parent / "owner_p3_p4_entrypoint.py"
+        env = os.environ.copy()
+        env.pop("PYTHONPATH", None)
+        env["CI"] = "true"
+        env["GITHUB_ACTIONS"] = "true"
+        with tempfile.TemporaryDirectory(prefix="ttv-direct-owner-smoke-") as cwd:
+            result = subprocess.run(
+                [sys.executable, "-E", str(script),
+                 "--owner-root", str(self.owner),
+                 "--cache-root", str(self.root / "cache"),
+                 "--state-root", str(self.root / "state"),
+                 "--start-lan"],
+                cwd=cwd, env=env, capture_output=True, text=True,
+                timeout=15, check=False,
+            )
+        self.assertEqual(result.returncode, 1, result.stderr[:250])
+        self.assertIn("P3_P4_OWNER_INTERACTIVE_EXPLICIT_START_REQUIRED",
+                      result.stdout)
+        self.assertFalse((self.owner / "p4-identity").exists())
 
     def test_ffprobe_ambiguous_track_or_missing_binary_fails_closed(self):
         with mock.patch("owner_p3_p4_private_policy.subprocess.run") as proc:
