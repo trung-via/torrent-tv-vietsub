@@ -13,7 +13,8 @@ import unittest
 from unittest import mock
 
 from owner_p3_p4_runtime import (
-    OwnerRuntimeBlocked, _validate_wiring, make_integrated_https_server,
+    OwnerRuntimeBlocked, _validate_wiring, _validate_owner_root,
+    make_integrated_https_server,
     _serve_and_consume, run_owner_p3_p4_runtime,
 )
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader
@@ -60,6 +61,22 @@ class OwnerIntegratedRuntimeTests(unittest.TestCase):
         self.assertTrue(callable(self.wiring.handler))
         self.assertFalse((self.owner / "inbox").exists())
         _validate_wiring(self.wiring)
+
+    def test_signed_p3_and_owner_v3_must_share_one_private_inbox(self):
+        _validate_owner_root(self.wiring, self.owner)
+        wrong_owner = self.root / "different-inbox"
+        with self.assertRaisesRegex(OwnerRuntimeBlocked, "PRIVATE_INBOX_ROOT_MISMATCH"):
+            _validate_owner_root(self.wiring, wrong_owner)
+        with mock.patch("owner_p3_p4_runtime.make_integrated_https_server") as listener:
+            with self.assertRaisesRegex(OwnerRuntimeBlocked, "PRIVATE_INBOX_ROOT_MISMATCH"):
+                run_owner_p3_p4_runtime(
+                    wiring=self.wiring, owner_root=wrong_owner,
+                    cache_root=self.root / "cache",
+                    state_root=self.root / "state",
+                    host="192.168.1.8", port=8443,
+                    tls_cert=self.root / "cert", tls_key=self.root / "key",
+                    explicit_start_lan=True)
+            listener.assert_not_called()
 
     def test_refuse_incomplete_wiring_and_loopback_or_wan(self):
         with self.assertRaisesRegex(OwnerRuntimeBlocked, "WIRING_REQUIRED"):
