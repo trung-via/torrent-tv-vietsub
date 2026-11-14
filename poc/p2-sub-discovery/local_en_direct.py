@@ -21,7 +21,7 @@ import subprocess
 from typing import Callable
 
 from matcher import Media
-from opensubtitles import Asset, MAX_SUBTITLE_BYTES, validate_timed_text, write_private_cache
+from opensubtitles import Asset, MAX_SUBTITLE_BYTES, SubtitleApiError, validate_timed_text, write_private_cache
 
 _HASH = re.compile(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})\Z")
 _TAG = re.compile(r"[a-zA-Z0-9_-]{1,128}\Z")
@@ -210,7 +210,10 @@ def find_local_english(m: LocalMediaSelection, *, cache_root: Path,
             raise LocalSourceError("LOCAL_SIDECAR_VIDEO_DIRECTORY_MISMATCH")
         if side.stat().st_size > MAX_SUBTITLE_BYTES:
             raise LocalSourceError("LOCAL_SUBTITLE_TOO_LARGE")
-        contents = side.read_bytes() if fmt == "srt" else _run_ffmpeg_local(side, stream=None, runner=runner)
+        try:
+            contents = side.read_bytes() if fmt == "srt" else _run_ffmpeg_local(side, stream=None, runner=runner)
+        except OSError:
+            raise LocalSourceError("LOCAL_SUBTITLE_READ_FAILED") from None
         kind = "SIDECAR_SRT" if fmt == "srt" else "SIDECAR_VTT"
     elif video is not None and m.video_file_complete is True:
         stream = _text_english_stream(video, runner)
@@ -232,11 +235,11 @@ def find_local_english(m: LocalMediaSelection, *, cache_root: Path,
         raise LocalSourceError("LOCAL_EN_SUBTITLE_SIZE_INVALID")
     try:
         count = validate_timed_text(contents, "srt")
-    except ValueError:
+    except (ValueError, SubtitleApiError):
         raise LocalSourceError("LOCAL_EN_TIMED_QA_FAILED") from None
     asset = Asset(0, "en", "srt", contents, hashlib.sha256(contents).hexdigest(), count)
     try:
         path = write_private_cache(cache_root, media, asset)
-    except (ValueError, OSError):
+    except (ValueError, OSError, SubtitleApiError):
         raise LocalSourceError("LOCAL_EN_CACHE_WRITE_REJECTED") from None
     return LocalEnglishResult(asset=asset, private_cache_file=path, source_kind=kind)
