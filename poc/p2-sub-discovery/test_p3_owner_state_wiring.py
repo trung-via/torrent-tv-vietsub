@@ -96,7 +96,10 @@ class CompleteStatusWiringTests(unittest.TestCase):
         self.assertFalse(self.owner.exists())
 
         self.wiring.cache.receive(state(),now_ms=WHEN)
-        self.assertFalse(self.owner.exists()) # status itself never triggers
+        # Authenticated state now durably records replay high water in the
+        # PRIVATE owner root, but must never enqueue an event or call model.
+        self.assertTrue((self.owner/"p3-replay"/"ledger.sqlite3").is_file())
+        self.assertFalse((self.owner/"inbox").exists())
         decision=self.wiring.signal.on_wire(selected(nonce="f"*32),now_ms=WHEN)
         self.assertEqual(decision.status,"DISPATCH")
         self.assertEqual(self.wiring.current.read_v3().video_name,VIDEO)
