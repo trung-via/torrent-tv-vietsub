@@ -43,6 +43,7 @@ class VerifiedVietsubReady:
         source = parse_cues(source_bytes, "srt")
         translated = parse_cues(vietsub_bytes, "srt")
         if (not source or not translated
+                or len(source) > 2000  # existing P4SignedReceiver contract
                 or len(source) != len(translated)
                 or any((a.number, a.start_ms, a.end_ms, a.identifier, a.settings)
                        != (b.number, b.start_ms, b.end_ms, b.identifier, b.settings)
