@@ -1,5 +1,5 @@
 {
   "provider": "gemini",
-  "model": "gemini-3.8-flash",
-  "thinking_level": "medium"
+  "model": "gemini-4-hydrogen",
+  "thinking_level": "high"
 }
