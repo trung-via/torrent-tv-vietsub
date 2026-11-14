@@ -23,7 +23,7 @@ from p3_owner_replay_journal import OwnerReplayJournal, ReplayJournalRejected
 
 SCHEMA = "TTV-P3-TV-STATE-V1"
 KIND = frozenset(("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED"))
-CHOICES = frozenset(("ON", "OFF", "OTHER"))
+CHOICES = frozenset(("ON", "OFF", "OTHER", "REQUESTED"))
 HEX32 = re.compile(r"[0-9a-f]{32}\Z")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -167,7 +167,7 @@ class SignedRedmiStateCache:
         if state is None or now < state.received_monotonic or (
                 now - state.received_monotonic > self._ttl):
             raise RedmiStateRejected("P3_STATE_STALE_OR_MISSING")
-        if not state.active or state.subtitle_choice != "ON":
+        if not state.active or state.subtitle_choice not in ("ON", "REQUESTED"):
             raise RedmiStateRejected("P3_STATE_TV_OFF_OR_INACTIVE")
         return state
 
