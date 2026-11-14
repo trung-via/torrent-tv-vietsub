@@ -69,6 +69,7 @@ class ResolverTests(unittest.TestCase):
             return owner
         return resolve_selected_local_source(
             requested_name=name, source_fingerprint=fp,
+            expected_tv_session_id=self.snapshot.tv_session_id,
             private_media_root=self.media,
             read_verified_current_playback=reader or tv_reader,
             read_verified_torrserver_file=server_reader,
@@ -104,6 +105,12 @@ class ResolverTests(unittest.TestCase):
                 with self.assertRaises(SelectedFileResolveError):
                     self.resolve(state=modified)
                 self.assertEqual(self.calls, ["tv"])
+
+    def test_same_media_different_tv_session_blocks_as_stale(self):
+        later = replace(self.snapshot, tv_session_id="tv-current-2")
+        with self.assertRaisesRegex(SelectedFileResolveError, "TV_SESSION_MISMATCH"):
+            self.resolve(state=later)
+        self.assertEqual(self.calls, ["tv"])
 
     def test_missing_or_incorrect_torrserver_file_blocks_before_disk(self):
         for bad in (replace(self.record, id=4),
@@ -144,6 +151,7 @@ class ResolverTests(unittest.TestCase):
         result = resolve_selected_local_source(
             requested_name=MOVIE,
             source_fingerprint=_fingerprint(SERVER, HASH, 3),
+            expected_tv_session_id=self.snapshot.tv_session_id,
             private_media_root=self.media,
             read_verified_current_playback=lambda: self.snapshot,
             read_verified_torrserver_file=lambda *args: self.record,
