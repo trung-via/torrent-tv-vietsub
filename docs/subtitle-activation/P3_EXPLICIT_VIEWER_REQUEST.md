@@ -18,6 +18,12 @@ Old P4 `beginP4Activation` contacted `/p4/activate` before its G1 `setAutomaticO
 
 PC `PairedActivation` already has an `authenticated_source_factory(mediaKey)` for the exact owner-selected media. The owner must wire a **verified source-ready receipt** from the *existing* D2/P2 pipeline into this factory; it must never fabricate a source or trust a UI title. The TV P4 half will retry its **existing** authenticated `/p4/activate` only while the session-scoped user request remains active, within a bounded timeout, then bind the existing P4 receiver. No independent AI queue or new public endpoint.
 
+### Verified source-ready P4 boundary (synthetic contract)
+
+The existing `PairedActivation(authenticated_source_factory=...)` already allows the same paired P4 `/p4/activate` to **HOLD while the source is absent** and succeed when a matching, hashed owner-private source appears in the existing `verified_source_manifest` registry. `test_p3_p4_source_ready.py` proves an artificial D1/D2-ready EN receipt can activate the **same P4 controller**, publish synthetic signed 120→240 cumulative revisions (including cue 131), and reject a different torrent or tampered EN bytes; no second AI provider call is made.
+
+**A remaining production integration gap is real:** no current P3 owner agent automatically writes a verified `mediaKey → EN source` manifest from #148 D1/D2/LOCAL_EN receipts, and the VI_FAST ready-only route must publish VI without treating it as English or re-translating it. This fixture tests the existing P4 source-ready boundary, not a real D2→P4 publisher. Do not call #157 end-to-end accepted until that independent source registration and real TV evidence are done.
+
 ### Gates
 
 - This branch: strict HMAC viewer-tap event, TV status REQUESTED signed wire, explicit-only dispatch, legacy Play-only SKIP, resolver session/file match, OFF/OTHER and replay negative tests; exact HEAD offline CI.
