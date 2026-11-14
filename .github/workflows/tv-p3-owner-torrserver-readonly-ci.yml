@@ -1,0 +1,36 @@
+name: Torrent TV - Owner TorrServer Metadata Read-only CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p2-sub-discovery/owner_torrserver_readonly.py'
+      - 'poc/p2-sub-discovery/test_owner_torrserver_readonly.py'
+      - 'docs/subtitle-activation/P3_OWNER_TORRSERVER_READONLY.md'
+      - '.github/workflows/tv-p3-owner-torrserver-readonly-ci.yml'
+permissions:
+  contents: read
+jobs:
+  owner-readonly:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-owner-torrserver-readonly-20261114' &&
+      github.event.pull_request.base.ref == 'feature/p3-p4-shared-https-route-20261114'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact PR HEAD without persisted GitHub token
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify localhost-only TorrServer GET metadata binding and synthetic HTTP loopback
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub:$PWD/poc/p3-vietsub-trigger"
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_torrserver_readonly.py' -v
+          python3 -m py_compile poc/p2-sub-discovery/owner_torrserver_readonly.py
+          echo 'P3_TORRSERVER_LOCALHOST_ONLY_SOURCE_CI_NO_REAL_MOVIE_SERVER_OR_PROVIDER'
