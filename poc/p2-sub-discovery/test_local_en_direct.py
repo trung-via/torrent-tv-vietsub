@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -212,6 +214,40 @@ class LocalDirectTests(unittest.TestCase):
                 self.selected(en_sidecar_path=None, video_path=self.video,
                               video_file_complete=True),
                 cache_root=self.cache, runner=fake)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg/FFprobe not available")
+    def test_real_ffmpeg_embedded_english_mkv_from_generated_tiny_fixture(self):
+        """Exercise actual offline tool syntax; generate fictional 64x64 media."""
+        self.sidecar.write_bytes(srt(2))
+        cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-v", "error",
+               "-f", "lavfi", "-i", "color=c=black:s=64x64:r=1:d=4",
+               "-i", str(self.sidecar), "-map", "0:v:0", "-map", "1:s:0",
+               "-c:v", "mpeg4", "-c:s", "srt",
+               "-metadata:s:s:0", "language=eng", "-shortest",
+               "-y", str(self.video)]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                       check=True, timeout=30)
+        out = find_local_english(
+            self.selected(en_sidecar_path=None, video_path=self.video,
+                          video_file_complete=True),
+            cache_root=self.cache)
+        self.assertEqual(out.source_kind, "EMBEDDED_TEXT")
+        self.assertEqual(out.asset.cues, 2)
+        self.assertEqual(out.asset.language, "en")
+        self.assertTrue(out.private_cache_file.exists())
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg/FFprobe not available")
+    def test_real_ffmpeg_vtt_to_srt_from_generated_fixture(self):
+        """A real local VTT can flow to existing SRT-only LEAN120 receipt."""
+        vtt = self.media / SIDECAR.replace(".srt", ".vtt")
+        vtt.write_bytes(b"WEBVTT\\n\\n00:00:01.000 --> 00:00:01.900\\nSynthetic subtitle\\n")
+        out = find_local_english(self.selected(en_sidecar_path=vtt),
+                                 cache_root=self.cache)
+        self.assertEqual(out.source_kind, "SIDECAR_VTT")
+        self.assertEqual(out.asset.cues, 1)
+        self.assertIn(b"00:00:01,000 --> 00:00:01,900", out.asset.contents)
 
     def test_direct_local_en_enters_existing_p2_lean120_no_opensubtitles_calls(self):
         provider = FakeProvider()
