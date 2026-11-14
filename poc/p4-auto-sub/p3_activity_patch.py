@@ -37,7 +37,7 @@ TICK = """    /** Sample live PlayerSession + G1/P4 per-movie choice, not last P
 
 
 P4_BUTTON = """        add(if (p4LanScope != null || p4ActivationInFlight)
-                 "Tắt Vietsub AI" else "Bật Vietsub AI", "AD01.10") {
+                "Tắt Vietsub AI" else "Bật Vietsub AI", "AD01.10") {
             if (p4LanScope != null) {
                 stopP4LanSession()
                 showMessage("Đã tắt Vietsub AI cho phim này.", false)
@@ -55,7 +55,7 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
                  P3SelectedMediaPublisher.viewerRequested(
                      applicationContext, session.request, index(),
                      engine is VlcEngine)))
-                 "Tắt Vietsub AI" else "Bật Vietsub AI", "AD01.10") {
+                "Tắt Vietsub AI" else "Bật Vietsub AI", "AD01.10") {
             val current = if (::session.isInitialized) session.request else null
             val waiting = current != null && P3SelectedMediaPublisher.viewerRequested(
                 applicationContext, current, index(), engine is VlcEngine)
