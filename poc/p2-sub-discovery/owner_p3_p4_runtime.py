@@ -18,10 +18,11 @@ import ssl
 from threading import Thread
 from typing import Callable
 
+from owner_session_bridge import run_owner_agent
+# p3_owner_state_wiring installs this repository's two pinned sibling paths.
+from p3_owner_state_wiring import OwnerP3StatusComposition
 from lan_revision_feed import private_lan_ip
 from p4_tls import create_tls_context
-from owner_session_bridge import run_owner_agent
-from p3_owner_state_wiring import OwnerP3StatusComposition
 
 
 class OwnerRuntimeBlocked(ValueError):
