@@ -9,6 +9,7 @@ from http.client import HTTPSConnection
 from http.server import HTTPServer
 import json
 from pathlib import Path
+import sys
 import shutil
 import ssl
 import subprocess
@@ -16,6 +17,15 @@ import tempfile
 import threading
 import time
 import unittest
+
+# Discovery's legacy CI invokes unittest with only this directory on
+# sys.path. Resolve sibling project modules exactly as earlier P3 tests do.
+# Do not rely on GitHub's global PYTHONPATH or import-time cwd.
+_POC = Path(__file__).resolve().parent.parent
+for _part in ("p3-vietsub-trigger", "p2-aisub"):
+    _path = str(_POC / _part)
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 from activation_gate import PlaybackSelected
 from assumed_source_handoff import AssumedEnglishSubtitle
