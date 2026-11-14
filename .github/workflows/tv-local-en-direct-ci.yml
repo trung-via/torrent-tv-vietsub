@@ -1,0 +1,54 @@
+# P3 LOCAL_EN_DIRECT source-only CI. No real local video or provider credentials.
+name: Torrent TV - Local English Direct Offline CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p2-sub-discovery/local_en_direct.py'
+      - 'poc/p2-sub-discovery/automatic_vietsub_flow.py'
+      - 'poc/p2-sub-discovery/test_local_en_direct.py'
+      - 'docs/subtitle-activation/LOCAL_EN_DIRECT.md'
+      - '.github/workflows/tv-local-en-direct-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  local-en:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-local-english-direct-20261114' &&
+      github.event.pull_request.base.ref == 'feature/p2-auto-source-to-lean120-20261114'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact approved PR head, no persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install FFmpeg test dependency on disposable hosted Ubuntu runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
+      - name: Synthetic local EN direct and entire D2/P2 worker regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub"
+          command -v ffmpeg >/dev/null || { echo "FFMPEG_NOT_INSTALLED"; exit 1; }
+          command -v ffprobe >/dev/null || { echo "FFPROBE_NOT_INSTALLED"; exit 1; }
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -v
+          python3 -m unittest discover -s poc/p2-aisub -p 'test_*.py' -v
+          python3 -m py_compile poc/p2-sub-discovery/local_en_direct.py poc/p2-sub-discovery/automatic_vietsub_flow.py
+          echo 'LOCAL_EN_DIRECT_SOURCE_ONLY_NO_REAL_MEDIA_FFMPEG_TORRSERVER_PROVIDERS_TV'

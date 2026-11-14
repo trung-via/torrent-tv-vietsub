@@ -17,6 +17,7 @@ import re
 from typing import Callable
 
 from matcher import Media, _release_stem_and_accessibility, parse_release
+from local_en_direct import LocalMediaSelection, find_local_english
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
 from owner_en_single_trial import _claim_one_post, _preflight_cache
 from owner_vietsub_pipeline import (
@@ -153,7 +154,8 @@ class AutomaticVietsubFlow:
         self.emit(f"AUTO_VI_CUES={result.translated_cues}")
         return result
 
-    def selected_media(self, video_name: str) -> AutoResult:
+    def selected_media(self, video_name: str, *,
+                       local_source: LocalMediaSelection | None = None) -> AutoResult:
         """A single owner-local call from an existing TV/media selection event.
 
         Search exactly once, download the unique highest-confidence source
@@ -165,6 +167,22 @@ class AutomaticVietsubFlow:
                 or len(video_name) > 255 or "/" in video_name or "\\" in video_name
                 or any(ord(c) < 32 for c in video_name)):
             raise ValueError("AUTO_VIETSUB_INVALID_MEDIA_NAME")
+        # Verify an exact owner-local EN source BEFORE any D2 GET/POST. The
+        # TV/server event attestation is supplied by a separately authenticated
+        # P3-TRIGGER adapter; filenames alone must never authorize delivery.
+        if local_source is not None:
+            if not isinstance(local_source, LocalMediaSelection) or local_source.video_name != video_name:
+                raise ValueError("AUTO_LOCAL_SELECTED_MEDIA_MISMATCH")
+            local = find_local_english(local_source, cache_root=self.cache_root)
+            if local is not None:
+                self.emit("AUTO_EN_SOURCE=LOCAL_DIRECT")
+                translated = self.after_en_cached(local.asset, local.private_cache_file)
+                if not translated.translation_complete:
+                    raise ValueError("AUTO_LOCAL_EN_INCOMPLETE_TRANSLATION")
+                return AutoResult("VIETSUB_READY", cue_count=local.asset.cues,
+                                  translated_cues=translated.translated_cues)
+        # No local EN is available: reuse existing D2 private cache or VI_FAST.
+        # Local source mismatch/ambiguous track raises and does NOT fall through.
         parsed = parse_release(video_name)
         if not parsed.title or parsed.year is None or not parsed.group:
             return AutoResult("REVIEW_REQUIRED")
