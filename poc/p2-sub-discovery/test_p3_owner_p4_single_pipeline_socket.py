@@ -29,6 +29,8 @@ for _part in ("p2-aisub", "p3-vietsub-trigger"):
 from automatic_vietsub_flow import AutoResult
 from owner_session_bridge import poll_private_events
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader
+from owner_torrserver_ffp_tracks import TorrServerFfpTrackReader
+from owner_p3_p4_private_policy import PrivateP3P4Policy
 from p3_owner_state_wiring import compose_owner_redmi_status
 from p3_signed_playback_signal import sign_synthetic_event
 from p3_redmi_current_state import sign_synthetic_state
@@ -211,6 +213,97 @@ class P3ToOwnerToP4SocketTests(unittest.TestCase):
         self.assertEqual(self.activate("4" * 32)[0], 403)
         self.assertEqual(self.flow.calls, 1)
         self.assertGreaterEqual(self.reads, 6)
+
+
+class StreamOnlyP3ToOwnerToP4SocketTests(P3ToOwnerToP4SocketTests):
+    """Same signed P3→V3→P4 HTTP lifecycle, but real private stream-only policy.
+
+    No synthetic permissive owner policy callbacks; only a per-film approved
+    allowlist and independently parsed OMP /ffp inventory can proceed.
+    Transport responses and subtitle bytes remain synthetic test fixtures.
+    """
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix="ttv-stream-pipeline-synthetic-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        owner = root / "OwnerBridge"
+        owner.mkdir()
+        media_root = root / "media"
+        media_root.mkdir()
+        cache = root / "cache"
+        cache.mkdir()
+        self.owner = owner
+        self.flow = CompletedViSource(cache)
+        self.reads = 0
+        self.ffp_reads = 0
+        ts_path = "Synthetic/" + VIDEO
+        meta = json.dumps({
+            "hash": TORRENT,
+            "file_stats": [{"id": 2, "path": ts_path, "length": 100000}],
+        }).encode()
+
+        def local_metadata(url, body, timeout):
+            self.reads += 1
+            self.assertEqual(url, "http://127.0.0.1:8090/torrents")
+            self.assertEqual(json.loads(body), {"action": "get", "hash": TORRENT})
+            return meta
+
+        def trusted_ffp(url, timeout):
+            self.ffp_reads += 1
+            self.assertEqual(
+                url, "http://127.0.0.1:8090/ffp/" + TORRENT + "/2")
+            self.assertEqual(timeout, 3.0)
+            return json.dumps({"streams": [
+                {"codec_type": "video", "codec_name": "h264"},
+                {"codec_type": "subtitle", "tags": {"language": "eng"}},
+            ]}).encode()
+
+        ts = OwnerTorrServerReader(
+            OwnerLocalTorrServer(PROFILE, 8090), transport=local_metadata)
+        policy_path = owner / "p3-p4-policy.json"
+        policy_path.write_text(json.dumps({
+            "schema": "TTV-P3-P4-OWNER-POLICY-V1",
+            "enabled": True,
+            "profile_id": PROFILE,
+            "torrserver_port": 8090,
+            "private_media_root": str(media_root),
+            "media": [{
+                "torrent_hash": TORRENT,
+                "file_index": 2, "torrserver_path": ts_path,
+                "video_path": None, "stream_only": True,
+                "rights_approved": True,
+            }],
+        }), encoding="utf-8")
+        policy = PrivateP3P4Policy(
+            manifest=policy_path, owner_root=owner,
+            private_media_root=media_root, torrserver=ts,
+            stream_probe=TorrServerFfpTrackReader(ts, transport=trusted_ffp))
+        self.assertTrue(policy.owner_auto_allowed())
+        self.assertTrue(policy.media_rights_allowed(PROFILE, TORRENT, 2))
+        self.assertIsNone(
+            policy.locate_owner_pinned_files(PROFILE,TORRENT,2,ts_path))
+        self.wiring = compose_owner_redmi_status(
+            p4_gateway=None, paired_device_secret=KEY,
+            torrserver_reader=ts, owner_root=owner,
+            private_media_root=media_root,
+            owner_auto_allowed=policy.owner_auto_allowed,
+            media_rights_allowed=policy.media_rights_allowed,
+            verified_local_vi_state=policy.verified_local_vi_state,
+            locate_owner_pinned_files=policy.locate_owner_pinned_files,
+            enable_verified_vietsub_ready=True)
+        self.server = HTTPServer(("127.0.0.1", 0), self.wiring.handler)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.thread = threading.Thread(
+            target=self.server.serve_forever,
+            kwargs={"poll_interval": 0.05}, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.thread.join, 2)
+
+    def test_real_loopback_full_vi_pipeline_and_off_revocation(self):
+        super().test_real_loopback_full_vi_pipeline_and_off_revocation()
+        self.assertGreater(self.ffp_reads, 0)
 
 
 if __name__ == "__main__":
