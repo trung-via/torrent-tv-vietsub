@@ -40,7 +40,32 @@ class PlayerActivity {
         closedSent = true
         commitPendingSeek()
     }
+    private fun beginP4Activation() {
+        runOnUiThread {
+                if (result == null) {
+                    showMessage("PC chưa sẵn sàng hoặc chưa có phụ đề nguồn cho phim.", true)
+                    return@runOnUiThread
+                }
+                result.sessionSecret.fill(0)
+                showMessage(
+                    if (started) "Đã bật Vietsub AI. Đang chờ bản dịch đầu tiên..."
+                    else "Phim đã đổi hoặc không thể bật Vietsub AI.", !started)
+        }
+    }
     private fun openMenu() {
+        add(if (p4LanScope != null || p4ActivationInFlight)
+                "Tắt Vietsub AI" else "Bật Vietsub AI", "AD01.10") {
+            if (p4LanScope != null) {
+                stopP4LanSession()
+                showMessage("Đã tắt Vietsub AI cho phim này.", false)
+            } else if (p4ActivationInFlight) {
+                p4ActivationGeneration++
+                p4ActivationInFlight = false
+                showMessage("Đã hủy yêu cầu Vietsub AI.", false)
+            } else {
+                beginP4Activation()
+            }
+        }
         add("Hủy ghép đôi PC Vietsub AI", "AD01.12") {}
     }
 }
@@ -106,7 +131,7 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn("private val p3StatusTick =", self.patched)
         self.assertIn("handler.postDelayed(this, 3_000L)", self.patched)
         self.assertIn("handler.removeCallbacks(p3StatusTick)", self.patched)
-        self.assertEqual(self.patched.count("P3SelectedMediaPublisher.sample("), 2)
+        self.assertEqual(self.patched.count("P3SelectedMediaPublisher.sample("), 4)
         self.assertIn("P1ProductionSubtitles.automaticChoice(", self.kt)
         self.assertIn("request?.queue?.getOrNull(selectedIndex)", self.kt)
         self.assertIn("engine is VlcEngine", self.patched)
@@ -120,10 +145,64 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertNotIn('item.title', self.kt)
         self.assertNotIn('"video_filename"', self.kt)
 
+    def test_real_viewer_button_starts_request_not_p4_opt_in(self):
+        self.assertIn("P3SelectedMediaPublisher.requestViewer(", self.patched)
+        self.assertIn('"VIEWER_VIETSUB_REQUESTED"', self.kt)
+        self.assertIn("current.requestedByViewer = true", self.kt)
+        self.assertIn('val choice = if (isSame && current.requestedByViewer &&', self.kt)
+        self.assertIn('nativeChoice != "ON") "REQUESTED" else nativeChoice', self.kt)
+        self.assertIn("sample(ctx, request, selectedIndex, nativeVlc)", self.kt)
+        self.assertIn('enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED")', self.kt)
+        self.assertNotIn('P1ProductionSubtitles.setAutomaticOptIn(', self.kt)
+
+    def test_source_wait_uses_only_bounded_original_p4_activation(self):
+        self.assertIn("private val p3ActivationTick =", self.patched)
+        self.assertIn("p3ActivationAttempts >= 120", self.patched)
+        self.assertIn("handler.postDelayed(this, 15_000L)", self.patched)
+        self.assertIn("beginP4Activation()", self.patched)
+        self.assertIn("P3SelectedMediaPublisher.reaffirmViewer(", self.patched)
+        self.assertIn("P3SelectedMediaPublisher.cancelViewer(", self.patched)
+        self.assertIn("handler.removeCallbacks(p3ActivationTick)", self.patched)
+        self.assertIn("p4ActivationGeneration++", self.patched)
+        self.assertNotIn("startP4LanSession(", self.patched)
+
+    def test_manual_off_other_invalidates_inflight_p4_before_source_ready(self):
+        self.assertIn("P1ProductionSubtitles.automaticChoice(", self.patched)
+        self.assertIn('index()) != "ON") {', self.patched)
+        self.assertIn("p4ActivationGeneration++", self.patched)
+        self.assertIn("p4ActivationInFlight = false", self.patched)
+        self.assertIn("if (p4LanScope != null) unbindP4Session()", self.patched)
+        self.assertIn("P3SelectedMediaPublisher.cancelViewer(", self.patched)
+        # Do not call stopP4LanSession: it would force 'off' and override
+        # the viewer's manually selected OTHER-language subtitle.
+        self.assertNotIn("if (p4LanScope != null) stopP4LanSession()\n        }", self.patched)
+
+    def test_off_revokes_previously_queued_signed_consent_before_send(self):
+        # This source contract protects both the status executor and the
+        # event executor; a test of HMAC alone cannot catch stale queue work.
+        cancel = self.kt.split("internal fun cancelViewer(", 1)[1].split(
+            "/** A signed close", 1)[0]
+        self.assertLess(cancel.index("current.requestedByViewer = false"),
+                        cancel.index("generation.incrementAndGet()"))
+        self.assertLess(cancel.index("generation.incrementAndGet()"),
+                        cancel.index("sample(ctx, request"))
+        status = self.kt.split("private fun enqueueStatus(", 1)[1].split(
+            "private fun randomHex", 1)[0]
+        selected = self.kt.split("private fun enqueue(ctx:", 1)[1].split(
+            "private fun postOnce", 1)[0]
+        self.assertGreaterEqual(status.count("generation.get() != gen"), 2)
+        self.assertGreaterEqual(selected.count("generation.get() != gen"), 2)
+        self.assertGreaterEqual(status.count("!selected.requestedByViewer"), 2)
+        self.assertGreaterEqual(selected.count("!selected.requestedByViewer"), 2)
+        # Signed close and final inactive status are intentionally retained:
+        # clearing a request must not suppress lifecycle teardown.
+        self.assertIn("(isActive && active !== selected)", status)
+        self.assertIn('kind != "PLAYBACK_CLOSED" && active !== selected', selected)
+
     def test_p4_source_guards_apply_once_and_fail_closed_on_drift(self):
         with self.assertRaisesRegex(ValueError, "P3_ACTIVITY_ALREADY_APPLIED"):
             self.p.patch_activity(self.patched)
-        for old in (self.p.FIELD, self.p.CHOICE, self.p.LOAD, self.p.ITEM, self.p.CLOSE, self.p.MENU):
+        for old in (self.p.FIELD, self.p.CHOICE, self.p.LOAD, self.p.ITEM, self.p.CLOSE, self.p.MENU, self.p.P4_BUTTON, self.p.P4_PENDING_MESSAGE, self.p.P4_SUCCESS):
             with self.subTest(old=old[:30]):
                 with self.assertRaises(ValueError):
                     self.p.patch_activity(fake_p4_activity().replace(old, "DRIFT", 1))
