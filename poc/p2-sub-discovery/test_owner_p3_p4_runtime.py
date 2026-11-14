@@ -98,8 +98,8 @@ class OwnerIntegratedRuntimeTests(unittest.TestCase):
                 self.closed = False
             def server_close(self):
                 self.closed = True
-        with mock.patch("owner_p3_p4_runtime.HTTPServer", FakeServer), \\
-             mock.patch("owner_p3_p4_runtime.ssl.SSLContext", FakeTLS):
+        with (mock.patch("owner_p3_p4_runtime.HTTPServer", FakeServer),
+              mock.patch("owner_p3_p4_runtime.ssl.SSLContext", FakeTLS)):
             ctx = FakeTLS()
             result = make_integrated_https_server(
                 wiring=self.wiring, host="192.168.1.8", port=8443,
