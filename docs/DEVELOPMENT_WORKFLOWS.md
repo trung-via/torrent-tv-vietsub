@@ -40,7 +40,7 @@ Mỗi PR tái sử dụng phải có:
 - `GITHUB_TOKEN` mặc định chỉ `contents: read`; quyền ghi chỉ ở job/release được Human duyệt. Không đưa credentials vào URL/command line/log.
 - Manual dispatch cho job cài/chạy APK/ADB hoặc chạm Windows host; action chạy trên host phải có bounded timeout, exact ref và stop conditions.
 - Artifact APK/checksum là evidence của build, **không** là bằng chứng TV/server real PASS. Giữ retention ngắn, private; không tự publish.
-- Branch protection/review policy là quyết định của repo Torrent TV, không phụ thuộc AIOS.
+- Branch protection/review policy là quyết định của repo Torrent TV, không phụ thuộc AIOS. **Human Issue #42 (2026-11-05) cho phép merge GitHub PR sau Brain review độc lập PASS trên HEAD/base hiện tại và tất cả CI/acceptance/security gates liên quan; thiếu proof => HOLD, không cấp quyền auto-release/host/TV/provider.**
 
 ## 5a. PUBLIC repository mode (Human-decided)
 
