@@ -36,8 +36,9 @@ class FakePipeline:
     def __init__(self):
         self.calls = []
 
-    def selected_media(self, video_filename, *, source_fingerprint=None):
-        self.calls.append((video_filename, source_fingerprint))
+    def selected_media(self, video_filename, *, source_fingerprint=None,
+                       tv_session_id=None):
+        self.calls.append((video_filename, source_fingerprint, tv_session_id))
         return type("Receipt", (), {"status": "VIETSUB_READY"})()
 
 
@@ -73,6 +74,7 @@ class TriggerToOwnerTests(unittest.TestCase):
         self.assertEqual(len(fake.calls), 1)
         self.assertEqual(fake.calls[0][0], self.event.video_name)
         self.assertRegex(fake.calls[0][1], r"^[0-9a-f]{64}$")
+        self.assertEqual(fake.calls[0][2], "trusted-tv-session-1")
         self.assertIn("OWNER_PLAYBACK_PRIVATE_ENQUEUED", self.lines)
         self.assertIn("OWNER_BRIDGE_EVENT_COMPLETE", self.lines)
 
