@@ -102,7 +102,22 @@ try {
             (Get-Item -LiteralPath $policy).LinkType) {
             throw 'P3_P4_ACTIVATE_POLICY_PATH_NOT_REGULAR'
         }
-        Write-Host 'P3_P4_ACTIVATE_POLICY=EXISTING_UNMODIFIED'
+        # A previously approved per-film policy could start quota-bearing
+        # OpenSubtitles/Gemini work from an old pending event. Never activate
+        # it as an incidental effect of a bootstrap/update operation.
+        try {
+            $policyDoc = Get-Content -LiteralPath $policy -Raw -ErrorAction Stop |
+                ConvertFrom-Json -ErrorAction Stop
+        } catch { throw 'P3_P4_ACTIVATE_EXISTING_POLICY_INVALID' }
+        if ($policyDoc.schema -cne 'TTV-P3-P4-OWNER-POLICY-V1' -or
+            $null -eq $policyDoc.media) {
+            throw 'P3_P4_ACTIVATE_EXISTING_POLICY_UNEXPECTED_SCHEMA'
+        }
+        if (@($policyDoc.media).Count -ne 0) {
+            Write-Host 'P3_P4_ACTIVATE=HOLD_EXISTING_MEDIA_PERMISSIONS_NEED_SEPARATE_REVIEW'
+            return
+        }
+        Write-Host 'P3_P4_ACTIVATE_POLICY=EXISTING_DENY_ALL_PRESERVED'
     } else {
         if (-not (Test-Path -LiteralPath $media)) {
             New-Item -ItemType Directory -Path $media -ErrorAction Stop | Out-Null
