@@ -47,6 +47,8 @@ class _Receipt:
     fingerprint: str
     media_key: str
     origin: str  # vi or en
+    cache_root: Path
+    finished_root: Path
     source_file: Path
     source_sha256: str
     total_cues: int
@@ -229,7 +231,12 @@ class P3OwnerReadyRegistry:
         receipt = _Receipt(
             media=media, tv_session=tv_session_id,
             fingerprint=source_fingerprint, media_key=media_key,
-            origin=origin, source_file=source_file,
+            origin=origin,
+            cache_root=self._root(getattr(flow, "cache_root", None)),
+            finished_root=self._root(
+                flow.worker.state_root if origin == "en"
+                else getattr(flow, "cache_root", None)),
+            source_file=source_file,
             source_sha256=source_sha, total_cues=cues,
             finished_file=finished, finished_sha256=sha)
         with self._lock:
@@ -249,11 +256,11 @@ class P3OwnerReadyRegistry:
         if receipt is None or receipt.media_key != media_key:
             raise P3ReadyRejected("P3_READY_NO_CURRENT_ACCEPTED_SOURCE")
         self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
-        source = self._file(receipt.source_file.parent, receipt.source_file,
+        source = self._file(receipt.cache_root, receipt.source_file,
                             sha=receipt.source_sha256, cues=receipt.total_cues)
         # The LEAN120 output is inside an owner-private P2 fingerprint
         # folder, never a provider reply or untrusted file URL.
-        finished = self._file(receipt.finished_file.parent,
+        finished = self._file(receipt.finished_root,
                               receipt.finished_file,
                               sha=receipt.finished_sha256,
                               cues=receipt.total_cues)
