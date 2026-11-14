@@ -114,24 +114,17 @@ try {
         Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
         exit 0
     }
-    # Only sanitized device properties go to PUBLIC Actions logs; no serial/IP/model string.
+    # Sanitized model/brand hints only; never echo ADB serial, model or user paths.
     $model = @(& $adbPath -s $serial shell getprop ro.product.model 2>$null)
     $modelOk = $LASTEXITCODE -eq 0 -and $model.Count -gt 0
     $brand = @(& $adbPath -s $serial shell getprop ro.product.brand 2>$null)
     $brandOk = $LASTEXITCODE -eq 0 -and $brand.Count -gt 0
     Write-Host ('P4_ANDROID_MODEL_READABLE=' + $modelOk.ToString().ToUpperInvariant())
     Write-Host ('P4_ANDROID_BRAND_READABLE=' + $brandOk.ToString().ToUpperInvariant())
-    $redmiFamily = $brandOk -and ($brand[0].Trim() -match '^(?i:redmi|xiaomi)
-} catch {
-    Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_READONLY_ADB_PROBE_FAILED'
-}
-Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
-)
+    $redmiFamily = $brandOk -and ($brand[0].Trim() -match '^(?i:redmi|xiaomi)$')
     $modelFamily = $modelOk -and ($model[0].Trim() -match '(?i:redmi|a.?pro|mi.?tv|l55)')
     Write-Host ('P4_REDMi_XIAOMI_BRAND_HINT=' + $redmiFamily.ToString().ToUpperInvariant())
     Write-Host ('P4_REDMi_TV_MODEL_HINT=' + $modelFamily.ToString().ToUpperInvariant())
-    # Explicitly check both upstream application IDs. build.gradle sets
-    # applicationIdSuffix '.test' in debug, so release-only probes are invalid.
     $packages = @(& $adbPath -s $serial shell pm list packages 2>$null)
     if ($LASTEXITCODE -ne 0) { throw 'ADB_PM_FAILED' }
     $release = @($packages | Where-Object { $_.Trim() -ceq 'package:com.spacesarmat.omp' }).Count -gt 0
@@ -145,36 +138,18 @@ Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
         if (-not $candidate.installed) { continue }
         $target = $candidate.id
         $variant = $candidate.variant
-        # pm path confirms installed package; do not log private APK/data paths.
         $paths = @(& $adbPath -s $serial shell pm path $target 2>$null)
-        $hasApkPath = $LASTEXITCODE -eq 0 -and
-            @($paths | Where-Object { $_ -match '^package:' }).Count -gt 0
+        $hasApkPath = $LASTEXITCODE -eq 0 -and @($paths | Where-Object { $_ -match '^package:' }).Count -gt 0
         Write-Host ('P4_OMP_' + $variant + '_APK_PATH_CONFIRMED=' + $hasApkPath.ToString().ToUpperInvariant())
-        # dumpsys gives version metadata, never output its raw package dump.
         $pkgDump = @(& $adbPath -s $serial shell dumpsys package $target 2>$null)
         if ($LASTEXITCODE -eq 0) {
-            $summary = $pkgDump -join "`n"
-            $version = [regex]::Match($summary, '(?m)^\s*versionName=([A-Za-z0-9.+_-]{1,60})\s*
-} catch {
-    Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_READONLY_ADB_PROBE_FAILED'
-}
-Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
-)
+            $version = [regex]::Match(($pkgDump -join ' '), 'versionName=([A-Za-z0-9.+_-]{1,60})')
             if ($version.Success) {
                 Write-Host ('P4_OMP_' + $variant + '_VERSION=' + $version.Groups[1].Value)
-            } else {
-                Write-Host ('P4_OMP_' + $variant + '_VERSION=UNAVAILABLE')
-            }
-        } else {
-            Write-Host ('P4_OMP_' + $variant + '_VERSION=UNAVAILABLE')
-        }
+            } else { Write-Host ('P4_OMP_' + $variant + '_VERSION=UNAVAILABLE') }
+        } else { Write-Host ('P4_OMP_' + $variant + '_VERSION=UNAVAILABLE') }
         $pidText = @(& $adbPath -s $serial shell pidof $target 2>$null)
-        $isRunning = $LASTEXITCODE -eq 0 -and (@($pidText | Where-Object { $_ -match '^\d+(?:\s+\d+)*\s*
-} catch {
-    Write-Host 'P4_REAL_REDMi_AND_LAN_GATE=BLOCKED_READONLY_ADB_PROBE_FAILED'
-}
-Write-Host 'P4_LIVE_READONLY_PROBE_COMPLETE_NO_REAL_TV_PASS'
- }).Count -gt 0)
+        $isRunning = $LASTEXITCODE -eq 0 -and (@($pidText | Where-Object { $_ -match '^\d+(?:\s+\d+)*\s*$' }).Count -gt 0)
         Write-Host ('P4_OMP_' + $variant + '_PROCESS_RUNNING=' + $isRunning.ToString().ToUpperInvariant())
     }
     if (-not $release -and -not $debug) {
