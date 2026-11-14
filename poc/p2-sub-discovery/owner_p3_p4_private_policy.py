@@ -47,14 +47,20 @@ def _inside(path: Path, root: Path) -> bool:
     try:
         resolved_root = root.resolve(strict=True)
         resolved = path.resolve(strict=True)
-        if path.is_symlink() or not resolved.is_relative_to(resolved_root):
+        if (".." in path.parts or path.is_symlink()
+                or not resolved.is_relative_to(resolved_root)):
             return False
         current = path
-        while current != resolved_root:
+        for _ in range(len(path.parts) + 1):
             if current.is_symlink():
                 return False
-            current = current.parent
-        return True
+            if current == resolved_root:
+                return True
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        return False
     except (ValueError, RuntimeError, OSError):
         return False
 
