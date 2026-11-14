@@ -158,6 +158,36 @@ def poll_private_events(
     return processed
 
 
+def consume_inert_runner_wakes(*, shared_wake_root: Path | None = None) -> int:
+    """Read only a fixed no-payload wake marker, NEVER a runner command.
+
+    The owner agent already polls its private inbox; this is supplemental
+    evidence of a runner signal and intentionally grants the runner no power
+    to select a video, access secrets or choose script/command arguments.
+    """
+    if shared_wake_root is None:
+        programdata = os.environ.get("PROGRAMDATA")
+        if not programdata:
+            return 0
+        shared_wake_root = Path(programdata) / "TorrentTVVietsub" / "OwnerBridge" / "Wake"
+    if (shared_wake_root.is_symlink() or not shared_wake_root.is_dir()):
+        return 0
+    consumed = 0
+    for item in sorted(shared_wake_root.glob("wake-*.txt"))[:32]:
+        if item.is_symlink() or not item.is_file():
+            continue
+        try:
+            if item.stat().st_size != len(b"WAKE_V1\n"):
+                continue
+            if item.read_bytes() != b"WAKE_V1\n":
+                continue
+            item.unlink()
+            consumed += 1
+        except OSError:
+            continue
+    return consumed
+
+
 def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     interval_seconds: float = 2.0,
                     emit: Callable[[str], object] = print) -> None:
@@ -182,6 +212,9 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
             enabled=True, cache_root=cache_root, state_root=state_root)
         emit("OWNER_BRIDGE_STARTED")
         while True:
+            # Runner wake contains no user data or command; private OMP-local
+            # events remain the only accepted source of actual film work.
+            consume_inert_runner_wakes()
             poll_private_events(owner_root=private_root, processor=flow, emit=emit)
             time.sleep(interval_seconds)
     finally:
