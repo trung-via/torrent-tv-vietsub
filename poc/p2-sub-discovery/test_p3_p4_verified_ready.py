@@ -162,6 +162,7 @@ class ReadyRegistryTests(unittest.TestCase):
     def test_off_other_stale_session_and_cross_torrent_denied(self):
         self.source(language="vi")
         self.register(AutoResult("VI_READY",cue_count=240))
+        original = self.current
         for change in (dict(viewer_choice="OFF"),dict(viewer_choice="OTHER"),
                        dict(tv_session_id="c"*32),dict(torrent_hash="d"*40),
                        dict(active=False),dict(media_rights_approved=False),
@@ -170,9 +171,7 @@ class ReadyRegistryTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaisesRegex(
                     P3ReadyRejected, "CURRENT_MEDIA_OR_CONSENT_CHANGED"):
                 self.p4.activate(request(nonce=str(len(change))*32))
-            self.current = replace(self.current, **{
-                k:getattr(self.expected, k) for k in change}) if hasattr(
-                    self, "expected") else self._original()
+            self.current = original
         wrong = p4_media_key(
             Media(MEDIA.server_profile_id,"d"*40, MEDIA.file_index,MEDIA.filename),
             vlc_selected=True)
