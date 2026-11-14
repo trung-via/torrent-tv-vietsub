@@ -54,7 +54,7 @@ class PlayerActivity {
     }
     private fun openMenu() {
         add(if (p4LanScope != null || p4ActivationInFlight)
-                 "Tắt Vietsub AI" else "Bật Vietsub AI", "AD01.10") {
+                "Tắt Vietsub AI" else "Bật Vietsub AI", "AD01.10") {
             if (p4LanScope != null) {
                 stopP4LanSession()
                 showMessage("Đã tắt Vietsub AI cho phim này.", false)
