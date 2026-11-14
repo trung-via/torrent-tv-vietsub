@@ -1,6 +1,6 @@
-# Roadmap v3.1 — Torrent TV Vietsub OMP-first, research-aligned
+# Roadmap v3.2 (proposed) — Torrent TV Vietsub OMP-first, research-aligned
 
-**Ngày:** 2026-10-28  
+**Ngày:** 2026-10-28 · **Bổ sung P3-MOBILE:** 2026-11-14 (Human-directed, Draft PR review only)  
 **Trạng thái:** `DRAFT_FOR_PR_REVIEW`. Đây là backlog riêng của Torrent TV, không phải roadmap/canonical TASK của AIOS. Hướng North Star đã được chọn và Deep Research ngày 2026-10-28 đã được đối chiếu; thứ tự kỹ thuật vẫn phụ thuộc evidence trên OMP/TorrServer/Redmi thực tế.
 
 | Ưu tiên | Workstream | Phụ thuộc | Exit gate |
@@ -13,8 +13,24 @@
 | P2-SOURCE | Lawful source search intelligence, metadata/filter/rank (resolution/size/seeds/codec/vi) | P0 + source/ToS proof | Search smoke + candidate confidence + explicit confirmation |
 | P2-AISUB | Human-decided on-demand Vietsub goal in Draft PR #9; translate timed SRT/VTT first, ASR→translation/QA if source text unavailable; offline local-first CLI | Licensed fixtures; no Gateway dependency, TV E2E requires P1a G1 | SRT/VTT UTF-8 cue QA, resource/cost/privacy and user opt-in |
 | P3 | Torrent TV local gateway + TV pairing/control + optional ChatGPT interface | P2-SOURCE, real TV API proof, security review | Real E2E search→confirm→TorrServer→TV + negative tests |
+| P3-MOBILE | **Android Mobile Companion**: dùng OMP upstream trên điện thoại để quản lý thư viện/tìm kiếm và gửi yêu cầu thêm torrent hợp lệ vào **TorrServer Windows sẵn có**, tùy chọn ghép Redmi OMP Vietsub làm remote; không viết app Kotlin mới hoặc chạy TorrServer không mật khẩu trên điện thoại | P0 Windows TorrServer LAN, OMP upstream Android APK có provenance; TV remote phụ thuộc compatibility với bản OMP Debug tùy biến | G-MOBILE-INSTALL (APK/ABI/signature), G-MOBILE-SERVER (discovery/library), G-MOBILE-ADD (một lệnh owner-confirmed), G-MOBILE-TV (mã ghép đôi/remote thật) **độc lập** |
 | P4 | Integrate P2-AISUB Vietsub outputs into OMP TV UX (not a duplicate CLI PoC) | P1a-G1 real external subtitle import and rights/consent | Real Redmi selected track/reopen/seek/cue sync with generated SRT/VTT |
 | P5 | Opt-in AI voice-over: TTS/align/mix/mux; real-time feasibility separate | P4 + player/audio proof | Sync/seek/quality/latency/cost measured; no real-time claim without proof |
+
+## P3-MOBILE — OMP Android Phone Companion (bổ sung ngày 2026-11-14)
+
+**Quyết định Human:** xây dựng nhánh cấu hình điện thoại Android độc lập với P2 OpenSubtitles/Gemini và P4 auto Vietsub. Tận dụng OMP upstream thay vì tạo app điện thoại mới, dùng TorrServer trên Windows PC làm server duy nhất; điện thoại là client, Redmi A Pro 55 là TV client. Trạng thái nhánh đầu tiên: `SOURCE_SETUP_CANDIDATE`, không mặc nhiên đã cài hay kết nối thành công.
+
+**Lý do tái sử dụng:** Upstream OMP `spacesarmat/omp` tài liệu chính thức hỗ trợ Android 8+, cùng dòng APK Android TV/phone, library/search và remote TV; Android TV hiển thị mã ghép đôi 6 chữ số trong phần kết nối điện thoại. Bản phát hành được xác minh khi lập kế hoạch là `v0.30.0` (2026-11-11); các phiên bản sau phải xác minh lại khi cài. Source-pin OMP trong các PR G1/G2/P4 trước đó khác release upstream mới, vì vậy **không coi ghép đôi với OMP Debug Vietsub là đã PASS**.
+
+**Đường triển khai và gates:**
+1. **M0 / Phone Install:** kiểm tra Android API/ABI, lấy APK từ GitHub Releases chính thức, xác nhận nguồn/phiên bản và checksum tại thiết bị owner; không download hoặc ký lại APK trong repo public. Android 8+ và arm64 nếu thiết bị thật hỗ trợ. Gate `G-MOBILE-INSTALL`.
+2. **M1 / Windows TorrServer:** điện thoại và laptop trong cùng mạng riêng LAN/Wi-Fi; nhập thủ công host Windows hiện hữu hoặc chọn `Find in network`, kiểm tra **chỉ đọc** library. Công cụ tiền kiểm Windows không mở firewall/port/service hoặc ghi bí mật. Gate `G-MOBILE-SERVER`.
+3. **M2 / Library & authorized add:** thử duy nhất một nguồn có quyền sử dụng, owner xác nhận trước khi gửi thêm torrent; xác nhận nó xuất hiện trên TorrServer và TV. Không tự chạy search/crawler hay tải nội dung trong CI. Gate `G-MOBILE-ADD`.
+4. **M3 / Phone↔TV remote:** TV OMP Debug hiện tại phải thực sự có `Connect phone`/mã 6 chữ số; ghép trong cùng LAN và thử start/play/pause/seek/track. Nếu TV build tùy biến không tương thích protocol, đặt `COMPATIBILITY_BLOCKED`; **không ghi đè** TV APK G1/G2/P4 bằng OMP upstream hoặc bật ADB để sửa tắt. Gate `G-MOBILE-TV`.
+5. **M4 / Future Gateway integration:** sử dụng mobile client như một điểm vào `P3` đã xác thực; chỉ khi có bằng chứng schema/permissions/consumer. Không nối riêng qua AIOS, không dựng app mới hay nhập private credentials vào GitHub.
+
+**Handoff:** [Issue #138](https://github.com/trung-via/torrent-tv-vietsub/issues/138); hướng dẫn [Mobile Companion Android setup](mobile-companion/ANDROID_PHONE_SETUP.md). Các gate `G-MOBILE-*` phải ghi evidence theo phiên bản APK/observer/server/TV và không được suy từ unit test, README hoặc build artifact.
 
 ## Research-aligned incremental backlog (not dispatched)
 
