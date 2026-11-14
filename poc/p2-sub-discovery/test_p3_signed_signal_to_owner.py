@@ -124,6 +124,24 @@ class SignedIngressTests(unittest.TestCase):
         self.assertEqual(self.read_count, 0)
         self.assertFalse(self.root.exists())
 
+    def test_stale_a_close_cannot_reset_dedup_for_active_b(self):
+        self.assertEqual(
+            self.adapter.on_wire(wire(), now_ms=WHEN).status, "DISPATCH")
+        self.state = snapshot(tv_session_id="d" * 32)
+        b = wire(tv_session_id="d" * 32, nonce="e" * 32,
+                 sent_at_ms=WHEN + 100)
+        self.assertEqual(
+            self.adapter.on_wire(b, now_ms=WHEN + 100).status, "DISPATCH")
+        old_close = wire(kind="PLAYBACK_CLOSED",
+                         nonce="f" * 32, sent_at_ms=WHEN + 200)
+        closed = self.adapter.on_wire(old_close, now_ms=WHEN + 200)
+        self.assertEqual(closed.reason, "TV_STALE_CLOSED_IGNORED")
+        b_again = wire(tv_session_id="d" * 32, nonce="1" * 32,
+                       sent_at_ms=WHEN + 300)
+        duplicate = self.adapter.on_wire(b_again, now_ms=WHEN + 300)
+        self.assertEqual(duplicate.reason, "DUPLICATE_CURRENT_PLAY_EVENT")
+        self.assertEqual(len(self.inbox()), 2)
+
     def test_new_session_new_nonce_can_enqueue_again(self):
         self.assertEqual(self.adapter.on_wire(wire(), now_ms=WHEN).status, "DISPATCH")
         self.state = snapshot(tv_session_id="d" * 32)
