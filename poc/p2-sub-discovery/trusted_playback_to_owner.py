@@ -55,7 +55,16 @@ class TrustedPlaybackToOwner:
         No raw caller-supplied event argument: fetch fresh trusted state now.
         The existing queue/agent handles private work asynchronously.
         """
-        event = self.read_current()
+        try:
+            event = self.read_current()
+        except Exception:
+            # The trusted source may have been disconnected; do not leak
+            # private OMP/TorrServer details or invent an active session.
+            self.emit("OWNER_PLAYBACK_HOLD")
+            return TriggerDecision("HOLD", "TRUSTED_SOURCE_UNAVAILABLE")
+        if not isinstance(event, PlaybackSelected):
+            self.emit("OWNER_PLAYBACK_HOLD")
+            return TriggerDecision("HOLD", "MALFORMED_EVENT")
         decision = self.gate.consider(event)
         if decision.status != "DISPATCH":
             self.emit("OWNER_PLAYBACK_" + decision.status)
