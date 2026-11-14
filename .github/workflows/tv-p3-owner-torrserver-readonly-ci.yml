@@ -5,6 +5,8 @@ on:
     paths:
       - 'poc/p2-sub-discovery/owner_torrserver_readonly.py'
       - 'poc/p2-sub-discovery/test_owner_torrserver_readonly.py'
+      - 'poc/p2-sub-discovery/p3_p4_media_key.py'
+      - 'poc/p2-sub-discovery/test_p3_p4_media_key.py'
       - 'docs/subtitle-activation/P3_OWNER_TORRSERVER_READONLY.md'
       - '.github/workflows/tv-p3-owner-torrserver-readonly-ci.yml'
 permissions:
@@ -32,5 +34,6 @@ jobs:
           set -euo pipefail
           export PYTHONPATH="$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub:$PWD/poc/p3-vietsub-trigger"
           python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_torrserver_readonly.py' -v
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_p3_p4_media_key.py' -v
           python3 -m py_compile poc/p2-sub-discovery/owner_torrserver_readonly.py
           echo 'P3_TORRSERVER_LOCALHOST_ONLY_SOURCE_CI_NO_REAL_MOVIE_SERVER_OR_PROVIDER'
