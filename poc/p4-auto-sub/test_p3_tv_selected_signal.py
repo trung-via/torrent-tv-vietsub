@@ -166,6 +166,17 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn("p4ActivationGeneration++", self.patched)
         self.assertNotIn("startP4LanSession(", self.patched)
 
+    def test_manual_off_other_invalidates_inflight_p4_before_source_ready(self):
+        self.assertIn("P1ProductionSubtitles.automaticChoice(", self.patched)
+        self.assertIn('index()) != "ON") {', self.patched)
+        self.assertIn("p4ActivationGeneration++", self.patched)
+        self.assertIn("p4ActivationInFlight = false", self.patched)
+        self.assertIn("if (p4LanScope != null) unbindP4Session()", self.patched)
+        self.assertIn("P3SelectedMediaPublisher.cancelViewer(", self.patched)
+        # Do not call stopP4LanSession: it would force 'off' and override
+        # the viewer's manually selected OTHER-language subtitle.
+        self.assertNotIn("if (p4LanScope != null) stopP4LanSession()\n        }", self.patched)
+
     def test_p4_source_guards_apply_once_and_fail_closed_on_drift(self):
         with self.assertRaisesRegex(ValueError, "P3_ACTIVITY_ALREADY_APPLIED"):
             self.p.patch_activity(self.patched)
