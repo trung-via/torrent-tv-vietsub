@@ -11,7 +11,7 @@ import re
 
 _HASH = re.compile(r"[0-9a-fA-F]{16}\Z")
 _YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
-_VIDEO_EXT = re.compile(r"\.(?:mkv|mp4|avi|mov|webm|srt|vtt)\Z", re.I)
+_VIDEO_EXT = re.compile(r"\.(?:mkv|mp4|avi|mov|webm|srt|vtt|ass|ssa|sub|txt|smi|sami)\Z", re.I)
 _GROUP = re.compile(r"-([a-z0-9]{2,30})\Z", re.I)
 _RESOLUTION = re.compile(r"(?<!\w)(720p|1080p|2160p|4k)(?!\w)", re.I)
 _CODEC = re.compile(r"(?<!\w)(x264|x265|h264|h265|hevc|av1)(?!\w)", re.I)
@@ -124,7 +124,9 @@ class Decision:
 
 def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
     lang = _LANG.get(candidate.language.lower())
-    if lang is None or candidate.fmt.lower() not in {"srt", "vtt"}:
+    # "provider" is OpenSubtitles metadata with an unverified output format.
+    # Rank the release; the D2 download gate must request/verify SRT before use.
+    if lang is None or candidate.fmt.lower() not in {"srt", "vtt", "provider"}:
         return None
     reference = parse_release(media.filename)
     proposed = parse_release(candidate.release_name)
