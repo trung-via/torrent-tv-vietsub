@@ -14,6 +14,13 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Callable, Type
+import sys
+
+_POC = Path(__file__).resolve().parent.parent
+for _part in ("p2-aisub", "p3-vietsub-trigger"):
+    _sub = str(_POC / _part)
+    if _sub not in sys.path:
+        sys.path.insert(0, _sub)
 
 from paired_activation import PairedActivation
 from owner_selected_file_resolver import OwnerPinnedFiles
