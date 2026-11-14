@@ -84,6 +84,11 @@ class OwnerLocalTorrServer:
             raise OwnerTorrServerReadError("TS_OWNER_PROFILE_INVALID")
 
     @property
+    def profile_id(self) -> str:
+        """Owner-pinned profile, not a value from the TV packet."""
+        return self._config.profile_id
+
+    @property
     def url(self) -> str:
         return "http://127.0.0.1:" + str(self.localhost_port) + "/torrents"
 
