@@ -49,7 +49,10 @@ internal object P3SelectedMediaPublisher {
 
     /** ONLY user-initiated on-TV menu toggle. Pairing does NOT imply consent. */
     internal fun setEnabled(ctx: Context, on: Boolean): Boolean {
-        if (on && P4PairingStore(ctx).load() == null) return false
+        if (on) {
+            val paired = P4PairingStore(ctx).load() ?: return false
+            paired.deviceSecret.fill(0)
+        }
         val ok = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(ENABLED, on).commit()
         if (!on) {
