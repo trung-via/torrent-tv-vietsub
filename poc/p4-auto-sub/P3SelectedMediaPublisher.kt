@@ -207,14 +207,14 @@ internal object P3SelectedMediaPublisher {
         val sampledAt = android.os.SystemClock.elapsedRealtime()
         val sequence = statusSequence.incrementAndGet()
         queue.execute {
-            if (generation.get() != gen || active !== selected || !enabled(ctx) ||
-                (actualChoice == "REQUESTED" && !selected.requestedByViewer) ||
+            if (generation.get() != gen || (isActive && active !== selected) ||
+                !enabled(ctx) || (actualChoice == "REQUESTED" && !selected.requestedByViewer) ||
                 android.os.SystemClock.elapsedRealtime() - sampledAt > STATUS_TIMEOUT_MS) {
                 return@execute
             }
             val paired = P4PairingStore(ctx).load() ?: return@execute
             try {
-                if (generation.get() != gen || active !== selected ||
+                if (generation.get() != gen || (isActive && active !== selected) ||
                     (actualChoice == "REQUESTED" && !selected.requestedByViewer)) {
                     return@execute
                 }
@@ -236,12 +236,14 @@ internal object P3SelectedMediaPublisher {
     private fun enqueue(ctx: Context, selected: Current, kind: String) {
         val gen = generation.get()
         queue.execute {
-            if (generation.get() != gen || active !== selected || !enabled(ctx) ||
+            if (generation.get() != gen ||
+                (kind != "PLAYBACK_CLOSED" && active !== selected) || !enabled(ctx) ||
                 (kind == "VIEWER_VIETSUB_REQUESTED" &&
                     !selected.requestedByViewer)) return@execute
             val paired = P4PairingStore(ctx).load() ?: return@execute
             try {
-                if (generation.get() != gen || active !== selected ||
+                if (generation.get() != gen ||
+                    (kind != "PLAYBACK_CLOSED" && active !== selected) ||
                     (kind == "VIEWER_VIETSUB_REQUESTED" &&
                         !selected.requestedByViewer)) return@execute
                 postOnce(paired, selected, kind)
