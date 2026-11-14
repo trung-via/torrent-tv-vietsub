@@ -147,6 +147,55 @@ class OwnerSessionBridgeTests(unittest.TestCase):
             return
         self.assertEqual(consume_inert_runner_wakes(shared_wake_root=link), 0)
 
+    def test_bound_event_passes_media_fingerprint_no_name_only_cache(self):
+        target = "e" * 64
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+            owner_root=self.root, source_fingerprint=target)
+        body = json.loads((self.root / "inbox" /
+            ("event-" + event_id + ".json")).read_text())
+        self.assertEqual(body["schema"], "TTV-OWNER-VIDEO-EVENT-V2")
+        self.assertEqual(body["source_fingerprint"], target)
+
+        class BoundFake:
+            def __init__(self):
+                self.calls = []
+            def selected_media(self, name, *, source_fingerprint):
+                self.calls.append((name, source_fingerprint))
+                return type("Result", (), {"status": "VIETSUB_READY"})()
+
+        worker = BoundFake()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=worker, emit=self.lines.append), 1)
+        self.assertEqual(len(worker.calls), 1)
+        self.assertEqual(worker.calls[0][1], target)
+
+    def test_bound_event_invalid_fingerprint_never_processed(self):
+        for bad in ("A"*64, "abc", "../bad", "", 123):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ValueError, "SOURCE_FINGERPRINT_INVALID"):
+                    enqueue_selected_media(
+                        "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+                        owner_root=self.root, source_fingerprint=bad)
+        self.assertFalse((self.root / "inbox").exists())
+        folder = self.root / "inbox"
+        folder.mkdir(parents=True)
+        bad_id = "a" * 32
+        (folder / ("event-" + bad_id + ".json")).write_text(json.dumps({
+            "schema": "TTV-OWNER-VIDEO-EVENT-V2",
+            "event_id": bad_id,
+            "selected_video_filename": "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+            "source_fingerprint": "NOT-SHA",
+        }))
+        class Probe:
+            calls = []
+            def selected_media(self, name, *, source_fingerprint):
+                self.calls.append(name)
+        worker = Probe()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=worker, emit=self.lines.append), 0)
+        self.assertEqual(worker.calls, [])
+
     def test_no_live_background_agent_in_ci(self):
         import os
         from unittest import mock
