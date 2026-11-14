@@ -78,6 +78,12 @@ class TriggerGateTests(unittest.TestCase):
                 self.assertEqual((out.status, out.reason),
                                  ("SKIP", "VIEWER_OFF_OR_OTHER"))
 
+    def test_explicit_per_film_requested_allows_discovery_but_other_does_not(self):
+        allowed = evaluate_playback(event(subtitle_choice="REQUESTED"))
+        self.assertEqual(allowed.status, "DISPATCH")
+        self.assertEqual(
+            evaluate_playback(event(subtitle_choice="OTHER")).status, "SKIP")
+
     def test_owner_opt_in_is_required(self):
         self.assertEqual(evaluate_playback(
             event(owner_auto_enabled=False)).reason, "OWNER_AUTO_DISABLED")
