@@ -13,8 +13,8 @@ PKG = Path("android/app/src/main/java/com/spacesarmat/omp/player")
 KOTLIN_FILE = "P3SelectedMediaPublisher.kt"
 ACTIVITY_FILE = "PlayerActivity.kt"
 
-LOAD = "        session.load(r, next)\n        flow.reset()"
-ITEM = "        if (!switcher.goTo(i)) return\n        cancelCountdown()"
+LOAD = "        session.load(production.request, next)\n        flow.reset()"
+ITEM = "        if (!switcher.goTo(i, itemTransition?.picks)) return\n        cancelCountdown()"
 CLOSE = "        closedSent = true\n        commitPendingSeek()"
 MENU = '        add("Hủy ghép đôi PC Vietsub AI", "AD01.12") {'
 
@@ -44,12 +44,12 @@ def patch_activity(text: str) -> str:
             or text.count('add("Hủy ghép đôi PC Vietsub AI"') != 1):
         raise ValueError("P3_REQUIRES_EXACT_P4_COMPOSED_SOURCE")
     rules = (
-        (LOAD, """        session.load(r, next)
+        (LOAD, """        session.load(production.request, next)
         P3SelectedMediaPublisher.accepted(
             applicationContext, session.request, session.index,
             "PLAY_REQUEST_ACCEPTED")
         flow.reset()"""),
-        (ITEM, """        if (!switcher.goTo(i)) return
+        (ITEM, """        if (!switcher.goTo(i, itemTransition?.picks)) return
         P3SelectedMediaPublisher.accepted(
             applicationContext, session.request, session.index,
             "NEXT_QUEUE_ITEM_ACCEPTED")
