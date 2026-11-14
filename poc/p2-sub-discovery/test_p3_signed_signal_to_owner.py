@@ -7,9 +7,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from p3_signed_signal_to_owner import SignedP3ToOwner
 from activation_gate import PlaybackSelected
 from p3_signed_playback_signal import SignedPlaybackVerifier, sign_synthetic_event
-from p3_signed_signal_to_owner import SignedP3ToOwner
 from owner_session_bridge import _parse_event
 
 
