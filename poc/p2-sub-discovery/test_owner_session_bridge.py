@@ -8,6 +8,7 @@ from owner_session_bridge import (
     enqueue_selected_media, poll_private_events, run_owner_agent,
     consume_inert_runner_wakes,
     _owner_process_lock,
+    write_owner_agent_health, read_owner_agent_health,
 )
 
 
@@ -220,6 +221,54 @@ class OwnerSessionBridgeTests(unittest.TestCase):
                 raise OSError("synthetic")
         with _owner_process_lock(self.root):
             pass
+
+    def test_owner_only_health_is_fresh_and_contains_no_media_or_secrets(self):
+        self.assertEqual(read_owner_agent_health(owner_root=self.root),
+                         "NOT_INSTALLED")
+        write_owner_agent_health(owner_root=self.root, state="STARTING")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root),
+                         "STARTING")
+        write_owner_agent_health(owner_root=self.root, state="READY")
+        path = self.root / "agent-health.json"
+        body = path.read_text(encoding="utf-8")
+        self.assertIn("TTV-OWNER-AGENT-HEALTH-V1", body)
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "READY")
+        self.assertNotIn("GEMINI", body)
+        self.assertNotIn("OpenSubtitles", body)
+        self.assertNotIn("movie", body.lower())
+        self.assertNotIn("key", body.lower())
+        doc = json.loads(body)
+        self.assertEqual(read_owner_agent_health(
+            owner_root=self.root, now=doc["observed_utc_epoch"] + 31), "STALE")
+        write_owner_agent_health(owner_root=self.root, state="BLOCKED")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "BLOCKED")
+        write_owner_agent_health(owner_root=self.root, state="STOPPED")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "STOPPED")
+
+    def test_health_symlink_and_malformed_json_fail_closed(self):
+        self.root.mkdir(parents=True)
+        path = self.root / "agent-health.json"
+        path.write_text('{"schema":"invalid"}', encoding="utf-8")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "INVALID")
+        path.unlink()
+        outside = self.root / "other.json"
+        outside.write_text('{"state":"READY"}', encoding="utf-8")
+        try:
+            path.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            return
+        with self.assertRaisesRegex(ValueError, "HEALTH_SYMLINK"):
+            write_owner_agent_health(owner_root=self.root, state="READY")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "INVALID")
+        self.assertEqual(outside.read_text(encoding="utf-8"), '{"state":"READY"}')
+
+    def test_health_rejects_bad_state_before_writing(self):
+        for invalid in ("", "RUN_OWNERS_SCRIPT", "READY\\nsecret", None):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises((TypeError, ValueError)):
+                    write_owner_agent_health(owner_root=self.root,
+                                             state=invalid)
+        self.assertFalse(self.root.exists())
 
     def test_no_live_background_agent_in_ci(self):
         import os
