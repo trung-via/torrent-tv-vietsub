@@ -77,7 +77,7 @@ class TriggerToOwnerTests(unittest.TestCase):
 
     def test_bare_play_on_without_verified_button_must_never_enqueue(self):
         self.event = accepted(subtitle_choice="ON")
-        result = self.adapter.on_current_selection_accepted(self.proof())
+        result = self.adapter.on_current_selection_accepted()
         self.assertEqual((result.status, result.reason),
                          ("SKIP", "NO_VERIFIED_VIEWER_REQUEST"))
         self.assertEqual(self.calls, 0)
