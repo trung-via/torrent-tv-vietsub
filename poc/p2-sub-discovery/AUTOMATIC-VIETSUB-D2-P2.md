@@ -111,3 +111,27 @@ trusted TorrServer/OMP selected-media identity to this local factory, using
 the existing P4/D3 signed-media identity, not another standalone Windows
 helper or manual input sequence. Keep media/session binding and TV
 publication as separate evidence gates.
+
+## Live HostOps diagnostic (owner-independent, no sensitive reads)
+
+An owner-triggered read-only HostOps job at [run #43535767053](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/43535767053)
+ran successfully on the dedicated Windows runner. It reported:
+
+- `RUNNER_HAS_OWNER_CACHE_DIR=FALSE`
+- `RUNNER_HAS_OWNER_CACHED_SRT=FALSE`
+- `RUNNER_HAS_OPENSUBTITLES_KEY=FALSE`
+- `RUNNER_HAS_GEMINI_KEY=FALSE`
+- `RUNNER_USER_INTERACTIVE=FALSE`, `RUNNER_SESSION_IS_ZERO=TRUE`
+- Python launcher, PowerShell 7 and Windows Task Scheduler are present.
+
+This **proves the current GitHub runner is NOT the correct owner-session
+execution identity** for subtitle translation. Do not attempt to bypass
+user-profile/DPAPI isolation, scan other user profiles, or copy owner
+credentials/SRT into GitHub Actions merely to claim automatic setup.
+
+The correct deployment target is the interactive owner-local process
+that already holds the cache/credentials, where the trusted selected-media
+event calls `AutomaticVietsubFlow` and the D2 success callback calls
+`after_en_cached` without an extra PowerShell/approval step. Startup/
+credential enrollment and actual OMP selected-media integration remain
+NOT_INSTALLED/NOT_VERIFIED by this PR; they cannot be proven by offline CI.
