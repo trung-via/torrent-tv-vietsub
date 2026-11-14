@@ -267,10 +267,11 @@ class AutomaticFlowTests(unittest.TestCase):
             )
         self.assertTrue(auto.permissions.auto_download)
         self.assertTrue(auto.permissions.auto_translate_en)
-        self.assertEqual(len(preflights), 1)
-        self.assertEqual(preflights[0][0].model, "gemini-4-hydrogen")
-        self.assertEqual(preflights[0][0].thinking_level, "high")
-        self.assertEqual(preflights[0][1], "synthetic-gemini-key")
+        # Startup is side-effect-free with respect to Gemini. A VI-only
+        # movie must not be blocked by a Hydrogen API endpoint outage.
+        self.assertEqual(preflights, [])
+        self.assertEqual(auto.worker.profile.model, "gemini-4-hydrogen")
+        self.assertEqual(auto.worker.profile.thinking_level, "high")
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.gemini.calls, [])
         self.assertFalse(self.cache.exists())
@@ -290,19 +291,20 @@ class AutomaticFlowTests(unittest.TestCase):
                     state_root=self.root / "owner-state")
         self.assertFalse(self.cache.exists())
 
-    def test_owner_bootstrap_model_preflight_fails_before_any_post(self):
+    def test_owner_bootstrap_model_unavailable_does_not_stop_agent(self):
         with mock.patch.dict("os.environ", {
             "CI": "", "GITHUB_ACTIONS": "",
             "OPENSUBTITLES_API_KEY": "test-open",
             "GEMINI_API_KEY": "test-gemini",
         }):
-            with self.assertRaisesRegex(ValueError, "MODEL_NOT_AVAILABLE"):
-                build_owner_auto_flow(
-                    enabled=True, cache_root=self.cache,
-                    state_root=self.root / "owner-state",
-                    model_preflight=lambda profile, key:
-                        (_ for _ in ()).throw(ValueError("MODEL_NOT_AVAILABLE")),
-                )
+            owner = build_owner_auto_flow(
+                enabled=True, cache_root=self.cache,
+                state_root=self.root / "owner-state",
+                model_preflight=lambda profile, key:
+                    (_ for _ in ()).throw(ValueError("MODEL_NOT_AVAILABLE")),
+            )
+        # No Gemini GET on initial boot; no OpenSubtitles call either.
+        self.assertIsInstance(owner, AutomaticVietsubFlow)
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.gemini.calls, [])
         self.assertFalse(self.cache.exists())
@@ -344,6 +346,71 @@ class AutomaticFlowTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaisesRegex(ValueError, "SOURCE_FINGERPRINT_INVALID"):
                     self.flow.selected_media(VIDEO, source_fingerprint=bad)
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+
+    def test_no_model_preflight_when_vi_ready(self):
+        events = []
+        self.provider.vi = (row(8, VI, "vi"),)
+        calls = []
+        self.flow = AutomaticVietsubFlow(
+            client=self.client, worker=self.worker, cache_root=self.cache,
+            permissions=AutoPermissions(True, True), emit=events.append,
+            model_preflight=lambda: calls.append("Gemini should not be used"))
+        result = self.flow.selected_media(VIDEO)
+        self.assertEqual(result.status, "VI_READY")
+        self.assertEqual(calls, [])
+        self.assertEqual(self.gemini.calls, [])
+        self.assertEqual(len([x for x in self.provider.calls if x[0] == "POST"]), 1)
+
+    def test_hydrogen_unavailable_blocks_before_en_download_and_quota(self):
+        from owner_vietsub_pipeline import GeminiModelPreflightError
+        events = []
+        calls = []
+        def unavailable():
+            calls.append("get-model-no-source")
+            raise GeminiModelPreflightError(
+                "P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API")
+        self.flow = AutomaticVietsubFlow(
+            client=self.client, worker=self.worker, cache_root=self.cache,
+            permissions=AutoPermissions(True, True), emit=events.append,
+            model_preflight=unavailable)
+        with self.assertRaisesRegex(GeminiModelPreflightError, "NOT_AVAILABLE"):
+            self.flow.selected_media(VIDEO)
+        self.assertEqual(calls, ["get-model-no-source"])
+        self.assertEqual([p[0] for p in self.provider.calls], ["GET", "GET"])
+        self.assertEqual(self.gemini.calls, [])
+        self.assertFalse(self.cache.exists())
+
+    def test_preflight_success_once_for_en_and_all_checkpoint_windows(self):
+        calls = []
+        self.flow = AutomaticVietsubFlow(
+            client=self.client, worker=self.worker, cache_root=self.cache,
+            permissions=AutoPermissions(True, True),
+            model_preflight=lambda: calls.append("model-get"))
+        first = self.flow.selected_media(VIDEO)
+        second = self.flow.selected_media(VIDEO)
+        self.assertEqual(first.status, "VIETSUB_READY")
+        self.assertEqual(second.status, "VIETSUB_READY")
+        self.assertEqual(calls, ["model-get"])
+        self.assertEqual([len(ids) for ids in self.gemini.calls], [120, 5])
+        self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 1)
+
+    def test_existing_en_cached_model_unavailable_does_not_download_again(self):
+        from owner_vietsub_pipeline import GeminiModelPreflightError
+        data = srt()
+        asset = Asset(10, "en", "srt", data, hashlib.sha256(data).hexdigest(), 125)
+        media = Media("synthetic-owner", "a" * 64, 0, VIDEO)
+        path = write_private_cache(self.cache, media, asset)
+        preflight = lambda: (_ for _ in ()).throw(
+            GeminiModelPreflightError(
+                "P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API"))
+        self.flow = AutomaticVietsubFlow(
+            client=self.client, worker=self.worker, cache_root=self.cache,
+            permissions=AutoPermissions(True, True),
+            model_preflight=preflight)
+        with self.assertRaises(GeminiModelPreflightError):
+            self.flow.after_en_cached(asset, path)
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.gemini.calls, [])
 
