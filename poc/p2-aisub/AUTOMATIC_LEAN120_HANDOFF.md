@@ -69,10 +69,13 @@ Example JSON:
 
     {"provider":"gemini","model":"gemini-4-hydrogen","thinking_level":"high"}
 
-This is only a profile override for the explicit trial, not a change to the
-default Draft PR #118 profile. Adapter support for an ID does NOT mean the
-Google API account has access to the model; live provider authorization,
-rights, quotas, cost and semantic QA are separate acceptance tests.
+The Human-confirmed default API profile is now **Gemini 4 Hydrogen /
+thinking HIGH**, and `translator_profile.json` in the active P2 branches
+contains this model ID. An optional private owner profile may override it.
+Adapter support for an ID does NOT prove that the owner-held Gemini API key
+can call it; live provider authorization, quota/cost, actual endpoint access
+and translation quality are separate acceptance gates. No automatic fallback
+to the previous Gemini Flash model is authorized.
 
 ## Explicit foreground start on the Windows owner laptop
 
