@@ -10,7 +10,9 @@ import unittest
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
-from automatic_vietsub_flow import AutomaticVietsubFlow, AutoPermissions
+from automatic_vietsub_flow import (
+    AutomaticVietsubFlow, AutoPermissions, build_owner_auto_flow,
+)
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache
 from matcher import Media
 from automatic_lean120_worker import AutomaticLean120Worker
@@ -250,6 +252,73 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual(result.status, "REVIEW_REQUIRED")
         self.assertEqual([x[0] for x in self.provider.calls], ["GET", "GET"])
         self.assertEqual(self.gemini.calls, [])
+
+    def test_owner_bootstrap_loads_keys_and_profile_once_no_questions(self):
+        preflights = []
+        with mock.patch.dict("os.environ", {
+            "CI": "", "GITHUB_ACTIONS": "",
+            "OPENSUBTITLES_API_KEY": "synthetic-open-sub-key",
+            "GEMINI_API_KEY": "synthetic-gemini-key",
+        }), mock.patch("builtins.input", side_effect=AssertionError("NO_PROMPTS")):
+            auto = build_owner_auto_flow(
+                enabled=True, cache_root=self.cache,
+                state_root=self.root / "owner-state",
+                model_preflight=lambda profile, key: preflights.append((profile, key)),
+            )
+        self.assertTrue(auto.permissions.auto_download)
+        self.assertTrue(auto.permissions.auto_translate_en)
+        self.assertEqual(len(preflights), 1)
+        self.assertEqual(preflights[0][0].model, "gemini-4-hydrogen")
+        self.assertEqual(preflights[0][0].thinking_level, "high")
+        self.assertEqual(preflights[0][1], "synthetic-gemini-key")
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+        self.assertFalse(self.cache.exists())
+
+    def test_owner_bootstrap_disabled_or_missing_key_fails_without_io(self):
+        with mock.patch.dict("os.environ", {
+            "CI": "", "GITHUB_ACTIONS": "",
+            "OPENSUBTITLES_API_KEY": "", "GEMINI_API_KEY": "",
+        }):
+            with self.assertRaisesRegex(ValueError, "OWNER_SETTING_DISABLED"):
+                build_owner_auto_flow(
+                    enabled=False, cache_root=self.cache,
+                    state_root=self.root / "owner-state")
+            with self.assertRaisesRegex(ValueError, "OWNER_KEYS_NOT_PROVISIONED"):
+                build_owner_auto_flow(
+                    enabled=True, cache_root=self.cache,
+                    state_root=self.root / "owner-state")
+        self.assertFalse(self.cache.exists())
+
+    def test_owner_bootstrap_model_preflight_fails_before_any_post(self):
+        with mock.patch.dict("os.environ", {
+            "CI": "", "GITHUB_ACTIONS": "",
+            "OPENSUBTITLES_API_KEY": "test-open",
+            "GEMINI_API_KEY": "test-gemini",
+        }):
+            with self.assertRaisesRegex(ValueError, "MODEL_NOT_AVAILABLE"):
+                build_owner_auto_flow(
+                    enabled=True, cache_root=self.cache,
+                    state_root=self.root / "owner-state",
+                    model_preflight=lambda profile, key:
+                        (_ for _ in ()).throw(ValueError("MODEL_NOT_AVAILABLE")),
+                )
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+        self.assertFalse(self.cache.exists())
+
+    def test_owner_bootstrap_refuses_real_provider_in_github_actions(self):
+        with mock.patch.dict("os.environ", {
+            "CI": "true", "GITHUB_ACTIONS": "true",
+            "OPENSUBTITLES_API_KEY": "test-open",
+            "GEMINI_API_KEY": "test-gemini",
+        }):
+            with self.assertRaisesRegex(ValueError, "LIVE_PROVIDER_FORBIDDEN_IN_CI"):
+                build_owner_auto_flow(
+                    enabled=True, cache_root=self.cache,
+                    state_root=self.root / "owner-state",
+                    model_preflight=lambda profile, key: None)
+        self.assertFalse(self.cache.exists())
 
     def test_bad_video_name_rejected_before_provider(self):
         for bad in ("../movie.mkv", "", "Movie\n2017", "/tmp/media.mkv"):
