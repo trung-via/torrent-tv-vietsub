@@ -40,6 +40,13 @@ foreach ($needed in @(
     }
 }
 
+# Fail closed on accidental stale P2 model config from another Draft.
+$profile = Get-Content -LiteralPath (Join-Path $srcP2 'translator_profile.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+if ($profile.provider -cne 'gemini' -or $profile.model -cne 'gemini-4-hydrogen' -or
+    $profile.thinking_level -cne 'high') {
+    throw 'OWNER_BRIDGE_GEMINI_HYDROGEN_HIGH_PROFILE_REQUIRED'
+}
+
 $root = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $secretsDir = Join-Path $root 'secrets'
 $installed = Join-Path $root 'app'
@@ -68,12 +75,23 @@ Copy-Item -LiteralPath (Join-Path $srcTrigger 'activation_gate.py') -Destination
 # Store each key only once. DPAPI binds ciphertext to this Windows account.
 # A later login can start the agent with NO prompts or key sent to GitHub.
 foreach ($item in @(
-    @{ Label = 'OpenSubtitles API key'; Name = 'opensub.dpapi' },
-    @{ Label = 'Gemini API key'; Name = 'gemini.dpapi' }
+    @{ Label = 'OpenSubtitles API key'; Name = 'opensub.dpapi'; EnvName = 'OPENSUBTITLES_API_KEY' },
+    @{ Label = 'Gemini API key'; Name = 'gemini.dpapi'; EnvName = 'GEMINI_API_KEY' }
 )) {
     $dest = Join-Path $secretsDir $item.Name
     if (-not (Test-Path -LiteralPath $dest -PathType Leaf)) {
-        $entry = Read-Host $item.Label -AsSecureString
+        # If the owner already configured the key for this PowerShell
+        # process, reuse it once without a needless repeat prompt. Do not
+        # persist plaintext environment variables or echo their contents.
+        $existingKey = [Environment]::GetEnvironmentVariable($item.EnvName, 'Process')
+        if (-not [string]::IsNullOrWhiteSpace($existingKey) -and
+            $existingKey -notmatch '[\r\n]') {
+            $entry = ConvertTo-SecureString -String $existingKey -AsPlainText -Force
+            Write-Host 'OWNER_BRIDGE_EXISTING_OWNER_KEY_REUSED=YES'
+        }
+        else {
+            $entry = Read-Host $item.Label -AsSecureString
+        }
         if ($entry.Length -eq 0) { throw 'OWNER_BRIDGE_EMPTY_SECRET_REFUSED' }
         $cipher = ConvertFrom-SecureString -SecureString $entry
         Set-Content -LiteralPath $dest -Value $cipher -Encoding ASCII -NoNewline
