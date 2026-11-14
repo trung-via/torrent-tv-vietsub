@@ -1,0 +1,54 @@
+# Hosted synthetic cross-lane test only. No self-hosted, ADB, TV, provider or secrets.
+name: Torrent TV - P3 P4 Cross Lane Offline CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p4-auto-sub/**'
+      - 'poc/g2-refresh/**'
+      - 'poc/p2-sub-discovery/**'
+      - 'poc/p2-aisub/**'
+      - 'poc/p3-vietsub-trigger/**'
+      - 'poc/p3-p4-compose/**'
+      - '.github/workflows/tv-p3-p4-cross-lane-offline-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: torrent-tv-p3-p4-cross-lane-offline
+  cancel-in-progress: true
+jobs:
+  cross-lane:
+    name: TV-owner signed wire, discovery, LEAN120 and source regression
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-p4-cross-lane-tv-owner-compose-20261114' &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate without storing token
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Cross-lane signed HMAC, viewer consent, native source guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p3-p4-compose:$PWD/poc/p3-vietsub-trigger:$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub"
+          python3 -m unittest discover -s poc/p3-p4-compose -p 'test_*.py' -v
+          python3 -m unittest discover -s poc/p4-auto-sub -p 'test_p3_tv_*.py' -v
+          python3 -m unittest discover -s poc/p4-auto-sub -p 'test_session_loss_contract.py' -v
+          python3 -m unittest discover -s poc/g2-refresh -p 'test_apply.py' -v
+          python3 -m unittest discover -s poc/p3-vietsub-trigger -p 'test_*.py' -v
+      - name: Existing D1 D2 owner P3 P4 and LEAN120 offline regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p3-vietsub-trigger:$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub"
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -q
+          python3 -m unittest discover -s poc/p2-aisub -p 'test_*.py' -q
+          echo 'CROSS_LANE_SOURCE_AND_MOCK_ONLY_NO_REAL_GEMINI_NO_OPENSUBTITLES_API_NO_WINDOWS_NO_APK_NO_TV'

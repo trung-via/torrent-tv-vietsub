@@ -1,0 +1,29 @@
+# Hosted, synthetic-only D1/D2 source tests; no provider credentials, Windows or TV.
+name: Torrent TV - Subtitle Discovery Offline CI
+
+on:
+  pull_request:
+    paths:
+      - 'poc/p2-sub-discovery/**'
+      - '.github/workflows/tv-sub-discovery-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  subtitle-discovery:
+    name: Offline D1 D2 Tests
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR candidate without persisting token
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run pure Python matcher and API mock tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -v

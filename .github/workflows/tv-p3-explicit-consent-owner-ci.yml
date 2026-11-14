@@ -1,0 +1,39 @@
+name: Torrent TV - P3 Explicit Viewer Request Owner CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p3-vietsub-trigger/**'
+      - 'poc/p2-sub-discovery/**'
+      - 'docs/subtitle-activation/P3_EXPLICIT_VIEWER_REQUEST.md'
+      - '.github/workflows/tv-p3-explicit-consent-owner-ci.yml'
+permissions:
+  contents: read
+jobs:
+  viewer-request:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-explicit-viewer-request-owner-20261114' &&
+      github.event.pull_request.base.ref == 'feature/p3-owner-durable-replay-20261114'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact HEAD without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Explicit viewer request and status/request replay regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p3-vietsub-trigger:$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub"
+          python3 -m unittest discover -s poc/p3-vietsub-trigger -p 'test_activation_gate.py' -v
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_p3_*.py' -v
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_trusted_playback_to_owner.py' -v
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_selected_file_resolver.py' -v
+          python3 -m py_compile poc/p3-vietsub-trigger/activation_gate.py poc/p2-sub-discovery/{p3_redmi_current_state.py,p3_signed_signal_to_owner.py}
+          echo 'P3_EXPLICIT_VIEWER_SOURCE_ONLY_NO_WIN_SERVICE_NO_TV_NO_OPEN_SUBS_NO_GEMINI'
