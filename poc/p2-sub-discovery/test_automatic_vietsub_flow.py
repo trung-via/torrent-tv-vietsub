@@ -320,6 +320,33 @@ class AutomaticFlowTests(unittest.TestCase):
                     model_preflight=lambda profile, key: None)
         self.assertFalse(self.cache.exists())
 
+    def test_verified_source_fingerprint_controls_private_cache_identity(self):
+        first = "a" * 64
+        second = "b" * 64
+        result = self.flow.selected_media(VIDEO, source_fingerprint=first)
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertTrue((self.cache / (".auto-source-" + first + ".json")).exists())
+        prior = list(self.provider.calls)
+        # Re-selecting exact TorrServer file does not make new provider calls.
+        replay = self.flow.selected_media(VIDEO, source_fingerprint=first)
+        self.assertEqual(replay.status, "VIETSUB_READY")
+        self.assertEqual(self.provider.calls, prior)
+        self.assertEqual([len(ids) for ids in self.gemini.calls], [120, 5])
+        # Same release filename from another torrent is NOT allowed to
+        # reuse the first source as if it were the same movie session.
+        with self.assertRaisesRegex(SubtitleApiError, "EN_DOWNLOAD_ALREADY_ATTEMPTED"):
+            self.flow.selected_media(VIDEO, source_fingerprint=second)
+        self.assertFalse((self.cache / (".auto-source-" + second + ".json")).exists())
+        self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 1)
+
+    def test_invalid_opaque_media_fingerprint_rejected_before_search(self):
+        for bad in ("not-hash", "A" * 64, "g" * 64, "", 123):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ValueError, "SOURCE_FINGERPRINT_INVALID"):
+                    self.flow.selected_media(VIDEO, source_fingerprint=bad)
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+
     def test_bad_video_name_rejected_before_provider(self):
         for bad in ("../movie.mkv", "", "Movie\n2017", "/tmp/media.mkv"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
