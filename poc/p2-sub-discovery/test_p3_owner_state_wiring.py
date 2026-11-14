@@ -43,7 +43,7 @@ class FakeExistingWorker:
         return AutoResult("VI_READY")
 
 
-def state(*, choice="ON", active=True, session=SESSION, seq=1,nonce="d"*32):
+def state(*, choice="REQUESTED", active=True, session=SESSION, seq=1,nonce="d"*32):
     return sign_synthetic_state(
         KEY,boot_id=BOOT,sequence=seq,kind="PLAY_REQUEST_ACCEPTED",
         tv_session_id=session,torrent_hash=TORRENT,file_index=2,
@@ -52,7 +52,7 @@ def state(*, choice="ON", active=True, session=SESSION, seq=1,nonce="d"*32):
 
 def selected(nonce="e"*32,session=SESSION):
     return sign_synthetic_event(
-        KEY,kind="PLAY_REQUEST_ACCEPTED",tv_session_id=session,
+        KEY,kind="VIEWER_VIETSUB_REQUESTED",tv_session_id=session,
         torrent_hash=TORRENT,file_index=2,sent_at_ms=WHEN,nonce=nonce)
 
 
