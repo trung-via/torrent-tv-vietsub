@@ -24,7 +24,11 @@ Windows PC chạy TorrServer mặc định; NAS tùy chọn. TV là client, khô
 
 ## Phát triển hoàn toàn độc lập AIOS
 
-Repo `trung-via/torrent-tv-vietsub` (PRIVATE) có GitHub Issues/PR/ADR, GitHub Actions, self-hosted runner, workspace, credentials, artifacts và release **riêng**. Không dùng AIOS Brain Sync, TASK/admission, dispatch, executor, review, runtime hoặc runner. Có thể **tái sử dụng chọn lọc** mã nguồn/mẫu GitHub Actions, runner guard, script từ AIOS sau kiểm tra provenance, license, secrets và PR review; không tạo phụ thuộc vận hành.
+Repo `trung-via/torrent-tv-vietsub` (**PUBLIC theo GitHub ngày 2026-11-14**; PRIVATE/PUBLIC đều được Human cho phép, cần kiểm tra live trước các thao tác) có GitHub Issues/PR/ADR, GitHub Actions, self-hosted runner, workspace, credentials, artifacts và release **riêng**. Không dùng AIOS Brain Sync, TASK/admission, dispatch, executor, review, runtime hoặc runner. Có thể **tái sử dụng chọn lọc** mã nguồn/mẫu GitHub Actions, runner guard, script từ AIOS sau kiểm tra provenance, license, secrets và PR review; không tạo phụ thuộc vận hành.
+
+## PUBLIC repository không làm dừng dự án
+
+Human đã chọn cho phép chuyển repo sang PUBLIC và **tiếp tục trên chính repo/branches/Issues/PR/CI/roadmap hiện có**. Không cần tạo repo khác, reset lịch sử hoặc quay về PRIVATE. Trước khi đổi visibility, phải audit Git history, secrets, personal media, issue/artifact, giấy phép OMP/GPL và dependencies. Không cho code từ fork/PR lạ chạy trên self-hosted Windows runner có quyền host; public source không đồng nghĩa công khai TorrServer/gateway hay tự động phát hành APK. Trạng thái PRIVATE/PUBLIC thực tế do GitHub quyết định; xem [Contract](docs/PROJECT_CONTRACT.md) và [Security](docs/SECURITY.md).
 
 ## Tài liệu
 
@@ -33,7 +37,7 @@ Repo `trung-via/torrent-tv-vietsub` (PRIVATE) có GitHub Issues/PR/ADR, GitHub A
 - [ADR-0001 — Windows/NAS](docs/DECISIONS/ADR-0001-client-server.md), [ADR-0002 — OMP](docs/DECISIONS/ADR-0002-omp-baseline.md), [ADR-0006 — external subtitle](docs/DECISIONS/ADR-0006-p1-source-agnostic-external-subtitle.md).
 - [OMP feasibility draft](planning/OMP-EVAL-001-DRAFT.md), [AGENTS.md](AGENTS.md), [ChatGPT instructions](chatgpt/PROJECT_INSTRUCTIONS.md).
 
-**Trạng thái:** `main` và nhiều Draft PR/PoC có lịch sử riêng; tài liệu mới ở PR review chưa đồng nghĩa code/build/TV/server/agent đã PASS. Kiểm tra commit, runner, real TV/server evidence trước kết luận. Không auto merge, trigger workflow, thay Windows/TV/network hay publish APK.
+**Trạng thái:** `main` và nhiều Draft PR/PoC có lịch sử riêng; tài liệu mới ở PR review chưa đồng nghĩa code/build/TV/server/agent đã PASS. Kiểm tra commit, runner, real TV/server evidence trước kết luận. Chỉ merge PR sau **Brain review độc lập PASS + kiểm tra HEAD/base, CI, security và acceptance** theo [Issue #42](https://github.com/trung-via/torrent-tv-vietsub/issues/42); không tự trigger workflow, thay Windows/TV/network hay publish APK.
 
 **License:** audit OMP GPL-3.0-only, submodule và third-party licenses trước import/phân phối; repo PRIVATE không tự miễn nghĩa vụ GPL.
 
