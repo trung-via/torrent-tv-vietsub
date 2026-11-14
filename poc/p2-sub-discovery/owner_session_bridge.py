@@ -31,7 +31,7 @@ from typing import Callable, Protocol
 _SCHEMA = "TTV-OWNER-VIDEO-EVENT-V1"
 _BOUND_SCHEMA = "TTV-OWNER-VIDEO-EVENT-V2"
 _SESSION_SCHEMA = "TTV-OWNER-VIDEO-EVENT-V3"
-_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\\Z")
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _ID = re.compile(r"[a-f0-9]{32}\Z")
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_EVENT_BYTES = 768
