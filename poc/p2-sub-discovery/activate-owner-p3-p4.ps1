@@ -142,8 +142,8 @@ try {
     if ($created -and (Test-Path -LiteralPath $policy -PathType Leaf) -and
         $null -ne $ownedBytes) {
         $actual = [IO.File]::ReadAllBytes($policy)
-        if ([Linq.Enumerable]::SequenceEqual(
-            [byte[]]$actual,[byte[]]$ownedBytes)) {
+        if ([Convert]::ToBase64String($actual) -ceq
+            [Convert]::ToBase64String([byte[]]$ownedBytes)) {
             Remove-Item -LiteralPath $policy -Force -ErrorAction Stop
             Write-Host 'P3_P4_ACTIVATE_FAILED_NEW_POLICY_ROLLED_BACK=YES'
         }
