@@ -24,6 +24,8 @@ from owner_vietsub_pipeline import (
     validate_existing_en,
     main,
     PipelineReceipt,
+    GeminiModelPreflightError,
+    verify_gemini_developer_endpoint,
 )
 from cached_en_direct_handoff import CachedEnReceipt
 from automatic_lean120_worker import AutomaticLean120Worker
@@ -259,7 +261,7 @@ class ComposedPipelineTests(unittest.TestCase):
             "LOCALAPPDATA": str(local),
             "GEMINI_API_KEY": "test-only-model-key",
             "CI": "", "GITHUB_ACTIONS": ""
-        }), mock.patch("owner_vietsub_pipeline.translate_existing_en",
+        }), mock.patch("owner_vietsub_pipeline.verify_gemini_developer_endpoint") as check_model, mock.patch("owner_vietsub_pipeline.translate_existing_en",
                        return_value=simulated) as invoke, redirect_stdout(out):
             code = main(["--cache-filename", basename, "--sha256", sha,
                          "--cues", "125", "--execute-api",
@@ -281,7 +283,7 @@ class ComposedPipelineTests(unittest.TestCase):
             "LOCALAPPDATA": str(local),
             "GEMINI_API_KEY": "test-only-model-key",
             "CI": "", "GITHUB_ACTIONS": ""
-        }), mock.patch("owner_vietsub_pipeline.translate_existing_en",
+        }), mock.patch("owner_vietsub_pipeline.verify_gemini_developer_endpoint") as check_model, mock.patch("owner_vietsub_pipeline.translate_existing_en",
                        return_value=simulated) as invoke, redirect_stdout(out):
             code = main(["--cache-filename", basename, "--sha256", sha,
                          "--cues", "125", "--execute-api",
@@ -290,6 +292,67 @@ class ComposedPipelineTests(unittest.TestCase):
         self.assertTrue(invoke.call_args.kwargs["pilot_first_window"])
         self.assertIn("P2_LOCAL_LEAN120=FIRST_WINDOW_CHECKPOINTED", out.getvalue())
         self.assertIn("P2_PILOT_WINDOW_LIMIT=1", out.getvalue())
+
+    def test_hydrogen_preflight_get_only_never_sends_subtitle_bytes(self):
+        from lean120_api import ModelProfile
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self, limit):
+                return json.dumps({
+                    "name": "models/gemini-4-hydrogen",
+                    "supportedGenerationMethods": ["generateContent"]
+                }).encode()
+        with mock.patch("owner_vietsub_pipeline.urllib.request.urlopen",
+                        return_value=FakeResponse()) as request:
+            verify_gemini_developer_endpoint(
+                ModelProfile("gemini", "gemini-4-hydrogen", "high"),
+                "synthetic-key",
+            )
+        sent = request.call_args.args[0]
+        self.assertEqual(sent.get_method(), "GET")
+        self.assertTrue(sent.full_url.endswith("/models/gemini-4-hydrogen"))
+        self.assertNotIn("synthetic-key", sent.full_url)
+        self.assertIsNone(sent.data)
+
+    def test_hydrogen_preflight_wrong_endpoint_model_stops_before_worker(self):
+        local, basename, sha = self._owner_cli_fixture()
+        out = io.StringIO()
+        with mock.patch.dict("os.environ", {
+            "LOCALAPPDATA": str(local),
+            "GEMINI_API_KEY": "synthetic-key",
+            "CI": "", "GITHUB_ACTIONS": ""
+        }), mock.patch(
+            "owner_vietsub_pipeline.verify_gemini_developer_endpoint",
+            side_effect=GeminiModelPreflightError(
+                "P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API")
+        ), mock.patch("owner_vietsub_pipeline.translate_existing_en") as run_worker, redirect_stdout(out):
+            code = main(["--cache-filename", basename, "--sha256", sha,
+                         "--cues", "125", "--execute-api",
+                         "--authorize-cloud-upload"])
+        self.assertEqual(code, 1)
+        self.assertIn("P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API",
+                      out.getvalue())
+        self.assertIn("GEMINI_TRANSLATION_REQUESTS=0", out.getvalue())
+        self.assertIn("NO_SOURCE_UPLOADED=YES", out.getvalue())
+        run_worker.assert_not_called()
+        self.assertFalse((local / "TorrentTVVietsub" / "P2").exists())
+
+    def test_hydrogen_preflight_malformed_response_rejected(self):
+        from lean120_api import ModelProfile
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self, limit):
+                return b'{"name":"models/gemini-4-hydrogen"}'
+        with mock.patch("owner_vietsub_pipeline.urllib.request.urlopen",
+                        return_value=FakeResponse()):
+            with self.assertRaisesRegex(GeminiModelPreflightError,
+                                         "HYDROGEN_NOT_AVAILABLE"):
+                verify_gemini_developer_endpoint(
+                    ModelProfile("gemini", "gemini-4-hydrogen", "high"),
+                    "synthetic-key",
+                )
 
     def test_cli_pilot_requires_explicit_cloud_grant(self):
         local, basename, sha = self._owner_cli_fixture()
