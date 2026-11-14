@@ -33,6 +33,7 @@ from paired_activation import (
     PairedActivation, activation_request_mac,
 )
 from p3_p4_shared_https_route import make_p3_p4_handler
+from p3_redmi_current_state import SignedRedmiStateCache, sign_synthetic_state
 from p3_signed_playback_signal import (
     SignedPlaybackVerifier, sign_synthetic_event,
 )
@@ -84,6 +85,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         def current():
             self.reads.append("owner_tv")
             return self.state
+        self.state_cache = SignedRedmiStateCache(KEY)
         self.p3 = SignedP3ToOwner(
             verifier=SignedPlaybackVerifier(KEY), owner_root=self.owner,
             read_verified_current_selection=current,
@@ -98,7 +100,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
         context = create_tls_context(cert, private)
         self.server = HTTPServer(
-            ("127.0.0.1", 0), make_p3_p4_handler(self.p4, self.p3))
+            ("127.0.0.1", 0), make_p3_p4_handler(self.p4, self.p3, self.state_cache))
         self.server.socket = context.wrap_socket(
             self.server.socket, server_side=True)
         worker = threading.Thread(target=self.server.serve_forever,
@@ -184,6 +186,44 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
                               json.dumps(dict(request, auth="0"*64)).encode("ascii"),
                               {"Content-Type":"application/json"})
         self.assertEqual(bad, 403)
+
+    def signed_state(self, *, nonce="9"*32, active=True,
+                     subtitle_choice="ON", session=SESSION):
+        now=int(time.time()*1000)
+        return sign_synthetic_state(
+            KEY, boot_id="1"*32, sequence=1,
+            kind="PLAY_REQUEST_ACCEPTED", tv_session_id=session,
+            torrent_hash=TORRENT, file_index=3, active=active,
+            subtitle_choice=subtitle_choice, sent_at_ms=now, nonce=nonce)
+
+    def test_status_https_hmac_has_no_side_effects_until_separate_play(self):
+        status, body=self.request(
+            "POST","/p3/state",self.signed_state(),
+            {"Content-Type":"application/json"})
+        self.assertEqual((status,body),(204,b""))
+        self.assertEqual(self.state_cache.read_fresh().tv_session_id,SESSION)
+        self.assertEqual(self.reads,[])
+        self.assertFalse(self.owner.exists())
+        self.assertEqual(len(self.p4._PairedActivation__feeds),0)
+        # HMAC replay remains blocked independently of P3 selected-play route.
+        again,_=self.request(
+            "POST","/p3/state",self.signed_state(),
+            {"Content-Type":"application/json"})
+        self.assertEqual(again,403)
+
+    def test_status_auth_tamper_path_and_off_do_not_start_subtitle(self):
+        original=json.loads(self.signed_state())
+        original["subtitle_choice"]="OFF"   # HMAC no longer authentic
+        bad,_=self.request(
+            "POST","/p3/state",json.dumps(original).encode(),
+            {"Content-Type":"application/json"})
+        self.assertEqual(bad,403)
+        weird,_=self.request(
+            "POST","/p3/state?cache=1",self.signed_state(),
+            {"Content-Type":"application/json"})
+        self.assertEqual(weird,404)
+        self.assertEqual(self.reads,[])
+        self.assertFalse(self.owner.exists())
 
     def test_p3_route_cannot_be_used_to_read_private_p4_revision(self):
         status, _ = self.request("GET", "/p3/selection")

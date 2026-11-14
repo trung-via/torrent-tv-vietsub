@@ -103,6 +103,12 @@ class OwnerTorrServerReader:
         self._config = config
         self._transport = transport
 
+    @property
+    def profile_id(self) -> str:
+        """Owner-pinned profile, not a value from the TV packet."""
+        return self._config.profile_id
+
+
     def __call__(self, server_id: str, torrent_hash: str,
                  file_index: int) -> TorrServerSelectedFile:
         cfg = self._config
