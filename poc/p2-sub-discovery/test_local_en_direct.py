@@ -242,7 +242,7 @@ class LocalDirectTests(unittest.TestCase):
     def test_real_ffmpeg_vtt_to_srt_from_generated_fixture(self):
         """A real local VTT can flow to existing SRT-only LEAN120 receipt."""
         vtt = self.media / SIDECAR.replace(".srt", ".vtt")
-        vtt.write_bytes(b"WEBVTT\\n\\n00:00:01.000 --> 00:00:01.900\\nSynthetic subtitle\\n")
+        vtt.write_bytes(("WEBVTT" + chr(10)*2 + "00:00:01.000 --> 00:00:01.900" + chr(10) + "Synthetic subtitle" + chr(10)).encode("utf-8"))
         out = find_local_english(self.selected(en_sidecar_path=vtt),
                                  cache_root=self.cache)
         self.assertEqual(out.source_kind, "SIDECAR_VTT")
