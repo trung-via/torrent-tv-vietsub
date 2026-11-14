@@ -10,12 +10,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import json
+import os
 from pathlib import Path
 import re
 from typing import Callable
 
 from matcher import Media, _release_stem_and_accessibility, parse_release
-from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache
+from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
 from owner_en_single_trial import _claim_one_post, _preflight_cache
 from owner_vietsub_pipeline import (
     PipelineReceipt, _receipt, translate_existing_en,
@@ -62,6 +64,78 @@ class AutomaticVietsubFlow:
         self.permissions = permissions
         self.emit = emit or (lambda _: None)
 
+    def _cache_index(self, video_name: str) -> Path:
+        digest = hashlib.sha256(video_name.casefold().encode("utf-8")).hexdigest()
+        return self.cache_root / (".auto-source-" + digest + ".json")
+
+    def _remember_source(self, video_name: str, path: Path, asset: Asset) -> None:
+        """Owner-private minimal cache receipt, never a TV media manifest."""
+        if not re.fullmatch(r"[0-9a-f]{64}\.srt", path.name):
+            raise SubtitleApiError("AUTO_SOURCE_CACHE_FILENAME_INVALID")
+        record = {
+            "schema": "TTV-LOCAL-AUTO-SOURCE-V1",
+            "file": path.name,
+            "language": asset.language,
+            "sha256": asset.sha256,
+            "cues": asset.cues,
+        }
+        raw = json.dumps(record, separators=(",", ":"), sort_keys=True).encode()
+        location = self._cache_index(video_name)
+        try:
+            fd = os.open(location, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            if location.is_symlink() or location.read_bytes() != raw:
+                raise SubtitleApiError("AUTO_SOURCE_CACHE_INDEX_CONFLICT")
+            return
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+    def _reuse_source(self, video_name: str) -> AutoResult | None:
+        """Repeat selection: bypass both OpenSubtitles and repeated Gemini calls.
+
+        The index is only trusted if source contents recheck against SHA and
+        timed-cue count. A corrupted index never triggers a provider POST.
+        """
+        index = self._cache_index(video_name)
+        if not index.exists() and not index.is_symlink():
+            return None
+        if index.is_symlink() or not index.is_file() or index.stat().st_size > 512:
+            raise SubtitleApiError("AUTO_SOURCE_CACHE_INDEX_INVALID")
+        try:
+            item = json.loads(index.read_text(encoding="utf-8"))
+        except (UnicodeError, ValueError):
+            raise SubtitleApiError("AUTO_SOURCE_CACHE_INDEX_INVALID") from None
+        if not isinstance(item, dict) or set(item) != {
+                "schema", "file", "language", "sha256", "cues"} or (
+                    item["schema"] != "TTV-LOCAL-AUTO-SOURCE-V1") or (
+                    item["language"] not in ("vi", "en")) or (
+                    not isinstance(item["file"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}\.srt", item["file"])) or (
+                    not isinstance(item["sha256"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])) or (
+                    type(item["cues"]) is not int or item["cues"] < 1):
+            raise SubtitleApiError("AUTO_SOURCE_CACHE_INDEX_INVALID")
+        file = self.cache_root / item["file"]
+        if file.is_symlink() or not file.is_file():
+            raise SubtitleApiError("AUTO_SOURCE_CACHE_FILE_MISSING")
+        try:
+            raw = file.read_bytes()
+        except OSError:
+            raise SubtitleApiError("AUTO_SOURCE_CACHE_FILE_UNREADABLE") from None
+        if (hashlib.sha256(raw).hexdigest() != item["sha256"]
+                or validate_timed_text(raw, "srt") != item["cues"]):
+            raise SubtitleApiError("AUTO_SOURCE_CACHE_DIGEST_MISMATCH")
+        if item["language"] == "vi":
+            self.emit("AUTO_VI_CACHED_REUSED=YES")
+            return AutoResult("VI_READY", cue_count=item["cues"])
+        asset = Asset(0, "en", "srt", raw, item["sha256"], item["cues"])
+        translated = self.after_en_cached(asset, file)
+        self.emit("AUTO_EN_CACHED_REUSED=YES")
+        return AutoResult("VIETSUB_READY", cue_count=item["cues"],
+                          translated_cues=translated.translated_cues)
+
     def after_en_cached(self, asset: Asset, file_path: Path) -> PipelineReceipt:
         """Called immediately by D2 after a successful private cache write.
 
@@ -94,6 +168,9 @@ class AutomaticVietsubFlow:
         parsed = parse_release(video_name)
         if not parsed.title or parsed.year is None or not parsed.group:
             return AutoResult("REVIEW_REQUIRED")
+        cached = self._reuse_source(video_name)
+        if cached is not None:
+            return cached
         # Stable local-only key used for deduplicating owner-local work.
         # NEVER treat this key as an authenticated TorrServer/OMP media key.
         media_key = hashlib.sha256(video_name.casefold().encode("utf-8")).hexdigest()
@@ -129,6 +206,7 @@ class AutomaticVietsubFlow:
         else:
             asset = self.client.download_selected(media, discovery)
         file_path = write_private_cache(self.cache_root, media, asset)
+        self._remember_source(video_name, file_path, asset)
         self.emit("AUTO_SUBTITLE_CACHED=YES")
         if asset.language == "vi":
             self.emit("AUTO_GEMINI_REQUESTS=0")
