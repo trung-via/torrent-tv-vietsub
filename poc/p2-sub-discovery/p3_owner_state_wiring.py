@@ -32,6 +32,7 @@ from p3_owner_current_redmi import OwnerCurrentRedmiReader
 from p3_signed_playback_signal import SignedPlaybackVerifier
 from p3_signed_signal_to_owner import SignedP3ToOwner
 from p3_p4_shared_https_route import make_p3_p4_handler
+from p3_p4_ready_registry import P3OwnerReadyRegistry
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,8 @@ class OwnerP3StatusComposition:
     signal: SignedP3ToOwner
     private_media_root: Path
     locate_owner_pinned_files: Callable
+    p4_gateway: PairedActivation
+    ready_registry: P3OwnerReadyRegistry | None = None
 
     def trusted_v3_factory(self, existing_flow: object) -> VerifiedV3Processor:
         """Passed into the existing #146 run_owner_agent(..., trusted_v3_factory).
@@ -56,11 +59,14 @@ class OwnerP3StatusComposition:
             read_verified_current_playback=self.current.read_v3,
             read_verified_torrserver_file=self.current._ts,
             locate_owner_pinned_files=self.locate_owner_pinned_files,
+            on_vietsub_ready=(
+                self.ready_registry.register
+                if self.ready_registry is not None else None),
         )
 
 
 def compose_owner_redmi_status(*,
-    p4_gateway: PairedActivation,
+    p4_gateway: PairedActivation | None,
     paired_device_secret: bytes,
     torrserver_reader: OwnerTorrServerReader,
     owner_root: Path,
@@ -69,9 +75,13 @@ def compose_owner_redmi_status(*,
     media_rights_allowed: Callable[[str, str, int], bool],
     verified_local_vi_state: Callable[[str, str, int], str],
     locate_owner_pinned_files: Callable[[str, str, int, str], OwnerPinnedFiles | None],
+    enable_verified_vietsub_ready: bool = False,
 ) -> OwnerP3StatusComposition:
     """Returns handler and one existing-worker factory. Never binds a port."""
-    if (not isinstance(p4_gateway, PairedActivation)
+    if (type(enable_verified_vietsub_ready) is not bool
+            or (enable_verified_vietsub_ready and p4_gateway is not None)
+            or (not enable_verified_vietsub_ready
+                and not isinstance(p4_gateway, PairedActivation))
             or not isinstance(torrserver_reader, OwnerTorrServerReader)
             or not isinstance(owner_root, Path) or not owner_root.is_absolute()
             or not isinstance(private_media_root, Path)
@@ -92,14 +102,25 @@ def compose_owner_redmi_status(*,
         media_rights_allowed=media_rights_allowed,
         verified_local_vi_state=verified_local_vi_state,
     )
+    # For this per-film owner consent path, build the existing P4 gateway
+    # around the SAME verified-current-TV reader. It may serve a final VI
+    # artifact only after V3 has registered its original ready result.
+    registry = (P3OwnerReadyRegistry(
+        read_verified_current_playback=current.read_v3)
+        if enable_verified_vietsub_ready else None)
+    gateway = (PairedActivation(
+        device_secret=paired_device_secret, supplied={},
+        authenticated_vietsub_factory=registry.resolve)
+        if registry is not None else p4_gateway)
     p3_signal = SignedP3ToOwner(
         verifier=SignedPlaybackVerifier(paired_device_secret, journal=replay),
         owner_root=owner_root,
         read_verified_current_selection=current.read_playback,
     )
-    handler = make_p3_p4_handler(p4_gateway, p3_signal, cache)
+    handler = make_p3_p4_handler(gateway, p3_signal, cache)
     return OwnerP3StatusComposition(
         handler=handler, cache=cache, current=current, signal=p3_signal,
         private_media_root=private_media_root,
         locate_owner_pinned_files=locate_owner_pinned_files,
+        p4_gateway=gateway, ready_registry=registry,
     )

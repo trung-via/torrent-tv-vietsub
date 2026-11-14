@@ -22,6 +22,7 @@ import time
 from typing import Callable, Type
 
 from assumed_source_handoff import AssumedEnglishSubtitle
+from verified_vietsub_ready import VerifiedVietsubReady
 from lan_revision_feed import SessionRevisionFeed, private_lan_ip
 
 MEDIA_RX = re.compile(r"media\.[0-9a-f]{64}\Z")
@@ -73,7 +74,8 @@ class PairedActivation:
                  supplied: dict[str, AssumedEnglishSubtitle],
                  on_activate: Callable[[SessionRevisionFeed, AssumedEnglishSubtitle], None] | None = None,
                  authenticated_mock_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None,
-                 authenticated_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None):
+                 authenticated_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None,
+                 authenticated_vietsub_factory: Callable[[str], VerifiedVietsubReady] | None = None):
         if not isinstance(device_secret, bytes) or len(device_secret) != 32:
             raise ValueError("P4_DEVICE_SECRET_INVALID")
         if len(supplied) > 32 or any(
@@ -86,11 +88,18 @@ class PairedActivation:
         # process; different media is always refused, even with a valid key.
         if authenticated_mock_source_factory is not None and (
             not callable(authenticated_mock_source_factory) or supplied or
-            authenticated_source_factory is not None
+            authenticated_source_factory is not None or
+            authenticated_vietsub_factory is not None
         ):
             raise ValueError("P4_MOCK_SOURCE_FACTORY_SCOPE_INVALID")
         if authenticated_source_factory is not None and not callable(authenticated_source_factory):
             raise ValueError("P4_SOURCE_FACTORY_INVALID")
+        if (authenticated_vietsub_factory is not None and
+                (not callable(authenticated_vietsub_factory) or supplied or
+                 authenticated_source_factory is not None or
+                 on_activate is not None)):
+            raise ValueError("P4_VERIFIED_VI_FACTORY_SCOPE_INVALID")
+        self.__vietsub_factory = authenticated_vietsub_factory
         self.__mock_factory = authenticated_mock_source_factory
         self.__source_factory = authenticated_source_factory
         self.__locked_mock_media: str | None = None
@@ -145,18 +154,37 @@ class PairedActivation:
                     raise ValueError("P4_SOURCE_FACTORY_MEDIA_MISMATCH")
                 source = candidate
                 self.__sources[media] = source
-            if source is None:
+            ready = None
+            if source is None and self.__vietsub_factory is not None:
+                # The ready registry is populated ONLY by the existing owner
+                # VI_FAST or EN→LEAN120 completion, never by a bare Play.
+                # It independently rechecks the CURRENT signed TV session.
+                candidate = self.__vietsub_factory(media)
+                if (not isinstance(candidate, VerifiedVietsubReady)
+                        or candidate.media_key != media):
+                    raise ValueError("P4_READY_FACTORY_MEDIA_MISMATCH")
+                candidate.as_final_revision()  # strict hash/cues/timeline
+                ready = candidate
+            if source is None and ready is None:
                 raise ValueError("P4_ASSUMED_SOURCE_MISSING")
             if len(self.__feeds)>=16:
                 raise ValueError("P4_TOO_MANY_SESSIONS")
             self.__seen[nonce]=now
             sid=secrets.token_urlsafe(24)
-            session_key=derive_session_secret(self.__key,sid,media,source.source_sha256)
+            source_sha = (ready.source_sha256 if ready is not None else source.source_sha256)
+            session_key=derive_session_secret(self.__key,sid,media,source_sha)
             feed=SessionRevisionFeed(
                 session_id=sid,media_key=media,
-                source_sha256=source.source_sha256,pairing_secret=session_key)
+                source_sha256=source_sha,pairing_secret=session_key)
             self.__feeds[sid]=feed
-        if self.__on_activate is not None:
+        if ready is not None:
+            try:
+                # Existing P4 signed feed; no Gemini/OpenSubtitles repeat.
+                feed.publish(ready.as_final_revision())
+            except Exception:
+                with self.__lock: self.__feeds.pop(sid,None)
+                raise ValueError("P4_READY_FEED_PUBLISH_FAILED") from None
+        if source is not None and self.__on_activate is not None:
             try: self.__on_activate(feed,source)
             except Exception:
                 with self.__lock:self.__feeds.pop(sid,None)
@@ -164,8 +192,8 @@ class PairedActivation:
         return {
             "schema":"TTV-P4-ACTIVATED-V1",
             "media_key":media,"nonce":nonce,
-            "session_id":sid,"source_sha256":source.source_sha256,
-            "auth":activation_response_mac(self.__key,media,nonce,sid,source.source_sha256),
+            "session_id":sid,"source_sha256":source_sha,
+            "auth":activation_response_mac(self.__key,media,nonce,sid,source_sha),
         }
 
     def feed_for(self, session_id: str) -> SessionRevisionFeed | None:
