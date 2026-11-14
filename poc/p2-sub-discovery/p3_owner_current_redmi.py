@@ -54,13 +54,13 @@ class OwnerCurrentRedmiReader:
             first = self._cache.read_fresh()
             # Only the configured owner TorrServer can supply authoritative
             # selected-file filename. No client input from TV title field.
-            chosen = self._ts(self._ts._config.profile_id,
+            chosen = self._ts(self._ts.profile_id,
                               first.torrent_hash, first.file_index)
             name = _one_basename(chosen.path)
             allowed = self._owner()
-            rights = self._rights(self._ts._config.profile_id,
+            rights = self._rights(self._ts.profile_id,
                                   first.torrent_hash, first.file_index)
-            vi = self._vi(self._ts._config.profile_id,
+            vi = self._vi(self._ts.profile_id,
                           first.torrent_hash, first.file_index)
             second = self._cache.read_fresh()
             if (first.tv_session_id != second.tv_session_id
@@ -81,7 +81,7 @@ class OwnerCurrentRedmiReader:
         state, name, allowed, rights, vi = self._current()
         return PlaybackSelected(
             kind=state.kind, attested=True, active=state.active,
-            server_id=self._ts._config.profile_id,
+            server_id=self._ts.profile_id,
             tv_session_id=state.tv_session_id,
             torrent_hash=state.torrent_hash, file_index=state.file_index,
             video_name=name, owner_auto_enabled=allowed,
@@ -92,7 +92,7 @@ class OwnerCurrentRedmiReader:
         state, name, allowed, rights, vi = self._current()
         return CurrentPlaying(
             kind=state.kind, attested=True, active=state.active,
-            server_id=self._ts._config.profile_id,
+            server_id=self._ts.profile_id,
             tv_session_id=state.tv_session_id,
             torrent_hash=state.torrent_hash, file_index=state.file_index,
             video_name=name, owner_auto_enabled=allowed,
