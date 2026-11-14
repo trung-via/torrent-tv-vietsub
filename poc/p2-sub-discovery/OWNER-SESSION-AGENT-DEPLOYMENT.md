@@ -85,3 +85,40 @@ Stop/unregister only TorrentTV-Vietsub-OwnerAgent under the owner account
 and remove the installed bridge only after preserving owner-private cache
 and checkpoints. Do not delete uncertain download/model claims merely
 to trigger duplicate quota spend. Leave TorrServer/OMP and firewall alone.
+
+
+## P3 playback trigger composition — exact source, no duplicate policy
+
+This branch includes exact P3 trigger policy source from Draft #142 as a
+source-preserving merge commit; the installer copies that module into
+the owner-local app tree. The trusted_playback_to_owner.py adapter fetches
+a FRESH current TV playback snapshot through a REQUIRED owner-trusted
+function, applies the existing P3 ActivationDeduplicator, and enqueues
+only DISPATCH decisions in the owner's private inbox. It does NOT accept
+arbitrary GitHub JSON or script commands as a playback event.
+
+P3 policy's attested=True is a scoped CALLER assertion, not cryptographic
+authentication by itself. The actual Redmi OMP PlayRequest event subscriber
+and TV/TorrServer auth source still must be implemented separately. This
+candidate does NOT claim an installed real OMP event subscriber.
+
+Owner-private P3 events use V2 with an opaque source fingerprint computed
+from selected server + torrent hash + file index; older private V1 filename
+events remain supported. The existing D2/P2 flow now keys its private
+source cache by the verified opaque fingerprint for P3-bound events,
+rather than reusing identical video filenames from different torrents.
+The fingerprint is NOT an authenticated P4 TV media key.
+
+The owner agent singleton uses an OS-held Windows lock, automatically
+released on process exit or crash, so stale PID files no longer require
+manual deletion. Existing D2 one-POST claims and P2 Gemini inflight
+checkpoints deliberately REMAIN persistent, blocking ambiguous paid retries.
+
+## Remaining actual deployment gate
+
+GitHub's runner is built-in NETWORK_SERVICE in Session 0 and cannot enroll
+a scheduled task under the logged-in owner's interactive account. A
+reviewed one-time OWNER-session installation is necessary before the
+agent runs. Inert GitHub WAKE cannot substitute for a verified OMP selection,
+grant privileges, supply model secrets or authorize arbitrary commands.
+Live provider/Redmi acceptance remains NOT_RUN.
