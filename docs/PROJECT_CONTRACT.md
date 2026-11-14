@@ -2,7 +2,7 @@
 
 **Ngày cập nhật:** 2026-10-28  
 **Trạng thái:** `DRAFT_FOR_PR_REVIEW` — Human đã quyết định tách hoàn toàn khỏi AIOS; nội dung tài liệu này chỉ trở thành baseline trên `main` sau khi PR được review/merge.  
-**Repo sản phẩm:** `trung-via/torrent-tv-vietsub` (PRIVATE).  
+**Repo sản phẩm:** `trung-via/torrent-tv-vietsub` (PRIVATE tại lần kiểm tra 2026-11-04; PUBLIC được Human cho phép sau preflight).  
 **Tên sản phẩm:** **Torrent TV Vietsub**; bỏ hậu tố “— AIOS”.  
 **Quyết định liên quan:** ADR-0001 (Windows/NAS + TV client), ADR-0002 (OMP baseline), ADR-0003 (runner riêng, phần AIOS được ADR-0007 thay thế), ADR-0006 (P1 SRT/VTT source-agnostic), ADR-0007 (độc lập hoàn toàn với AIOS). ADR-0005 là lịch sử SMB-first, không phải mặc định hiện hành.
 
@@ -26,6 +26,7 @@ Xây dựng ứng dụng giải trí gia đình trên Android TV/Google TV tươ
 8. **AI Vietsub theo yêu cầu là mục tiêu Human đã chọn:** Draft PR #9/ADR-0004 định nghĩa P2 offline local-first timed SRT/VTT translation → ASR fallback → QA → file tiếng Việt. Voice-over/TTS là capability riêng sau Vietsub, opt-in; không tự chạy nền, không cam kết real-time hay cloud upload.
 9. **Tách biệt quyền vận hành:** không tự bật GitHub workflow, cài/đổi runner service, sửa Windows Firewall/router/UPnP, mở WAN, root TV, ký/publish APK hoặc merge vào `main` khi chưa có phê duyệt tương ứng.
 10. **Release:** APK, tài liệu cài đặt, mã nguồn tương ứng, giấy phép và rollback do chính dự án quản lý; Human là người phê duyệt cuối cùng.
+11. **Repo PUBLIC hợp lệ:** repo có thể chuyển PRIVATE → PUBLIC và tiếp tục đúng lịch sử phát triển, OMP-first, PR/CI/runner và acceptance gates. PUBLIC không đòi hỏi tạo repo mới, quay về PRIVATE, đổi kiến trúc hay tái nghiệm thu các gate đã có evidence vẫn còn hiệu lực. Đổi visibility là thao tác riêng, chỉ khi Human chỉ định rõ và đạt preflight bảo mật/license; không đồng nghĩa publish APK hoặc expose TorrServer/WAN.
 
 ## C2 — Chưa chốt hoặc chưa xác minh
 
@@ -76,7 +77,7 @@ User/remote/phone ──────────────> OMP-derived TV UI 
 Human / Issues / PR / ADR
            │
            v
-Torrent TV GitHub repository (PRIVATE)
+Torrent TV GitHub repository (PRIVATE / PUBLIC theo Human)
            │
       GitHub Actions (repo-scoped, least privilege)
            │
@@ -96,7 +97,9 @@ AIOS repositories ── optional audited source/template reference only
 
 - Media/test fixture tự tạo hoặc có giấy phép phù hợp; quyền stream, chia sẻ, dịch, tạo audio phải được kiểm tra theo từng nguồn. Tính năng website search không xác nhận mọi kết quả hợp pháp.
 - Không lưu magnet cá nhân, infohash nhạy cảm, tracker passkey, token, URL có userinfo, IP LAN thật hoặc transcript/audio riêng tư trong Git, CI logs hay artifacts chia sẻ.
-- OMP được mô tả trong audit là GPL-3.0-only; kiểm tra license upstream/submodule/dependencies tại commit thật trước import/phân phối. Repo PRIVATE không tự miễn nghĩa vụ khi phân phối APK.
+- OMP được mô tả trong audit là GPL-3.0-only; kiểm tra license upstream/submodule/dependencies tại commit thật trước import/phân phối hoặc công khai nguồn. Repo PRIVATE không tự miễn nghĩa vụ khi phân phối APK; PUBLIC không tự đồng nghĩa source/dependency đã có quyền tái phân phối.
+- **PUBLIC preflight:** rà soát toàn bộ Git history, branch, tag, release, issue/PR/artifact truy cập được; xoá/rotate secrets đã lộ đúng quy trình; kiểm tra nội dung cá nhân, magnet/passkey, IP LAN, media/fixtures có bản quyền, NOTICE/license và upstream provenance. Không suy rằng xóa file ở HEAD đã xóa nội dung khỏi lịch sử.
+- **PUBLIC CI:** coi fork PR, issue/comment content và mọi input bên ngoài là untrusted. Không checkout/chạy PR lạ trên self-hosted Windows có quyền host/secrets; trusted branch/ref + review/least-privilege cho host workflow. Bảo đảm workflow và artifacts không rò rỉ credential.
 - LAN-only mặc định; không public gateway/TorrServer/ADB, không UPnP/port forwarding, không bypass DRM. Bảo vệ API bằng auth/allowlist/rate limit/CSRF phù hợp; credential không xuất hiện trong stream URL/log/redirect.
 - AI xử lý audio/subtitle chỉ với nội dung được phép, consent rõ ràng, policy retention/xóa dữ liệu và ước tính chi phí trước khi chạy.
 
@@ -137,6 +140,10 @@ Các gate độc lập: một job build PASS không chứng minh TV thật; demo
 - **P5 — AI voice-over:** TTS/align/mix/mux PoC trước, real-time chỉ là giả thuyết cần đo; không mặc định P0–P4 phụ thuộc P5.
 
 Roadmap thể hiện thứ tự phụ thuộc, không cam kết lịch/chi phí. Deep Research đã hoàn thành và được đối chiếu, nhưng ước tính trong báo cáo chưa được hiệu chỉnh cho OMP-first; thời lượng, tài nguyên và hiệu năng thực tế phải đo qua PoC có bằng chứng.
+
+## C7a — Quyết định về công khai repository (2026-11-04)
+
+**HUMAN_DECIDED:** Cho phép dự án được tiếp tục khi chuyển repo GitHub sang **PUBLIC**. Visibility là trạng thái vận hành, không phải acceptance gate của tính năng. Việc public hóa source không cho phép tự động mở WAN, chạy workflow đặc quyền, phát hành APK, hoặc công bố tính năng chưa nghiệm thu. Quyền thay đổi GitHub visibility phải được phê duyệt riêng; GitHub live state là nguồn chứng thực hiện trạng. Nếu PUBLIC preflight FAIL, tạm giữ **visibility switch**, tiếp tục các tác vụ độc lập và an toàn.
 
 ## C8 — Authority và quản trị thay đổi
 
