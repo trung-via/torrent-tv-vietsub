@@ -23,6 +23,7 @@ from owner_p3_p4_runtime import (
     _interactive_windows_session, run_owner_p3_p4_runtime,
 )
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader
+from owner_torrserver_ffp_tracks import TorrServerFfpTrackReader
 from p3_owner_state_wiring import compose_owner_redmi_status
 from lan_revision_feed import private_lan_ip
 
@@ -120,7 +121,8 @@ def build_private_composition(*, owner_root: Path,
     policy = PrivateP3P4Policy(
         manifest=policy_file, owner_root=owner_root,
         private_media_root=private_media_root,
-        torrserver=reader)
+        torrserver=reader,
+        stream_probe=TorrServerFfpTrackReader(reader))
     if policy.owner_auto_allowed() is not True:
         raise OwnerEntrypointBlocked("P3_P4_OWNER_AUTO_DISABLED")
     return compose_owner_redmi_status(
@@ -172,7 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         reader = OwnerTorrServerReader(OwnerLocalTorrServer(profile, port_ts))
         verified = PrivateP3P4Policy(
             manifest=policy_path, owner_root=owner,
-            private_media_root=media_root, torrserver=reader)
+            private_media_root=media_root, torrserver=reader,
+            stream_probe=TorrServerFfpTrackReader(reader))
         if not verified.owner_auto_allowed():
             raise OwnerEntrypointBlocked("P3_P4_OWNER_AUTO_DISABLED")
         key, host, port, cert, pem = _pair_and_stage_identity(owner)
