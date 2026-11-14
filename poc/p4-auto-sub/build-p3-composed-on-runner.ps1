@@ -248,7 +248,7 @@ foreach ($anchorP3 in @(
         throw ('STOP: P3 / P4 activity source anchor absent: ' + $anchorP3)
     }
 }
-if (($activityP3.Split('P3SelectedMediaPublisher.accepted(').Length - 1) -ne 2) {
+if (([regex]::Matches($activityP3, [regex]::Escape('P3SelectedMediaPublisher.accepted('))).Count -ne 2) {
     throw 'STOP: P3 native accepted Play/Next signal count invalid'
 }
 & git -C $omp diff --check
