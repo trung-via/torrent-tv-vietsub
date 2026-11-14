@@ -80,7 +80,7 @@ class SignedP3ToOwner:
         # The existing P3 gate still enforces owner consent, explicit REQUESTED,
         # rights, local VI and exact media. It will read the source again;
         # no trust/filename from the signed event is injected into gate.
-        decision = self._bridge.on_current_selection_accepted()
+        decision = self._bridge.on_current_selection_accepted(signal)
         if decision.status == "DISPATCH":
             self._active_selection = selection
         return decision
