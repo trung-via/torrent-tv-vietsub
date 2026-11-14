@@ -1,0 +1,56 @@
+# P3-MOBILE source-only: hosted checks, no app build/install, no LAN, API or secrets.
+name: Torrent TV - Android Phone Companion Setup Offline CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'docs/ROADMAP.md'
+      - 'docs/mobile-companion/**'
+      - 'tools/mobile-companion/**'
+      - '.github/workflows/tv-mobile-companion-setup-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-setup:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-mobile-omp-android-phone-setup-20261114' &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR HEAD, no persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check phone setup, roadmap and read-only Windows safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/mobile-companion -p 'test_*.py' -v
+
+      - name: Parse Windows PowerShell preflight without executing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $file = (Resolve-Path 'tools/mobile-companion/Inspect-TorrServerMobileReadiness.ps1').Path
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              $file, [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -ne 0) {
+              throw 'MOBILE_POWERSHELL_SOURCE_PARSE_FAILED'
+          }
+          Write-Host 'MOBILE_POWERSHELL_PARSE_PASS_NOT_WINDOWS_RUN_NOT_PHONE_E2E'
+
+      - name: Record no-device/no-network scope
+        shell: bash
+        run: echo 'MOBILE_SETUP_CI_SOURCE_ONLY_NO_PHONE_INSTALL_NO_ADB_NO_TORRSERVER_CALL_NO_TV_NO_PROVIDER'
