@@ -18,6 +18,12 @@ import javax.crypto.spec.SecretKeySpec
  * All P4 traffic is certificate-pinned HTTPS (not legacy OMP HTTP).
  * HMAC provides an independent media/session/read-authentication boundary.
  */
+/** A new PC gateway has no record of the previously activated in-memory session. */
+internal class P4LanSessionExpired : IllegalStateException("P4_LAN_SESSION_EXPIRED")
+
+/** Do not silently retry a rejected signed read or weaken TLS/pairing. */
+internal class P4LanAuthorizationRejected : SecurityException("P4_LAN_AUTH_REJECTED")
+
 internal object P4LanClient {
     private const val MAX_WIRE_BYTES = 400_000
     private val SESSION_RX = Regex("[A-Za-z0-9_-]{16,80}")
@@ -75,8 +81,10 @@ internal object P4LanClient {
             connection.setRequestProperty("X-P4-Nonce", nonceHex)
             connection.setRequestProperty("X-P4-Authorization", authorization)
             when (connection.responseCode) {
-                204 -> return null
+                204 -> return null // Valid session, but no new cumulative revision.
                 200 -> Unit
+                404 -> throw P4LanSessionExpired()
+                401, 403 -> throw P4LanAuthorizationRejected()
                 else -> throw IllegalArgumentException("P4_LAN_HTTP_NOT_OK")
             }
             if (connection.contentType?.substringBefore(';') != "application/json") {

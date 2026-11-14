@@ -56,14 +56,44 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             if (!p4LanInFlight) {
                 p4LanInFlight = true
                 Thread {
+                    // A lost PC-side in-memory session is NOT a normal
+                    // no-new-revision 204. Never auto-reactivate/bill Gemini.
+                    var terminalFailure: String? = null
                     val offer = try {
                         P4LanClient.pollOnce(scope.host, scope.port, scope.sessionId,
                             scope.readSecret, scope.certPinSha256)
-                    } catch (_: Exception) { null }
+                    } catch (_: P4LanSessionExpired) {
+                        terminalFailure = "SESSION_EXPIRED"
+                        null
+                    } catch (_: P4LanAuthorizationRejected) {
+                        terminalFailure = "AUTH_REJECTED"
+                        null
+                    } catch (_: Exception) {
+                        // Temporary network outage: retain the active movie,
+                        // last accepted sidecar and bounded six-second polling.
+                        null
+                    }
                     runOnUiThread {
                         if (gen != p4LanGeneration || p4LanScope !== scope) return@runOnUiThread
                         p4LanInFlight = false
-                        if (!isFinishing && !isDestroyed && !closedSent && offer != null) {
+                        if (isFinishing || isDestroyed || closedSent) return@runOnUiThread
+                        if (terminalFailure != null) {
+                            val current = if (::session.isInitialized) session.request else null
+                            val stillOn = current != null &&
+                                P1ProductionSubtitles.automaticChoice(
+                                    applicationContext, current, index()) == "ON"
+                            // Stop stale polling, erase session secrets, revert
+                            // unacknowledged imports; keep user's ON/OFF choice
+                            // and last valid subtitle. No automatic activation.
+                            unbindP4Session()
+                            if (stillOn) {
+                                showMessage(
+                                    if (terminalFailure == "SESSION_EXPIRED")
+                                        "Phiên Vietsub AI trên PC đã hết. Bật lại để kết nối."
+                                    else "PC từ chối xác thực Vietsub AI. Kiểm tra kết nối an toàn.",
+                                    true)
+                            }
+                        } else if (offer != null) {
                             receiveP4Revision(offer)
                         }
                     }
