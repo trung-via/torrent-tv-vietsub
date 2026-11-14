@@ -42,6 +42,7 @@ class OwnerP3StatusComposition:
     cache: SignedRedmiStateCache
     current: OwnerCurrentRedmiReader
     signal: SignedP3ToOwner
+    owner_root: Path
     private_media_root: Path
     locate_owner_pinned_files: Callable
     p4_gateway: PairedActivation
@@ -120,7 +121,7 @@ def compose_owner_redmi_status(*,
     handler = make_p3_p4_handler(gateway, p3_signal, cache)
     return OwnerP3StatusComposition(
         handler=handler, cache=cache, current=current, signal=p3_signal,
-        private_media_root=private_media_root,
+        owner_root=owner_root, private_media_root=private_media_root,
         locate_owner_pinned_files=locate_owner_pinned_files,
         p4_gateway=gateway, ready_registry=registry,
     )
