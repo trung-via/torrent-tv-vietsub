@@ -21,7 +21,7 @@ NAME = "Synthetic.Movie.2017.1080p.BluRay.x265-GRP.mkv"
 
 
 def wire(**updates):
-    data = dict(kind="PLAY_REQUEST_ACCEPTED", tv_session_id=SESSION,
+    data = dict(kind="VIEWER_VIETSUB_REQUESTED", tv_session_id=SESSION,
                 torrent_hash=TORRENT, file_index=2,
                 sent_at_ms=WHEN, nonce="c" * 32)
     data.update(updates)
@@ -34,7 +34,7 @@ def snapshot(**updates):
         server_id="owner-windows-server",
         tv_session_id=SESSION, torrent_hash=TORRENT,
         file_index=2, video_name=NAME,
-        owner_auto_enabled=True, subtitle_choice="ON",
+        owner_auto_enabled=True, subtitle_choice="REQUESTED",
         media_rights_approved=True, local_vi_state="ABSENT")
     return replace(e, **updates)
 
