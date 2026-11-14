@@ -11,6 +11,14 @@ owner-side gates, not remotely controllable booleans or invented defaults.
 from __future__ import annotations
 
 from typing import Callable
+from pathlib import Path
+import sys
+
+# The legacy OpenSubtitles test runner imports modules without adding the
+# P3 sibling package. Always resolve this pinned local tree, not cwd.
+_p3_dir = str((Path(__file__).resolve().parent.parent / "p3-vietsub-trigger").resolve())
+if _p3_dir not in sys.path:
+    sys.path.insert(0, _p3_dir)
 
 from activation_gate import PlaybackSelected
 from owner_selected_file_resolver import CurrentPlaying, _one_basename
