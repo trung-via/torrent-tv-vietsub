@@ -134,7 +134,8 @@ def run_owner_p3_p4_runtime(*, wiring: OwnerP3StatusComposition,
     for pem in (tls_cert, tls_key):
         if (not isinstance(pem, Path) or not pem.is_absolute()
                 or pem.is_symlink() or not pem.is_file()
-                or not pem.is_relative_to(owner_root)):
+                or not pem.resolve(strict=True).is_relative_to(
+                    owner_root.resolve(strict=True))):
             raise OwnerRuntimeBlocked("P3_P4_PRIVATE_TLS_FILES_REQUIRED")
     if not 0.5 <= interval_seconds <= 60.0:
         raise OwnerRuntimeBlocked("P3_P4_POLL_INTERVAL_INVALID")
