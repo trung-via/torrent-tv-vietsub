@@ -82,8 +82,12 @@ if (-not $pairingReady -or -not $secretsReady -or
     Write-Host 'P3_P4_ACTIVATE=HOLD_PAIRING_OR_OWNER_BRIDGE_MISSING'
     return
 }
-if (-not $taskReady -or [string]$task.Principal.LogonType -cne 'Interactive' -or
-    -not $task.Principal.UserId.Equals($identity.Name,[StringComparison]::OrdinalIgnoreCase)) {
+# A clean owner session can also be a FIRST enrollment: the existing
+# owner-only installer can create the interactive task if it does not exist.
+# Never mutate a task of another principal or a service logon task.
+if ($taskReady -and (
+    [string]$task.Principal.LogonType -cne 'Interactive' -or
+    [string]$task.Principal.UserId -cne $identity.Name)) {
     throw 'P3_P4_ACTIVATE_OWNER_TASK_IDENTITY_MISMATCH'
 }
 if (-not (Test-Path -LiteralPath $entry -PathType Leaf) -or
