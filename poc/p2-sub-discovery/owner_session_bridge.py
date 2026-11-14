@@ -244,6 +244,7 @@ def read_owner_agent_health(*, owner_root: Path, now: float | None = None
     if (not isinstance(doc, dict) or set(doc) != {
             "schema", "state", "observed_utc_epoch", "pid"}
             or doc["schema"] != _HEALTH_SCHEMA
+            or not isinstance(doc["state"], str)
             or doc["state"] not in _HEALTH_STATES
             or type(doc["observed_utc_epoch"]) is not int
             or type(doc["pid"]) is not int):
