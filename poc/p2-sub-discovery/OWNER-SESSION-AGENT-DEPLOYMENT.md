@@ -20,8 +20,9 @@ One fixed Task Scheduler entry starts the PowerShell agent launcher at
 logon under the actual owner Windows InteractiveToken, Limited privilege.
 It decrypts owner-DPAPI key files in that account and starts the already
 implemented D2→P2 AutomaticVietsubFlow with local cache/checkpoints and
-Gemini 4 Hydrogen HIGH. One no-subtitle model GET at process startup,
-not after each subtitle download.
+Gemini 4 Hydrogen HIGH. The no-subtitle Gemini model GET is deferred
+until a selected source actually requires EN→VI translation. VI-only
+download/reuse works even if Hydrogen is unavailable at the Developer API.
 
 Trusted OMP/TorrServer selected-media adapter calls
 enqueue_selected_media(video_filename, owner_root=...) to enqueue an event
@@ -70,7 +71,11 @@ HostOps cannot self-elevate.
 - MOCK/CI: synthetic test one-off/blocked events, repeated startup, no
   user prompt, no queued command injection, malformed input and symlink
   refusal. Must cite exact CI once completed.
-- REAL WINDOWS OWNER-SESSION SETUP: NOT_RUN until one-time install.
+- REAL WINDOWS OWNER-SESSION SETUP: HUMAN_REPORTED_PASS for the
+  pinned older #143 version (owner console reported enrollment complete).
+  Actual Python agent READY was NOT independently verified: HostOps
+  NETWORK_SERVICE could not query the owner task at run #43543918239.
+  THIS NEW SOURCE CHANGE IS NOT DEPLOYED by editing this Draft.
 - OMP SELECTED-MEDIA EVENT ADAPTER: NOT_WIRED to live deployed player yet.
 - REAL GEMINI API/REDMI P4 AUTOMATIC RECEIVER: NOT_RUN.
 - GitHub runner remains NETWORK_SERVICE; no permission granted so far.
@@ -122,3 +127,33 @@ reviewed one-time OWNER-session installation is necessary before the
 agent runs. Inert GitHub WAKE cannot substitute for a verified OMP selection,
 grant privileges, supply model secrets or authorize arbitrary commands.
 Live provider/Redmi acceptance remains NOT_RUN.
+
+## 2026-11-14 Startup reliability repair (source-only, not installed)
+
+The original #143 owner process attempted a Hydrogen Developer API model
+GET during agent construction. If the key cannot access the chosen model,
+the task can terminate immediately without processing even VI-only work.
+The user reported Task Scheduler enrollment PASS, **not agent READY**.
+
+This candidate defers that no-dialogue GET until EN translation is actually
+needed; when the route is VI_READY, no model call or preflight occurs.
+When a confident EN route is selected, it checks the model BEFORE a
+quota-bearing OpenSubtitles download POST. When EN is already cached, it
+checks the model before uploading cached English text, without another D2
+GET/POST. A successful preflight is reused for that process only. Model
+unavailable means EN work safely blocks; there is no unapproved fallback.
+
+The agent emits a tiny private status file in owner LOCALAPPDATA at
+OwnerBridge/agent-health.json. It contains ONLY schema, READY/STARTING/
+BLOCKED/STOPPED state, timestamp and local PID; no API key, source, film
+name, file path, hash, TV session, request or subtitle text. The owner-only
+read_owner_agent_health() treats READY older than 30 seconds as STALE. A
+fresh READY means the Python loop is alive, not that Gemini is callable
+or the real OMP event has been bound.
+
+**No automatic update on the installed owner task.** The owner-installed
+code is an earlier source-pinned copy. A future reviewed, one-time upgrade
+needs to run under the owner account, preserving DPAPI secrets, existing
+private SRTs, P2 checkpoints and task identity. Do not remotely overwrite
+the owner's installed code from GitHub NETWORK_SERVICE. A new source PR,
+CI or health file design is NOT a LIVE_WINDOWS_PASS.
