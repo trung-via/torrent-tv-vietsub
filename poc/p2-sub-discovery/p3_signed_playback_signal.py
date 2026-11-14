@@ -18,6 +18,8 @@ import json
 import re
 import time
 
+from p3_owner_replay_journal import OwnerReplayJournal, ReplayJournalRejected
+
 SCHEMA = "TTV-P3-TV-SELECTION-V1"
 VALID_KINDS = frozenset({
     "PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED",
@@ -76,12 +78,17 @@ class SignedPlaybackVerifier:
     CurrentPlaying(attested=True) and can't authorize model/provider calls.
     """
 
-    def __init__(self, paired_secret: bytes, *, max_skew_ms: int = MAX_CLOCK_SKEW_MS):
+    def __init__(self, paired_secret: bytes, *,
+                 max_skew_ms: int = MAX_CLOCK_SKEW_MS,
+                 journal: OwnerReplayJournal | None = None):
         if (not isinstance(paired_secret, bytes)
                 or len(paired_secret) != 32
                 or type(max_skew_ms) is not int
                 or max_skew_ms < 1000 or max_skew_ms > 30000):
             raise SignedPlaybackError("P3_PAIRING_SECRET_OR_CLOCK_POLICY_INVALID")
+        if journal is not None and not isinstance(journal, OwnerReplayJournal):
+            raise SignedPlaybackError("P3_DURABLE_JOURNAL_INVALID")
+        self._journal = journal
         self._key = paired_secret
         self._skew = max_skew_ms
         self._seen: dict[str, int] = {}
@@ -137,6 +144,12 @@ class SignedPlaybackVerifier:
             raise SignedPlaybackError("P3_REPLAY_WINDOW_FULL")
         if sent + 1000 < self._last_sent:
             raise SignedPlaybackError("P3_OUT_OF_ORDER_SELECTION")
+        if self._journal is not None:
+            try:
+                self._journal.accept_selection(
+                    nonce=nonce, sent_ms=sent, now_ms=now)
+            except ReplayJournalRejected:
+                raise SignedPlaybackError("P3_SIGNAL_DURABLE_REPLAY_REJECTED") from None
         self._seen[nonce] = sent
         self._last_sent = max(self._last_sent, sent)
         return AuthenticatedSelectionSignal(

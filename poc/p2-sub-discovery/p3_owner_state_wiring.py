@@ -27,6 +27,7 @@ from owner_selected_file_resolver import OwnerPinnedFiles
 from owner_torrserver_readonly import OwnerTorrServerReader
 from verified_v3_processor import VerifiedV3Processor
 from p3_redmi_current_state import SignedRedmiStateCache
+from p3_owner_replay_journal import OwnerReplayJournal
 from p3_owner_current_redmi import OwnerCurrentRedmiReader
 from p3_signed_playback_signal import SignedPlaybackVerifier
 from p3_signed_signal_to_owner import SignedP3ToOwner
@@ -81,7 +82,10 @@ def compose_owner_redmi_status(*,
         raise ValueError("P3_OWNER_REAL_SOURCE_AND_PRIVATE_ROOT_REQUIRED")
     # A different key than the P4-paired TV results in rejected signed data;
     # the explicitly approved runtime must provide its original pairing key.
-    cache = SignedRedmiStateCache(paired_device_secret)
+    # The real owner composition MUST persist replay data; no optional
+    # memory-only fallback may be used by this entrypoint.
+    replay = OwnerReplayJournal(owner_root)
+    cache = SignedRedmiStateCache(paired_device_secret, journal=replay)
     current = OwnerCurrentRedmiReader(
         state_cache=cache, torrserver=torrserver_reader,
         owner_auto_allowed=owner_auto_allowed,
@@ -89,7 +93,7 @@ def compose_owner_redmi_status(*,
         verified_local_vi_state=verified_local_vi_state,
     )
     p3_signal = SignedP3ToOwner(
-        verifier=SignedPlaybackVerifier(paired_device_secret),
+        verifier=SignedPlaybackVerifier(paired_device_secret, journal=replay),
         owner_root=owner_root,
         read_verified_current_selection=current.read_playback,
     )

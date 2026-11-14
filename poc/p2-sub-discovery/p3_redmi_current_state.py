@@ -19,6 +19,8 @@ import json
 import re
 import time
 
+from p3_owner_replay_journal import OwnerReplayJournal, ReplayJournalRejected
+
 SCHEMA = "TTV-P3-TV-STATE-V1"
 KIND = frozenset(("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED"))
 CHOICES = frozenset(("ON", "OFF", "OTHER"))
@@ -71,12 +73,16 @@ def _unique(pairs):
 
 
 class SignedRedmiStateCache:
-    def __init__(self, key: bytes, *, freshness_seconds: float = FRESH_SECONDS):
+    def __init__(self, key: bytes, *, freshness_seconds: float = FRESH_SECONDS,
+                 journal: OwnerReplayJournal | None = None):
         if (not isinstance(key, bytes) or len(key) != 32
                 or type(freshness_seconds) not in (int, float)
                 or not 1.0 <= freshness_seconds <= FRESH_SECONDS):
             raise RedmiStateRejected("P3_STATE_KEY_OR_TTL_INVALID")
         self._key = bytes(key)
+        if journal is not None and not isinstance(journal, OwnerReplayJournal):
+            raise RedmiStateRejected("P3_STATE_DURABLE_JOURNAL_INVALID")
+        self._journal = journal
         self._ttl = freshness_seconds
         self._current: RedmiNow | None = None
         self._nonces: dict[str, float] = {}
@@ -128,15 +134,25 @@ class SignedRedmiStateCache:
         self._nonces = {k:t for k,t in self._nonces.items() if local-t < 30.0}
         if v["nonce"] in self._nonces or len(self._nonces) >= 256:
             raise RedmiStateRejected("P3_STATE_REPLAY")
-        if v["boot_id"] != self._boot_id:
-            # A new process boot cannot take over a still-fresh active
-            # session merely by resetting sequence to 1.
-            if self._current is not None and local-self._current.received_monotonic <= self._ttl:
+        new_boot = v["boot_id"] != self._boot_id
+        if new_boot:
+            # A new Android process cannot replace a fresh active TV process.
+            if (self._current is not None
+                    and local - self._current.received_monotonic <= self._ttl):
                 raise RedmiStateRejected("P3_STATE_BOOT_CHANGE_WHILE_FRESH")
-            self._boot_id = v["boot_id"]
-            self._sequence = -1
-        if v["sequence"] <= self._sequence:
+        elif v["sequence"] <= self._sequence:
             raise RedmiStateRejected("P3_STATE_OUT_OF_ORDER")
+        if self._journal is not None:
+            try:
+                self._journal.accept_state(
+                    boot_id=v["boot_id"], sequence=v["sequence"],
+                    nonce=v["nonce"], now_ms=now,
+                    ttl_ms=int(self._ttl * 1000))
+            except ReplayJournalRejected:
+                # If the ledger is unavailable/corrupt/replayed, never fall
+                # back to the memory-only state acceptance path.
+                raise RedmiStateRejected("P3_STATE_DURABLE_REPLAY_REJECTED") from None
+        self._boot_id = v["boot_id"]
         self._sequence = v["sequence"]
         self._nonces[v["nonce"]] = local
         self._current = RedmiNow(
