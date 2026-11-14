@@ -21,7 +21,7 @@ NAME = "Synthetic.Movie.2017.1080p.BluRay.x265-GRP.mkv"
 
 
 def wire(**updates):
-    data = dict(kind="PLAY_REQUEST_ACCEPTED", tv_session_id=SESSION,
+    data = dict(kind="VIEWER_VIETSUB_REQUESTED", tv_session_id=SESSION,
                 torrent_hash=TORRENT, file_index=2,
                 sent_at_ms=WHEN, nonce="c" * 32)
     data.update(updates)
@@ -34,7 +34,7 @@ def snapshot(**updates):
         server_id="owner-windows-server",
         tv_session_id=SESSION, torrent_hash=TORRENT,
         file_index=2, video_name=NAME,
-        owner_auto_enabled=True, subtitle_choice="ON",
+        owner_auto_enabled=True, subtitle_choice="REQUESTED",
         media_rights_approved=True, local_vi_state="ABSENT")
     return replace(e, **updates)
 
@@ -73,6 +73,27 @@ class SignedIngressTests(unittest.TestCase):
         self.assertNotIn(NAME, wire().decode())
         self.assertNotIn("owner-windows", wire().decode())
 
+    def test_open_video_or_next_only_identifies_without_search(self):
+        for kind in ("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED"):
+            result = self.adapter.on_wire(
+                wire(kind=kind, nonce=("f" if kind.startswith("PLAY") else "e")*32),
+                now_ms=WHEN)
+            self.assertEqual(
+                (result.status, result.reason),
+                ("SKIP", "MEDIA_IDENTIFIED_AWAIT_VIEWER_REQUEST"))
+        self.assertEqual(self.read_count, 0)
+        self.assertFalse(self.root.exists())
+
+    def test_explicit_event_needs_signed_requested_choice_not_active_p4(self):
+        for state in ("ON", "OTHER", "OFF"):
+            self.state = snapshot(subtitle_choice=state)
+            result = self.adapter.on_wire(
+                wire(nonce={"ON":"1","OTHER":"2","OFF":"3"}[state]*32),
+                now_ms=WHEN)
+            self.assertEqual(
+                result.reason, "TV_VIEWER_REQUEST_CURRENT_MEDIA_MISMATCH")
+        self.assertFalse(self.root.exists())
+
     def test_duplicate_replay_not_enqueued(self):
         self.assertEqual(self.adapter.on_wire(wire(), now_ms=WHEN).status, "DISPATCH")
         self.assertEqual(self.adapter.on_wire(wire(), now_ms=WHEN).status, "HOLD")
@@ -89,19 +110,19 @@ class SignedIngressTests(unittest.TestCase):
     def test_signed_but_stale_tv_session_must_not_enqueue(self):
         self.state = snapshot(tv_session_id="d" * 32)
         result = self.adapter.on_wire(wire(), now_ms=WHEN)
-        self.assertEqual(result.reason, "TV_SIGNAL_CURRENT_SELECTION_MISMATCH")
+        self.assertEqual(result.reason, "TV_VIEWER_REQUEST_CURRENT_MEDIA_MISMATCH")
         self.assertEqual(self.inbox(), [])
 
     def test_signed_wrong_file_index_must_not_enqueue(self):
         self.state = snapshot(file_index=7)
         result = self.adapter.on_wire(wire(), now_ms=WHEN)
-        self.assertEqual(result.reason, "TV_SIGNAL_CURRENT_SELECTION_MISMATCH")
+        self.assertEqual(result.reason, "TV_VIEWER_REQUEST_CURRENT_MEDIA_MISMATCH")
         self.assertEqual(self.inbox(), [])
 
     def test_signed_wrong_torrent_hash_must_not_enqueue(self):
         self.state = snapshot(torrent_hash="f" * 40)
         result = self.adapter.on_wire(wire(), now_ms=WHEN)
-        self.assertEqual(result.reason, "TV_SIGNAL_CURRENT_SELECTION_MISMATCH")
+        self.assertEqual(result.reason, "TV_VIEWER_REQUEST_CURRENT_MEDIA_MISMATCH")
         self.assertEqual(self.inbox(), [])
 
     def test_viewer_off_other_or_vi_present_prevents_provider(self):

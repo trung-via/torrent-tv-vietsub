@@ -36,7 +36,7 @@ def packet(**change):
 
 
 def selected(**change):
-    data=dict(kind="PLAY_REQUEST_ACCEPTED",tv_session_id=SESSION,
+    data=dict(kind="VIEWER_VIETSUB_REQUESTED",tv_session_id=SESSION,
               torrent_hash=HASH,file_index=4,sent_at_ms=WHEN,nonce="f"*32)
     data.update(change)
     return sign_synthetic_event(KEY,**data)
@@ -68,6 +68,13 @@ class StateTests(unittest.TestCase):
                 c.receive(packet(**change),now_ms=WHEN,monotonic_s=100)
                 with self.assertRaisesRegex(RedmiStateRejected,"OFF_OR_INACTIVE"):
                     c.read_fresh(monotonic_s=101)
+
+    def test_viewer_requested_is_fresh_but_off_other_never_valid(self):
+        cache = SignedRedmiStateCache(KEY)
+        cache.receive(packet(subtitle_choice="REQUESTED"),
+                      now_ms=WHEN,monotonic_s=10)
+        self.assertEqual(cache.read_fresh(monotonic_s=11).subtitle_choice,
+                         "REQUESTED")
 
     def test_tamper_and_duplicate_and_clock_skew_refused(self):
         for key,value in (
@@ -195,7 +202,7 @@ class OwnerBridgeTests(unittest.TestCase):
             # Selection HMAC alone cannot enable search or create private V3.
             self.assertEqual(adapter.on_wire(selected(),now_ms=WHEN).status,"HOLD")
             self.assertFalse(self.root.exists())
-            self.cache.receive(packet(),now_ms=WHEN,monotonic_s=10)
+            self.cache.receive(packet(subtitle_choice="REQUESTED"),now_ms=WHEN,monotonic_s=10)
             resp=adapter.on_wire(selected(nonce="a"*32),now_ms=WHEN)
             self.assertEqual(resp.status,"DISPATCH")
             event,=list((self.root/"inbox").glob("event-*.json"))

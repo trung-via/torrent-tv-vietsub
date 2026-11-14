@@ -22,6 +22,7 @@ if str(_TRIGGER) not in sys.path:
     sys.path.insert(0, str(_TRIGGER))
 
 from activation_gate import ActivationDeduplicator, PlaybackSelected, TriggerDecision
+from p3_signed_playback_signal import AuthenticatedSelectionSignal
 from owner_session_bridge import enqueue_selected_media
 
 
@@ -49,12 +50,19 @@ class TrustedPlaybackToOwner:
         self.emit = emit or (lambda _: None)
         self.gate = ActivationDeduplicator()
 
-    def on_current_selection_accepted(self) -> TriggerDecision:
-        """ONE callback when the TV truly accepts a playback selection.
+    def on_current_selection_accepted(
+        self, verified_viewer_request: AuthenticatedSelectionSignal | None = None,
+    ) -> TriggerDecision:
+        """Enqueue ONLY after the signed per-film on-TV viewer tap.
 
-        No raw caller-supplied event argument: fetch fresh trusted state now.
-        The existing queue/agent handles private work asynchronously.
+        A bare native Play/Next/ON snapshot is never authorization. The
+        authenticated event can originate only from the already-paired
+        SignedPlaybackVerifier in the HTTPS P3 adapter; no untrusted JSON,
+        caller-supplied bool or title is accepted by this owner enqueue seam.
         """
+        if (not isinstance(verified_viewer_request, AuthenticatedSelectionSignal)
+                or verified_viewer_request.kind != "VIEWER_VIETSUB_REQUESTED"):
+            return TriggerDecision("SKIP", "NO_VERIFIED_VIEWER_REQUEST")
         try:
             event = self.read_current()
         except Exception:
@@ -65,6 +73,13 @@ class TrustedPlaybackToOwner:
         if not isinstance(event, PlaybackSelected):
             self.emit("OWNER_PLAYBACK_HOLD")
             return TriggerDecision("HOLD", "MALFORMED_EVENT")
+        if (event.kind not in ("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED")
+                or event.attested is not True or event.active is not True
+                or event.subtitle_choice != "REQUESTED"
+                or event.tv_session_id != verified_viewer_request.tv_session_id
+                or event.torrent_hash.lower() != verified_viewer_request.torrent_hash
+                or event.file_index != verified_viewer_request.file_index):
+            return TriggerDecision("HOLD", "VIEWER_REQUEST_SOURCE_CHANGED")
         decision = self.gate.consider(event)
         if decision.status != "DISPATCH":
             self.emit("OWNER_PLAYBACK_" + decision.status)

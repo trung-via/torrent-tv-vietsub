@@ -105,7 +105,7 @@ def _validated_snapshot(s: CurrentPlaying, requested_name: str,
         raise SelectedFileResolveError("RESOLVER_TV_SESSION_MISMATCH")
     if (s.owner_auto_enabled is not True
             or s.media_rights_approved is not True
-            or s.viewer_choice != "ON"
+            or s.viewer_choice not in ("ON", "REQUESTED")
             or s.local_vi_state != "ABSENT"):
         raise SelectedFileResolveError("RESOLVER_OWNER_OR_VIEWER_GATE_BLOCKED")
     if (not isinstance(s.server_id, str) or _TAG.fullmatch(s.server_id) is None

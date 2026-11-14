@@ -23,7 +23,7 @@ from p3_owner_replay_journal import OwnerReplayJournal, ReplayJournalRejected
 SCHEMA = "TTV-P3-TV-SELECTION-V1"
 VALID_KINDS = frozenset({
     "PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED",
-    "PLAYBACK_CLOSED",
+    "PLAYBACK_CLOSED", "VIEWER_VIETSUB_REQUESTED",
 })
 _KEYS = frozenset({
     "schema", "kind", "tv_session_id", "torrent_hash", "file_index",

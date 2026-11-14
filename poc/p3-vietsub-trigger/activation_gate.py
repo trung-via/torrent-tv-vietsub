@@ -32,7 +32,7 @@ class PlaybackSelected:
     file_index: int
     video_name: str
     owner_auto_enabled: bool
-    subtitle_choice: str  # ON | OFF | OTHER
+    subtitle_choice: str  # ON | REQUESTED | OFF | OTHER
     media_rights_approved: bool
     local_vi_state: str  # PRESENT | ABSENT | UNKNOWN
 
@@ -71,9 +71,9 @@ def evaluate_playback(event: PlaybackSelected) -> TriggerDecision:
         return TriggerDecision("HOLD", "MEDIA_IDENTITY_UNVERIFIED")
     if event.owner_auto_enabled is not True:
         return TriggerDecision("SKIP", "OWNER_AUTO_DISABLED")
-    if event.subtitle_choice not in ("ON", "OFF", "OTHER"):
+    if event.subtitle_choice not in ("ON", "REQUESTED", "OFF", "OTHER"):
         return TriggerDecision("HOLD", "SUBTITLE_CHOICE_UNKNOWN")
-    if event.subtitle_choice != "ON":
+    if event.subtitle_choice not in ("ON", "REQUESTED"):
         return TriggerDecision("SKIP", "VIEWER_OFF_OR_OTHER")
     if event.media_rights_approved is not True:
         return TriggerDecision("HOLD", "MEDIA_POLICY_NOT_APPROVED")

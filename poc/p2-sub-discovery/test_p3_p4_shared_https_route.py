@@ -56,7 +56,7 @@ def selected():
         server_id="owner-paired-torrserver",
         tv_session_id=SESSION, torrent_hash=TORRENT,
         file_index=3, video_name=MOVIE,
-        owner_auto_enabled=True, subtitle_choice="ON",
+        owner_auto_enabled=True, subtitle_choice="REQUESTED",
         media_rights_approved=True, local_vi_state="ABSENT",
     )
 
@@ -64,7 +64,7 @@ def selected():
 def signed_wire(*, file_index=3, key=KEY, nonce="c"*32):
     now = int(time.time() * 1000)
     return sign_synthetic_event(
-        key, kind="PLAY_REQUEST_ACCEPTED", tv_session_id=SESSION,
+        key, kind="VIEWER_VIETSUB_REQUESTED", tv_session_id=SESSION,
         torrent_hash=TORRENT, file_index=file_index,
         sent_at_ms=now, nonce=nonce,
     )
