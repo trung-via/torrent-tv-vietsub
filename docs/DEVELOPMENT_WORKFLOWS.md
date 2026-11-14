@@ -40,7 +40,15 @@ Mỗi PR tái sử dụng phải có:
 - `GITHUB_TOKEN` mặc định chỉ `contents: read`; quyền ghi chỉ ở job/release được Human duyệt. Không đưa credentials vào URL/command line/log.
 - Manual dispatch cho job cài/chạy APK/ADB hoặc chạm Windows host; action chạy trên host phải có bounded timeout, exact ref và stop conditions.
 - Artifact APK/checksum là evidence của build, **không** là bằng chứng TV/server real PASS. Giữ retention ngắn, private; không tự publish.
-- Branch protection/review policy là quyết định của repo Torrent TV, không phụ thuộc AIOS.
+- Branch protection/review policy là quyết định của repo Torrent TV, không phụ thuộc AIOS. **Human Issue #42 (2026-11-05) cho phép merge GitHub PR sau Brain review độc lập PASS trên HEAD/base hiện tại và tất cả CI/acceptance/security gates liên quan; thiếu proof => HOLD, không cấp quyền auto-release/host/TV/provider.**
+
+## 5a. PUBLIC repository mode (Human-decided)
+
+- PRIVATE và PUBLIC dùng chung repo, Git history, PR, workflow, issue và roadmap. Việc đổi visibility không vô hiệu hóa acceptance evidence đã có; cần check lại runner/CI trước run kế tiếp, không reset dự án.
+- Không cho untrusted fork PR hay issue/comment payload trở thành mã thực thi trên self-hosted Windows có host access. Runner có quyền host chỉ chạy trusted branch/ref được xác thực và review; không tin mặc định vào event origin, author association hoặc tên workflow.
+- Cấm `pull_request_target` checkout/build mã PR không tin cậy; kiểm tra `issue_comment` và workflow dispatch bridge/allowlist trước PUBLIC. Actions/token mặc định read-only; quyền write/secrets tách riêng ở step được cho phép.
+- Public PR lint/tests (nếu được bật) nên chạy trong môi trường cô lập, không secret, permission tối thiểu; chỉ nâng sang job self-host khi code đã tin cậy và qua review. Public artifacts/logs không có magnet/passkey/IP LAN/credentials.
+- Public visibility thay đổi chỉ theo Human instruction riêng và security/license/history preflight; không tự kích hoạt workflow, phát hành APK hoặc mở LAN.
 
 ## 6. Definition of Done cho workflow change
 
