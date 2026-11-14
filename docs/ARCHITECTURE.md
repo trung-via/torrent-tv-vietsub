@@ -124,7 +124,7 @@ Optional ChatGPT / AI Intent
 
 ## 5. Execution isolation và reuse policy
 
-- Repo: `trung-via/torrent-tv-vietsub` PRIVATE; Git root/history và backlog riêng.
+- Repo: `trung-via/torrent-tv-vietsub` PUBLIC theo GitHub 2026-11-14 (visibility kiểm tra live mỗi lần); Human cho phép PRIVATE hoặc PUBLIC; giữ nguyên Git root/history, backlog và evidence. PUBLIC không làm thay đổi ranh giới runtime LAN hoặc cấp quyền chạy untrusted fork PR trên self-hosted runner.
 - Runner: scope/labels/name/workspace/cache/credential riêng; file workflow hiện có kỳ vọng runner `torrent-tv-vietsub-win` với label `torrent-tv-vietsub`, **không phải bằng chứng online hiện tại**.
 - Kế thừa AIOS **chỉ ở cấp file/mẫu**: GitHub Actions, scripts kiểm tra runner, artifact retention, pin SHA, error reporting. Copy sau provenance/license/security review; đổi namespace, paths, labels, permissions; không phụ thuộc AIOS services, workflow dispatch, journal, canonical task.
 - Hiện repo có các workflow manual-only và nhiều Draft PR; thay đổi kiến trúc này là **docs-only**, không chạy workflow hoặc sửa các PR cũ. Trước merge cần kiểm tra conflict với nhánh docs/AI Vietsub/P1 đang mở.
