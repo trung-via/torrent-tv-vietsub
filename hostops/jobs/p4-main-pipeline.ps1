@@ -9,10 +9,10 @@ if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
     $env:GITHUB_ACTIONS -cne 'true') {
     throw 'P4_MAIN_PIPELINE_WRONG_WINDOWS_RUNNER'
 }
-$expectedParent = '09c957da143b0255a1375d20d110badde6c68373'
-$parent = (& git rev-parse 'HEAD^' | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $parent -cne $expectedParent) {
-    throw 'P4_MAIN_PIPELINE_UNEXPECTED_PR162_SOURCE_PARENT'
+$expectedTestBlob = 'd4c31c3ff2b43095704f1def54287ae2402358ac'
+$blob = (& git rev-parse 'HEAD:poc/p2-sub-discovery/test_p3_owner_p4_single_pipeline_socket.py' | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $blob -cne $expectedTestBlob) {
+    throw 'P4_MAIN_PIPELINE_PR162_TEST_BLOB_MISMATCH'
 }
 $root = $env:GITHUB_WORKSPACE
 $pythonExe = 'C:\Program Files\Python314\python.exe'
