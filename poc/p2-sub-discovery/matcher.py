@@ -13,6 +13,13 @@ _HASH = re.compile(r"[0-9a-fA-F]{16}\Z")
 _YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 _VIDEO_EXT = re.compile(r"\.(?:mkv|mp4|avi|mov|webm|srt|vtt|ass|ssa|sub|txt|smi|sami)\Z", re.I)
 _GROUP = re.compile(r"-([a-z0-9]{2,30})\Z", re.I)
+# Subtitles routinely append language/accessibility markers after the VIDEO
+# release group: e.g. "-TEAM_eng SDH" or "-TEAM_eng". Remove only terminal
+# recognized labels, never arbitrary tokens from the release group itself.
+_SUBTITLE_TRAILING_TAG = re.compile(
+    r"(?:[._\s-]+)(en|eng|english|vi|vie|vietnamese|sdh|cc|forced|hearing[._\s-]+impaired)\Z",
+    re.I,
+)
 _RESOLUTION = re.compile(r"(?<!\w)(720p|1080p|2160p|4k)(?!\w)", re.I)
 _CODEC = re.compile(r"(?<!\w)(x264|x265|h264|h265|hevc|av1)(?!\w)", re.I)
 _SOURCE = re.compile(r"(?<!\w)(bluray|blu ray|bdrip|brrip|web[- ]?dl|webrip|hdtv)(?!\w)", re.I)
@@ -74,10 +81,29 @@ class Release:
     group: str | None
 
 
-def parse_release(filename: str) -> Release:
-    """Filename hint parser, not authoritative metadata or content verification."""
+def _release_stem_and_accessibility(filename: str) -> tuple[str, bool]:
+    """Strip only recognized *terminal* subtitle labels for release matching.
+
+    Metadata like '-TEAM_eng SDH' belongs to video group TEAM; 'eng' is the
+    subtitle language and 'SDH' is an accessibility variant. Do not collapse
+    two different release groups just because they share title/resolution.
+    """
     basename = re.split(r"[/\\]", filename)[-1]
     stem = _VIDEO_EXT.sub("", basename)
+    is_sdh = False
+    for _ in range(8):
+        match = _SUBTITLE_TRAILING_TAG.search(stem)
+        if match is None:
+            break
+        tag = match.group(1).casefold()
+        is_sdh = is_sdh or tag in {"sdh", "cc"} or tag.startswith("hearing")
+        stem = stem[:match.start()]
+    return stem, is_sdh
+
+
+def parse_release(filename: str) -> Release:
+    """Filename hint parser, not authoritative metadata or content verification."""
+    stem, _ = _release_stem_and_accessibility(filename)
     group_match = _GROUP.search(stem)
     if group_match and (group_match.group(1).casefold() in {"dl", "rip", "x264", "x265", "h264", "h265", "720p", "1080p", "2160p"}
                         or _YEAR.fullmatch(group_match.group(1))):
@@ -150,6 +176,13 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
     if reference.codec is not None and reference.codec == proposed.codec:
         score += 2
         evidence.append("codec")
+    # A normal English dialogue subtitle is preferred over its same-release
+    # SDH variant for AI translation. SDH is still eligible if it is the only
+    # good candidate. A 10-point penalty only resolves *otherwise identical*
+    # same-release SDH/non-SDH ties; unrelated groups remain below exact group.
+    if lang == "en" and _release_stem_and_accessibility(candidate.release_name)[1]:
+        score -= 10
+        evidence.append("sdh_variant")
     media_hash = _hash(media.movie_hash)
     sub_hash = _hash(candidate.movie_hash)
     exact_hash = media_hash is not None and media_hash == sub_hash

@@ -39,20 +39,24 @@ def _empty_discovery(media: Media) -> Discovery:
 
 
 def _discover_complete(client: OpenSubtitles, media: Media, *,
-                       language: str, imdb_id: str,
+                       language: str, imdb_id: str | None = None,
                        max_pages: int = 2,
                        timeout_seconds: float | None = None) -> tuple[Discovery, bool, int]:
     """Bounded page aggregation; never use unobserved rows as ranking proof."""
     if max_pages not in (1, 2):
         raise ValueError("unsupported page budget")
-    first = client.search(media, language=language, query_mode="imdb",
+    # Use OpenSubtitles title+year extracted from the authorized video name
+    # when a separately verified IMDb ID is not available. Never guess IDs or
+    # require users to supply a movie hash just to search metadata.
+    mode = "imdb" if imdb_id is not None else "title"
+    first = client.search(media, language=language, query_mode=mode,
                           imdb_id=imdb_id, page=1,
                           timeout_seconds=timeout_seconds)
     pages = [first]
     if (max_pages == 2 and first.raw_rows == 50 and
             (first.api_total is None or first.api_total > first.raw_rows)):
         pages.append(client.search(media, language=language,
-                                   query_mode="imdb", imdb_id=imdb_id, page=2))
+                                   query_mode=mode, imdb_id=imdb_id, page=2))
     seen: dict[int, Candidate] = {}
     for part in pages:
         if part.media_key != media.key or part.results.media_key != media.key:
@@ -77,7 +81,7 @@ def _discover_complete(client: OpenSubtitles, media: Media, *,
 
 
 def select_vi_then_en(client: OpenSubtitles, media: Media, *,
-                      imdb_id: str, policy: str = "VI_FAST",
+                      imdb_id: str | None = None, policy: str = "VI_FAST",
                       vi_timeout_seconds: float = VI_FAST_SOCKET_TIMEOUT_SECONDS) -> Route:
     """VI_FAST limits VI to one GET; EN_DIRECT skips it; VI_FULL is legacy.
 

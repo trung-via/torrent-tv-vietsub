@@ -79,3 +79,33 @@ final route, whether provider's result set was complete, manual intervention
 count, and any *independently proven* media timing sync. Use several authorized
 release combinations, including same group/different cut and same resolution/
 different group. Do not publish local media paths, subtitle content or keys.
+
+## Read-only search by parsed video name (no IMDb field required)
+
+The local owner search CLI `owner_search_probe.py` has two supported search
+identifiers, using the selected owner's authorized TorrServer video **filename**:
+
+- **Default, no IMDb ID**: `parse_release(name)` isolates normalized film
+  title and year, and OpenSubtitles GET receives `languages=<vi|en>`,
+  `query=<normalized film title>`, `year=<release year>`. Example synthetic
+  input `Example Film 2017 1080p BluRay x265-GRP` becomes
+  `query=example film&year=2017`. Group, resolution, source and codec
+  participate in local **ranking only**, not over-restrictive API filters.
+  Year is required for owner trial to avoid confusing remakes.
+- **Optional verified IMDb ID**: `--imdb-id <verified-id>` uses the existing
+  IMDb search path. Never guess an ID from a video name and never confuse
+  torrent infohash with OpenSubtitles moviehash.
+
+Use `--release-name "<owner-local filename>"` to avoid a separate interactive
+filename prompt. The script emits `PARSED_TITLE`, `PARSED_YEAR`,
+`PARSED_SOURCE`, `VIDEO_RESOLUTION`, `PARSED_CODEC`,
+`VIDEO_RELEASE_GROUP`, `QUERY_MODE` and VI/EN ranked candidate summaries.
+The local filename is supplied by the owner, **not actually fetched from
+TorrServer** yet. D3 must later connect the real selected TorrServer file with
+the authenticated OMP session. No key, local filename or provider release
+names may be committed to GitHub, and no downloaded subtitle text is processed.
+
+This entrypoint is **GET-only by construction**: no `POST /download`, no
+Gemini request, no media hash calculation and no TV action. Offline synthetic
+CI verifies request parameters and routing. Real user-key/provider search,
+latency, filename association and actual timing sync remain separate gates.
