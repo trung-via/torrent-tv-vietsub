@@ -376,6 +376,41 @@ $hashes | Out-File -LiteralPath (Join-Path $dir 'SHA256SUMS-P4-COMPOSED.txt') -E
     'P4_AUTO_REFRESH_REAL_TV_UNVERIFIED',
     'P4_RELEASE_BINARY_UNVERIFIED'
 ) | Out-File -LiteralPath (Join-Path $dir 'P4-COMPOSED-BUILD-EVIDENCE.txt') -Encoding utf8
+# Preserve the exact Debug APK privately for separate owner-authorized Redmi
+# acceptance. Prior CI left it only in RUNNER_TEMP, which the runner cleaned
+# before the next job. This copy is NEVER a device install or public artifact.
+$arm32 = @($apks | Where-Object { $_.Name -ceq 'app-armeabi-v7a-debug.apk' })
+if ($arm32.Count -ne 1) { throw 'P4_STAGE_EXPECTED_SINGLE_ARM32_APK' }
+$staged = Join-Path $cache ('p4-pr162-staged\' + $SourceCommit)
+if (Test-Path -LiteralPath $staged -PathType Leaf) {
+    throw 'P4_STAGE_TARGET_NOT_DIRECTORY'
+}
+New-Item -ItemType Directory -Path $staged -Force | Out-Null
+$target = Join-Path $staged 'app-armeabi-v7a-debug.apk'
+$srcHash = (Get-FileHash -LiteralPath $arm32[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+if (Test-Path -LiteralPath $target -PathType Leaf) {
+    $previous = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($previous -cne $srcHash) {
+        throw 'P4_STAGE_EXISTING_SOURCE_SHA_HAS_DIFFERENT_APK'
+    }
+} else {
+    Copy-Item -LiteralPath $arm32[0].FullName -Destination $target -ErrorAction Stop
+}
+$copied = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($copied -cne $srcHash) { throw 'P4_STAGE_COPIED_APK_SHA256_MISMATCH' }
+@(
+    'schema=TTV-P4-PR162-APK-STAGE-V1',
+    "app_commit=$SourceCommit",
+    "omp_commit=$upstream",
+    "submodule_commit=$submodule",
+    'variant=app-armeabi-v7a-debug.apk',
+    "sha256=$copied",
+    'artifact_placement=dedicated_windows_runner_private_cache',
+    'device_installed=no',
+    'real_lan_tested=no'
+) | Set-Content -LiteralPath (Join-Path $staged 'stage-receipt.txt') -Encoding Ascii -ErrorAction Stop
+Write-Host 'P4_PR162_DEBUG_ARM32_STAGED_PRIVATELY_EXACT_SHA_PASS_NOT_INSTALLED'
+
 $global:LASTEXITCODE = 0
 Write-Host 'G2_DEBUG_APK_HASH_AND_ASSET_GUARDS_PASS'
 Write-Host 'P3_P4_COMPOSED_ANDROID_DEBUG_BUILD_READY_NOT_TV_APPROVED'
