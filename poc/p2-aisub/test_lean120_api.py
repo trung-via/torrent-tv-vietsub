@@ -36,17 +36,17 @@ def fake_response(ids) -> dict:
 class Lean120ApiTests(unittest.TestCase):
     def setUp(self):
         self.profile = ModelProfile.from_json(
-            {"provider":"gemini","model":"gemini-3.8-flash","thinking_level":"medium"}
+            {"provider":"gemini","model":"gemini-4-hydrogen","thinking_level":"high"}
         )
         self.session = ProgressiveSubtitleSession(src_srt(242),"srt",KEY)
         self.window = self.session.next_window()
         assert self.window is not None
 
-    def test_config_json_current_medium_and_replace_model_without_code_edit(self):
+    def test_config_json_current_hydrogen_high_and_replace_model_without_code_edit(self):
         file = Path(__file__).with_name("translator_profile.json")
         actual = load_profile(file)
         self.assertEqual(actual, self.profile)
-        self.assertEqual(actual.thinking_level, "medium")
+        self.assertEqual(actual.thinking_level, "high")
         other = ModelProfile.from_json(
             {"provider":"gemini","model":"gemini-3.7-flash","thinking_level":"low"}
         )
@@ -83,7 +83,7 @@ class Lean120ApiTests(unittest.TestCase):
                          [241,242])
         body = make_gemini_payload(self.session.windows[1],self.profile,
                                    {"Thor":"Thor", "Loki":"Loki"})
-        self.assertEqual(body["generationConfig"]["thinkingConfig"]["thinkingLevel"],"MEDIUM")
+        self.assertEqual(body["generationConfig"]["thinkingConfig"]["thinkingLevel"],"HIGH")
         self.assertEqual(body["generationConfig"]["responseMimeType"],"application/json")
         self.assertNotIn("temperature",json.dumps(body))
         payload=json.loads(body["contents"][0]["parts"][0]["text"])
@@ -152,7 +152,7 @@ class Lean120ApiTests(unittest.TestCase):
         self.assertEqual(got[1],"Vietsub giả lập số 1")
         self.assertEqual(len(calls),1)
         url,headers,body,timeout=calls[0]
-        self.assertEqual(url,"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent")
+        self.assertEqual(url,"https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent")
         self.assertEqual(headers["x-goog-api-key"],"synthetic-secret")
         self.assertNotIn(b"synthetic-secret",body)
         self.assertEqual(timeout,60)
