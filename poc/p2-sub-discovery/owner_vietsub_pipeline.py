@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
 import sys
 from typing import Callable
+import urllib.error
+import urllib.request
 
 # The existing repo PoCs are separate local sibling directories, not Python
 # packages. Resolve our fixed sibling from source location; never use a user
@@ -128,6 +131,56 @@ _SHA_64 = re.compile(r"[0-9a-f]{64}\Z")
 _CACHE_BASENAME = re.compile(r"[0-9a-f]{64}\.srt\Z")
 
 
+class GeminiModelPreflightError(ValueError):
+    """A safe diagnostic code; never contains HTTP response or user key."""
+
+
+def verify_gemini_developer_endpoint(profile: object, api_key: str) -> None:
+    """No-content GET before any Gemini paid call/checkpoint.
+
+    The P2 #118 adapter posts to generativelanguage.googleapis.com, whereas
+    Google's Hydrogen GA documentation primarily covers Enterprise Agent
+    Platform. An approved model ID alone does not prove this API-key endpoint
+    offers the model to this owner. Never auto-switch to another model.
+    """
+    if (getattr(profile, "provider", None) != "gemini"
+            or getattr(profile, "model", None) != "gemini-4-hydrogen"
+            or getattr(profile, "thinking_level", None) != "high"):
+        raise GeminiModelPreflightError("P2_UNEXPECTED_GEMINI_PROFILE")
+    from lean120_api import GEMINI_API_ROOT
+    url = GEMINI_API_ROOT + "gemini-4-hydrogen"
+    req = urllib.request.Request(
+        url, headers={"x-goog-api-key": api_key, "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            data = response.read(32769)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (403, 404):
+            raise GeminiModelPreflightError(
+                "P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API"
+            ) from None
+        if exc.code in (400, 401):
+            raise GeminiModelPreflightError("P2_GEMINI_MODEL_AUTH_REJECTED") from None
+        raise GeminiModelPreflightError("P2_GEMINI_MODEL_PREFLIGHT_HTTP_FAILED") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise GeminiModelPreflightError("P2_GEMINI_MODEL_PREFLIGHT_NETWORK_FAILED") from None
+
+    if len(data) > 32768:
+        raise GeminiModelPreflightError("P2_GEMINI_MODEL_PREFLIGHT_RESPONSE_INVALID")
+    try:
+        model = json.loads(data.decode("utf-8"))
+    except (UnicodeError, ValueError):
+        raise GeminiModelPreflightError("P2_GEMINI_MODEL_PREFLIGHT_RESPONSE_INVALID") from None
+    if (not isinstance(model, dict)
+            or model.get("name") != "models/gemini-4-hydrogen"
+            or "generateContent" not in model.get("supportedGenerationMethods", [])):
+        raise GeminiModelPreflightError(
+            "P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Local cached EN entrypoint, never queries OpenSubtitles or starts TV.
 
@@ -192,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         from automatic_lean120_worker import AutomaticLean120Worker
         from lean120_api import load_profile
         profile = load_profile(_P2 / "translator_profile.json")
+        verify_gemini_developer_endpoint(profile, key)
+        print("P2_GEMINI_HYDROGEN_ENDPOINT_PREFLIGHT=PASS")
         worker = AutomaticLean120Worker(
             state_root=Path(local) / "TorrentTVVietsub" / "P2" / "auto-lean120-state",
             profile=profile, glossary={}, api_key=key)
@@ -210,6 +265,11 @@ def main(argv: list[str] | None = None) -> int:
             print("P2_FULL_SOURCE_TRANSLATION=REQUESTED")
         print("TV_DELIVERY=NOT_RUN")
         return 0
+    except GeminiModelPreflightError as exc:
+        print(str(exc))
+        print("GEMINI_TRANSLATION_REQUESTS=0")
+        print("NO_SOURCE_UPLOADED=YES")
+        return 1
     except Exception:
         # Never print raw errors: cloud adapters and local paths may contain
         # private data. Check the owner-private checkpoint state before retry.
