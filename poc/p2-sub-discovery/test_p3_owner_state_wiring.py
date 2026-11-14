@@ -93,7 +93,10 @@ class CompleteStatusWiringTests(unittest.TestCase):
         self.assertEqual(self.wiring.signal.on_wire(
             selected(),now_ms=WHEN).status,"HOLD")
         self.assertEqual(self.reads,0)
-        self.assertFalse(self.owner.exists())
+        # Signed Play is recorded durably even if current TV state is missing.
+        # Its receipt must NOT create a V3 event or call any provider.
+        self.assertTrue((self.owner/"p3-replay"/"ledger.sqlite3").is_file())
+        self.assertFalse((self.owner/"inbox").exists())
 
         self.wiring.cache.receive(state(),now_ms=WHEN)
         # Authenticated state now durably records replay high water in the
