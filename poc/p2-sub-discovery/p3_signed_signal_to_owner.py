@@ -32,6 +32,7 @@ class SignedP3ToOwner:
             raise ValueError("P3_TRUSTED_OWNER_SOURCE_REQUIRED")
         self._verifier = verifier
         self._read = read_verified_current_selection
+        self._active_selection: tuple[str, str, int] | None = None
         self._bridge = TrustedPlaybackToOwner(
             owner_root=owner_root,
             read_verified_current_playback=self._read,
@@ -48,10 +49,15 @@ class SignedP3ToOwner:
             signal = self._verifier.verify(body, now_ms=now_ms)
         except SignedPlaybackError:
             return TriggerDecision("HOLD", "SIGNED_TV_MESSAGE_INVALID")
+        selection = (signal.tv_session_id, signal.torrent_hash, signal.file_index)
         if signal.kind == "PLAYBACK_CLOSED":
-            # A close does not enqueue source work. Last authenticated TV state
-            # and D3/P4 delivery checks still independently enforce OFF/stale.
-            self._bridge.on_session_closed()
+            # A delayed CLOSE for prior film A MUST NOT reset the active
+            # B dedupe when A→B switching overlaps network delivery.
+            if self._active_selection is not None and self._active_selection != selection:
+                return TriggerDecision("SKIP", "TV_STALE_CLOSED_IGNORED")
+            if self._active_selection == selection:
+                self._bridge.on_session_closed()
+                self._active_selection = None
             return TriggerDecision("SKIP", "TV_PLAYBACK_CLOSED")
         try:
             current = self._read()
@@ -68,7 +74,11 @@ class SignedP3ToOwner:
         # The existing P3 gate still enforces owner consent, viewer ON,
         # rights, local VI and exact media. It will read the source again;
         # no trust/filename from the signed event is injected into gate.
-        return self._bridge.on_current_selection_accepted()
+        decision = self._bridge.on_current_selection_accepted()
+        if decision.status == "DISPATCH":
+            self._active_selection = selection
+        return decision
 
     def on_session_closed(self) -> None:
+        self._active_selection = None
         self._bridge.on_session_closed()
