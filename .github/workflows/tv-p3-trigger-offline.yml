@@ -1,0 +1,44 @@
+# Source-only P3-TRIGGER tests: no server, no device, no provider, no keys.
+name: Torrent TV - P3 Selected Media Trigger Offline CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'docs/subtitle-activation/**'
+      - 'poc/p3-vietsub-trigger/**'
+      - '.github/workflows/tv-p3-trigger-offline.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-source:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-vietsub-activation-trigger-contract-20261114' &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head, no persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Synthetic OMP event trigger policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/p3-vietsub-trigger -p 'test_*.py' -v
+
+      - name: Compile source gate syntax only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile poc/p3-vietsub-trigger/activation_gate.py
+          echo 'P3_TRIGGER_OFFLINE_ONLY_NO_MEDIA_EVENT_NO_TORRSERVER_NO_PROVIDER_NO_TV'
