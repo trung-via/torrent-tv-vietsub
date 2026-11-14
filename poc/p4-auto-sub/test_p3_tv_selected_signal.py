@@ -177,6 +177,28 @@ class P3TvSourceContractTests(unittest.TestCase):
         # the viewer's manually selected OTHER-language subtitle.
         self.assertNotIn("if (p4LanScope != null) stopP4LanSession()\n        }", self.patched)
 
+    def test_off_revokes_previously_queued_signed_consent_before_send(self):
+        # This source contract protects both the status executor and the
+        # event executor; a test of HMAC alone cannot catch stale queue work.
+        cancel = self.kt.split("internal fun cancelViewer(", 1)[1].split(
+            "/** A signed close", 1)[0]
+        self.assertLess(cancel.index("current.requestedByViewer = false"),
+                        cancel.index("generation.incrementAndGet()"))
+        self.assertLess(cancel.index("generation.incrementAndGet()"),
+                        cancel.index("sample(ctx, request"))
+        status = self.kt.split("private fun enqueueStatus(", 1)[1].split(
+            "private fun randomHex", 1)[0]
+        selected = self.kt.split("private fun enqueue(ctx:", 1)[1].split(
+            "private fun postOnce", 1)[0]
+        self.assertGreaterEqual(status.count("generation.get() != gen"), 2)
+        self.assertGreaterEqual(selected.count("generation.get() != gen"), 2)
+        self.assertGreaterEqual(status.count("!selected.requestedByViewer"), 2)
+        self.assertGreaterEqual(selected.count("!selected.requestedByViewer"), 2)
+        # Signed close and final inactive status are intentionally retained:
+        # clearing a request must not suppress lifecycle teardown.
+        self.assertIn("(isActive && active !== selected)", status)
+        self.assertIn('kind != "PLAYBACK_CLOSED" && active !== selected', selected)
+
     def test_p4_source_guards_apply_once_and_fail_closed_on_drift(self):
         with self.assertRaisesRegex(ValueError, "P3_ACTIVITY_ALREADY_APPLIED"):
             self.p.patch_activity(self.patched)
