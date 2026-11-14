@@ -160,20 +160,21 @@ class PrivateP3P4PolicyTests(unittest.TestCase):
         env.pop("PYTHONPATH", None)
         env["CI"] = "true"
         env["GITHUB_ACTIONS"] = "true"
-        with tempfile.TemporaryDirectory(prefix="ttv-direct-owner-smoke-") as cwd:
-            result = subprocess.run(
-                [sys.executable, "-E", str(script),
-                 "--owner-root", str(self.owner),
-                 "--cache-root", str(self.root / "cache"),
-                 "--state-root", str(self.root / "state"),
-                 "--start-lan"],
-                cwd=cwd, env=env, capture_output=True, text=True,
-                timeout=15, check=False,
-            )
-        self.assertEqual(result.returncode, 1, result.stderr[:250])
-        self.assertIn("P3_P4_OWNER_INTERACTIVE_EXPLICIT_START_REQUIRED",
-                      result.stdout)
-        self.assertFalse((self.owner / "p4-identity").exists())
+        for mode in ("--start-lan", "--preflight-only"):
+            with self.subTest(mode=mode):
+                with tempfile.TemporaryDirectory(prefix="ttv-direct-owner-smoke-") as cwd:
+                    result = subprocess.run(
+                        [sys.executable, "-E", str(script),
+                         "--owner-root", str(self.owner),
+                         "--cache-root", str(self.root / "cache"),
+                         "--state-root", str(self.root / "state"), mode],
+                        cwd=cwd, env=env, capture_output=True, text=True,
+                        timeout=15, check=False,
+                    )
+                self.assertEqual(result.returncode, 1, result.stderr[:250])
+                self.assertIn("P3_P4_OWNER_INTERACTIVE_EXPLICIT_START_REQUIRED",
+                              result.stdout)
+                self.assertFalse((self.owner / "p4-identity").exists())
 
     def test_ffprobe_ambiguous_track_or_missing_binary_fails_closed(self):
         with mock.patch("owner_p3_p4_private_policy.subprocess.run") as proc:
