@@ -152,12 +152,60 @@ class AutomaticFlowTests(unittest.TestCase):
             flow.selected_media(VIDEO)
         self.assertFalse(self.provider.calls)
 
-    def test_repeated_event_does_not_consume_second_provider_post(self):
-        self.flow.selected_media(VIDEO)
-        with self.assertRaisesRegex(SubtitleApiError, "EN_DOWNLOAD_ALREADY_ATTEMPTED"):
-            self.flow.selected_media(VIDEO)
-        self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 1)
+    def test_repeated_event_reuses_private_cache_and_model_checkpoints(self):
+        initial = self.flow.selected_media(VIDEO)
+        before = list(self.provider.calls)
+        again = self.flow.selected_media(VIDEO)
+        self.assertEqual(initial.status, "VIETSUB_READY")
+        self.assertEqual(again.status, "VIETSUB_READY")
+        self.assertEqual(again.get_requests, 0)
+        self.assertEqual(again.download_posts, 0)
+        self.assertEqual(self.provider.calls, before)
         self.assertEqual([len(x) for x in self.gemini.calls], [120, 5])
+        self.assertIn("AUTO_EN_CACHED_REUSED=YES", self.events)
+
+    def test_restart_reuses_private_source_index_without_provider(self):
+        self.flow.selected_media(VIDEO)
+        fresh_client = OpenSubtitles(api_key="synthetic-key", transport=self.provider)
+        restarted = AutomaticVietsubFlow(
+            client=fresh_client, worker=self.worker, cache_root=self.cache,
+            permissions=AutoPermissions(True, True), emit=self.events.append)
+        before = list(self.provider.calls)
+        result = restarted.selected_media(VIDEO)
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertEqual(self.provider.calls, before)
+        self.assertEqual([len(x) for x in self.gemini.calls], [120, 5])
+
+    def test_vi_repeat_skips_download_and_all_models(self):
+        self.provider.vi = (row(8, VI, "vi"),)
+        initial = self.flow.selected_media(VIDEO)
+        prior = list(self.provider.calls)
+        repeated = self.flow.selected_media(VIDEO)
+        self.assertEqual(initial.status, "VI_READY")
+        self.assertEqual(repeated.status, "VI_READY")
+        self.assertEqual(repeated.get_requests, 0)
+        self.assertEqual(self.provider.calls, prior)
+        self.assertEqual(self.gemini.calls, [])
+
+    def test_tampered_private_index_cannot_fall_through_to_paid_search(self):
+        self.flow.selected_media(VIDEO)
+        path = next(self.cache.glob(".auto-source-*.json"))
+        path.write_text('{"schema":"bad"}', encoding="utf-8")
+        count = len(self.provider.calls)
+        with self.assertRaisesRegex(SubtitleApiError, "AUTO_SOURCE_CACHE_INDEX_INVALID"):
+            self.flow.selected_media(VIDEO)
+        self.assertEqual(len(self.provider.calls), count)
+        self.assertEqual([len(x) for x in self.gemini.calls], [120, 5])
+
+    def test_tampered_cached_bytes_fail_without_network_retry(self):
+        self.flow.selected_media(VIDEO)
+        path = next(self.cache.glob("*.srt"))
+        path.write_bytes(path.read_bytes() + b"tampered")
+        count = len(self.provider.calls)
+        with self.assertRaisesRegex(SubtitleApiError, "AUTO_SOURCE_CACHE_DIGEST_MISMATCH"):
+            self.flow.selected_media(VIDEO)
+        self.assertEqual(len(self.provider.calls), count)
+
 
     def test_uncertain_provider_post_blocks_retry_and_gemini(self):
         self.provider.broken_post = True
