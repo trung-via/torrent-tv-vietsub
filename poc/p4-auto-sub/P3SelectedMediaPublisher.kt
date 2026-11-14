@@ -159,6 +159,9 @@ internal object P3SelectedMediaPublisher {
         val current = active ?: return
         if (!current.requestedByViewer) return
         current.requestedByViewer = false
+        // Revoke all not-yet-sent REQUESTED status and viewer-tap packets
+        // belonging to the old generation, even if the executor is backed up.
+        generation.incrementAndGet()
         sample(ctx, request, selectedIndex, nativeVlc)
     }
 
@@ -204,12 +207,17 @@ internal object P3SelectedMediaPublisher {
         val sampledAt = android.os.SystemClock.elapsedRealtime()
         val sequence = statusSequence.incrementAndGet()
         queue.execute {
-            if (generation.get() != gen || !enabled(ctx) ||
+            if (generation.get() != gen || active !== selected || !enabled(ctx) ||
+                (actualChoice == "REQUESTED" && !selected.requestedByViewer) ||
                 android.os.SystemClock.elapsedRealtime() - sampledAt > STATUS_TIMEOUT_MS) {
                 return@execute
             }
             val paired = P4PairingStore(ctx).load() ?: return@execute
             try {
+                if (generation.get() != gen || active !== selected ||
+                    (actualChoice == "REQUESTED" && !selected.requestedByViewer)) {
+                    return@execute
+                }
                 postStatusOnce(paired, selected, isActive, actualChoice, sequence)
             } catch (_: Exception) {
                 // Signed status is best-effort, expiry on PC is fail-closed.
@@ -228,9 +236,14 @@ internal object P3SelectedMediaPublisher {
     private fun enqueue(ctx: Context, selected: Current, kind: String) {
         val gen = generation.get()
         queue.execute {
-            if (generation.get() != gen || !enabled(ctx)) return@execute
+            if (generation.get() != gen || active !== selected || !enabled(ctx) ||
+                (kind == "VIEWER_VIETSUB_REQUESTED" &&
+                    !selected.requestedByViewer)) return@execute
             val paired = P4PairingStore(ctx).load() ?: return@execute
             try {
+                if (generation.get() != gen || active !== selected ||
+                    (kind == "VIEWER_VIETSUB_REQUESTED" &&
+                        !selected.requestedByViewer)) return@execute
                 postOnce(paired, selected, kind)
             } catch (_: Exception) {
                 // Metadata signal is strictly best-effort and MUST NOT
