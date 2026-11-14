@@ -122,7 +122,7 @@ class LocalDirectTests(unittest.TestCase):
 
     def test_vtt_is_converted_by_offline_ffmpeg_without_network(self):
         vtt = self.media / SIDECAR.replace(".srt", ".vtt")
-        vtt.write_bytes(b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nexample\n")
+        vtt.write_bytes(("WEBVTT" + chr(10)*2 + "00:00:01.000 --> 00:00:01.900" + chr(10) + "Synthetic subtitle" + chr(10)).encode("utf-8"))
         commands = []
         def fake(args, sec, cap):
             commands.append(args)
