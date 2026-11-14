@@ -19,12 +19,15 @@ from typing import Type
 from paired_activation import PairedActivation, make_paired_handler
 from p3_signed_signal_to_owner import SignedP3ToOwner
 from p3_signed_playback_signal import MAX_WIRE_BYTES
+from p3_redmi_current_state import SignedRedmiStateCache, WIRE_MAX
 
 P3_POST_ROUTE = "/p3/selection"
+P3_STATE_ROUTE = "/p3/state"
 
 
 def make_p3_p4_handler(
     controller: PairedActivation, p3: SignedP3ToOwner,
+    state_cache: SignedRedmiStateCache | None = None,
 ) -> Type[BaseHTTPRequestHandler]:
     """Compose one private TLS listener; preserve P4 GET and /p4/activate."""
 
@@ -33,13 +36,20 @@ def make_p3_p4_handler(
     if not isinstance(p3, SignedP3ToOwner):
         raise ValueError("P3_OWNER_VERIFIED_SOURCE_REQUIRED")
 
+    if state_cache is not None and not isinstance(state_cache, SignedRedmiStateCache):
+        raise ValueError("P3_PAIRED_REDMI_STATUS_REQUIRED")
+
     P4Handler = make_paired_handler(controller)
 
     class PairedP3P4Handler(P4Handler):
         def do_POST(self) -> None:
-            if self.path != P3_POST_ROUTE:
+            if self.path not in (P3_POST_ROUTE, P3_STATE_ROUTE):
                 # Existing P4 route owns all other POSTs, with its own auth.
                 return super().do_POST()
+            if self.path == P3_STATE_ROUTE and state_cache is None:
+                # State ingress must be explicitly configured by the owner.
+                self.send_error(404)
+                return
             if (self.headers.get("Content-Type", "").split(";", 1)[0].strip()
                     != "application/json"):
                 self.send_error(415)
@@ -55,7 +65,7 @@ def make_p3_p4_handler(
                 self.send_error(413)
                 return
             length = int(raw_length)
-            if not 1 <= length <= MAX_WIRE_BYTES:
+            if not 1 <= length <= (WIRE_MAX if self.path == P3_STATE_ROUTE else MAX_WIRE_BYTES):
                 self.send_error(413)
                 return
             try:
@@ -63,8 +73,15 @@ def make_p3_p4_handler(
                 if len(body) != length:
                     self.send_error(400)
                     return
-                decision = p3.on_wire(body)
-                if decision.status in ("DISPATCH", "SKIP"):
+                if self.path == P3_STATE_ROUTE:
+                    # A distinct authenticated status does NOT itself trigger
+                    # an OpenSubtitles/Gemini request or owner-V3 enqueue.
+                    state_cache.receive(body)
+                    status_ok = True
+                else:
+                    decision = p3.on_wire(body)
+                    status_ok = decision.status in ("DISPATCH", "SKIP")
+                if status_ok:
                     self.send_response(204)
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("Content-Length", "0")
