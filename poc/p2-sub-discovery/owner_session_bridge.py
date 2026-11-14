@@ -237,7 +237,6 @@ def _owner_process_lock(private_root: Path):
     except OSError:
         raise ValueError("OWNER_BRIDGE_AGENT_LOCK_OPEN_FAILED") from None
     handle = os.fdopen(fd, "r+b", buffering=0)
-    locked = False
     try:
         if os.name == "nt":
             import msvcrt
@@ -249,21 +248,19 @@ def _owner_process_lock(private_root: Path):
         else:
             import fcntl
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        locked = True
-        yield
-    except (OSError, BlockingIOError):
+    except OSError:
+        handle.close()
         raise ValueError("OWNER_BRIDGE_ALREADY_RUNNING") from None
+    try:
+        yield
     finally:
-        if locked:
-            try:
-                if os.name == "nt":
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            finally:
-                handle.close()
-        else:
+        try:
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
             handle.close()
 
 
