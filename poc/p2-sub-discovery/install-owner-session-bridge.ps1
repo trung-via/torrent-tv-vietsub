@@ -133,7 +133,19 @@ else {
     }
 }
 
-Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+# Copying updated sources while a scheduled task is Running does NOT
+# replace the Python modules already loaded inside its process. Do not claim
+# P3/P4 is activated or interrupt a possibly quota-bearing translation.
+# Its normal owner task start at the next user logon will load staged source.
+$state = (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop).State
+if ([string]$state -ceq 'Running') {
+    Write-Host 'OWNER_BRIDGE_SOURCE_UPDATE=STAGED_NEXT_INTERACTIVE_TASK_START'
+    Write-Host 'OWNER_BRIDGE_NEW_P3_P4_RUNTIME_ACTIVE=NOT_VERIFIED'
+} else {
+    Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    Write-Host 'OWNER_BRIDGE_SOURCE_UPDATE=OWNER_TASK_START_REQUESTED'
+    Write-Host 'OWNER_BRIDGE_NEW_P3_P4_RUNTIME_ACTIVE=NOT_VERIFIED'
+}
 Write-Host 'OWNER_BRIDGE_ONE_TIME_ENROLLMENT=COMPLETED'
 Write-Host 'OWNER_BRIDGE_TASK_SCOPE=INTERACTIVE_OWNER_ONLY'
 Write-Host 'OWNER_BRIDGE_RUNNER_ADMIN_GRANTED=NO'
