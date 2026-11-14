@@ -299,8 +299,14 @@ class AutomaticVietsubFlow:
         _preflight_cache(self.cache_root)
         # The paid download claim belongs to the exact V3 server/torrent/file
         # when verified; the legacy filename-only claim remains unchanged.
+        # Legacy V1/V2 remains filename-scoped and conservative. Only
+        # separately verified V3 media may split the outer claim by actual
+        # server/hash/index. The existing provider manual-once claim still
+        # prevents ambiguous second downloads of the same release.
         _claim_one_post(
-            self.cache_root, source_fingerprint or video_name, release)
+            self.cache_root,
+            source_fingerprint if verified_media is not None else video_name,
+            release)
         self.emit("AUTO_PROVIDER_DOWNLOAD=ATTEMPTED_ONCE")
         if route.status == "EN_TRANSLATE":
             asset = self.client.download_manual_en(
