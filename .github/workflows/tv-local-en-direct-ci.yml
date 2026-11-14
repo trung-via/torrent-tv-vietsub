@@ -37,6 +37,8 @@ jobs:
         run: |
           set -euo pipefail
           export PYTHONPATH="$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub"
+          command -v ffmpeg >/dev/null || { echo "FFMPEG_NOT_INSTALLED"; exit 1; }
+          command -v ffprobe >/dev/null || { echo "FFPROBE_NOT_INSTALLED"; exit 1; }
           python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -v
           python3 -m unittest discover -s poc/p2-aisub -p 'test_*.py' -v
           python3 -m py_compile poc/p2-sub-discovery/local_en_direct.py poc/p2-sub-discovery/automatic_vietsub_flow.py
