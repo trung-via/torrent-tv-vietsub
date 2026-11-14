@@ -17,6 +17,7 @@ it does not itself pretend to discover currently playing TV media.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 import os
@@ -218,6 +219,54 @@ def consume_inert_runner_wakes(*, shared_wake_root: Path | None = None) -> int:
     return consumed
 
 
+@contextmanager
+def _owner_process_lock(private_root: Path):
+    """OS-held singleton: RELEASED by Windows/kernel when process exits.
+
+    Unlike permanent O_EXCL PID markers, a crashed agent cannot strand a
+    stale lock that forces Human to delete it on every subsequent logon.
+    The existing per-event and provider .inflight claims remain persistent
+    and fail-closed, even after this *process* lock is released.
+    """
+    root = _private_dir(private_root).parent
+    lock = root / "owner-agent-active.lock"
+    if lock.is_symlink():
+        raise ValueError("OWNER_BRIDGE_AGENT_LOCK_SYMLINK")
+    try:
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError:
+        raise ValueError("OWNER_BRIDGE_AGENT_LOCK_OPEN_FAILED") from None
+    handle = os.fdopen(fd, "r+b", buffering=0)
+    locked = False
+    try:
+        if os.name == "nt":
+            import msvcrt
+            # Windows msvcrt.locking locks a byte at the file cursor.
+            if handle.read(1) == b"":
+                handle.write(b"\x00")
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        locked = True
+        yield
+    except (OSError, BlockingIOError):
+        raise ValueError("OWNER_BRIDGE_ALREADY_RUNNING") from None
+    finally:
+        if locked:
+            try:
+                if os.name == "nt":
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+        else:
+            handle.close()
+
+
 def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     interval_seconds: float = 2.0,
                     emit: Callable[[str], object] = print) -> None:
@@ -226,30 +275,17 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
     if (os.environ.get("CI", "").lower() == "true"
             or os.environ.get("GITHUB_ACTIONS", "").lower() == "true"):
         raise ValueError("OWNER_BRIDGE_NO_OWNER_RUNTIME_IN_CI")
-    # A process-level lock prevents duplicate startup tasks from running
-    # simultaneously. Last forced interruption requires owner reconciliation.
-    root = _private_dir(private_root).parent
-    lock = root / "owner-agent-active.lock"
-    try:
-        fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        raise ValueError("OWNER_BRIDGE_ALREADY_RUNNING_OR_UNCERTAIN") from None
-    with os.fdopen(fd, "wb") as stream:
-        stream.write(str(os.getpid()).encode("ascii"))
-    try:
+    # OS releases this process mutex automatically after Windows logoff,
+    # crash or unexpected exit. Provider and event claims are NOT deleted.
+    with _owner_process_lock(private_root):
         from automatic_vietsub_flow import build_owner_auto_flow
         flow = build_owner_auto_flow(
             enabled=True, cache_root=cache_root, state_root=state_root)
         emit("OWNER_BRIDGE_STARTED")
         while True:
-            # Runner wake contains no user data or command; private OMP-local
-            # events remain the only accepted source of actual film work.
             consume_inert_runner_wakes()
             poll_private_events(owner_root=private_root, processor=flow, emit=emit)
             time.sleep(interval_seconds)
-    finally:
-        # No lock removal while a worker is still running.
-        lock.unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:
