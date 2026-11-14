@@ -56,6 +56,21 @@ class TriggerGateTests(unittest.TestCase):
         self.assertNotEqual(a.local_fingerprint, b.local_fingerprint)
         self.assertEqual(a.local_fingerprint, a_again.local_fingerprint)
 
+    def test_a_b_with_existing_vi_a_again_reactivates_without_reusing_b(self):
+        gate = ActivationDeduplicator()
+        self.assertEqual(gate.consider(event()).status, "DISPATCH")
+        self.assertEqual(gate.consider(
+            event(file_index=1, local_vi_state="PRESENT")).reason,
+            "REUSE_EXISTING_VI")
+        self.assertEqual(gate.consider(event()).status, "DISPATCH")
+
+    def test_unknown_next_episode_then_return_to_original_can_dispatch(self):
+        gate = ActivationDeduplicator()
+        self.assertEqual(gate.consider(event()).status, "DISPATCH")
+        self.assertEqual(gate.consider(
+            event(file_index=1, local_vi_state="UNKNOWN")).status, "WAIT")
+        self.assertEqual(gate.consider(event()).status, "DISPATCH")
+
     def test_off_and_other_never_authorize_provider(self):
         for choice in ("OFF", "OTHER"):
             with self.subTest(choice=choice):
