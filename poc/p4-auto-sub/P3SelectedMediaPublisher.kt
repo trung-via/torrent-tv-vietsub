@@ -137,6 +137,20 @@ internal object P3SelectedMediaPublisher {
         return true
     }
 
+    /** Bounded retry of the SAME explicit request, not a Play event.
+     * A missed status during transport congestion must not strand the job;
+     * owner V3 + durable replay/one-POST claims deduplicate safely.
+     */
+    internal fun reaffirmViewer(
+        ctx: Context, request: PlayRequest?, selectedIndex: Int,
+        nativeVlc: Boolean,
+    ) {
+        if (!viewerRequested(ctx, request, selectedIndex, nativeVlc)) return
+        val current = active ?: return
+        sample(ctx, request, selectedIndex, nativeVlc)
+        enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED")
+    }
+
     /** A current user's OFF/OTHER/manual choice revokes any pending request. */
     internal fun cancelViewer(
         ctx: Context, request: PlayRequest?, selectedIndex: Int,
