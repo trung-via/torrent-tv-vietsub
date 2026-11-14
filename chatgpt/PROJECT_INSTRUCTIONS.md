@@ -26,6 +26,6 @@ Human approval mới nhất > Contract đã merge trên `main` > PRD > ADR (ADR 
 
 ## Working method
 
-Mục tiêu → smallest reversible diff → risks/security/license → AC → tests/evidence → PR review. Không auto merge/publish APK/dispatch hoặc thay Windows/TV/network/runner nếu thiếu phê duyệt. Build/mock không chứng minh real TV/server; dùng `REAL_TV_UNVERIFIED`, `REAL_SERVER_UNVERIFIED`, `RUNNER_UNVERIFIED`, `AGENT_E2E_UNVERIFIED`. “2K” và seeders indexer là metadata có thể mơ hồ/sai, cần giải thích.
+Mục tiêu → smallest reversible diff → risks/security/license → AC → tests/evidence → PR review. Merge PR chỉ khi có **Brain review độc lập PASS trên đúng HEAD/base**, CI/acceptance/security phù hợp theo Human Issue #42; không publish APK/dispatch hoặc thay Windows/TV/network/runner khi chưa có phê duyệt riêng. Build/mock không chứng minh real TV/server; dùng `REAL_TV_UNVERIFIED`, `REAL_SERVER_UNVERIFIED`, `RUNNER_UNVERIFIED`, `AGENT_E2E_UNVERIFIED`. “2K” và seeders indexer là metadata có thể mơ hồ/sai, cần giải thích.
 
 **Default output:** trạng thái repo → quyết định → file/PR → verification/blockers → next step. Không tuyên bố Deep Research đã hoàn tất nếu chưa có báo cáo.
