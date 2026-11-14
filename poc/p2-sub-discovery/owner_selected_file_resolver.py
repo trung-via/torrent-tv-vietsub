@@ -90,12 +90,19 @@ def _one_basename(path: str) -> str:
 
 
 def _validated_snapshot(s: CurrentPlaying, requested_name: str,
-                        source_fingerprint: str) -> None:
+                        source_fingerprint: str,
+                        expected_tv_session_id: str) -> None:
     if not isinstance(s, CurrentPlaying):
         raise SelectedFileResolveError("RESOLVER_TRUSTED_SNAPSHOT_REQUIRED")
     if (s.kind not in _ALLOWED_PLAY or s.attested is not True
             or s.active is not True):
         raise SelectedFileResolveError("RESOLVER_NOT_ACTIVE_AUTHENTICATED_PLAY")
+    # The source fingerprint does NOT include the TV session. Refuse stale
+    # events from earlier sessions even when they select the same movie.
+    if (not isinstance(expected_tv_session_id, str)
+            or not expected_tv_session_id
+            or expected_tv_session_id != s.tv_session_id):
+        raise SelectedFileResolveError("RESOLVER_TV_SESSION_MISMATCH")
     if (s.owner_auto_enabled is not True
             or s.media_rights_approved is not True
             or s.viewer_choice != "ON"
@@ -147,7 +154,8 @@ def _safe_local(path: Path, private_root: Path) -> Path:
 
 
 def resolve_selected_local_source(
-    *, requested_name: str, source_fingerprint: str, private_media_root: Path,
+    *, requested_name: str, source_fingerprint: str,
+    expected_tv_session_id: str, private_media_root: Path,
     read_verified_current_playback: Callable[[], CurrentPlaying],
     read_verified_torrserver_file: Callable[[str, str, int], TorrServerSelectedFile],
     locate_owner_pinned_files: Callable[[str, str, int, str], OwnerPinnedFiles | None],
@@ -172,7 +180,8 @@ def resolve_selected_local_source(
         state = read_verified_current_playback()
     except Exception:
         raise SelectedFileResolveError("RESOLVER_PLAYBACK_READER_UNAVAILABLE") from None
-    _validated_snapshot(state, requested_name, source_fingerprint)
+    _validated_snapshot(state, requested_name, source_fingerprint,
+                        expected_tv_session_id)
 
     try:
         record = read_verified_torrserver_file(
