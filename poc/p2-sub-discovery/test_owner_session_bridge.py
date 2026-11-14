@@ -6,6 +6,7 @@ import unittest
 
 from owner_session_bridge import (
     enqueue_selected_media, poll_private_events, run_owner_agent,
+    consume_inert_runner_wakes,
 )
 
 
@@ -123,6 +124,28 @@ class OwnerSessionBridgeTests(unittest.TestCase):
         self.assertEqual(poll_private_events(
             owner_root=self.root, processor=processor,
             emit=self.lines.append, max_events=3), 2)
+
+    def test_runner_wake_carries_no_film_or_command(self):
+        # Runner may create WAKE_V1, but owner executes ONLY private events.
+        wake = self.root / "public-wake"
+        wake.mkdir(parents=True)
+        (wake / ("wake-" + "a"*32 + ".txt")).write_bytes(b"WAKE_V1\n")
+        (wake / ("wake-" + "b"*32 + ".txt")).write_bytes(b"python evil.py")
+        (wake / ("wake-" + "c"*32 + ".txt")).write_bytes(b"WAKE_V1\n")
+        self.assertEqual(consume_inert_runner_wakes(shared_wake_root=wake), 2)
+        self.assertEqual(len(list(wake.glob("wake-*.txt"))), 1)
+        self.assertEqual(consume_inert_runner_wakes(shared_wake_root=wake), 0)
+        self.assertFalse((self.root / "inbox").exists())
+
+    def test_symlinked_wake_folder_refused(self):
+        outside = self.root / "elsewhere"
+        outside.mkdir(parents=True)
+        link = self.root / "wake-link"
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            return
+        self.assertEqual(consume_inert_runner_wakes(shared_wake_root=link), 0)
 
     def test_no_live_background_agent_in_ci(self):
         import os
