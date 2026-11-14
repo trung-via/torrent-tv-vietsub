@@ -120,12 +120,15 @@ class PrivateP3P4Policy:
         except (UnicodeError, ValueError, OSError):
             raise OwnerPolicyBlocked("OWNER_POLICY_JSON_INVALID") from None
         if (not isinstance(config, dict)
-                or set(config) != {"schema", "enabled", "profile_id", "media"}
+                or set(config) != {"schema", "enabled", "profile_id", "torrserver_port", "media"}
                 or config["schema"] != "TTV-P3-P4-OWNER-POLICY-V1"
                 or type(config["enabled"]) is not bool
                 or not isinstance(config["profile_id"], str)
                 or not _PROFILE.fullmatch(config["profile_id"])
                 or config["profile_id"] != torrserver.profile_id
+                or type(config["torrserver_port"]) is not int
+                or not 1024 <= config["torrserver_port"] <= 65535
+                or config["torrserver_port"] != torrserver._config.localhost_port
                 or not isinstance(config["media"], list)
                 or len(config["media"]) > 32):
             raise OwnerPolicyBlocked("OWNER_POLICY_SCHEMA_INVALID")
