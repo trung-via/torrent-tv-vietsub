@@ -175,11 +175,19 @@ def patch_activity(text: str) -> str:
     rules = (
         (FIELD, TICK + P3_RETRY + FIELD),
         (CHOICE, CHOICE + """
-        if (!choice.audio && ::session.isInitialized) {
+        if (!choice.audio && ::session.isInitialized &&
+            P1ProductionSubtitles.automaticChoice(
+                applicationContext, session.request, index()) != "ON") {
+            // The manual subtitle selector has just changed to OFF/OTHER.
+            // Cancel an in-flight P4 activate response even if the movie
+            // identity is still the same; it must NEVER switch OFF back ON.
             handler.removeCallbacks(p3ActivationTick)
             p3ActivationAttempts = 0
+            p4ActivationGeneration++
+            p4ActivationInFlight = false
             P3SelectedMediaPublisher.cancelViewer(
                 applicationContext, session.request, index(), engine is VlcEngine)
+            if (p4LanScope != null) unbindP4Session()
         }
         if (!closedSent && ::session.isInitialized) {
             P3SelectedMediaPublisher.sample(
