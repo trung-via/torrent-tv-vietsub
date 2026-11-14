@@ -93,8 +93,15 @@ class AutomaticLean120Worker:
         self.transport = transport
 
     def run(self, handoff: AssumedEnglishSubtitle, *,
-            on_revision: Callable[[SubtitleRevision], object] | None = None
+            on_revision: Callable[[SubtitleRevision], object] | None = None,
+            max_new_windows: int | None = None
             ) -> SubtitleRevision:
+        # Explicit first-window-only pilot mode; default behavior still
+        # completes the entire film. Rerunning this pilot never advances
+        # beyond batch one, even when its checkpoint already exists.
+        if max_new_windows is not None and (
+                type(max_new_windows) is not int or max_new_windows != 1):
+            raise ValueError("AUTO_LEAN120_PILOT_WINDOW_LIMIT_INVALID")
         if (not isinstance(handoff, AssumedEnglishSubtitle) or
             handoff.source_status != "ASSUMED_MATCHED_EN_TIMED_TEXT"):
             raise ValueError("AUTO_LEAN120_AUTHORIZED_EN_HANDOFF_REQUIRED")
@@ -121,6 +128,11 @@ class AutomaticLean120Worker:
         _write_new_synced(lock, b"TTV-P2-LOCK-V1\n")
         try:
             for window in session.windows:
+                # Pilot means the FIRST window of this source across ALL
+                # invocations, not one fresh API call on every rerun.
+                # Re-running the same pilot must never advance to batch 2.
+                if max_new_windows is not None and window.number > max_new_windows:
+                    break
                 version = window.number
                 checkpoint = folder / f"batch-{version:04d}.json"
                 inflight = folder / f"batch-{version:04d}.inflight"
@@ -178,8 +190,14 @@ class AutomaticLean120Worker:
                 if on_revision is not None:
                     on_revision(revision)
             final = session.revision
-            if final is None or not final.complete:
+            if final is None:
                 raise ValueError("AUTO_LEAN120_INCOMPLETE")
+            if not final.complete:
+                if max_new_windows is None:
+                    raise ValueError("AUTO_LEAN120_INCOMPLETE")
+                # Partial cumulative SRT has already passed strict commit QA.
+                # No vi-final.srt is written until the full film is complete.
+                return final
             # Independent strict parser/timeline check of the final artifact.
             out = parse_cues(final.payload, final.fmt)
             inp = parse_cues(source.source_bytes, source.fmt)

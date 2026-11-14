@@ -94,6 +94,7 @@ def prepare_local_translation_source(
 def run_local_translation(
     receipt: CachedEnReceipt, *, private_root: Path,
     worker: _Worker, cloud_upload_authorized: bool = False,
+    pilot_first_window: bool = False,
 ) -> SubtitleRevision:
     """ONE owner-authorized P2 run, with TV callback forced to None.
 
@@ -111,5 +112,11 @@ def run_local_translation(
             raise ValueError("P2_LIVE_PROVIDER_FORBIDDEN_IN_CI")
     if not callable(getattr(worker, "run", None)):
         raise ValueError("P2_LEAN120_WORKER_REQUIRED")
+    if type(pilot_first_window) is not bool:
+        raise ValueError("P2_PILOT_FLAG_INVALID")
+    if pilot_first_window and not isinstance(worker, AutomaticLean120Worker):
+        raise ValueError("P2_PILOT_REQUIRES_EXISTING_WORKER")
     source = prepare_local_translation_source(receipt, private_root=private_root)
+    if pilot_first_window:
+        return worker.run(source, on_revision=None, max_new_windows=1)
     return worker.run(source, on_revision=None)
