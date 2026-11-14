@@ -11,10 +11,17 @@
 5. Giữ OMP website source search adapters và manual magnet/.torrent cho nguồn/media hợp pháp; không crawler trái phép, DRM bypass, piracy index hoặc thu thập passkey.
 6. Giữ library, remote D-pad, resume, series/track; ưu tiên UI `vi`, audio/subtitle `vi/vie`, SRT/VTT Unicode. Theo ADR-0006, G0 debug fixture ≠ G1 external file ≠ G2 hot-add ≠ G3 sync ≠ G4 release.
 7. Gateway/ChatGPT agent, metadata ranking và AI Vietsub/voice-over là module đề xuất theo phase, không phải chức năng đã có. Side effects cần auth/confirmation, legal media, consent, cost và real-device evidence.
-8. Không tự chạy workflow, cài/đổi runner service, mở SMB/firewall/router/WAN, sửa TV, ký/phát hành APK, auto merge. Verify runner identity/online/workspace khi được phép; không fallback sang AIOS runner.
+8. Không tự chạy workflow, cài/đổi runner service, mở SMB/firewall/router/WAN, sửa TV hoặc ký/phát hành APK. **Merge GitHub PR chỉ theo quyết định Human mới hơn tại Issue #42:** Brain review độc lập PASS trên đúng HEAD/base + CI/acceptance/security đủ điều kiện; thiếu bằng chứng phải HOLD. Verify runner identity/online/workspace; không fallback sang AIOS runner.
 9. Audit GPL/dependencies, native stream URL credential leakage, CI logs và artifacts; không báo mock/build là `REAL_TV_PASS`/`REAL_SERVER_PASS`.
 
 **Output:** changed files, acceptance/evidence, explicit `DECIDED`/`PROPOSED`/`UNVERIFIED`/`BLOCKED`, risks, blockers, next handoff. Không tự nhận Deep Research, TV hoặc runner đã PASS nếu chưa có evidence.
+
+## Repo visibility và quy tắc tiếp tục khi PUBLIC
+
+- Human đã chấp thuận **PRIVATE hoặc PUBLIC**; không chặn task, PR, build, review hoặc milestone chỉ vì visibility chuyển PUBLIC. Không tự chuyển visibility, ký hay phát hành APK; giữ đúng branch/SHA và tất cả evidence/gates.
+- Trước khi công khai: audit **toàn bộ lịch sử có thể truy cập** (commits/branches/tags/releases), source/fixtures, credentials, tracker passkeys, magnet, IP LAN, log/artifact, OMP GPL và third-party notices. Chỉ đổi visibility khi Human cho phép rõ và đã xử lý blocker; không xóa lịch sử bừa bãi.
+- PUBLIC phải xem fork/issue/PR/comment là **untrusted**: không để mã PR lạ hoặc issue-triggered dispatch chạy trên self-hosted Windows runner chứa secret/host access. Job host chỉ với trusted ref, permissions tối thiểu, explicit review; không dùng `pull_request_target` để checkout/build mã PR không tin cậy.
+- Public **source** không biến TorrServer/TV/gateway thành dịch vụ Internet. Giữ LAN-only và yêu cầu phê duyệt riêng cho deployment, network và release.
 
 ## Deep Research alignment — project engineering rules
 
