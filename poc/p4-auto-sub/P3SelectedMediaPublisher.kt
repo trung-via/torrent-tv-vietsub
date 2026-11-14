@@ -32,7 +32,7 @@ internal object P3SelectedMediaPublisher {
     private val SESSION_RX = Regex("[a-f0-9]{32}")
     private val KINDS = setOf(
         "PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED",
-        "PLAYBACK_CLOSED",
+        "PLAYBACK_CLOSED", "VIEWER_VIETSUB_REQUESTED",
     )
     private val random = SecureRandom()
     private val bootId = randomHex()
@@ -45,7 +45,9 @@ internal object P3SelectedMediaPublisher {
     private data class Current(
         val session: String, val hash: String, val fileIndex: Int,
         val kind: String,
-    )
+    ) {
+        @Volatile var requestedByViewer: Boolean = false
+    }
     @Volatile private var active: Current? = null
 
     internal fun enabled(ctx: Context): Boolean =
@@ -87,6 +89,65 @@ internal object P3SelectedMediaPublisher {
         enqueue(ctx.applicationContext, selected, kind)
     }
 
+    /** A P3 global metadata toggle is NOT a per-film request.
+     * Only a direct "Bật Vietsub AI" tap may authorize current film search.
+     * An existing active session is used; after enabling P3 mid-video a new
+     * session is created WITHOUT inventing a signed Play event.
+     */
+    internal fun viewerRequested(
+        ctx: Context, request: PlayRequest?, selectedIndex: Int,
+        nativeVlc: Boolean,
+    ): Boolean {
+        val selected = active ?: return false
+        val item = request?.queue?.getOrNull(selectedIndex) ?: return false
+        return enabled(ctx) && nativeVlc && request.engine == EngineMode.VLC &&
+            item.hash?.lowercase() == selected.hash &&
+            item.fileIndex == selected.fileIndex && selected.requestedByViewer
+    }
+
+    /** Called ONLY by the direct on-TV Vietsub AI button. */
+    internal fun requestViewer(
+        ctx: Context, request: PlayRequest?, selectedIndex: Int,
+        nativeVlc: Boolean,
+    ): Boolean {
+        if (!enabled(ctx) || !nativeVlc || request?.engine != EngineMode.VLC) {
+            return false
+        }
+        val item = request.queue.getOrNull(selectedIndex) ?: return false
+        val hash = item.hash?.lowercase() ?: return false
+        val index = item.fileIndex ?: return false
+        if (!HASH_RX.matches(hash) || index !in 0..65535 ||
+            P1ProductionSubtitles.mediaKey(request, selectedIndex) == null) return false
+        val previous = active
+        val current = if (previous != null && previous.hash == hash &&
+            previous.fileIndex == index) previous
+            else Current(randomHex(), hash, index, "PLAY_REQUEST_ACCEPTED")
+        if (previous !== current) {
+            // User enabled metadata sharing in the middle of playback; do not
+            // forge a native PlayRequest event. A viewer tap is distinct.
+            active = current
+            generation.incrementAndGet()
+        }
+        if (current.requestedByViewer) return true
+        current.requestedByViewer = true
+        // One bounded serial executor: authenticated REQUESTED status must
+        // precede signed viewer-tap event for this exact native selection.
+        sample(ctx, request, selectedIndex, nativeVlc)
+        enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED")
+        return true
+    }
+
+    /** A current user's OFF/OTHER/manual choice revokes any pending request. */
+    internal fun cancelViewer(
+        ctx: Context, request: PlayRequest?, selectedIndex: Int,
+        nativeVlc: Boolean,
+    ) {
+        val current = active ?: return
+        if (!current.requestedByViewer) return
+        current.requestedByViewer = false
+        sample(ctx, request, selectedIndex, nativeVlc)
+    }
+
     /** A signed close only invalidates an existing selection, never starts AI. */
     internal fun closed(ctx: Context) {
         val old = active ?: return
@@ -113,8 +174,13 @@ internal object P3SelectedMediaPublisher {
             item?.hash?.lowercase() == current.hash &&
             item?.fileIndex == current.fileIndex
         // Real per-media P4 ON/OFF/OTHER, NEVER infer ON from global consent.
-        val choice = if (isSame) P1ProductionSubtitles.automaticChoice(
+        val nativeChoice = if (isSame) P1ProductionSubtitles.automaticChoice(
             ctx, request, selectedIndex) else "OTHER"
+        // REQUESTED is a session-scoped explicit viewer intent BEFORE there
+        // is an EN/VI source or P4 receiver. P4 automaticChoice remains ON
+        // only after a real authenticated P4 activation and valid source.
+        val choice = if (isSame && current.requestedByViewer &&
+            nativeChoice != "ON") "REQUESTED" else nativeChoice
         enqueueStatus(ctx.applicationContext, current, isSame, choice)
     }
 
@@ -200,7 +266,7 @@ internal object P3SelectedMediaPublisher {
             !SESSION_RX.matches(current.session) ||
             !HASH_RX.matches(current.hash) || current.hash.length != 40 ||
             current.fileIndex !in 0..65535 ||
-            choice !in setOf("ON", "OFF", "OTHER") ||
+            choice !in setOf("ON", "REQUESTED", "OFF", "OTHER") ||
             current.kind !in setOf("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED") ||
             paired.deviceSecret.size != 32
         ) return
