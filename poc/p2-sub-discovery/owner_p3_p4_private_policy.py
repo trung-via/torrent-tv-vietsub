@@ -39,8 +39,9 @@ class PrivateMediaPin:
     torrent_hash: str
     file_index: int
     torrserver_path: str
-    video_path: Path
+    video_path: Path | None
     rights_approved: bool
+    stream_only: bool = False
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -106,7 +107,8 @@ class PrivateP3P4Policy:
 
     def __init__(self, *, manifest: Path, owner_root: Path,
                  private_media_root: Path, torrserver: OwnerTorrServerReader,
-                 probe: Callable[[Path], str] = _probe_subtitle_languages):
+                 probe: Callable[[Path], str] = _probe_subtitle_languages,
+                 stream_probe: Callable[[str, str, int], str] | None = None):
         if (not isinstance(owner_root, Path) or not owner_root.is_absolute()
                 or not owner_root.is_dir()
                 or not isinstance(manifest, Path)
@@ -119,7 +121,8 @@ class PrivateP3P4Policy:
                 or not private_media_root.is_dir()
                 or private_media_root.is_symlink()
                 or not isinstance(torrserver, OwnerTorrServerReader)
-                or not callable(probe)):
+                or not callable(probe)
+                or (stream_probe is not None and not callable(stream_probe))):
             raise OwnerPolicyBlocked("OWNER_POLICY_PRIVATE_CONFIG_REQUIRED")
         try:
             config = json.loads(manifest.read_text(encoding="utf-8"))
@@ -142,41 +145,54 @@ class PrivateP3P4Policy:
                 or len(config["media"]) > 32):
             raise OwnerPolicyBlocked("OWNER_POLICY_SCHEMA_INVALID")
         pins = {}
+        local_keys = {"torrent_hash", "file_index", "torrserver_path",
+                      "video_path", "rights_approved"}
+        stream_keys = local_keys | {"stream_only"}
         for item in config["media"]:
             if (not isinstance(item, dict)
-                    or set(item) != {"torrent_hash", "file_index",
-                                    "torrserver_path", "video_path",
-                                    "rights_approved"}
+                    or set(item) not in (local_keys, stream_keys)
                     or not isinstance(item["torrent_hash"], str)
                     or not _SHA40_OR_64.fullmatch(item["torrent_hash"])
                     or type(item["file_index"]) is not int
                     or not 0 <= item["file_index"] < 4096
                     or not isinstance(item["torrserver_path"], str)
-                    or not isinstance(item["video_path"], str)
                     or type(item["rights_approved"]) is not bool):
                 raise OwnerPolicyBlocked("OWNER_POLICY_MEDIA_ENTRY_INVALID")
             try:
                 name = _one_basename(item["torrserver_path"])
-                path = Path(item["video_path"])
             except (ValueError, TypeError):
                 raise OwnerPolicyBlocked("OWNER_POLICY_MEDIA_PATH_INVALID") from None
-            if (not path.is_absolute() or path.name != name
-                    or path.suffix.lower() not in (".mkv", ".mp4", ".m4v", ".webm")
-                    or not _inside(path, private_media_root)
-                    or not path.is_file()):
-                raise OwnerPolicyBlocked("OWNER_POLICY_LOCAL_VIDEO_NOT_PINNED")
+            if Path(name).suffix.lower() not in (".mkv", ".mp4", ".m4v", ".webm"):
+                raise OwnerPolicyBlocked("OWNER_POLICY_VIDEO_EXTENSION_INVALID")
+            # A stream-only pin has no fake local video. Only an explicit
+            # per-film, rights-approved manifest item may choose this mode.
+            stream_only = set(item) == stream_keys
+            if stream_only:
+                if item["stream_only"] is not True or item["video_path"] is not None:
+                    raise OwnerPolicyBlocked("OWNER_POLICY_STREAM_MODE_INVALID")
+                path = None
+            else:
+                if not isinstance(item["video_path"], str):
+                    raise OwnerPolicyBlocked("OWNER_POLICY_LOCAL_VIDEO_NOT_PINNED")
+                path = Path(item["video_path"])
+                if (not path.is_absolute() or path.name != name
+                        or not _inside(path, private_media_root)
+                        or not path.is_file()):
+                    raise OwnerPolicyBlocked("OWNER_POLICY_LOCAL_VIDEO_NOT_PINNED")
             key = (item["torrent_hash"], item["file_index"])
             if key in pins:
                 raise OwnerPolicyBlocked("OWNER_POLICY_DUPLICATE_MEDIA")
             pins[key] = PrivateMediaPin(
                 item["torrent_hash"], item["file_index"],
-                item["torrserver_path"], path, item["rights_approved"])
+                item["torrserver_path"], path, item["rights_approved"],
+                stream_only=stream_only)
         self._enabled = config["enabled"]
         self._profile = torrserver.profile_id
         self._ts = torrserver
         self._root = private_media_root
         self._pins = pins
         self._probe = probe
+        self._stream_probe = stream_probe
 
     def owner_auto_allowed(self) -> bool:
         return self._enabled is True
@@ -192,10 +208,11 @@ class PrivateP3P4Policy:
             selected = self._ts(profile, infohash, index)
             if (selected.path != pin.torrserver_path
                     or (torrent_path is not None and torrent_path != selected.path)
-                    or _one_basename(selected.path) != pin.video_path.name
-                    or not _inside(pin.video_path, self._root)
-                    or not pin.video_path.is_file()
-                    or pin.video_path.stat().st_size != selected.length):
+                    or (pin.video_path is not None and (
+                        _one_basename(selected.path) != pin.video_path.name
+                        or not _inside(pin.video_path, self._root)
+                        or not pin.video_path.is_file()
+                        or pin.video_path.stat().st_size != selected.length))):
                 return None
         except (OSError, ValueError, TypeError, RuntimeError):
             return None
@@ -207,6 +224,16 @@ class PrivateP3P4Policy:
     def verified_local_vi_state(self, profile: str, infohash: str, index: int) -> str:
         pin = self._verified_pin(profile, infohash, index)
         if pin is None:
+            return "UNKNOWN"
+        if pin.stream_only:
+            if self._stream_probe is None:
+                return "UNKNOWN"
+            try:
+                outcome = self._stream_probe(profile, infohash, index)
+            except Exception:
+                return "UNKNOWN"
+            return outcome if outcome in ("PRESENT", "ABSENT") else "UNKNOWN"
+        if pin.video_path is None:
             return "UNKNOWN"
         stem = pin.video_path.stem
         for suffix in _VI_SIDECARS:
@@ -222,7 +249,9 @@ class PrivateP3P4Policy:
         self, profile: str, infohash: str, index: int, torrent_path: str
     ) -> OwnerPinnedFiles | None:
         pin = self._verified_pin(profile, infohash, index, torrent_path)
-        if pin is None:
+        if pin is None or pin.stream_only or pin.video_path is None:
+            # Verified V3 still binds the exact TV and TorrServer release,
+            # but routes to existing OpenSubtitles D1/D2 (no fake local EN).
             return None
         return OwnerPinnedFiles(video_path=pin.video_path,
                                 english_sidecar_path=None,
