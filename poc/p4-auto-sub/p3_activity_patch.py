@@ -221,7 +221,7 @@ def patch_activity(text: str) -> str:
     if text.count("P3SelectedMediaPublisher.closed(") != 1:
         raise ValueError("P3_SOURCE_CLOSE_COUNT_INVALID")
     if (text.count("private val p3StatusTick =") != 1
-            or text.count("P3SelectedMediaPublisher.sample(") != 2):
+            or text.count("P3SelectedMediaPublisher.sample(") != 4):
         raise ValueError("P3_SOURCE_STATE_SAMPLER_INVALID")
     if (text.count("private val p3ActivationTick =") != 1
             or text.count("P3SelectedMediaPublisher.requestViewer(") != 1
