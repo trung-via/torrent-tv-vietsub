@@ -17,6 +17,24 @@ LOAD = "        session.load(production.request, next)\n        flow.reset()"
 ITEM = "        if (!switcher.goTo(i, itemTransition?.picks)) return\n        cancelCountdown()"
 CLOSE = "        closedSent = true\n        commitPendingSeek()"
 MENU = '        add("Hủy ghép đôi PC Vietsub AI", "AD01.12") {'
+FIELD = "    private var g2Recovery: G2RefreshRecovery? = null"
+CHOICE = ("        if (!closedSent && ::session.isInitialized) "
+          "P1ProductionSubtitles.noteTrackChoice(this, session.request, index(), choice)")
+TICK = """    /** Sample live PlayerSession + G1/P4 per-movie choice, not last Play packet. */
+    private val p3StatusTick = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed || closedSent ||
+                !::session.isInitialized ||
+                !P3SelectedMediaPublisher.enabled(applicationContext)) return
+            P3SelectedMediaPublisher.sample(
+                applicationContext, session.request, session.index,
+                engine is VlcEngine)
+            handler.postDelayed(this, 3_000L)
+        }
+    }
+
+"""
+
 
 MENU_ROW = """        add(if (P3SelectedMediaPublisher.enabled(applicationContext))
                 "Tắt tín hiệu tự tìm Vietsub" else "Bật tín hiệu tự tìm Vietsub",
@@ -44,17 +62,29 @@ def patch_activity(text: str) -> str:
             or text.count('add("Hủy ghép đôi PC Vietsub AI"') != 1):
         raise ValueError("P3_REQUIRES_EXACT_P4_COMPOSED_SOURCE")
     rules = (
+        (FIELD, TICK + FIELD),
+        (CHOICE, CHOICE + """
+        if (!closedSent && ::session.isInitialized) {
+            P3SelectedMediaPublisher.sample(
+                applicationContext, session.request, index(),
+                engine is VlcEngine)
+        }"""),
         (LOAD, """        session.load(production.request, next)
         P3SelectedMediaPublisher.accepted(
             applicationContext, session.request, session.index,
-            "PLAY_REQUEST_ACCEPTED")
+            "PLAY_REQUEST_ACCEPTED", engine is VlcEngine)
+        handler.removeCallbacks(p3StatusTick)
+        handler.postDelayed(p3StatusTick, 3_000L)
         flow.reset()"""),
         (ITEM, """        if (!switcher.goTo(i, itemTransition?.picks)) return
         P3SelectedMediaPublisher.accepted(
             applicationContext, session.request, session.index,
-            "NEXT_QUEUE_ITEM_ACCEPTED")
+            "NEXT_QUEUE_ITEM_ACCEPTED", engine is VlcEngine)
+        handler.removeCallbacks(p3StatusTick)
+        handler.postDelayed(p3StatusTick, 3_000L)
         cancelCountdown()"""),
         (CLOSE, """        closedSent = true
+        handler.removeCallbacks(p3StatusTick)
         P3SelectedMediaPublisher.closed(applicationContext)
         commitPendingSeek()"""),
         (MENU, MENU_ROW + MENU),
@@ -68,6 +98,9 @@ def patch_activity(text: str) -> str:
         raise ValueError("P3_SOURCE_CALLBACK_COUNT_INVALID")
     if text.count("P3SelectedMediaPublisher.closed(") != 1:
         raise ValueError("P3_SOURCE_CLOSE_COUNT_INVALID")
+    if (text.count("private val p3StatusTick =") != 1
+            or text.count("P3SelectedMediaPublisher.sample(") != 2):
+        raise ValueError("P3_SOURCE_STATE_SAMPLER_INVALID")
     return text
 
 
