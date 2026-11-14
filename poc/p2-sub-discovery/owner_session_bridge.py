@@ -30,6 +30,8 @@ from typing import Callable, Protocol
 
 _SCHEMA = "TTV-OWNER-VIDEO-EVENT-V1"
 _BOUND_SCHEMA = "TTV-OWNER-VIDEO-EVENT-V2"
+_SESSION_SCHEMA = "TTV-OWNER-VIDEO-EVENT-V3"
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\\Z")
 _ID = re.compile(r"[a-f0-9]{32}\Z")
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_EVENT_BYTES = 768
@@ -43,6 +45,7 @@ class LocalEvent:
     event_id: str
     selected_video_filename: str
     source_fingerprint: str | None = None
+    tv_session_id: str | None = None
 
 
 class _Processor(Protocol):
@@ -63,6 +66,7 @@ def _private_dir(root: Path) -> Path:
 def enqueue_selected_media(
     video_filename: str, *, owner_root: Path,
     source_fingerprint: str | None = None,
+    tv_session_id: str | None = None,
 ) -> str:
     """Trusted OMP-local callback. Never invoke from untrusted runner inputs."""
     if (not isinstance(video_filename, str) or not video_filename.strip()
@@ -74,15 +78,24 @@ def enqueue_selected_media(
             not isinstance(source_fingerprint, str)
             or _FINGERPRINT.fullmatch(source_fingerprint) is None):
         raise ValueError("OWNER_BRIDGE_SOURCE_FINGERPRINT_INVALID")
+    if tv_session_id is not None and (
+            source_fingerprint is None
+            or not isinstance(tv_session_id, str)
+            or _SESSION_ID.fullmatch(tv_session_id) is None):
+        raise ValueError("OWNER_BRIDGE_V3_SESSION_INVALID")
     inbox = _private_dir(owner_root)
     event_id = secrets.token_hex(16)
     payload = {
-        "schema": _BOUND_SCHEMA if source_fingerprint is not None else _SCHEMA,
+        "schema": (_SESSION_SCHEMA if tv_session_id is not None
+                   else (_BOUND_SCHEMA if source_fingerprint is not None
+                         else _SCHEMA)),
         "event_id": event_id,
         "selected_video_filename": video_filename,
     }
     if source_fingerprint is not None:
         payload["source_fingerprint"] = source_fingerprint
+    if tv_session_id is not None:
+        payload["tv_session_id"] = tv_session_id
     body = json.dumps(
         payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(body) > _MAX_EVENT_BYTES:
@@ -108,16 +121,23 @@ def _parse_event(path: Path) -> LocalEvent:
     if not isinstance(event, dict):
         raise ValueError("OWNER_BRIDGE_EVENT_BAD_SCHEMA")
     version = event.get("schema")
-    if version == _BOUND_SCHEMA:
+    if version == _SESSION_SCHEMA:
+        expected.update(("source_fingerprint", "tv_session_id"))
+    elif version == _BOUND_SCHEMA:
         expected.add("source_fingerprint")
     elif version != _SCHEMA:
         raise ValueError("OWNER_BRIDGE_EVENT_BAD_SCHEMA")
     if set(event) != expected:
         raise ValueError("OWNER_BRIDGE_EVENT_BAD_SCHEMA")
     fp = event.get("source_fingerprint")
-    if version == _BOUND_SCHEMA and (
+    if version in (_BOUND_SCHEMA, _SESSION_SCHEMA) and (
             not isinstance(fp, str) or _FINGERPRINT.fullmatch(fp) is None):
         raise ValueError("OWNER_BRIDGE_SOURCE_FINGERPRINT_INVALID")
+    session = event.get("tv_session_id")
+    if version == _SESSION_SCHEMA and (
+            not isinstance(session, str)
+            or _SESSION_ID.fullmatch(session) is None):
+        raise ValueError("OWNER_BRIDGE_V3_SESSION_INVALID")
     video = event["selected_video_filename"]
     expected_id = path.name.removeprefix("event-").removesuffix(".json")
     if (not isinstance(event["event_id"], str)
@@ -129,7 +149,7 @@ def _parse_event(path: Path) -> LocalEvent:
             or "/" in video or "\\" in video
             or any(ord(ch) < 32 for ch in video)):
         raise ValueError("OWNER_BRIDGE_EVENT_INVALID")
-    return LocalEvent(event["event_id"], video, fp)
+    return LocalEvent(event["event_id"], video, fp, session)
 
 
 def poll_private_events(
@@ -169,7 +189,14 @@ def poll_private_events(
             stream.write(b"CLAIMED_DO_NOT_AUTO_REPLAY\n")
         processed += 1
         try:
-            if event.source_fingerprint is not None:
+            if event.tv_session_id is not None:
+                # V3 demands an identity-aware processor which re-reads the
+                # *current* authenticated TV selection before any quota call.
+                result = processor.selected_media(
+                    event.selected_video_filename,
+                    source_fingerprint=event.source_fingerprint,
+                    tv_session_id=event.tv_session_id)
+            elif event.source_fingerprint is not None:
                 result = processor.selected_media(
                     event.selected_video_filename,
                     source_fingerprint=event.source_fingerprint)
