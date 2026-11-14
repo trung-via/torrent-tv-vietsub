@@ -17,6 +17,14 @@ It compares explicit owner profile, 40/64 lowercase infohash, a nonnegative file
 
 When no readable local EN exists, #148 uses the SAME canonical `matcher.Media(profile,hash,fileIndex,verified_filename)` for D1/D2 OpenSubtitles candidate search; English timed subtitles then use existing LEAN120. No alternate media identity is fabricated from OMP UI title.
 
+## Correct P4 native media-key reconciliation
+
+The existing G1/P4 Kotlin `P1ProductionSubtitles.mediaKey` is **not** the V3 trigger fingerprint. Exact algorithm in `poc/g1-prod/P1ProductionSubtitles.kt`:
+
+`media.` + SHA256(`"prod" + NUL + server_profile_id + NUL + lower(infohash) + NUL + fileIndex`).
+
+The P3 `source_fingerprint` omits the `"prod" + NUL` prefix and is scoped only for triggering/caching; treating it as P4 key would send subtitles to a different identity and P4 would refuse them. `p3_p4_media_key.py` derives the **correct existing native key** from the same exact `matcher.Media` (VLC, valid owner profile, 40-hex torrent hash and file index). Fixed synthetic hash vector and G1 source-anchored test ensure this cannot silently diverge. P4 key derivation does **not** enable automatic import/ON or prove the TV is still playing; D3/P4 must separately validate current session, consent, media and signed payload.
+
 ## Evidence and boundaries
 
 Offline tests cover exact POST only with capture transport, invalid hash/profile/index, duplicate file id, metadata hash mismatch, failed/redirect response, and a REAL TCP HTTP loopback on 127.0.0.1 with synthetic media names (no real server contacted). Not proof of real TorrServer Windows credentials/port/state, not proof TV active session and not a real D1/D2 query.
