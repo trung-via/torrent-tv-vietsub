@@ -251,7 +251,29 @@ class ComposedPipelineTests(unittest.TestCase):
         self.assertEqual([len(x) for x in self.gemini.calls], [120, 120, 5])
         self.assertEqual(self.provider.calls, [])
 
-    def test_cli_execute_defaults_to_pilot_not_entire_film(self):
+    def test_cli_execute_defaults_to_full_source_in_one_command(self):
+        local, basename, sha = self._owner_cli_fixture()
+        out = io.StringIO()
+        simulated = PipelineReceipt(sha, 125, True, 125)
+        with mock.patch.dict("os.environ", {
+            "LOCALAPPDATA": str(local),
+            "GEMINI_API_KEY": "test-only-model-key",
+            "CI": "", "GITHUB_ACTIONS": ""
+        }), mock.patch("owner_vietsub_pipeline.translate_existing_en",
+                       return_value=simulated) as invoke, redirect_stdout(out):
+            code = main(["--cache-filename", basename, "--sha256", sha,
+                         "--cues", "125", "--execute-api",
+                         "--authorize-cloud-upload"])
+        self.assertEqual(code, 0)
+        self.assertFalse(invoke.call_args.kwargs["pilot_first_window"])
+        self.assertIn("P2_LOCAL_LEAN120=COMPLETE", out.getvalue())
+        self.assertIn("P2_FULL_SOURCE_TRANSLATION=REQUESTED", out.getvalue())
+        self.assertIn("P2_LOCAL_TRANSLATED_CUES=125", out.getvalue())
+        self.assertNotIn("P2_PILOT_WINDOW_LIMIT", out.getvalue())
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+
+    def test_cli_opt_in_single_window_diagnostic(self):
         local, basename, sha = self._owner_cli_fixture()
         out = io.StringIO()
         simulated = PipelineReceipt(sha, 125, False, 120)
@@ -263,23 +285,20 @@ class ComposedPipelineTests(unittest.TestCase):
                        return_value=simulated) as invoke, redirect_stdout(out):
             code = main(["--cache-filename", basename, "--sha256", sha,
                          "--cues", "125", "--execute-api",
-                         "--authorize-cloud-upload"])
+                         "--authorize-cloud-upload", "--pilot-first-window"])
         self.assertEqual(code, 0)
         self.assertTrue(invoke.call_args.kwargs["pilot_first_window"])
         self.assertIn("P2_LOCAL_LEAN120=FIRST_WINDOW_CHECKPOINTED", out.getvalue())
         self.assertIn("P2_PILOT_WINDOW_LIMIT=1", out.getvalue())
-        self.assertIn("P2_LOCAL_TRANSLATED_CUES=120", out.getvalue())
-        self.assertEqual(self.provider.calls, [])
-        self.assertEqual(self.gemini.calls, [])
 
-    def test_cli_all_film_requires_extra_explicit_flag(self):
+    def test_cli_pilot_requires_explicit_cloud_grant(self):
         local, basename, sha = self._owner_cli_fixture()
         out = io.StringIO()
         with mock.patch.dict("os.environ", {"LOCALAPPDATA": str(local)}), redirect_stdout(out):
             code = main(["--cache-filename", basename, "--sha256", sha,
-                         "--cues", "125", "--translate-all"])
+                         "--cues", "125", "--pilot-first-window"])
         self.assertEqual(code, 1)
-        self.assertIn("P2_FULL_FILM_REQUIRES_EXPLICIT_CLOUD_GRANT", out.getvalue())
+        self.assertIn("P2_PILOT_REQUIRES_EXPLICIT_CLOUD_GRANT", out.getvalue())
 
     def test_cloud_consent_missing_refuses_even_d2_search(self):
         with self.assertRaisesRegex(ValueError, "CLOUD_UPLOAD_CONSENT_REQUIRED"):
