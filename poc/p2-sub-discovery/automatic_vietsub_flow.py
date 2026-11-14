@@ -64,11 +64,21 @@ class AutomaticVietsubFlow:
         self.permissions = permissions
         self.emit = emit or (lambda _: None)
 
-    def _cache_index(self, video_name: str) -> Path:
-        digest = hashlib.sha256(video_name.casefold().encode("utf-8")).hexdigest()
+    def _cache_index(self, video_name: str, *,
+                     source_fingerprint: str | None = None) -> Path:
+        # P3's server+infohash+fileIndex distinguishes same-named files in
+        # different torrents. A local unbound source keeps old behavior.
+        if source_fingerprint is not None:
+            if (not isinstance(source_fingerprint, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", source_fingerprint) is None):
+                raise ValueError("AUTO_VIETSUB_SOURCE_FINGERPRINT_INVALID")
+            digest = source_fingerprint
+        else:
+            digest = hashlib.sha256(video_name.casefold().encode("utf-8")).hexdigest()
         return self.cache_root / (".auto-source-" + digest + ".json")
 
-    def _remember_source(self, video_name: str, path: Path, asset: Asset) -> None:
+    def _remember_source(self, video_name: str, path: Path, asset: Asset, *,
+                         source_fingerprint: str | None = None) -> None:
         """Owner-private minimal cache receipt, never a TV media manifest."""
         if not re.fullmatch(r"[0-9a-f]{64}\.srt", path.name):
             raise SubtitleApiError("AUTO_SOURCE_CACHE_FILENAME_INVALID")
@@ -80,7 +90,8 @@ class AutomaticVietsubFlow:
             "cues": asset.cues,
         }
         raw = json.dumps(record, separators=(",", ":"), sort_keys=True).encode()
-        location = self._cache_index(video_name)
+        location = self._cache_index(
+            video_name, source_fingerprint=source_fingerprint)
         try:
             fd = os.open(location, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
@@ -92,13 +103,15 @@ class AutomaticVietsubFlow:
             stream.flush()
             os.fsync(stream.fileno())
 
-    def _reuse_source(self, video_name: str) -> AutoResult | None:
+    def _reuse_source(self, video_name: str, *,
+                      source_fingerprint: str | None = None) -> AutoResult | None:
         """Repeat selection: bypass both OpenSubtitles and repeated Gemini calls.
 
         The index is only trusted if source contents recheck against SHA and
         timed-cue count. A corrupted index never triggers a provider POST.
         """
-        index = self._cache_index(video_name)
+        index = self._cache_index(
+            video_name, source_fingerprint=source_fingerprint)
         if not index.exists() and not index.is_symlink():
             return None
         if index.is_symlink() or not index.is_file() or index.stat().st_size > 512:
@@ -153,7 +166,8 @@ class AutomaticVietsubFlow:
         self.emit(f"AUTO_VI_CUES={result.translated_cues}")
         return result
 
-    def selected_media(self, video_name: str) -> AutoResult:
+    def selected_media(self, video_name: str, *,
+                       source_fingerprint: str | None = None) -> AutoResult:
         """A single owner-local call from an existing TV/media selection event.
 
         Search exactly once, download the unique highest-confidence source
@@ -168,12 +182,19 @@ class AutomaticVietsubFlow:
         parsed = parse_release(video_name)
         if not parsed.title or parsed.year is None or not parsed.group:
             return AutoResult("REVIEW_REQUIRED")
-        cached = self._reuse_source(video_name)
+        # Validate prior to any search/download or source cache access.
+        if source_fingerprint is not None and (
+                not isinstance(source_fingerprint, str) or
+                re.fullmatch(r"[0-9a-f]{64}", source_fingerprint) is None):
+            raise ValueError("AUTO_VIETSUB_SOURCE_FINGERPRINT_INVALID")
+        cached = self._reuse_source(
+            video_name, source_fingerprint=source_fingerprint)
         if cached is not None:
             return cached
         # Stable local-only key used for deduplicating owner-local work.
         # NEVER treat this key as an authenticated TorrServer/OMP media key.
-        media_key = hashlib.sha256(video_name.casefold().encode("utf-8")).hexdigest()
+        media_key = source_fingerprint or hashlib.sha256(
+            video_name.casefold().encode("utf-8")).hexdigest()
         media = Media("owner-auto-unverified", media_key, 0, video_name)
         route = select_vi_then_en(self.client, media, policy="VI_FAST")
         self.emit(f"AUTO_SOURCE_ROUTE={route.status}")
@@ -206,7 +227,9 @@ class AutomaticVietsubFlow:
         else:
             asset = self.client.download_selected(media, discovery)
         file_path = write_private_cache(self.cache_root, media, asset)
-        self._remember_source(video_name, file_path, asset)
+        self._remember_source(
+            video_name, file_path, asset,
+            source_fingerprint=source_fingerprint)
         self.emit("AUTO_SUBTITLE_CACHED=YES")
         if asset.language == "vi":
             self.emit("AUTO_GEMINI_REQUESTS=0")
