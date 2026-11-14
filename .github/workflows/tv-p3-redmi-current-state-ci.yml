@@ -1,0 +1,41 @@
+name: Torrent TV - P3 Signed Redmi Current State CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p2-sub-discovery/p3_redmi_current_state.py'
+      - 'poc/p2-sub-discovery/p3_owner_current_redmi.py'
+      - 'poc/p2-sub-discovery/p3_p4_shared_https_route.py'
+      - 'poc/p2-sub-discovery/test_p3_redmi_current_state.py'
+      - 'poc/p2-sub-discovery/test_p3_p4_shared_https_route.py'
+      - '.github/workflows/tv-p3-redmi-current-state-ci.yml'
+      - 'docs/subtitle-activation/P3_SIGNED_REDMi_CURRENT_STATE.md'
+permissions:
+  contents: read
+jobs:
+  state-source-and-tls:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-redmi-current-state-owner-20261114' &&
+      github.event.pull_request.base.ref == 'feature/p3-owner-torrserver-readonly-20261114'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact PR with no persisted token
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Signed state TTL, A-to-B-to-A, LIVE status gate and real synthetic TLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub:$PWD/poc/p3-vietsub-trigger"
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_p3_redmi_current_state.py' -v
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_p3_p4_shared_https_route.py' -v
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_p3_signed*.py' -v
+          python3 -m py_compile poc/p2-sub-discovery/p3_redmi_current_state.py poc/p2-sub-discovery/p3_owner_current_redmi.py
+          echo 'P3_REDMi_SIGNED_STATUS_SOURCE_ONLY_NO_TV_NO_OWNER_LAN_NO_API_NO_SERVICES'
