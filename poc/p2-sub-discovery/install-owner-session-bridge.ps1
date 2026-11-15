@@ -104,14 +104,22 @@ foreach ($file in (Get-ChildItem -LiteralPath $secretsDir -File)) {
     if ($LASTEXITCODE -ne 0) { throw 'OWNER_BRIDGE_SECRET_ACL_FAILED' }
 }
 
+$guard = Join-Path $PSScriptRoot 'owner-task-principal-identity.ps1'
+if (-not (Test-Path -LiteralPath $guard -PathType Leaf)) {
+    throw 'OWNER_BRIDGE_TASK_IDENTITY_GUARD_MISSING'
+}
+. $guard
 $taskName = 'TorrentTV-Vietsub-OwnerAgent'
 $launcher = Join-Path $root 'start-owner-session-agent.ps1'
 $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
 $argument = '-NoLogo -NoProfile -NonInteractive -File "' + $launcher + '"'
 $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($null -ne $existing) {
-    if ($existing.Principal.UserId -ine $identity.Name -or
-        $existing.Principal.LogonType -ne 'Interactive' -or
+    # The same Windows identity may be stored as SID or NTAccount in
+    # Task Scheduler. Check canonical SID, interactive/limited permissions,
+    # and the exact existing script action before copying/reusing the task.
+    if (-not (Test-TTVOwnerTaskPrincipal -Principal $existing.Principal `
+             -ExpectedSid $identity.User.Value) -or
         $existing.Actions.Count -ne 1 -or
         $existing.Actions[0].Execute -ine $pwsh -or
         $existing.Actions[0].Arguments -cne $argument) {
