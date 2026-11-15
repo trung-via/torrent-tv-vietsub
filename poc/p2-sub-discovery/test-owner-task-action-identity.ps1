@@ -24,7 +24,7 @@ Require-Action 'SHORT_EXE' (New-SafeFixture 'pwsh.exe' $canonical) $true
 Require-Action 'EXE_QUOTES' (New-SafeFixture ('"' + $exe + '"') $canonical) $true
 Require-Action 'UNQUOTED_SCRIPT' (New-SafeFixture $exe (
     '-NoLogo -NoProfile -NonInteractive -File ' + $launcher)) $true
-Require-Action 'CASE_VARIANT' (New-SafeFixture $exe.ToUpperInvariant() (
+Require-Action 'CASE_VARIANT' (New-SafeFixture ($exe.ToUpperInvariant()) (
     '-NOLOGO -NOPROFILE -NONINTERACTIVE -FILE "' +
     $launcher.ToUpperInvariant() + '"')) $true
 Require-Action 'OTHER_SCRIPT' (New-SafeFixture $exe (
