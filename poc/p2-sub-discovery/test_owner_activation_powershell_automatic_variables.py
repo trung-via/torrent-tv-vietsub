@@ -54,6 +54,23 @@ class ProtectedAutomaticVariablesTests(unittest.TestCase):
                 self.assertNotIn(".UserId -cne $identity.Name", script)
                 self.assertNotIn(".UserId -ine $identity.Name", script)
 
+    def test_installer_validates_existing_action_before_mutating_files(self):
+        installer = (ROOT / OWNER_SCRIPTS[1]).read_text(encoding="utf-8")
+        activation = (ROOT / OWNER_SCRIPTS[0]).read_text(encoding="utf-8")
+        self.assertIn("owner-task-action-identity.ps1", installer)
+        self.assertIn("owner-task-action-identity.ps1", activation)
+        self.assertIn("Get-TTVOwnerTaskActionState", installer)
+        self.assertIn("Get-TTVOwnerTaskActionState", activation)
+        self.assertLess(
+            installer.index("OWNER_BRIDGE_TASK_PREFLIGHT_BEFORE_OWNER_FILE_COPY=PASS"),
+            installer.index("icacls.exe"))
+        self.assertLess(
+            installer.index("OWNER_BRIDGE_TASK_PREFLIGHT_BEFORE_OWNER_FILE_COPY=PASS"),
+            installer.index("Copy-Item"))
+        self.assertLess(
+            activation.index("P3_P4_ACTIVATE_OWNER_TASK_ACTION=VERIFIED_SAFE"),
+            activation.index("P3_P4_ACTIVATE_POLICY=DENY_ALL_MEDIA_ENROLLED"))
+
     def test_installer_and_activation_use_non_reserved_bindings(self):
         activation = (ROOT / OWNER_SCRIPTS[0]).read_text(encoding="utf-8")
         installer = (ROOT / OWNER_SCRIPTS[1]).read_text(encoding="utf-8")
