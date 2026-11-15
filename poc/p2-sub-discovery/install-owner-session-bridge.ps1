@@ -52,7 +52,13 @@ if ($translatorProfileConfig.provider -cne 'gemini' -or $translatorProfileConfig
 $root = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $taskName = 'TorrentTV-Vietsub-OwnerAgent'
 $launcher = Join-Path $root 'start-owner-session-agent.ps1'
-$pwsh = (Get-Command pwsh.exe -CommandType Application -ErrorAction Stop).Source
+$pwshIdentityGuard = Join-Path $PSScriptRoot 'owner-task-action-identity.ps1'
+if (-not (Test-Path -LiteralPath $pwshIdentityGuard -PathType Leaf)) {
+    throw 'OWNER_BRIDGE_TASK_ACTION_IDENTITY_GUARD_MISSING'
+}
+. $pwshIdentityGuard
+# Never use Get-Command enumeration to infer the one binary for a task.
+$pwsh = Get-TTVOwnerCurrentPwshExecutable
 $argument = '-NoLogo -NoProfile -NonInteractive -File "' + $launcher + '"'
 $principalGuard = Join-Path $PSScriptRoot 'owner-task-principal-identity.ps1'
 $actionGuard = Join-Path $PSScriptRoot 'owner-task-action-identity.ps1'
