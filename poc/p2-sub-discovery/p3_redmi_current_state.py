@@ -161,6 +161,27 @@ class SignedRedmiStateCache:
             v["subtitle_choice"], v["sent_at_ms"], float(local))
         return self._current
 
+    def diagnostic_freshness(self, *, monotonic_s: float | None = None
+                             ) -> tuple[str, int]:
+        """Fixed, non-identifying snapshot for owner-private diagnostics only.
+
+        Returns the last signed state choice and conservative seconds left
+        before TTL expiry; does NOT authorize a provider or reveal media IDs.
+        """
+        now = time.monotonic() if monotonic_s is None else monotonic_s
+        state = self._current
+        if state is None:
+            return "MISSING", 0
+        age = now - state.received_monotonic
+        if age < 0 or age > self._ttl:
+            return "STALE", 0
+        remaining = max(0, int(self._ttl - age))
+        if not state.active:
+            return "FRESH_INACTIVE", remaining
+        if state.subtitle_choice == "REQUESTED":
+            return "FRESH_REQUESTED", remaining
+        return "FRESH_" + state.subtitle_choice, remaining
+
     def read_fresh(self, *, monotonic_s: float | None = None) -> RedmiNow:
         now = time.monotonic() if monotonic_s is None else monotonic_s
         state = self._current
