@@ -50,13 +50,13 @@ if ($pr.state -cne 'open' -or -not $pr.draft -or
     throw 'P3_P4_ACTIVATE_REVIEWED_PR_HEAD_DRIFT'
 }
 Write-Host 'P3_P4_ACTIVATE_CURRENT_PR162_SHA=PINNED_PASS'
-$home = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
-$owner = Join-Path $home 'OwnerBridge'
-$p4 = Join-Path $home 'P4'
+$ttvLocalAppRoot = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
+$owner = Join-Path $ttvLocalAppRoot 'OwnerBridge'
+$p4 = Join-Path $ttvLocalAppRoot 'P4'
 $policy = Join-Path $owner 'p3-p4-policy.json'
 $media = Join-Path $owner 'approved-media'
-$cache = Join-Path $home 'subtitle-trials'
-$state = Join-Path $home 'P2\auto-lean120-state'
+$cache = Join-Path $ttvLocalAppRoot 'subtitle-trials'
+$state = Join-Path $ttvLocalAppRoot 'P2\auto-lean120-state'
 $entry = Join-Path $repoRoot 'poc\p2-sub-discovery\owner_p3_p4_entrypoint.py'
 $installer = Join-Path $repoRoot 'poc\p2-sub-discovery\install-owner-session-bridge.ps1'
 $pairingReady = (Test-Path -LiteralPath $p4 -PathType Container)
