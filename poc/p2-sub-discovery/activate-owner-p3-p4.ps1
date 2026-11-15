@@ -110,7 +110,9 @@ if (-not (Test-Path -LiteralPath $actionGuard -PathType Leaf)) {
 }
 . $actionGuard
 if ($taskReady) {
-    $expectedExe = (Get-Command pwsh.exe -CommandType Application -ErrorAction Stop).Source
+    # The caller itself runs in pwsh.exe. Pin exactly its loaded binary,
+    # not Get-Command discovery, which may enumerate multiple PATH matches.
+    $expectedExe = Get-TTVOwnerCurrentPwshExecutable
     $expectedLauncher = Join-Path $owner 'start-owner-session-agent.ps1'
     $actionCheck = Get-TTVOwnerTaskActionState -Task $task -ExpectedExecutable $expectedExe -ExpectedLauncher $expectedLauncher
     Write-Host ('P3_P4_ACTIVATE_TASK_EXE_MATCH=' + $actionCheck.ExecutableMatch.ToString().ToUpperInvariant())
