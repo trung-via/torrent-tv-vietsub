@@ -14,9 +14,12 @@ import secrets
 import socket
 import time
 
+from p3_ingress_telemetry import EVENTS as _INGRESS_FIELDS
+from p3_ingress_telemetry import MAX_COUNT as _MAX_INGRESS_COUNT
 
-SCHEMA = "TTV-OWNER-P3P4-DIAGNOSTIC-V1"
-RUNTIME_VERSION = "P3P4-INTEGRATED-DIAGNOSTIC-V1"
+
+SCHEMA = "TTV-OWNER-P3P4-DIAGNOSTIC-V2"
+RUNTIME_VERSION = "P3P4-INTEGRATED-DIAGNOSTIC-V2"
 _NAME = "p3-p4-runtime-diagnostic.json"
 _MODES = frozenset({"INTEGRATED_P3_P4"})
 _STATES = frozenset({"READY", "STARTING", "STOPPED", "BLOCKED"})
@@ -26,7 +29,8 @@ _P3 = frozenset({"FRESH_ON", "FRESH_REQUESTED", "FRESH_OFF",
 _TS = frozenset({"TCP_REACHABLE_METADATA_UNTESTED", "TCP_UNREACHABLE",
                  "CONFIG_INVALID", "UNTESTED"})
 _FIELDS = frozenset({"schema", "mode", "version", "state", "p3", "torrserver",
-                     "p3_remaining_seconds", "observed_utc_epoch", "pid"})
+                     "p3_remaining_seconds", "observed_utc_epoch", "pid",
+                     "p3_ingress"})
 
 
 def _root(owner_root: Path) -> Path:
@@ -61,6 +65,23 @@ def _p3_only_snapshot(cache: object) -> tuple[str, int]:
     return value, remaining
 
 
+def _ingress_only_snapshot(ingress: object) -> dict[str, object]:
+    """Never persist a user-supplied message or raw HTTP rejection reason."""
+    empty: dict[str, object] = {
+        "instrumented": False,
+        **{key: 0 for key in sorted(_INGRESS_FIELDS)},
+    }
+    try:
+        counts = ingress.snapshot()
+    except Exception:
+        return empty
+    if (not isinstance(counts, dict) or set(counts) != _INGRESS_FIELDS
+            or any(type(value) is not int or not 0 <= value <= _MAX_INGRESS_COUNT
+                   for value in counts.values())):
+        return empty
+    return {"instrumented": True, **counts}
+
+
 def write_diagnostic(*, owner_root: Path, wiring: object, state: str) -> None:
     """Atomic owner-private status; callback runs inside actual Owner process."""
     root = _root(owner_root)
@@ -75,12 +96,15 @@ def write_diagnostic(*, owner_root: Path, wiring: object, state: str) -> None:
         p3, remaining = _p3_only_snapshot(getattr(wiring, "cache", None))
         reader = getattr(getattr(wiring, "current", None), "_ts", None)
         ts = _tcp_only_probe(reader)
+        ingress = _ingress_only_snapshot(getattr(wiring, "ingress", None))
     else:
         p3, ts, remaining = "UNKNOWN", "UNTESTED", 0
+        ingress = _ingress_only_snapshot(None)
     doc = {"schema": SCHEMA, "mode": "INTEGRATED_P3_P4",
            "version": RUNTIME_VERSION, "state": state,
            "p3": p3, "torrserver": ts,
            "p3_remaining_seconds": remaining,
+           "p3_ingress": ingress,
            "pid": os.getpid(),
            "observed_utc_epoch": int(time.time())}
     payload = json.dumps(doc, separators=(",", ":"), sort_keys=True).encode("ascii")
@@ -104,7 +128,10 @@ def read_diagnostic(*, owner_root: Path, now: float | None = None
               "OWNER_RUNTIME_VERSION": "NOT_OBSERVED",
               "P3_STATE_FRESH": "UNKNOWN",
               "TORRSERVER_READER_READY": "UNTESTED",
-              "OWNER_HEARTBEAT": "NOT_OBSERVED"}
+              "OWNER_HEARTBEAT": "NOT_OBSERVED",
+              "P3_HTTPS_INSTRUMENTED": "NOT_OBSERVED",
+              **{"P3_HTTPS_" + name.upper(): "NOT_OBSERVED"
+                 for name in sorted(_INGRESS_FIELDS)}}
     heartbeat = root / "agent-health.json"
     diagnosis = root / _NAME
     try:
@@ -135,6 +162,12 @@ def read_diagnostic(*, owner_root: Path, now: float | None = None
             or type(d["p3_remaining_seconds"]) is not int
             or not 0 <= d["p3_remaining_seconds"] <= 8
             or type(d["pid"]) is not int or d["pid"] != a["pid"]
+            or not isinstance(d["p3_ingress"], dict)
+            or set(d["p3_ingress"]) != _INGRESS_FIELDS | {"instrumented"}
+            or type(d["p3_ingress"]["instrumented"]) is not bool
+            or any(type(d["p3_ingress"][name]) is not int
+                   or not 0 <= d["p3_ingress"][name] <= _MAX_INGRESS_COUNT
+                   for name in _INGRESS_FIELDS)
             or type(d["observed_utc_epoch"]) is not int
             or type(now_sec) not in (int, float)
             or not 0 <= now_sec - a["observed_utc_epoch"] <= 30
@@ -152,7 +185,11 @@ def read_diagnostic(*, owner_root: Path, now: float | None = None
                   OWNER_RUNTIME_VERSION=d["version"],
                   P3_STATE_FRESH=p3,
                   TORRSERVER_READER_READY=d["torrserver"],
-                  OWNER_HEARTBEAT="READY_FRESH")
+                  OWNER_HEARTBEAT="READY_FRESH",
+                  P3_HTTPS_INSTRUMENTED=(
+                      "YES" if d["p3_ingress"]["instrumented"] else "NO"))
+    result.update({"P3_HTTPS_" + name.upper(): str(d["p3_ingress"][name])
+                   for name in sorted(_INGRESS_FIELDS)})
     return result
 
 

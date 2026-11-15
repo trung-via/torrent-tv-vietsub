@@ -32,7 +32,7 @@ from assumed_source_handoff import AssumedEnglishSubtitle
 from paired_activation import (
     PairedActivation, activation_request_mac,
 )
-from p3_p4_shared_https_route import make_p3_p4_handler
+from p3_p4_shared_https_route import P3IngressTelemetry, make_p3_p4_handler
 from p3_redmi_current_state import SignedRedmiStateCache, sign_synthetic_state
 from p3_signed_playback_signal import (
     SignedPlaybackVerifier, sign_synthetic_event,
@@ -86,6 +86,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
             self.reads.append("owner_tv")
             return self.state
         self.state_cache = SignedRedmiStateCache(KEY)
+        self.ingress = P3IngressTelemetry()
         self.p3 = SignedP3ToOwner(
             verifier=SignedPlaybackVerifier(KEY), owner_root=self.owner,
             read_verified_current_selection=current,
@@ -100,7 +101,8 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
         context = create_tls_context(cert, private)
         self.server = HTTPServer(
-            ("127.0.0.1", 0), make_p3_p4_handler(self.p4, self.p3, self.state_cache))
+            ("127.0.0.1", 0), make_p3_p4_handler(
+                self.p4, self.p3, self.state_cache, self.ingress))
         self.server.socket = context.wrap_socket(
             self.server.socket, server_side=True)
         worker = threading.Thread(target=self.server.serve_forever,
@@ -134,6 +136,20 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         self.assertEqual(parsed.tv_session_id, SESSION)
         self.assertEqual(parsed.selected_video_filename, MOVIE)
         self.assertEqual(len(self.p4._PairedActivation__feeds), 0)
+        self.assertEqual(self.ingress.snapshot()["selection_dispatched"], 1)
+
+    def test_signed_play_identifies_media_but_cannot_dispatch_translation(self):
+        raw = sign_synthetic_event(
+            KEY, kind="PLAY_REQUEST_ACCEPTED", tv_session_id=SESSION,
+            torrent_hash=TORRENT, file_index=3,
+            sent_at_ms=int(time.time()*1000), nonce="8"*32)
+        status, body = self.request(
+            "POST", "/p3/selection", raw,
+            {"Content-Type": "application/json"})
+        self.assertEqual((status, body), (204, b""))
+        self.assertEqual(self.ingress.snapshot()["selection_skipped"], 1)
+        self.assertEqual(self.ingress.snapshot()["selection_dispatched"], 0)
+        self.assertFalse(self.owner.exists())
 
     def test_tamper_duplicate_and_wrong_selected_file_never_enqueue(self):
         raw = signed_wire()
@@ -154,6 +170,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
                                 {"Content-Type":"application/json"})
         self.assertEqual(wrong, 403)
         self.assertEqual(len(list((self.owner / "inbox").glob("event-*.json"))), 1)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected"], 3)
 
     def test_no_content_or_unknown_p3_paths_block_before_reader(self):
         for path, body, headers, status in (
@@ -167,6 +184,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
                 self.assertEqual(got, status)
         self.assertEqual(self.reads, [])
         self.assertFalse(self.owner.exists())
+        self.assertEqual(self.ingress.snapshot()["selection_rejected"], 2)
 
     def test_same_handler_preserves_existing_authenticated_p4_activation(self):
         nonce = "f" * 32
@@ -186,6 +204,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
                               json.dumps(dict(request, auth="0"*64)).encode("ascii"),
                               {"Content-Type":"application/json"})
         self.assertEqual(bad, 403)
+        self.assertEqual(sum(self.ingress.snapshot().values()), 0)
 
     def signed_state(self, *, nonce="9"*32, active=True,
                      subtitle_choice="ON", session=SESSION):
@@ -205,11 +224,13 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         self.assertEqual(self.reads,[])
         self.assertFalse(self.owner.exists())
         self.assertEqual(len(self.p4._PairedActivation__feeds),0)
+        self.assertEqual(self.ingress.snapshot()["state_accepted"], 1)
         # HMAC replay remains blocked independently of P3 selected-play route.
         again,_=self.request(
             "POST","/p3/state",self.signed_state(),
             {"Content-Type":"application/json"})
         self.assertEqual(again,403)
+        self.assertEqual(self.ingress.snapshot()["state_rejected"], 1)
 
     def test_status_auth_tamper_path_and_off_do_not_start_subtitle(self):
         original=json.loads(self.signed_state())
@@ -224,6 +245,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         self.assertEqual(weird,404)
         self.assertEqual(self.reads,[])
         self.assertFalse(self.owner.exists())
+        self.assertEqual(self.ingress.snapshot()["state_rejected"], 1)
 
     def test_p3_route_cannot_be_used_to_read_private_p4_revision(self):
         status, _ = self.request("GET", "/p3/selection")

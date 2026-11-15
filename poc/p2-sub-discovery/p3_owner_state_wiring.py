@@ -31,7 +31,9 @@ from p3_owner_replay_journal import OwnerReplayJournal
 from p3_owner_current_redmi import OwnerCurrentRedmiReader
 from p3_signed_playback_signal import SignedPlaybackVerifier
 from p3_signed_signal_to_owner import SignedP3ToOwner
-from p3_p4_shared_https_route import make_p3_p4_handler
+from p3_p4_shared_https_route import (
+    P3IngressTelemetry, make_p3_p4_handler,
+)
 from p3_p4_ready_registry import P3OwnerReadyRegistry
 
 
@@ -46,6 +48,7 @@ class OwnerP3StatusComposition:
     private_media_root: Path
     locate_owner_pinned_files: Callable
     p4_gateway: PairedActivation
+    ingress: P3IngressTelemetry
     ready_registry: P3OwnerReadyRegistry | None = None
 
     def trusted_v3_factory(self, existing_flow: object) -> VerifiedV3Processor:
@@ -118,10 +121,11 @@ def compose_owner_redmi_status(*,
         owner_root=owner_root,
         read_verified_current_selection=current.read_playback,
     )
-    handler = make_p3_p4_handler(gateway, p3_signal, cache)
+    ingress = P3IngressTelemetry()
+    handler = make_p3_p4_handler(gateway, p3_signal, cache, ingress)
     return OwnerP3StatusComposition(
         handler=handler, cache=cache, current=current, signal=p3_signal,
         owner_root=owner_root, private_media_root=private_media_root,
         locate_owner_pinned_files=locate_owner_pinned_files,
-        p4_gateway=gateway, ready_registry=registry,
+        p4_gateway=gateway, ingress=ingress, ready_registry=registry,
     )
