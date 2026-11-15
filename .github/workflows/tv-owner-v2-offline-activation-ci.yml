@@ -1,0 +1,37 @@
+name: Torrent TV Owner V2 offline activation - source CI
+
+on:
+  pull_request:
+    paths:
+      - hostops/setup/owner-p3p4-v2-offline-activation.ps1
+      - poc/p2-sub-discovery/test_owner_v2_offline_activation_contract.py
+      - docs/integration/P3P4_OWNER_V2_OFFLINE_ACTIVATION.md
+      - .github/workflows/tv-owner-v2-offline-activation-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  windows-offline-parse:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned
+        with:
+          persist-credentials: false
+      - name: Parse only, never invoke the Owner installer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errors = $null
+          $file = Join-Path $env:GITHUB_WORKSPACE 'hostops\setup\owner-p3p4-v2-offline-activation.ps1'
+          [Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'OWNER_V2_OFFLINE_PARSE_FAIL' }
+          Write-Host 'OWNER_V2_OFFLINE_PARSE=PASS'
+      - name: Verify source-hash and stopped-only contract
+        shell: pwsh
+        run: |
+          python -m unittest discover -s poc/p2-sub-discovery -p test_owner_v2_offline_activation_contract.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_V2_OFFLINE_CONTRACT_FAIL' }
+          Write-Host 'OWNER_V2_OFFLINE_CONTRACT=PASS'
