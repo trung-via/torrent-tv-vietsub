@@ -91,9 +91,8 @@ if ($ownerP3Listeners.Count -eq 1) {
                 } else {
                     $tcp.EndConnect($pending)
                     # This is transport reachability only; callback does NOT establish a trusted TV certificate pin.
-                    $tls = New-Object Net.Security.SslStream(
-                        $tcp.GetStream(), $false,
-                        [Net.Security.RemoteCertificateValidationCallback]{ param($s,$cert,$chain,$err) return $true })
+                    $callback = [Net.Security.RemoteCertificateValidationCallback]{ param($sender,$cert,$chain,$errors) return $true }
+                    $tls = [Net.Security.SslStream]::new($tcp.GetStream(), $false, $callback)
                     $tls.ReadTimeout = 3000
                     $tls.WriteTimeout = 3000
                     $tls.AuthenticateAsClient('torrent-tv-local', $null,
