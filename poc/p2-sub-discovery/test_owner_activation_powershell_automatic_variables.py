@@ -80,7 +80,7 @@ class ProtectedAutomaticVariablesTests(unittest.TestCase):
             encoding="utf-8")
         for source in (activation, installer, guard, tests):
             self.assertIn("Get-TTVOwnerCurrentPwshExecutable", source)
-            self.assertNotIn("Get-Command pwsh.exe", source)
+            self.assertNotRegex(source, r"(?im)^(?!\s*#)[^\r\n]*Get-Command\s+pwsh\.exe")
         self.assertIn(
             "[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName",
             guard)
