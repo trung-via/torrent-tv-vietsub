@@ -60,6 +60,22 @@ class StateTests(unittest.TestCase):
         with self.assertRaisesRegex(RedmiStateRejected,"STALE"):
             c.read_fresh(monotonic_s=18.0001)
 
+    def test_diagnostic_freshness_is_non_identifying_and_ttl_bound(self):
+        c = SignedRedmiStateCache(KEY)
+        self.assertEqual(c.diagnostic_freshness(monotonic_s=10),
+                         ("MISSING", 0))
+        c.receive(packet(subtitle_choice="OFF"),
+                  now_ms=WHEN, monotonic_s=10)
+        self.assertEqual(c.diagnostic_freshness(monotonic_s=10.1),
+                         ("FRESH_OFF", 7))
+        self.assertEqual(c.diagnostic_freshness(monotonic_s=18.01),
+                         ("STALE", 0))
+        c2 = SignedRedmiStateCache(KEY)
+        c2.receive(packet(subtitle_choice="REQUESTED"),
+                   now_ms=WHEN, monotonic_s=20)
+        self.assertEqual(c2.diagnostic_freshness(monotonic_s=21),
+                         ("FRESH_REQUESTED", 7))
+
     def test_on_off_other_and_stopped_never_attested_active(self):
         for change in ({"subtitle_choice":"OFF"},{"subtitle_choice":"OTHER"},
                        {"active":False}):

@@ -364,16 +364,30 @@ def _owner_process_lock(private_root: Path):
 def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     interval_seconds: float = 2.0,
                     emit: Callable[[str], object] = print,
-                    trusted_v3_factory: Callable[[object], object] | None = None) -> None:
+                    trusted_v3_factory: Callable[[object], object] | None = None,
+                    diagnostic_tick: Callable[[str], object] | None = None) -> None:
     if not 0.5 <= interval_seconds <= 60:
         raise ValueError("OWNER_BRIDGE_BAD_POLL_INTERVAL")
     if (os.environ.get("CI", "").lower() == "true"
             or os.environ.get("GITHUB_ACTIONS", "").lower() == "true"):
         raise ValueError("OWNER_BRIDGE_NO_OWNER_RUNTIME_IN_CI")
+    if diagnostic_tick is not None and not callable(diagnostic_tick):
+        raise ValueError("OWNER_BRIDGE_DIAGNOSTIC_CALLBACK_INVALID")
+
+    def safe_diagnostic_tick(state: str) -> None:
+        if diagnostic_tick is not None:
+            try:
+                diagnostic_tick(state)
+            except Exception:
+                # A diagnostic failure must never stop playback or provoke a
+                # second potentially billable provider operation.
+                pass
+
     # OS releases the process mutex on Windows logoff/crash; durable
     # D2/Gemini one-post/inflight claims are never automatically deleted.
     with _owner_process_lock(private_root):
         write_owner_agent_health(owner_root=private_root, state="STARTING")
+        safe_diagnostic_tick("STARTING")
         try:
             from automatic_vietsub_flow import build_owner_auto_flow
             # Never call Gemini at startup: VI-only work remains usable.
@@ -401,6 +415,7 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     write_owner_agent_health(owner_root=private_root,
                                              state="READY")
                     last_health = time.monotonic()
+                safe_diagnostic_tick("READY")
                 consume_inert_runner_wakes()
                 poll_private_events(owner_root=private_root,
                                     processor=processor, emit=emit)
@@ -408,6 +423,7 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
         finally:
             write_owner_agent_health(owner_root=private_root,
                                      state="STOPPED")
+            safe_diagnostic_tick("STOPPED")
 
 
 def main(argv: list[str] | None = None) -> int:

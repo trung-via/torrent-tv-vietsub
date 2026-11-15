@@ -163,6 +163,11 @@ class OwnerIntegratedRuntimeTests(unittest.TestCase):
         self.assertEqual(captured[0]["private_root"], self.owner)
         self.assertEqual(captured[0]["trusted_v3_factory"].__self__, self.wiring)
         self.assertEqual(captured[0]["interval_seconds"], 2.0)
+        self.assertTrue(callable(captured[0]["diagnostic_tick"]))
+        with mock.patch("owner_p3_p4_runtime.write_diagnostic") as diagnostic:
+            captured[0]["diagnostic_tick"]("READY")
+            diagnostic.assert_called_once_with(
+                owner_root=self.owner, wiring=self.wiring, state="READY")
 
     def test_no_implicit_live_start_in_ci_or_without_explicit_grant(self):
         with mock.patch("owner_p3_p4_runtime.make_integrated_https_server") as server:

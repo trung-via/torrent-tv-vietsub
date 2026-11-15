@@ -1,0 +1,36 @@
+# Scoped owner-branch source/mock checks. No credentials, runner, TV or LAN.
+name: Torrent TV - Owner P3 P4 Private Diagnostic Offline CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p2-sub-discovery/**'
+      - 'docs/integration/P3P4_OWNER_PRIVATE_RUNTIME_DIAGNOSTIC.md'
+      - '.github/workflows/tv-p3p4-owner-diagnostic-offline-ci.yml'
+permissions:
+  contents: read
+jobs:
+  owner-private-diagnostic:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3p4-owner-private-runtime-diagnostic-20261115' &&
+      github.event.pull_request.base.ref == 'feature/p3-p4-cross-lane-tv-owner-compose-20261114'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact head, no credential persistence
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Owner runtime diagnostic and existing P3 P4 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p3-vietsub-trigger:$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub"
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -q
+          python3 -m unittest discover -s poc/p3-vietsub-trigger -p 'test_*.py' -q
+          echo 'OWNER_DIAGNOSTIC_OFFLINE_ONLY_NO_LAN_NO_PROVIDER_NO_WINDOWS_TASK_NO_TV'
