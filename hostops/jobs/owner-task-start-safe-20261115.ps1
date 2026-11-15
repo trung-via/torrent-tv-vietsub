@@ -10,7 +10,7 @@ if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
 }
 $name = 'TorrentTV-Vietsub-OwnerAgent'
 $task = @(Get-ScheduledTask -TaskName $name -ErrorAction Stop)
-if ($task.Count -ne 1 -or $task[0].TaskPath -cne '\\') {
+if ($task.Count -ne 1 -or $task[0].TaskPath -cne '\') {
     throw 'TTV_OWNER_START_TASK_NOT_EXACT'
 }
 $task = $task[0]
@@ -30,7 +30,7 @@ if ([string]$task.State -cne 'Ready') {
     Write-Host 'TTV_OWNER_START_TASK_DISPATCHED=NO'
     return
 }
-$null = & schtasks.exe /Run /TN ('\\' + $name) 2>&1
+$null = & schtasks.exe /Run /TN ('\' + $name) 2>&1
 $exitCode = $LASTEXITCODE
 Write-Host ('TTV_OWNER_START_SCHTASKS_EXIT=' + $exitCode)
 if ($exitCode -ne 0) {
