@@ -11,7 +11,9 @@ its own fixed-enum receipt on its existing loop; the owner account alone
 reads it.
 
 The separate `agent-health.json` heartbeat remains at schema V1 and is
-required to be fresh before the diagnostic is reported as live. When absent,
+required to be fresh **and have the same process PID** before the diagnostic
+is reported as live. This prevents a recent diagnostic from an exited P3/P4
+process being mistaken for a newly started legacy owner task. When absent,
 stale, malformed or stopped, `OWNER_RUNTIME_MODE=NOT_OBSERVED` (never a
 claim that the old or new bridge is running).
 
