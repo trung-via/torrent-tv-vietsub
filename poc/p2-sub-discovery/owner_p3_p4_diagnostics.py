@@ -26,7 +26,7 @@ _P3 = frozenset({"FRESH_ON", "FRESH_REQUESTED", "FRESH_OFF",
 _TS = frozenset({"TCP_REACHABLE_METADATA_UNTESTED", "TCP_UNREACHABLE",
                  "CONFIG_INVALID", "UNTESTED"})
 _FIELDS = frozenset({"schema", "mode", "version", "state", "p3", "torrserver",
-                     "p3_remaining_seconds", "observed_utc_epoch"})
+                     "p3_remaining_seconds", "observed_utc_epoch", "pid"})
 
 
 def _root(owner_root: Path) -> Path:
@@ -81,6 +81,7 @@ def write_diagnostic(*, owner_root: Path, wiring: object, state: str) -> None:
            "version": RUNTIME_VERSION, "state": state,
            "p3": p3, "torrserver": ts,
            "p3_remaining_seconds": remaining,
+           "pid": os.getpid(),
            "observed_utc_epoch": int(time.time())}
     payload = json.dumps(doc, separators=(",", ":"), sort_keys=True).encode("ascii")
     temporary = root / ("p3-p4-diag-" + secrets.token_hex(8) + ".tmp")
@@ -121,7 +122,7 @@ def read_diagnostic(*, owner_root: Path, now: float | None = None
             "schema", "state", "observed_utc_epoch", "pid"}
             or a["schema"] != "TTV-OWNER-AGENT-HEALTH-V1"
             or a["state"] != "READY"
-            or type(a["pid"]) is not int
+            or type(a["pid"]) is not int or a["pid"] <= 0
             or type(a["observed_utc_epoch"]) is not int
             or not isinstance(d, dict) or set(d) != _FIELDS
             or d["schema"] != SCHEMA or type(d["mode"]) is not str
@@ -133,6 +134,7 @@ def read_diagnostic(*, owner_root: Path, now: float | None = None
             or d["torrserver"] not in _TS
             or type(d["p3_remaining_seconds"]) is not int
             or not 0 <= d["p3_remaining_seconds"] <= 8
+            or type(d["pid"]) is not int or d["pid"] != a["pid"]
             or type(d["observed_utc_epoch"]) is not int
             or type(now_sec) not in (int, float)
             or not 0 <= now_sec - a["observed_utc_epoch"] <= 30
