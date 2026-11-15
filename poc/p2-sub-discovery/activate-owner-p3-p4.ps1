@@ -101,6 +101,27 @@ if ($taskReady) {
         throw 'P3_P4_ACTIVATE_OWNER_TASK_IDENTITY_MISMATCH'
     }
 }
+# Resolve executable and launcher semantically *before* enrolling a policy.
+# This avoids a policy rollback after the installer has already copied files.
+# No task action is rewritten, started, stopped or disclosed in public logs.
+$actionGuard = Join-Path $PSScriptRoot 'owner-task-action-identity.ps1'
+if (-not (Test-Path -LiteralPath $actionGuard -PathType Leaf)) {
+    throw 'P3_P4_ACTIVATE_TASK_ACTION_GUARD_MISSING'
+}
+. $actionGuard
+if ($taskReady) {
+    $expectedExe = (Get-Command pwsh.exe -CommandType Application -ErrorAction Stop).Source
+    $expectedLauncher = Join-Path $owner 'start-owner-session-agent.ps1'
+    $actionCheck = Get-TTVOwnerTaskActionState -Task $task -ExpectedExecutable $expectedExe -ExpectedLauncher $expectedLauncher
+    Write-Host ('P3_P4_ACTIVATE_TASK_EXE_MATCH=' + $actionCheck.ExecutableMatch.ToString().ToUpperInvariant())
+    Write-Host ('P3_P4_ACTIVATE_TASK_LAUNCHER_MATCH=' + $actionCheck.LauncherMatch.ToString().ToUpperInvariant())
+    Write-Host ('P3_P4_ACTIVATE_TASK_SWITCHES_MATCH=' + $actionCheck.SwitchesMatch.ToString().ToUpperInvariant())
+    Write-Host ('P3_P4_ACTIVATE_TASK_WORKDIR_EMPTY=' + $actionCheck.WorkingDirectoryEmpty.ToString().ToUpperInvariant())
+    if (-not $actionCheck.Accepted) {
+        throw 'P3_P4_ACTIVATE_OWNER_TASK_ACTION_MISMATCH'
+    }
+    Write-Host 'P3_P4_ACTIVATE_OWNER_TASK_ACTION=VERIFIED_SAFE'
+}
 if (-not (Test-Path -LiteralPath $entry -PathType Leaf) -or
     -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
     throw 'P3_P4_ACTIVATE_REVIEWED_SOURCES_MISSING'
