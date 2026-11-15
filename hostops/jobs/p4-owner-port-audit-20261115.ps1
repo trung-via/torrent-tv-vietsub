@@ -14,8 +14,16 @@ if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
 $taskName = 'TorrentTV-Vietsub-OwnerAgent'
 $targetProcessId = 2500
 $reportedParentId = 9724
-$task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-Write-Host "TTV_HO_TASK_STATE=$($task.State)"
+try {
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    Write-Host "TTV_HO_TASK_VISIBILITY=VISIBLE"
+    Write-Host "TTV_HO_TASK_STATE=$($task.State)"
+} catch {
+    # Scheduled Task ACL and per-user visibility can differ for NETWORK_SERVICE.
+    # Do not infer absence from this runner's view; continue process/socket audit.
+    Write-Host 'TTV_HO_TASK_VISIBILITY=UNAVAILABLE_TO_RUNNER'
+    Write-Host 'TTV_HO_TASK_STATE=UNKNOWN'
+}
 
 function Test-CommandMarker([string]$command, [string]$marker) {
     return $command.IndexOf(
