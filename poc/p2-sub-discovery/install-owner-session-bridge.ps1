@@ -47,7 +47,37 @@ if ($translatorProfileConfig.provider -cne 'gemini' -or $translatorProfileConfig
     throw 'OWNER_BRIDGE_GEMINI_HYDROGEN_HIGH_PROFILE_REQUIRED'
 }
 
+# Inspect existing task BEFORE changing ACLs, copying code or enrolling keys.
+# Previously task conflict was detected only after files had been changed.
 $root = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
+$taskName = 'TorrentTV-Vietsub-OwnerAgent'
+$launcher = Join-Path $root 'start-owner-session-agent.ps1'
+$pwsh = (Get-Command pwsh.exe -CommandType Application -ErrorAction Stop).Source
+$argument = '-NoLogo -NoProfile -NonInteractive -File "' + $launcher + '"'
+$principalGuard = Join-Path $PSScriptRoot 'owner-task-principal-identity.ps1'
+$actionGuard = Join-Path $PSScriptRoot 'owner-task-action-identity.ps1'
+if (-not (Test-Path -LiteralPath $principalGuard -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $actionGuard -PathType Leaf)) {
+    throw 'OWNER_BRIDGE_TASK_VALIDATION_GUARD_MISSING'
+}
+. $principalGuard
+. $actionGuard
+$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($null -ne $existing) {
+    $sameOwner = [bool](Test-TTVOwnerTaskPrincipal -Principal $existing.Principal -ExpectedSid $identity.User.Value)
+    $actionCheck = Get-TTVOwnerTaskActionState -Task $existing -ExpectedExecutable $pwsh -ExpectedLauncher $launcher
+    Write-Host ('OWNER_BRIDGE_TASK_SID_MATCH=' + $sameOwner.ToString().ToUpperInvariant())
+    Write-Host ('OWNER_BRIDGE_TASK_EXECUTABLE_MATCH=' + $actionCheck.ExecutableMatch.ToString().ToUpperInvariant())
+    Write-Host ('OWNER_BRIDGE_TASK_LAUNCHER_MATCH=' + $actionCheck.LauncherMatch.ToString().ToUpperInvariant())
+    Write-Host ('OWNER_BRIDGE_TASK_SWITCHES_MATCH=' + $actionCheck.SwitchesMatch.ToString().ToUpperInvariant())
+    Write-Host ('OWNER_BRIDGE_TASK_WORKDIR_EMPTY=' + $actionCheck.WorkingDirectoryEmpty.ToString().ToUpperInvariant())
+    if (-not $sameOwner -or -not $actionCheck.Accepted) {
+        throw 'OWNER_BRIDGE_SCHEDULED_TASK_CONFLICT'
+    }
+}
+Write-Host 'OWNER_BRIDGE_TASK_PREFLIGHT_BEFORE_OWNER_FILE_COPY=PASS'
+
+
 $secretsDir = Join-Path $root 'secrets'
 $installed = Join-Path $root 'app'
 $d2Target = Join-Path $installed 'poc\p2-sub-discovery'
@@ -104,29 +134,7 @@ foreach ($file in (Get-ChildItem -LiteralPath $secretsDir -File)) {
     if ($LASTEXITCODE -ne 0) { throw 'OWNER_BRIDGE_SECRET_ACL_FAILED' }
 }
 
-$guard = Join-Path $PSScriptRoot 'owner-task-principal-identity.ps1'
-if (-not (Test-Path -LiteralPath $guard -PathType Leaf)) {
-    throw 'OWNER_BRIDGE_TASK_IDENTITY_GUARD_MISSING'
-}
-. $guard
-$taskName = 'TorrentTV-Vietsub-OwnerAgent'
-$launcher = Join-Path $root 'start-owner-session-agent.ps1'
-$pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
-$argument = '-NoLogo -NoProfile -NonInteractive -File "' + $launcher + '"'
-$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($null -ne $existing) {
-    # The same Windows identity may be stored as SID or NTAccount in
-    # Task Scheduler. Check canonical SID, interactive/limited permissions,
-    # and the exact existing script action before copying/reusing the task.
-    if (-not (Test-TTVOwnerTaskPrincipal -Principal $existing.Principal `
-             -ExpectedSid $identity.User.Value) -or
-        $existing.Actions.Count -ne 1 -or
-        $existing.Actions[0].Execute -ine $pwsh -or
-        $existing.Actions[0].Arguments -cne $argument) {
-        throw 'OWNER_BRIDGE_SCHEDULED_TASK_CONFLICT'
-    }
-}
-else {
+if ($null -eq $existing) {
     $action = New-ScheduledTaskAction -Execute $pwsh -Argument $argument
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity.Name
     $principal = New-ScheduledTaskPrincipal -UserId $identity.Name -LogonType Interactive -RunLevel Limited
