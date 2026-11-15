@@ -231,6 +231,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
             {"Content-Type":"application/json"})
         self.assertEqual(again,403)
         self.assertEqual(self.ingress.snapshot()["state_rejected"], 1)
+        self.assertEqual(self.ingress.snapshot()["state_rejected_replay"], 1)
 
     def test_status_auth_tamper_path_and_off_do_not_start_subtitle(self):
         original=json.loads(self.signed_state())
@@ -246,6 +247,16 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         self.assertEqual(self.reads,[])
         self.assertFalse(self.owner.exists())
         self.assertEqual(self.ingress.snapshot()["state_rejected"], 1)
+        self.assertEqual(self.ingress.snapshot()["state_rejected_auth"], 1)
+
+    def test_private_ingress_counts_http_format_without_payload_details(self):
+        bad, _ = self.request(
+            "POST", "/p3/state", b"not-json", {"Content-Type": "text/plain"})
+        self.assertEqual(bad, 415)
+        counts = self.ingress.snapshot()
+        self.assertEqual(counts["state_rejected"], 1)
+        self.assertEqual(counts["state_rejected_format"], 1)
+        self.assertEqual(counts["state_rejected_auth"], 0)
 
     def test_p3_route_cannot_be_used_to_read_private_p4_revision(self):
         status, _ = self.request("GET", "/p3/selection")

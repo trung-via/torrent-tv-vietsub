@@ -11,6 +11,9 @@ from threading import Lock
 EVENTS = frozenset((
     "state_accepted", "state_rejected", "selection_dispatched",
     "selection_skipped", "selection_rejected",
+    "state_rejected_auth", "state_rejected_clock",
+    "state_rejected_replay", "state_rejected_format",
+    "state_rejected_other",
 ))
 MAX_COUNT = 1_000_000
 

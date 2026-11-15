@@ -19,7 +19,9 @@ from typing import Type
 from paired_activation import PairedActivation, make_paired_handler
 from p3_signed_signal_to_owner import SignedP3ToOwner
 from p3_signed_playback_signal import MAX_WIRE_BYTES
-from p3_redmi_current_state import SignedRedmiStateCache, WIRE_MAX
+from p3_redmi_current_state import (
+    RedmiStateRejected, SignedRedmiStateCache, WIRE_MAX,
+)
 from p3_ingress_telemetry import P3IngressTelemetry
 
 P3_POST_ROUTE = "/p3/selection"
@@ -50,10 +52,14 @@ def make_p3_p4_handler(
                 return super().do_POST()
             is_state = self.path == P3_STATE_ROUTE
 
-            def rejected(http_status: int) -> None:
+            def rejected(http_status: int, reason: str = "format") -> None:
                 if ingress is not None:
                     ingress.record("state_rejected" if is_state
                                    else "selection_rejected")
+                    if is_state:
+                        # Only known, fixed private categories survive. Never
+                        # persist raw exception text or return the category to TV.
+                        ingress.record("state_rejected_" + reason)
                 self.send_error(http_status)
 
             if self.path == P3_STATE_ROUTE and state_cache is None:
@@ -103,9 +109,24 @@ def make_p3_p4_handler(
                 else:
                     # Do not disclose which gate failed to the HTTP caller.
                     rejected(403)
+            except RedmiStateRejected as exc:
+                code = exc.args[0] if exc.args else None
+                if code == "P3_STATE_AUTH_FAILED":
+                    category = "auth"
+                elif code == "P3_STATE_CLOCK_SKEW":
+                    category = "clock"
+                elif code in (
+                    "P3_STATE_REPLAY", "P3_STATE_BOOT_CHANGE_WHILE_FRESH",
+                    "P3_STATE_OUT_OF_ORDER",
+                    "P3_STATE_DURABLE_REPLAY_REJECTED",
+                ):
+                    category = "replay"
+                else:
+                    category = "format"
+                rejected(403, category)
             except Exception:
                 # No media filename/hash/path/secret or provider error in
                 # HTTP response, stdout or BaseHTTPRequestHandler logs.
-                rejected(403)
+                rejected(403, "other")
 
     return PairedP3P4Handler

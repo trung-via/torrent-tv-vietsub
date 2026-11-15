@@ -21,6 +21,7 @@ from p3_ingress_telemetry import MAX_COUNT as _MAX_INGRESS_COUNT
 SCHEMA = "TTV-OWNER-P3P4-DIAGNOSTIC-V2"
 RUNTIME_VERSION = "P3P4-INTEGRATED-DIAGNOSTIC-V2"
 _NAME = "p3-p4-runtime-diagnostic.json"
+_MAX_DIAG_BYTES = 1024
 _MODES = frozenset({"INTEGRATED_P3_P4"})
 _STATES = frozenset({"READY", "STARTING", "STOPPED", "BLOCKED"})
 _P3 = frozenset({"FRESH_ON", "FRESH_REQUESTED", "FRESH_OFF",
@@ -108,6 +109,8 @@ def write_diagnostic(*, owner_root: Path, wiring: object, state: str) -> None:
            "pid": os.getpid(),
            "observed_utc_epoch": int(time.time())}
     payload = json.dumps(doc, separators=(",", ":"), sort_keys=True).encode("ascii")
+    if len(payload) > _MAX_DIAG_BYTES:
+        raise ValueError("P3P4_DIAG_FIXED_SCHEMA_TOO_LARGE")
     temporary = root / ("p3-p4-diag-" + secrets.token_hex(8) + ".tmp")
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -138,7 +141,7 @@ def read_diagnostic(*, owner_root: Path, now: float | None = None
         if (heartbeat.is_symlink() or diagnosis.is_symlink()
                 or not heartbeat.is_file() or not diagnosis.is_file()
                 or heartbeat.stat().st_size > 512
-                or diagnosis.stat().st_size > 512):
+                or diagnosis.stat().st_size > _MAX_DIAG_BYTES):
             return result
         a = json.loads(heartbeat.read_text(encoding="utf-8"))
         d = json.loads(diagnosis.read_text(encoding="utf-8"))

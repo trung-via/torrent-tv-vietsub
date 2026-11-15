@@ -62,6 +62,7 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
         self.assertEqual(status["P3_HTTPS_INSTRUMENTED"], "YES")
         self.assertEqual(status["P3_HTTPS_STATE_ACCEPTED"], "1")
         self.assertEqual(status["P3_HTTPS_STATE_REJECTED"], "1")
+        self.assertEqual(status["P3_HTTPS_STATE_REJECTED_AUTH"], "0")
         self.assertEqual(status["P3_HTTPS_SELECTION_DISPATCHED"], "0")
 
     def test_tcp_connect_is_local_only_and_cannot_claim_metadata_verified(self):
@@ -105,6 +106,9 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
         value = json.loads(path.read_text())
         value["p3"] = []
         path.write_text(json.dumps(value))
+        self.assertEqual(read_diagnostic(owner_root=self.owner)["OWNER_RUNTIME_MODE"],
+                         "NOT_OBSERVED")
+        path.write_text("x" * 1025)
         self.assertEqual(read_diagnostic(owner_root=self.owner)["OWNER_RUNTIME_MODE"],
                          "NOT_OBSERVED")
         path.unlink()
