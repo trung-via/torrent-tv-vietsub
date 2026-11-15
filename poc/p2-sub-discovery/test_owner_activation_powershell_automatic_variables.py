@@ -71,6 +71,21 @@ class ProtectedAutomaticVariablesTests(unittest.TestCase):
             activation.index("P3_P4_ACTIVATE_OWNER_TASK_ACTION=VERIFIED_SAFE"),
             activation.index("P3_P4_ACTIVATE_POLICY=DENY_ALL_MEDIA_ENROLLED"))
 
+    def test_pwsh_executable_is_pinned_to_running_process_not_ambiguous_discovery(self):
+        activation = (ROOT / OWNER_SCRIPTS[0]).read_text(encoding="utf-8")
+        installer = (ROOT / OWNER_SCRIPTS[1]).read_text(encoding="utf-8")
+        guard = (ROOT / "owner-task-action-identity.ps1").read_text(
+            encoding="utf-8")
+        tests = (ROOT / "test-owner-task-action-identity.ps1").read_text(
+            encoding="utf-8")
+        for source in (activation, installer, guard, tests):
+            self.assertIn("Get-TTVOwnerCurrentPwshExecutable", source)
+            self.assertNotIn("Get-Command pwsh.exe", source)
+        self.assertIn(
+            "[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName",
+            guard)
+        self.assertIn("OWNER_TASK_ACTION_PWSH_EXACT_ONE_SCALAR_PATH=PASS", tests)
+
     def test_installer_and_activation_use_non_reserved_bindings(self):
         activation = (ROOT / OWNER_SCRIPTS[0]).read_text(encoding="utf-8")
         installer = (ROOT / OWNER_SCRIPTS[1]).read_text(encoding="utf-8")
