@@ -40,17 +40,17 @@ function Get-TTVOwnerTaskActionState {
         $state.ExecutableMatch = $actualExe.Equals(
             $expectedExe, [StringComparison]::OrdinalIgnoreCase)
 
-        $args = ([string]$action.Arguments).Trim()
+        $argumentText = ([string]$action.Arguments).Trim()
         # Fixed switches only. No -Command/-EncodedCommand/-ExecutionPolicy,
         # extra statements or arbitrary executable arguments.
-        if ($args -match '[\r\n]') { return [pscustomobject]$state }
+        if ($argumentText -match '[\r\n]') { return [pscustomobject]$state }
         $pattern = @'
 (?ix) \A \s*
 -NoLogo \s+ -NoProfile \s+ -NonInteractive \s+ -File \s+
 (?:"(?<double>[^"]+)"|'(?<single>[^']+)'|(?<bare>\S+))
 \s* \z
 '@
-        $m = [regex]::Match($args,$pattern)
+        $m = [regex]::Match($argumentText,$pattern)
         if (-not $m.Success) { return [pscustomobject]$state }
         $state.SwitchesMatch = $true
         $fileArg = if ($m.Groups['double'].Success) {
