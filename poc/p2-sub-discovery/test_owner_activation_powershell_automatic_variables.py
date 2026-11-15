@@ -42,6 +42,18 @@ class ProtectedAutomaticVariablesTests(unittest.TestCase):
                 self.assertFalse(bad, "PowerShell read-only variables: " +
                                  ", ".join(bad))
 
+    def test_both_owner_scripts_require_canonical_sid_guard(self):
+        activation = (ROOT / OWNER_SCRIPTS[0]).read_text(encoding="utf-8")
+        installer = (ROOT / OWNER_SCRIPTS[1]).read_text(encoding="utf-8")
+        for script in (activation, installer):
+            with self.subTest(source="activation" if script is activation
+                              else "installer"):
+                self.assertIn("owner-task-principal-identity.ps1", script)
+                self.assertIn("Test-TTVOwnerTaskPrincipal", script)
+                self.assertIn("-ExpectedSid $identity.User.Value", script)
+                self.assertNotIn(".UserId -cne $identity.Name", script)
+                self.assertNotIn(".UserId -ine $identity.Name", script)
+
     def test_installer_and_activation_use_non_reserved_bindings(self):
         activation = (ROOT / OWNER_SCRIPTS[0]).read_text(encoding="utf-8")
         installer = (ROOT / OWNER_SCRIPTS[1]).read_text(encoding="utf-8")
