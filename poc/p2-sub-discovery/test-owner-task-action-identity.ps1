@@ -2,7 +2,18 @@
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'owner-task-action-identity.ps1')
-$exe = (Get-Command pwsh.exe -CommandType Application -ErrorAction Stop).Source
+$exe = Get-TTVOwnerCurrentPwshExecutable
+if ($exe -isnot [string] -or [string]::IsNullOrWhiteSpace($exe) -or
+    -not [IO.Path]::IsPathRooted($exe) -or
+    -not [IO.File]::Exists($exe)) {
+    throw 'OWNER_TASK_ACTION_CURRENT_PWSH_NOT_ONE_ABSOLUTE_FILE'
+}
+# Repeated calls under the same running process return exactly one stable path.
+$repeatExecutable = Get-TTVOwnerCurrentPwshExecutable
+if ($exe -cne $repeatExecutable) {
+    throw 'OWNER_TASK_ACTION_CURRENT_PWSH_PATH_UNSTABLE'
+}
+Write-Host 'OWNER_TASK_ACTION_PWSH_EXACT_ONE_SCALAR_PATH=PASS'
 $launcher = [IO.Path]::GetFullPath((Join-Path $env:TEMP 'ttv-synthetic-owner\start-owner-session-agent.ps1'))
 $canonical = '-NoLogo -NoProfile -NonInteractive -File "' + $launcher + '"'
 function New-SafeFixture([string]$exeText,[string]$argumentText,[string]$workDir = '') {
