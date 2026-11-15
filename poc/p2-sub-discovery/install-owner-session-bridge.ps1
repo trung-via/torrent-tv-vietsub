@@ -41,9 +41,9 @@ foreach ($needed in @(
 }
 
 # Fail closed on accidental stale P2 model config from another Draft.
-$profile = Get-Content -LiteralPath (Join-Path $srcP2 'translator_profile.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-if ($profile.provider -cne 'gemini' -or $profile.model -cne 'gemini-4-hydrogen' -or
-    $profile.thinking_level -cne 'high') {
+$translatorProfileConfig = Get-Content -LiteralPath (Join-Path $srcP2 'translator_profile.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+if ($translatorProfileConfig.provider -cne 'gemini' -or $translatorProfileConfig.model -cne 'gemini-4-hydrogen' -or
+    $translatorProfileConfig.thinking_level -cne 'high') {
     throw 'OWNER_BRIDGE_GEMINI_HYDROGEN_HIGH_PROFILE_REQUIRED'
 }
 
