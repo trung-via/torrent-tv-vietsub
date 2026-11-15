@@ -5,6 +5,28 @@
 # This function never modifies any task or executes an action.
 Set-StrictMode -Version Latest
 
+# Resolve one stable executable from this already-running PowerShell process.
+# Get-Command pwsh.exe may yield zero/multiple ApplicationInfo records due
+# to PATH/shims and its .Source can then be an array, not [string].
+# Never pass command-discovery collections to a [string] parameter.
+function Get-TTVOwnerCurrentPwshExecutable {
+    [CmdletBinding()]
+    param()
+    try {
+        $currentExecutable = [string][Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+        if ([string]::IsNullOrWhiteSpace($currentExecutable) -or
+            -not [IO.Path]::IsPathRooted($currentExecutable) -or
+            -not [IO.Path]::GetFileName($currentExecutable).Equals(
+                'pwsh.exe', [StringComparison]::OrdinalIgnoreCase) -or
+            -not [IO.File]::Exists($currentExecutable)) {
+            throw 'OWNER_BRIDGE_PROCESS_IS_NOT_PWSH_EXE'
+        }
+        return [IO.Path]::GetFullPath($currentExecutable)
+    } catch {
+        throw 'OWNER_BRIDGE_CURRENT_PWSH_EXECUTABLE_UNAVAILABLE'
+    }
+}
+
 function Get-TTVOwnerTaskActionState {
     [CmdletBinding()]
     param(
@@ -33,7 +55,9 @@ function Get-TTVOwnerTaskActionState {
 
         $actualExe = ([string]$action.Execute).Trim().Trim('"')
         if ($actualExe -ieq 'pwsh.exe' -or $actualExe -ieq 'pwsh') {
-            $actualExe = [string](Get-Command pwsh.exe -CommandType Application -ErrorAction Stop).Source
+            # The same executable that runs this owner-side guard is the
+            # verified target of a bare pwsh.exe action, not a PATH search.
+            $actualExe = Get-TTVOwnerCurrentPwshExecutable
         }
         $expectedExe = [IO.Path]::GetFullPath($ExpectedExecutable)
         $actualExe = [IO.Path]::GetFullPath($actualExe)
