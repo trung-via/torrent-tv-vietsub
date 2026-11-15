@@ -2,6 +2,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -28,9 +29,9 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
             cache=Cache(), current=SimpleNamespace(
                 _ts=SimpleNamespace(_config=SimpleNamespace(localhost_port=8090))))
 
-    def _health(self, observed=None, state="READY"):
+    def _health(self, observed=None, state="READY", pid=None):
         doc = {"schema": "TTV-OWNER-AGENT-HEALTH-V1", "state": state,
-               "pid": 123, "observed_utc_epoch": (
+               "pid": os.getpid() if pid is None else pid, "observed_utc_epoch": (
                    int(time.time()) if observed is None else observed)}
         (self.owner / "agent-health.json").write_text(json.dumps(doc))
 
@@ -76,6 +77,17 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
         write_diagnostic(owner_root=self.owner, wiring=self.wiring, state="STOPPED")
         self.assertEqual(read_diagnostic(owner_root=self.owner)["OWNER_RUNTIME_MODE"],
                          "NOT_OBSERVED")
+
+    def test_recent_receipt_from_previous_process_cannot_match_new_heartbeat(self):
+        with mock.patch("owner_p3_p4_diagnostics.socket.create_connection"):
+            write_diagnostic(owner_root=self.owner, wiring=self.wiring, state="READY")
+        self._health(pid=os.getpid() + 1)
+        self.assertEqual(read_diagnostic(owner_root=self.owner)["OWNER_RUNTIME_MODE"],
+                         "NOT_OBSERVED")
+        # Exact PID permits a live claim only with both fresh, same-process records.
+        self._health()
+        self.assertEqual(read_diagnostic(owner_root=self.owner)["OWNER_RUNTIME_MODE"],
+                         "INTEGRATED_P3_P4")
 
     def test_invalid_values_and_symlinks_fail_closed(self):
         with mock.patch("owner_p3_p4_diagnostics.socket.create_connection"):
