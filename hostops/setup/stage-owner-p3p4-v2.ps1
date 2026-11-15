@@ -14,6 +14,29 @@ function Stop-TTVStage([string]$Reason) {
     throw 'TTV_OWNER_V2_STAGE_PRECONDITION_FAILED'
 }
 
+function Get-TTVCanonicalSourceBytes([string]$Path) {
+    # Windows Git checkouts can turn a Git LF blob into CRLF without changing
+    # its logical source. Verify and stage the exact Git LF bytes, never a
+    # checkout-dependent encoding/newline variant of the reviewed candidate.
+    $raw = [IO.File]::ReadAllBytes($Path)
+    $utf8 = [Text.UTF8Encoding]::new($false, $true)
+    try { $source = $utf8.GetString($raw) }
+    catch { Stop-TTVStage 'SOURCE_ENCODING_INVALID' }
+    if ($source.StartsWith([char]0xFEFF) -or
+        $source.Replace("`r`n", "`n").Contains("`r")) {
+        Stop-TTVStage 'SOURCE_LINE_ENDINGS_INVALID'
+    }
+    $normal = $source.Replace("`r`n", "`n")
+    return ,($utf8.GetBytes($normal))
+}
+
+function Get-TTVSHA256([byte[]]$Bytes) {
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($hasher.ComputeHash($Bytes)).Replace('-', '').ToLowerInvariant()
+    } finally { $hasher.Dispose() }
+}
+
 if ($env:GITHUB_ACTIONS -ceq 'true' -or
     -not [Environment]::UserInteractive -or
     [Diagnostics.Process]::GetCurrentProcess().SessionId -le 0) {
@@ -76,8 +99,11 @@ foreach ($name in $files.Keys) {
     $path = Join-Path $src $name
     if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
         (Get-Item -LiteralPath $path -Force).Attributes -band
-            [IO.FileAttributes]::ReparsePoint -or
-        (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $files[$name]) {
+            [IO.FileAttributes]::ReparsePoint) {
+        Stop-TTVStage 'SOURCE_HASH_MISMATCH'
+    }
+    $bytes = Get-TTVCanonicalSourceBytes $path
+    if ((Get-TTVSHA256 $bytes) -cne $files[$name]) {
         Stop-TTVStage 'SOURCE_HASH_MISMATCH'
     }
 }
@@ -119,7 +145,7 @@ foreach ($name in $files.Keys) {
         }
     } else {
         # CreateNew ensures a concurrent owner process cannot be overwritten.
-        $bytes = [IO.File]::ReadAllBytes((Join-Path $src $name))
+        $bytes = Get-TTVCanonicalSourceBytes (Join-Path $src $name)
         $stream = [IO.File]::Open($dest, [IO.FileMode]::CreateNew,
                                   [IO.FileAccess]::Write, [IO.FileShare]::None)
         try {

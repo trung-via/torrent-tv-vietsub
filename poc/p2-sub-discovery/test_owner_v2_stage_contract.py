@@ -22,7 +22,12 @@ class StageContractTest(unittest.TestCase):
     def test_runtime_byte_pins_are_exact(self):
         for name, expected in EXPECTED.items():
             with self.subTest(name=name):
-                actual = hashlib.sha256((SOURCE / name).read_bytes()).hexdigest()
+                raw = (SOURCE / name).read_bytes()
+                # Git core.autocrlf on Windows changes checkout bytes, but
+                # staging reconstructs the canonical LF Git blob on disk.
+                canonical = raw.replace(b"\r\n", b"\n")
+                self.assertNotIn(b"\r", canonical)
+                actual = hashlib.sha256(canonical).hexdigest()
                 self.assertEqual(actual, expected)
 
     def test_script_manifest_matches_pinned_source(self):
@@ -30,6 +35,16 @@ class StageContractTest(unittest.TestCase):
         listed = dict(re.findall(
             r"'([a-z0-9_]+\.py)'\s*=\s*'([0-9a-f]{64})'", script))
         self.assertEqual(listed, EXPECTED)
+
+    def test_windows_crlf_checkout_normalizes_to_reviewed_bytes(self):
+        for name, expected in EXPECTED.items():
+            with self.subTest(name=name):
+                raw = (SOURCE / name).read_bytes().replace(b"\r\n", b"\n")
+                self.assertNotIn(b"\r", raw)
+                simulated_windows = raw.replace(b"\n", b"\r\n")
+                self.assertEqual(
+                    hashlib.sha256(simulated_windows.replace(b"\r\n", b"\n")).hexdigest(),
+                    expected)
 
     def test_stage_does_not_change_running_owner_or_start_provider(self):
         script = SCRIPT.read_text(encoding="utf-8")
@@ -42,6 +57,7 @@ class StageContractTest(unittest.TestCase):
             self.assertNotIn(forbidden, script)
         self.assertIn("$root 'staged-releases'", script)
         self.assertIn("[IO.FileMode]::CreateNew", script)
+        self.assertIn("Get-TTVCanonicalSourceBytes", script)
         self.assertIn("TTV_OWNER_V2_INSTALLED_RUNTIME=UNCHANGED", script)
         self.assertIn("TTV_OWNER_V2_ACTIVE_PROVIDER_JOB=UNPROVEN_V1", script)
 

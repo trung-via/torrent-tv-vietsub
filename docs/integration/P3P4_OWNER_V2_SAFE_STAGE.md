@@ -29,6 +29,10 @@ The script validates those four SHA-256 hashes, the current interactive
 Windows Owner identity, the already-installed OwnerBridge tree and the
 **exact existing** Scheduled Task principal/action using existing source
 guards. It does not read pairing keys or private subtitle/media bytes.
+Windows Git may check out Python files with CRLF endings. The preflight
+normalizes valid UTF-8 CRLF back to the original Git LF bytes **before**
+comparing SHA-256, and the staged copies retain those exact reviewed bytes.
+This avoids a false failure or accidental unreviewed newline variant.
 
 Source-only checks do **not** constitute independent Brain approval to merge,
 source-to-runtime parity or proof that the new Python modules are loaded.
