@@ -68,6 +68,13 @@ foreach ($name in @('pairing-key.hex','gateway-bind.txt','pairing-token.txt',
 }
 $secretsReady = (Test-Path -LiteralPath (Join-Path $owner 'secrets\opensub.dpapi') -PathType Leaf) -and
                 (Test-Path -LiteralPath (Join-Path $owner 'secrets\gemini.dpapi') -PathType Leaf)
+# Resolve TaskScheduler's UserId to SID rather than comparing Windows
+# presentation strings (which may be SID/DOMAIN\user/UPN or differ in case).
+$principalGuard = Join-Path $PSScriptRoot 'owner-task-principal-identity.ps1'
+if (-not (Test-Path -LiteralPath $principalGuard -PathType Leaf)) {
+    throw 'P3_P4_ACTIVATE_TASK_PRINCIPAL_GUARD_MISSING'
+}
+. $principalGuard
 $task = Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -ErrorAction SilentlyContinue
 $taskReady = $null -ne $task
 Write-Host ('P3_P4_ACTIVATE_PAIRING_FILES_PRESENT=' + $pairingReady.ToString().ToUpperInvariant())
@@ -85,10 +92,14 @@ if (-not $pairingReady -or -not $secretsReady -or
 # A clean owner session can also be a FIRST enrollment: the existing
 # owner-only installer can create the interactive task if it does not exist.
 # Never mutate a task of another principal or a service logon task.
-if ($taskReady -and (
-    [string]$task.Principal.LogonType -cne 'Interactive' -or
-    [string]$task.Principal.UserId -cne $identity.Name)) {
-    throw 'P3_P4_ACTIVATE_OWNER_TASK_IDENTITY_MISMATCH'
+if ($taskReady) {
+    $samePrincipal = Test-TTVOwnerTaskPrincipal -Principal $task.Principal `
+        -ExpectedSid $identity.User.Value
+    Write-Host ('P3_P4_ACTIVATE_OWNER_TASK_SID_MATCH=' +
+        $samePrincipal.ToString().ToUpperInvariant())
+    if (-not $samePrincipal) {
+        throw 'P3_P4_ACTIVATE_OWNER_TASK_IDENTITY_MISMATCH'
+    }
 }
 if (-not (Test-Path -LiteralPath $entry -PathType Leaf) -or
     -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
