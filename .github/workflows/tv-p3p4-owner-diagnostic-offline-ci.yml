@@ -15,8 +15,12 @@ jobs:
       github.repository == 'trung-via/torrent-tv-vietsub' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login == 'trung-via' &&
-      github.event.pull_request.head.ref == 'feature/p3p4-owner-private-runtime-diagnostic-20261115' &&
-      github.event.pull_request.base.ref == 'feature/p3-p4-cross-lane-tv-owner-compose-20261114'
+      (
+        (github.event.pull_request.head.ref == 'feature/p3p4-owner-private-runtime-diagnostic-20261115' &&
+         github.event.pull_request.base.ref == 'feature/p3-p4-cross-lane-tv-owner-compose-20261114') ||
+        (github.event.pull_request.head.ref == 'feature/p3-ingress-private-telemetry-20261115' &&
+         github.event.pull_request.base.ref == 'feature/p3p4-owner-private-runtime-diagnostic-20261115')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
