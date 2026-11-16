@@ -142,6 +142,22 @@ $candidateVerify = 'NOT_RUN'
 $installedVerify = 'NOT_RUN'
 $candidateDigestState = 'NOT_RUN'
 $installedDigestState = 'NOT_RUN'
+$candidateCertLabels = 'NOT_RUN'
+$installedCertLabels = 'NOT_RUN'
+
+function Get-SafeCertLabels($output) {
+    $labels = @($output | ForEach-Object {
+        $line = ([string]$_).Trim()
+        if ($line -match '(?i)(signer|certificate|sha-?256)' -and $line.Contains(':')) {
+            $label = ($line -split ':', 2)[0].Trim()
+            if ($label.Length -le 90 -and $label -cmatch '^[A-Za-z0-9# _\-]+$') {
+                $label
+            }
+        }
+    } | Select-Object -First 5)
+    if ($labels.Count -eq 0) { return 'NONE' }
+    return ($labels -join '|')
+}
 if ($apkProvenance -ceq 'PASS' -and
     $adbState -ceq 'EXISTING_SERVER_QUERIED' -and
     $authorizedCount -ceq '1' -and
@@ -178,6 +194,8 @@ if ($apkProvenance -ceq 'PASS' -and
                 $pattern = 'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)'
                 $candidateCert = [regex]::Match(($candidateOutput -join [Environment]::NewLine), $pattern)
                 $installedCert = [regex]::Match(($installedOutput -join [Environment]::NewLine), $pattern)
+                $candidateCertLabels = Get-SafeCertLabels $candidateOutput
+                $installedCertLabels = Get-SafeCertLabels $installedOutput
                 $candidateVerify = if ($candidateExit -eq 0) { 'PASS' } else { 'NONZERO_HOLD' }
                 $installedVerify = if ($installedExit -eq 0) { 'PASS' } else { 'NONZERO_HOLD' }
                 $candidateDigestState = if ($candidateCert.Success) { 'FOUND' } else { 'NOT_FOUND_HOLD' }
@@ -235,4 +253,6 @@ Write-Host "TTV_CANDIDATE_CERT_VERIFY=$candidateVerify"
 Write-Host "TTV_INSTALLED_CERT_VERIFY=$installedVerify"
 Write-Host "TTV_CANDIDATE_CERT_DIGEST=$candidateDigestState"
 Write-Host "TTV_INSTALLED_CERT_DIGEST=$installedDigestState"
+Write-Host "TTV_CANDIDATE_CERT_LABELS=$candidateCertLabels"
+Write-Host "TTV_INSTALLED_CERT_LABELS=$installedCertLabels"
 Write-Host 'TTV_PREFLIGHT=READ_ONLY_COMPLETE_NO_INSTALL'
