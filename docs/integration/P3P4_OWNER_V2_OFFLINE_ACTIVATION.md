@@ -13,6 +13,21 @@ owner-interactive maintenance window, and a verified task/process stop.
 - The Owner task **was Running** at observation. These zeros do **not** prove
   no event can arrive later. V1 heartbeat READY is not a quiesce proof.
 
+## Read-only installed-source identity (follow-up)
+
+In default inspection mode, the corrected Owner-interactive tool compares all
+three **installed** modules with the reviewed V1 canonical hashes or V2 exact
+bytes, and checks the V2 telemetry module. It emits only
+`TTV_OWNER_V2_INSTALLED_SOURCE=V1_SOURCE_EXACT|V2_SOURCE_EXACT|MIXED_OR_UNKNOWN`.
+Mixed, missing or modified modules fail closed. The stage-only hash result must
+never be interpreted as the installed version.
+
+`TTV_OWNER_V2_LOADED_RUNTIME=NOT_ATTESTED` is always separate: even an exact
+V2 on disk does **not** establish that a currently Running Owner Python process
+loaded those bytes. A safe source switch still requires a disabled/stopped task,
+a verified V1 recovery backup, and subsequent fresh PID-bound V2 diagnostic.
+NetworkService HostOps cannot substitute for this Owner-interactive inspection.
+
 ## New offline installer contract
 
 `hostops/setup/owner-p3p4-v2-offline-activation.ps1` is owner-only and
