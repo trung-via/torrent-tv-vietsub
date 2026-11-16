@@ -139,7 +139,38 @@ foreach ($name in $v2.Keys) {
 }
 Write-Host 'TTV_OWNER_V2_STAGED_BYTES=VERIFIED'
 
+# Read-only source attestation: inspect the installed files, NOT the stage.
+# Source bytes alone never prove which version the live Owner PID has loaded.
+function GetOwnerInstalledSourceVersion {
+    $v1Exact = $true
+    $v2Exact = $true
+    foreach ($name in $baseline.Keys) {
+        $installed = Join-Path $app $name
+        if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) {
+            return 'MIXED_OR_UNKNOWN'
+        }
+        SafeItem $installed $false
+        if ((V1CanonicalHash $installed) -cne $baseline[$name]) { $v1Exact = $false }
+        if ((ExactHash $installed) -cne $v2[$name]) { $v2Exact = $false }
+    }
+    $telemetry = Join-Path $app 'p3_ingress_telemetry.py'
+    $hasTelemetry = Test-Path -LiteralPath $telemetry
+    if ($hasTelemetry) { SafeItem $telemetry $false }
+    if ($v1Exact -and -not $hasTelemetry) { return 'V1_SOURCE_EXACT' }
+    if ($v2Exact -and $hasTelemetry -and
+        (ExactHash $telemetry) -ceq $v2['p3_ingress_telemetry.py']) {
+        return 'V2_SOURCE_EXACT'
+    }
+    return 'MIXED_OR_UNKNOWN'
+}
+
 if (-not $Backup -and -not $ApplyOffline) {
+    $installedVersion = GetOwnerInstalledSourceVersion
+    Write-Host ('TTV_OWNER_V2_INSTALLED_SOURCE=' + $installedVersion)
+    Write-Host 'TTV_OWNER_V2_LOADED_RUNTIME=NOT_ATTESTED'
+    if ($installedVersion -ceq 'MIXED_OR_UNKNOWN') {
+        Hold 'INSTALLED_SOURCE_MIXED_OR_UNKNOWN'
+    }
     Write-Host 'TTV_OWNER_V2_OFFLINE=READ_ONLY_INSPECT_PASS'
     Write-Host 'TTV_OWNER_V2_RUNTIME=UNCHANGED'
     exit 0
