@@ -61,8 +61,10 @@ if ($apkProvenance -ceq 'PASS') {
             $certMatch = [regex]::Match(($certOutput -join [Environment]::NewLine),
                 'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)')
             $actualSigner = $certMatch.Groups[1].Value.Replace(':','').ToLowerInvariant()
-            $signature = if ($exit -eq 0 -and $certMatch.Success -and
-                $actualSigner -ceq $expectedSigner) { 'EXPECTED' } else { 'MISMATCH_HOLD' }
+            $signature = if ($exit -ne 0) { 'VERIFICATION_FAILED_HOLD' }
+                elseif (-not $certMatch.Success) { 'DIGEST_UNPARSED_HOLD' }
+                elseif ($actualSigner -ceq $expectedSigner) { 'EXPECTED' }
+                else { 'MISMATCH_HOLD' }
         } catch {
             $signature = 'UNAVAILABLE_HOLD'
         }
@@ -144,6 +146,9 @@ $candidateDigestState = 'NOT_RUN'
 $installedDigestState = 'NOT_RUN'
 $candidateCertLabels = 'NOT_RUN'
 $installedCertLabels = 'NOT_RUN'
+$candidateHex64Count = 'NOT_RUN'
+$installedHex64Count = 'NOT_RUN'
+$uniqueHex64Comparison = 'NOT_MEASURED'
 
 function Get-SafeCertLabels($output) {
     $labels = @($output | ForEach-Object {
@@ -196,6 +201,20 @@ if ($apkProvenance -ceq 'PASS' -and
                 $installedCert = [regex]::Match(($installedOutput -join [Environment]::NewLine), $pattern)
                 $candidateCertLabels = Get-SafeCertLabels $candidateOutput
                 $installedCertLabels = Get-SafeCertLabels $installedOutput
+                $genericShaPattern = '(?i)(?<![0-9a-f])([0-9a-f]{64})(?![0-9a-f])'
+                $candidateTokens = @([regex]::Matches(($candidateOutput -join [Environment]::NewLine), $genericShaPattern))
+                $installedTokens = @([regex]::Matches(($installedOutput -join [Environment]::NewLine), $genericShaPattern))
+                $candidateHex64Count = [string]$candidateTokens.Count
+                $installedHex64Count = [string]$installedTokens.Count
+                if ($candidateTokens.Count -eq 1 -and $installedTokens.Count -eq 1) {
+                    $uniqueHex64Comparison = if ($candidateTokens[0].Value -ieq $installedTokens[0].Value) {
+                        'MATCH_SINGLE_TOKEN_UNTYPED'
+                    } else { 'MISMATCH_SINGLE_TOKEN_UNTYPED' }
+                } elseif ($candidateTokens.Count -gt 1 -or $installedTokens.Count -gt 1) {
+                    $uniqueHex64Comparison = 'MULTIPLE_VALUES_HOLD'
+                } else {
+                    $uniqueHex64Comparison = 'NO_SINGLE_TOKEN_HOLD'
+                }
                 $candidateVerify = if ($candidateExit -eq 0) { 'PASS' } else { 'NONZERO_HOLD' }
                 $installedVerify = if ($installedExit -eq 0) { 'PASS' } else { 'NONZERO_HOLD' }
                 $candidateDigestState = if ($candidateCert.Success) { 'FOUND' } else { 'NOT_FOUND_HOLD' }
@@ -255,4 +274,7 @@ Write-Host "TTV_CANDIDATE_CERT_DIGEST=$candidateDigestState"
 Write-Host "TTV_INSTALLED_CERT_DIGEST=$installedDigestState"
 Write-Host "TTV_CANDIDATE_CERT_LABELS=$candidateCertLabels"
 Write-Host "TTV_INSTALLED_CERT_LABELS=$installedCertLabels"
+Write-Host "TTV_CANDIDATE_CERT_HEX64_COUNT=$candidateHex64Count"
+Write-Host "TTV_INSTALLED_CERT_HEX64_COUNT=$installedHex64Count"
+Write-Host "TTV_UNTYPED_HEX64_COMPARISON=$uniqueHex64Comparison"
 Write-Host 'TTV_PREFLIGHT=READ_ONLY_COMPLETE_NO_INSTALL'
