@@ -71,3 +71,71 @@ try {
         [IO.Directory]::Delete($fixture, $true)
     }
 }
+
+
+# Exercise the REAL read-only source classifier from the Owner script with
+# synthetic data. No OwnerBridge files, Scheduled Tasks or network calls.
+foreach ($functionName in @(
+    'Hold', 'SafeItem', 'ExactHash', 'V1CanonicalHash',
+    'GetOwnerInstalledSourceVersion'
+)) {
+    $definition = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq $functionName
+    }, $true))
+    if ($definition.Count -ne 1) {
+        throw ('TTV_WINDOWS_VERSION_FUNCTION_MISSING_' + $functionName)
+    }
+    . ([ScriptBlock]::Create($definition[0].Extent.Text))
+}
+function HashFixtureText([string]$source) {
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($source)
+        return [BitConverter]::ToString($hash.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant()
+    } finally { $hash.Dispose() }
+}
+$versionFixture = Join-Path ([IO.Path]::GetTempPath()) (
+    'ttv-owner-version-ci-' + [Guid]::NewGuid().ToString('N'))
+$app = Join-Path $versionFixture 'app'
+[IO.Directory]::CreateDirectory($app) | Out-Null
+try {
+    $names = @('first.py', 'second.py', 'third.py')
+    $baseline = [ordered]@{}
+    $v2 = [ordered]@{}
+    $utf8 = [Text.UTF8Encoding]::new($false)
+    foreach ($name in $names) {
+        $baseline[$name] = HashFixtureText ("v1-" + $name + "`n")
+        $v2[$name] = HashFixtureText ("v2-" + $name + "`n")
+        # CRLF is allowed for V1 identity, but the recovery bytes stay intact.
+        [IO.File]::WriteAllText((Join-Path $app $name),
+            ("v1-" + $name + "`r`n"), $utf8)
+    }
+    $v2['p3_ingress_telemetry.py'] = HashFixtureText "v2-telemetry`n"
+    if ((GetOwnerInstalledSourceVersion) -cne 'V1_SOURCE_EXACT') {
+        throw 'TTV_WINDOWS_VERSION_V1_CLASSIFICATION_FAILED'
+    }
+    # An unexpected telemetry file must not produce a V1 success.
+    $telemetry = Join-Path $app 'p3_ingress_telemetry.py'
+    [IO.File]::WriteAllText($telemetry, "v2-telemetry`n", $utf8)
+    if ((GetOwnerInstalledSourceVersion) -cne 'MIXED_OR_UNKNOWN') {
+        throw 'TTV_WINDOWS_VERSION_MIXED_V1_TELEMETRY_NOT_BLOCKED'
+    }
+    foreach ($name in $names) {
+        [IO.File]::WriteAllText((Join-Path $app $name),
+            ("v2-" + $name + "`n"), $utf8)
+    }
+    if ((GetOwnerInstalledSourceVersion) -cne 'V2_SOURCE_EXACT') {
+        throw 'TTV_WINDOWS_VERSION_V2_CLASSIFICATION_FAILED'
+    }
+    [IO.File]::WriteAllText((Join-Path $app 'second.py'), "unreviewed`n", $utf8)
+    if ((GetOwnerInstalledSourceVersion) -cne 'MIXED_OR_UNKNOWN') {
+        throw 'TTV_WINDOWS_VERSION_DRIFT_NOT_BLOCKED'
+    }
+    Write-Host 'TTV_WINDOWS_INSTALLED_V1_V2_MIXED_CLASSIFIER=PASS'
+} finally {
+    if ([IO.Directory]::Exists($versionFixture)) {
+        [IO.Directory]::Delete($versionFixture, $true)
+    }
+}
