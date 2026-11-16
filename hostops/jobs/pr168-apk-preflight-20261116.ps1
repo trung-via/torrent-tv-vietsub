@@ -61,8 +61,23 @@ if ($apkProvenance -ceq 'PASS') {
             $certMatch = [regex]::Match(($certOutput -join [Environment]::NewLine),
                 'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)')
             $actualSigner = $certMatch.Groups[1].Value.Replace(':','').ToLowerInvariant()
+            $digestParsed = $certMatch.Success
+            if (-not $digestParsed -and $exit -eq 0) {
+                # This SDK emits "V2 Signer: ..." rather than the legacy
+                # "Signer #1 certificate ..." label. Accept only a unique
+                # 64-hex digest on one verified V2 Signer line.
+                $v2ShaPattern = '(?i)(?<![0-9a-f])([0-9a-f]{64})(?![0-9a-f])'
+                $v2Tokens = @([regex]::Matches(($certOutput -join [Environment]::NewLine), $v2ShaPattern))
+                $v2Lines = @($certOutput | Where-Object {
+                    ([string]$_) -match '(?i)^\s*V2 Signer:' -and ([string]$_) -match $v2ShaPattern
+                })
+                if ($v2Tokens.Count -eq 1 -and $v2Lines.Count -eq 1) {
+                    $actualSigner = $v2Tokens[0].Value.ToLowerInvariant()
+                    $digestParsed = $true
+                }
+            }
             $signature = if ($exit -ne 0) { 'VERIFICATION_FAILED_HOLD' }
-                elseif (-not $certMatch.Success) { 'DIGEST_UNPARSED_HOLD' }
+                elseif (-not $digestParsed) { 'DIGEST_UNPARSED_HOLD' }
                 elseif ($actualSigner -ceq $expectedSigner) { 'EXPECTED' }
                 else { 'MISMATCH_HOLD' }
         } catch {
@@ -295,4 +310,19 @@ Write-Host "TTV_CANDIDATE_CERT_HEX64_COUNT=$candidateHex64Count"
 Write-Host "TTV_INSTALLED_CERT_HEX64_COUNT=$installedHex64Count"
 Write-Host "TTV_UNTYPED_HEX64_COMPARISON=$uniqueHex64Comparison"
 Write-Host "TTV_V2_SIGNER_EXPECTED_PIN=$v2SignerPin"
+$updateGate = if ($apkProvenance -ceq 'PASS' -and
+    $signature -ceq 'EXPECTED' -and
+    $package -ceq 'EXPECTED_TEST_PACKAGE' -and
+    $nativeAbi -ceq 'ARM32' -and
+    $adbState -ceq 'EXISTING_SERVER_QUERIED' -and
+    $authorizedCount -ceq '1' -and
+    $arm32 -ceq 'YES' -and
+    $test -ceq 'YES' -and
+    $normal -ceq 'NO' -and
+    $signerMatch -ceq 'MATCH_VERIFIED_V2_SIGNER' -and
+    $v2SignerPin -ceq 'EXPECTED_PIN_MATCH' -and
+    $versionGate -ceq 'NO_DOWNGRADE') {
+    'PRECHECK_PASS_HUMAN_INSTALL_AUTH_REQUIRED'
+} else { 'HOLD_NO_INSTALL' }
+Write-Host "TTV_APK_UPDATE_GATE=$updateGate"
 Write-Host 'TTV_PREFLIGHT=READ_ONLY_COMPLETE_NO_INSTALL'
