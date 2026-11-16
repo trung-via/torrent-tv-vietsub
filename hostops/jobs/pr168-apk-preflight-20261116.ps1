@@ -138,6 +138,10 @@ Write-Host "TTV_OMP_TEST_INSTALLED=$test"
 $signerMatch = 'NOT_MEASURED'
 $versionGate = 'NOT_MEASURED'
 $compareFailureStage = 'NONE'
+$candidateVerify = 'NOT_RUN'
+$installedVerify = 'NOT_RUN'
+$candidateDigestState = 'NOT_RUN'
+$installedDigestState = 'NOT_RUN'
 if ($apkProvenance -ceq 'PASS' -and
     $adbState -ceq 'EXISTING_SERVER_QUERIED' -and
     $authorizedCount -ceq '1' -and
@@ -174,6 +178,10 @@ if ($apkProvenance -ceq 'PASS' -and
                 $pattern = 'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)'
                 $candidateCert = [regex]::Match(($candidateOutput -join [Environment]::NewLine), $pattern)
                 $installedCert = [regex]::Match(($installedOutput -join [Environment]::NewLine), $pattern)
+                $candidateVerify = if ($candidateExit -eq 0) { 'PASS' } else { 'NONZERO_HOLD' }
+                $installedVerify = if ($installedExit -eq 0) { 'PASS' } else { 'NONZERO_HOLD' }
+                $candidateDigestState = if ($candidateCert.Success) { 'FOUND' } else { 'NOT_FOUND_HOLD' }
+                $installedDigestState = if ($installedCert.Success) { 'FOUND' } else { 'NOT_FOUND_HOLD' }
                 if ($candidateExit -eq 0 -and $installedExit -eq 0 -and
                     $candidateCert.Success -and $installedCert.Success) {
                     $candidateDigest = $candidateCert.Groups[1].Value.Replace(':','').ToLowerInvariant()
@@ -223,4 +231,8 @@ if ($apkProvenance -ceq 'PASS' -and
 Write-Host "TTV_EXISTING_TEST_SIGNER_MATCH=$signerMatch"
 Write-Host "TTV_EXISTING_TEST_VERSION_GATE=$versionGate"
 Write-Host "TTV_APK_COMPARE_FAILURE_STAGE=$compareFailureStage"
+Write-Host "TTV_CANDIDATE_CERT_VERIFY=$candidateVerify"
+Write-Host "TTV_INSTALLED_CERT_VERIFY=$installedVerify"
+Write-Host "TTV_CANDIDATE_CERT_DIGEST=$candidateDigestState"
+Write-Host "TTV_INSTALLED_CERT_DIGEST=$installedDigestState"
 Write-Host 'TTV_PREFLIGHT=READ_ONLY_COMPLETE_NO_INSTALL'
