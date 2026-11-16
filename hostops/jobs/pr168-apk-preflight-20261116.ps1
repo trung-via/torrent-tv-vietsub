@@ -137,6 +137,7 @@ Write-Host "TTV_OMP_TEST_INSTALLED=$test"
 # comparison. No TV write, installation, pairing or APK content publication.
 $signerMatch = 'NOT_MEASURED'
 $versionGate = 'NOT_MEASURED'
+$compareFailureStage = 'NONE'
 if ($apkProvenance -ceq 'PASS' -and
     $adbState -ceq 'EXISTING_SERVER_QUERIED' -and
     $authorizedCount -ceq '1' -and
@@ -151,13 +152,23 @@ if ($apkProvenance -ceq 'PASS' -and
         if (Test-Path -LiteralPath $tempBase) {
             throw 'TTV_COMPARE_TEMP_PATH_ALREADY_EXISTS'
         }
-        $created = $false
+        $compareStage = 'ADB_PULL'
         try {
-            $pullOutput = @(& $adb -s $deviceId pull $remoteBase $tempBase 2>&1)
+            # Windows PowerShell 5.1 can treat native stderr progress text as
+            # terminating NativeCommandError when ErrorActionPreference=Stop.
+            # ADB pull reports progress on stderr even when the copy succeeds.
+            $savedPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                $pullOutput = @(& $adb -s $deviceId pull $remoteBase $tempBase 2>&1)
+            } finally {
+                $ErrorActionPreference = $savedPreference
+            }
             if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tempBase -PathType Leaf)) {
-                $created = $true
+                $compareStage = 'VERIFY_CANDIDATE_CERT'
                 $candidateOutput = @(& $signer[0] verify --print-certs $apk 2>&1)
                 $candidateExit = $LASTEXITCODE
+                $compareStage = 'VERIFY_INSTALLED_CERT'
                 $installedOutput = @(& $signer[0] verify --print-certs $tempBase 2>&1)
                 $installedExit = $LASTEXITCODE
                 $pattern = 'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)'
@@ -172,8 +183,10 @@ if ($apkProvenance -ceq 'PASS' -and
                     $signerMatch = 'CERT_UNVERIFIED_HOLD'
                 }
                 if ($aapt.Count -gt 0) {
+                    $compareStage = 'READ_CANDIDATE_VERSION'
                     $newBadge = @(& $aapt[0] dump badging $apk 2>&1)
                     $newExit = $LASTEXITCODE
+                    $compareStage = 'READ_INSTALLED_VERSION'
                     $oldBadge = @(& $aapt[0] dump badging $tempBase 2>&1)
                     $oldExit = $LASTEXITCODE
                     $newText = $newBadge -join [Environment]::NewLine
@@ -196,8 +209,10 @@ if ($apkProvenance -ceq 'PASS' -and
             }
         } catch {
             $signerMatch = 'READ_OR_VERIFY_FAILED_HOLD'
+            $compareFailureStage = $compareStage
         } finally {
-            if ($created -and (Test-Path -LiteralPath $tempBase -PathType Leaf)) {
+            # Also remove any partially copied APK after native-command failure.
+            if (Test-Path -LiteralPath $tempBase -PathType Leaf) {
                 Remove-Item -LiteralPath $tempBase -Force -ErrorAction SilentlyContinue
             }
         }
@@ -207,4 +222,5 @@ if ($apkProvenance -ceq 'PASS' -and
 }
 Write-Host "TTV_EXISTING_TEST_SIGNER_MATCH=$signerMatch"
 Write-Host "TTV_EXISTING_TEST_VERSION_GATE=$versionGate"
+Write-Host "TTV_APK_COMPARE_FAILURE_STAGE=$compareFailureStage"
 Write-Host 'TTV_PREFLIGHT=READ_ONLY_COMPLETE_NO_INSTALL'
