@@ -39,6 +39,7 @@ jobs:
           export PYTHONPATH="$PWD/poc/p3-p4-compose:$PWD/poc/p3-vietsub-trigger:$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub"
           python3 -m unittest discover -s poc/p3-p4-compose -p 'test_*.py' -q
           python3 -m unittest discover -s poc/p4-auto-sub -p 'test_*.py' -q
+          python3 -m unittest discover -s poc/g1-prod -p 'test_helper_blob_pin.py' -q
           python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -q
           # Native Kotlin/Android compilation is a separate Windows runner
           # gate; do not silently skip it by interpreting these as APK tests.

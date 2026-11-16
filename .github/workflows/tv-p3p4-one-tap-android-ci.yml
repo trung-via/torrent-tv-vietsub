@@ -37,6 +37,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s poc/p4-auto-sub -p 'test_p3_tv_*.py' -v
           python3 -m unittest discover -s poc/p4-auto-sub -p 'test_session_loss_contract.py' -v
+          python3 -m unittest discover -s poc/g1-prod -p 'test_helper_blob_pin.py' -v
           python3 -m py_compile poc/p4-auto-sub/p3_activity_patch.py
           python3 - <<'PY'
           from pathlib import Path
