@@ -149,6 +149,7 @@ $installedCertLabels = 'NOT_RUN'
 $candidateHex64Count = 'NOT_RUN'
 $installedHex64Count = 'NOT_RUN'
 $uniqueHex64Comparison = 'NOT_MEASURED'
+$v2SignerPin = 'NOT_MEASURED'
 
 function Get-SafeCertLabels($output) {
     $labels = @($output | ForEach-Object {
@@ -215,6 +216,22 @@ if ($apkProvenance -ceq 'PASS' -and
                 } else {
                     $uniqueHex64Comparison = 'NO_SINGLE_TOKEN_HOLD'
                 }
+                $candidateSignerLines = @($candidateOutput | Where-Object {
+                    ([string]$_) -match '(?i)^\s*V2 Signer:' -and ([string]$_) -match $genericShaPattern
+                })
+                $installedSignerLines = @($installedOutput | Where-Object {
+                    ([string]$_) -match '(?i)^\s*V2 Signer:' -and ([string]$_) -match $genericShaPattern
+                })
+                if ($candidateExit -eq 0 -and $installedExit -eq 0 -and
+                    $candidateTokens.Count -eq 1 -and $installedTokens.Count -eq 1 -and
+                    $candidateSignerLines.Count -eq 1 -and $installedSignerLines.Count -eq 1) {
+                    $v2SignerPin = if ($candidateTokens[0].Value -ieq $expectedSigner) {
+                        'EXPECTED_PIN_MATCH'
+                    } else { 'EXPECTED_PIN_DIFFERS' }
+                    $signerMatch = if ($candidateTokens[0].Value -ieq $installedTokens[0].Value) {
+                        'MATCH_VERIFIED_V2_SIGNER'
+                    } else { 'MISMATCH_VERIFIED_V2_SIGNER_HOLD' }
+                }
                 $candidateVerify = if ($candidateExit -eq 0) { 'PASS' } else { 'NONZERO_HOLD' }
                 $installedVerify = if ($installedExit -eq 0) { 'PASS' } else { 'NONZERO_HOLD' }
                 $candidateDigestState = if ($candidateCert.Success) { 'FOUND' } else { 'NOT_FOUND_HOLD' }
@@ -224,7 +241,7 @@ if ($apkProvenance -ceq 'PASS' -and
                     $candidateDigest = $candidateCert.Groups[1].Value.Replace(':','').ToLowerInvariant()
                     $installedDigest = $installedCert.Groups[1].Value.Replace(':','').ToLowerInvariant()
                     $signerMatch = if ($candidateDigest -ceq $installedDigest) { 'MATCH' } else { 'MISMATCH_HOLD' }
-                } else {
+                } elseif ($signerMatch -eq 'NOT_MEASURED') {
                     $signerMatch = 'CERT_UNVERIFIED_HOLD'
                 }
                 if ($aapt.Count -gt 0) {
@@ -277,4 +294,5 @@ Write-Host "TTV_INSTALLED_CERT_LABELS=$installedCertLabels"
 Write-Host "TTV_CANDIDATE_CERT_HEX64_COUNT=$candidateHex64Count"
 Write-Host "TTV_INSTALLED_CERT_HEX64_COUNT=$installedHex64Count"
 Write-Host "TTV_UNTYPED_HEX64_COMPARISON=$uniqueHex64Comparison"
+Write-Host "TTV_V2_SIGNER_EXPECTED_PIN=$v2SignerPin"
 Write-Host 'TTV_PREFLIGHT=READ_ONLY_COMPLETE_NO_INSTALL'
