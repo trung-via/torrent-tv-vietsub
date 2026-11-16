@@ -44,7 +44,7 @@ class P4MediaIdentityTests(unittest.TestCase):
             keys.append(p4_media_key(media,vlc_selected=True))
         self.assertEqual(len(set(keys)),len(keys))
 
-    def test_p4_40_hex_vlc_profile_gate_is_stricter_than_v3(self):
+    def test_p4_40_or_64_hex_vlc_profile_gate_matches_native_g1(self):
         bads=[
             Media(PROFILE,HASH,3,FILE),
         ]
@@ -54,8 +54,13 @@ class P4MediaIdentityTests(unittest.TestCase):
         # the native P4 adapter is reached. Keep that early gate intact.
         with self.assertRaisesRegex(ValueError,"incomplete media identity"):
             Media(PROFILE,HASH,-1,FILE)
+        key64=p4_media_key(Media(PROFILE,"a"*64,3,FILE),vlc_selected=True)
+        self.assertTrue(key64.startswith("media."))
+        self.assertNotEqual(key64, p4_media_key(bads[0],vlc_selected=True))
+        source=(Path(__file__).resolve().parent.parent / "g1-prod" /
+                "P1ProductionSubtitles.kt").read_text("utf-8")
+        self.assertIn('[0-9a-fA-F]{64}', source)
         for media in (
-            Media(PROFILE,"a"*64,3,FILE),
             Media("bad profile",HASH,3,FILE),
             Media(PROFILE,HASH,True,FILE),
         ):

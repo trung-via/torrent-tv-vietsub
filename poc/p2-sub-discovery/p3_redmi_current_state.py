@@ -25,7 +25,7 @@ SCHEMA = "TTV-P3-TV-STATE-V1"
 KIND = frozenset(("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED"))
 CHOICES = frozenset(("ON", "OFF", "OTHER", "REQUESTED"))
 HEX32 = re.compile(r"[0-9a-f]{32}\Z")
-HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+HEX40_OR_64 = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 WIRE_MAX = 1024
 MAX_CLOCK_SKEW_MS = 15_000
@@ -109,7 +109,7 @@ class SignedRedmiStateCache:
                 or type(v["tv_session_id"]) is not str
                 or not HEX32.fullmatch(v["tv_session_id"])
                 or type(v["torrent_hash"]) is not str
-                or not HEX40.fullmatch(v["torrent_hash"])
+                or not HEX40_OR_64.fullmatch(v["torrent_hash"])
                 or type(v["file_index"]) is not int
                 or not 0 <= v["file_index"] <= 65535
                 or type(v["active"]) is not bool

@@ -18,7 +18,7 @@ import re
 from matcher import Media
 
 _PROFILE = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
-_HASH_40 = re.compile(r"[0-9a-f]{40}\Z")
+_HASH_40_OR_64 = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 
 
 class P4MediaKeyError(ValueError):
@@ -32,7 +32,7 @@ def p4_media_key(media: Media, *, vlc_selected: bool) -> str:
             or not isinstance(media.server_profile_id, str)
             or _PROFILE.fullmatch(media.server_profile_id) is None
             or not isinstance(media.torrent_hash, str)
-            or _HASH_40.fullmatch(media.torrent_hash) is None
+            or _HASH_40_OR_64.fullmatch(media.torrent_hash) is None
             or type(media.file_index) is not int or media.file_index < 0):
         raise P4MediaKeyError("P4_MEDIA_IDENTITY_NOT_READY")
     canonical = ("prod\0" + media.server_profile_id + "\0" +

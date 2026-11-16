@@ -66,7 +66,14 @@ class PlayerActivity {
                 beginP4Activation()
             }
         }
-        add("Hủy ghép đôi PC Vietsub AI", "AD01.12") {}
+        val savedPc = P4PairingStore(applicationContext).load()
+        if (savedPc != null) {
+            savedPc.deviceSecret.fill(0)
+            add("Ngắt ghép đôi PC Vietsub AI (nâng cao)", "AD01.12") {
+                stopP4LanSession()
+                val revoked = P4PairingStore(applicationContext).revoke()
+            }
+        }
     }
 }
 """
@@ -93,13 +100,35 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('PLAY_REQUEST_ACCEPTED', self.patched)
         self.assertIn('PLAYBACK_CLOSED', self.kt)
 
-    def test_explicit_owner_consent_off_by_default_and_owner_menu(self):
+    def test_one_film_button_enables_paired_signal_and_request(self):
         self.assertIn('getBoolean(ENABLED, false)', self.kt)
         self.assertIn('if (!enabled(ctx)', self.kt)
         self.assertIn('P4PairingStore(ctx).load()', self.kt)
         self.assertIn('P3SelectedMediaPublisher.setEnabled(', self.patched)
-        self.assertIn('"Bật tín hiệu tự tìm Vietsub"', self.patched)
-        self.assertNotIn('setEnabled(applicationContext, true)', self.patched)
+        self.assertIn('P4OwnerBootstrap.consume(applicationContext)', self.patched)
+        self.assertIn('P3SelectedMediaPublisher.setEnabled(applicationContext, true)', self.patched)
+        self.assertLess(
+            self.patched.index('P3SelectedMediaPublisher.setEnabled(applicationContext, true)'),
+            self.patched.index('val allowed = enabled && P3SelectedMediaPublisher.requestViewer('),
+        )
+        self.assertNotIn('"Bật tín hiệu tự tìm Vietsub"', self.patched)
+        self.assertEqual(self.patched.count('"AD01.10"'), 1)
+        self.assertEqual(self.patched.count('"AD01.12"'), 1)
+        self.assertNotIn('"AD01.13"', self.patched)
+        self.assertIn('if (savedPc != null)', self.patched)
+        self.assertIn('P3SelectedMediaPublisher.setEnabled(applicationContext, false)', self.patched)
+
+    def test_unpair_is_advanced_and_revokes_signal_before_key(self):
+        self.assertIn('"Ngắt ghép đôi PC Vietsub AI (nâng cao)"', self.patched)
+        self.assertNotIn('"Hủy ghép đôi PC Vietsub AI"', self.patched)
+        self.assertLess(self.patched.index('P3SelectedMediaPublisher.setEnabled(applicationContext, false)',
+                                           self.patched.index('"AD01.12"')),
+                        self.patched.index('P4PairingStore(applicationContext).revoke()'))
+        bootstrap = (HERE.parent / "p2-aisub" /
+                     "auto_pair_owner_redmi_adb.ps1").read_text("utf-8")
+        self.assertNotIn('P4_ONE_OWNER_PC_ALREADY_STAGED=true', bootstrap)
+        self.assertIn('P4_PRIOR_STAGE_RECEIPT_NOT_CURRENT_PAIR_PROOF=true', bootstrap)
+        self.assertIn('P4_SINGLE_OWNER_LAPTOP_PRIVATE_BOOTSTRAP_STAGED=true', bootstrap)
 
     def test_private_certificate_pinned_transport_only(self):
         self.assertIn('P4PinnedTls.open(url, paired.certPinSha256)', self.kt)

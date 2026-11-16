@@ -394,10 +394,16 @@ P4_MENU_ROWS = """        add(if (p4LanScope != null || p4ActivationInFlight)
                 beginP4Activation()
             }
         }
-        add("Hủy ghép đôi PC Vietsub AI", "AD01.12") {
-            stopP4LanSession()
-            val revoked = P4PairingStore(applicationContext).revoke()
-            showMessage(if (revoked) "Đã hủy ghép đôi." else "Không thể hủy ghép đôi.", !revoked)
+        // Explicit device-level revocation is an optional advanced action,
+        // never a prerequisite for enabling Vietsub on the current movie.
+        val savedPc = P4PairingStore(applicationContext).load()
+        if (savedPc != null) {
+            savedPc.deviceSecret.fill(0)
+            add("Ngắt ghép đôi PC Vietsub AI (nâng cao)", "AD01.12") {
+                stopP4LanSession()
+                val revoked = P4PairingStore(applicationContext).revoke()
+                showMessage(if (revoked) "Đã hủy ghép đôi." else "Không thể hủy ghép đôi.", !revoked)
+            }
         }
 """
 

@@ -241,7 +241,7 @@ $activityP3 = [IO.File]::ReadAllText((Join-Path $playerDir 'PlayerActivity.kt'))
 foreach ($anchorP3 in @(
     'P3SelectedMediaPublisher.accepted(',
     'P3SelectedMediaPublisher.closed(applicationContext)',
-    'P3SelectedMediaPublisher.setEnabled(applicationContext, want)',
+    'P3SelectedMediaPublisher.setEnabled(applicationContext, true)',
     'internal fun receiveP4Revision('
 )) {
     if (-not $activityP3.Contains($anchorP3)) {

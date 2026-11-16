@@ -16,7 +16,7 @@ ACTIVITY_FILE = "PlayerActivity.kt"
 LOAD = "        session.load(production.request, next)\n        flow.reset()"
 ITEM = "        if (!switcher.goTo(i, itemTransition?.picks)) return\n        cancelCountdown()"
 CLOSE = "        closedSent = true\n        commitPendingSeek()"
-MENU = '        add("Hủy ghép đôi PC Vietsub AI", "AD01.12") {'
+MENU = '            add("Ngắt ghép đôi PC Vietsub AI (nâng cao)", "AD01.12") {'
 FIELD = "    private var g2Recovery: G2RefreshRecovery? = null"
 CHOICE = ("        if (!closedSent && ::session.isInitialized) "
           "P1ProductionSubtitles.noteTrackChoice(this, session.request, index(), choice)")
@@ -71,17 +71,25 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
                     P3SelectedMediaPublisher.sample(
                         applicationContext, current, index(), engine is VlcEngine)
                 }
+                // The one movie-scoped button owns both signal and request.
+                // Clearing the global signal on OFF never implies an AI call.
+                P3SelectedMediaPublisher.setEnabled(applicationContext, false)
                 showMessage("Đã hủy Vietsub AI cho phim này.", false)
             } else {
-                val allowed = P3SelectedMediaPublisher.requestViewer(
+                // Import ONLY a previously authorized private ADB bootstrap;
+                // this does not trust a new PC, open a listener or bypass TLS.
+                P4OwnerBootstrap.consume(applicationContext)
+                val enabled = P3SelectedMediaPublisher.enabled(applicationContext) ||
+                    P3SelectedMediaPublisher.setEnabled(applicationContext, true)
+                val allowed = enabled && P3SelectedMediaPublisher.requestViewer(
                     applicationContext, current, index(), engine is VlcEngine)
                 if (allowed) {
                     p3ActivationAttempts = 0
                     handler.removeCallbacks(p3ActivationTick)
                     p3ActivationTick.run()
-                    showMessage("Đang tìm phụ đề cho phim này...", false)
+                    showMessage("Đang gửi yêu cầu tìm Vietsub cho phim này đến PC...", false)
                 } else {
-                    showMessage("Hãy bật tín hiệu Vietsub và ghép PC trước.", true)
+                    showMessage("Không thể gửi: kiểm tra ghép PC an toàn và phim VLC.", true)
                 }
             }
         }
@@ -147,19 +155,19 @@ P4_SUCCESS_REPLACEMENT = """                result.sessionSecret.fill(0)
                     if (started) "Đã bật Vietsub AI. Đang chờ bản dịch đầu tiên..."
                     else "Phim đã đổi hoặc không thể bật Vietsub AI.", !started)"""
 
-MENU_ROW = """        add(if (P3SelectedMediaPublisher.enabled(applicationContext))
-                "Tắt tín hiệu tự tìm Vietsub" else "Bật tín hiệu tự tìm Vietsub",
-                "AD01.13") {
-            val want = !P3SelectedMediaPublisher.enabled(applicationContext)
-            val ok = P3SelectedMediaPublisher.setEnabled(applicationContext, want)
-            showMessage(
-                if (!ok) "Cần ghép PC Vietsub AI trước."
-                else if (want) "Đã bật tín hiệu chọn phim về PC."
-                else "Đã tắt tín hiệu chọn phim về PC.",
-                !ok,
-            )
-        }
-"""
+P4_REVOKE = """                stopP4LanSession()
+                val revoked = P4PairingStore(applicationContext).revoke()"""
+P4_REVOKE_REQUEST = """                handler.removeCallbacks(p3ActivationTick)
+                p3ActivationAttempts = 0
+                p4ActivationGeneration++
+                p4ActivationInFlight = false
+                if (::session.isInitialized) {
+                    P3SelectedMediaPublisher.cancelViewer(
+                        applicationContext, session.request, index(), engine is VlcEngine)
+                }
+                P3SelectedMediaPublisher.setEnabled(applicationContext, false)
+                stopP4LanSession()
+                val revoked = P4PairingStore(applicationContext).revoke()"""
 
 
 def patch_activity(text: str) -> str:
@@ -170,7 +178,7 @@ def patch_activity(text: str) -> str:
         raise ValueError("P3_ACTIVITY_ALREADY_APPLIED")
     if (text.count("internal fun receiveP4Revision(") != 1
             or text.count("P4OwnerBootstrap.consume(applicationContext)") < 1
-            or text.count('add("Hủy ghép đôi PC Vietsub AI"') != 1):
+            or text.count(MENU) != 1):
         raise ValueError("P3_REQUIRES_EXACT_P4_COMPOSED_SOURCE")
     rules = (
         (FIELD, TICK + P3_RETRY + FIELD),
@@ -215,9 +223,9 @@ def patch_activity(text: str) -> str:
         P3SelectedMediaPublisher.closed(applicationContext)
         commitPendingSeek()"""),
         (P4_BUTTON, P4_BUTTON_REQUEST),
+        (P4_REVOKE, P4_REVOKE_REQUEST),
         (P4_PENDING_MESSAGE, P4_PENDING_REPLACEMENT),
         (P4_SUCCESS, P4_SUCCESS_REPLACEMENT),
-        (MENU, MENU_ROW + MENU),
     )
     for original, _ in rules:
         if text.count(original) != 1:
@@ -233,9 +241,13 @@ def patch_activity(text: str) -> str:
         raise ValueError("P3_SOURCE_STATE_SAMPLER_INVALID")
     if (text.count("private val p3ActivationTick =") != 1
             or text.count("P3SelectedMediaPublisher.requestViewer(") != 1
-            or text.count("P3SelectedMediaPublisher.cancelViewer(") != 3
+            or text.count("P3SelectedMediaPublisher.cancelViewer(") != 4
             or text.count("p3ActivationTick.run()") != 1):
         raise ValueError("P3_EXPLICIT_CONSENT_PATCH_INVALID")
+    if (text.count('"AD01.13"') != 0
+            or text.count('"AD01.10"') != 1
+            or text.count('"AD01.12"') != 1):
+        raise ValueError("P3_ONE_TAP_MENU_CONTRACT_INVALID")
     return text
 
 
