@@ -1,0 +1,135 @@
+# PR #168 composed Android debug APK read-only preflight.
+# Runs only through the source-pinned owner HostOps command on Torrent TV runner.
+# Never installs, uninstalls, pairs, connects ADB, opens ports or changes TV state.
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$expectedSource = 'd93504bcd6941c078f230ae14fd4ba3d7988ec65'
+$expectedApk = 'e548329835ed9a938e30f0c44270e718a623eaacb472c697fbd5665178e6536a'
+$expectedSigner = '8bf6937801524fd7c264b55855bb35a2133c242114fb66b5fa9f1907e334fd84'
+$sdk = 'C:\TOOL\Android-SDK'
+
+if ($env:GITHUB_ACTIONS -cne 'true' -or
+    $env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
+    $env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+    $env:RUNNER_OS -cne 'Windows' -or
+    $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win') {
+    throw 'TTV_PREFLIGHT_UNTRUSTED_RUN_CONTEXT'
+}
+
+$allowed = [IO.Path]::GetFullPath('C:\TOOL\TorrentTV-Runner\_work').TrimEnd('\') + '\'
+$workspace = [IO.Path]::GetFullPath($env:RUNNER_WORKSPACE).TrimEnd('\') + '\'
+if (-not $workspace.StartsWith($allowed, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'TTV_PREFLIGHT_UNEXPECTED_RUNNER_WORKSPACE'
+}
+
+$stage = Join-Path $env:RUNNER_WORKSPACE ("_omp-fast-cache\p4-pr168-staged\$expectedSource")
+$apk = Join-Path $stage 'app-armeabi-v7a-debug.apk'
+$receipt = Join-Path $stage 'stage-receipt.txt'
+$apkProvenance = 'NOT_FOUND'
+
+if ((Test-Path -LiteralPath $apk -PathType Leaf) -and
+    (Test-Path -LiteralPath $receipt -PathType Leaf)) {
+    $actualHash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
+    $fields = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-StringData
+    $correct = ($actualHash -ceq $expectedApk -and
+        $fields['schema'] -ceq 'TTV-P4-PR168-APK-STAGE-V1' -and
+        $fields['app_commit'] -ceq $expectedSource -and
+        $fields['sha256'] -ceq $actualHash -and
+        $fields['variant'] -ceq 'app-armeabi-v7a-debug.apk' -and
+        $fields['device_installed'] -ceq 'no')
+    $apkProvenance = if ($correct) { 'PASS' } else { 'MISMATCH_HOLD' }
+} elseif ((Test-Path -LiteralPath $apk) -or (Test-Path -LiteralPath $receipt)) {
+    $apkProvenance = 'INCOMPLETE_HOLD'
+}
+Write-Host "TTV_APK_PROVENANCE=$apkProvenance"
+
+$signature = 'NOT_RUN'
+$package = 'NOT_RUN'
+$nativeAbi = 'NOT_RUN'
+if ($apkProvenance -ceq 'PASS') {
+    $buildTools = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'build-tools') -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending)
+    $signer = @($buildTools | ForEach-Object { Join-Path $_.FullName 'apksigner.bat' } |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1)
+    $aapt = @($buildTools | ForEach-Object { Join-Path $_.FullName 'aapt2.exe' } |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1)
+    if ($signer.Count -gt 0) {
+        try {
+            $certOutput = @(& $signer[0] verify --print-certs $apk 2>&1 | ForEach-Object { $_.ToString() })
+            $exit = $LASTEXITCODE
+            $certMatch = [regex]::Match(($certOutput -join [Environment]::NewLine),
+                'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)')
+            $actualSigner = $certMatch.Groups[1].Value.Replace(':','').ToLowerInvariant()
+            $signature = if ($exit -eq 0 -and $certMatch.Success -and
+                $actualSigner -ceq $expectedSigner) { 'EXPECTED' } else { 'MISMATCH_HOLD' }
+        } catch {
+            $signature = 'UNAVAILABLE_HOLD'
+        }
+    } else {
+        $signature = 'TOOL_NOT_FOUND'
+    }
+    if ($aapt.Count -gt 0) {
+        try {
+            $badging = @(& $aapt[0] dump badging $apk 2>&1 | ForEach-Object { $_.ToString() })
+            $exit = $LASTEXITCODE
+            $badgingText = $badging -join [Environment]::NewLine
+            $package = if ($exit -eq 0 -and
+                $badgingText -match "package:\s+name='com\.spacesarmat\.omp\.test'") {
+                    'EXPECTED_TEST_PACKAGE'
+                } else { 'UNVERIFIED_HOLD' }
+            $nativeAbi = if ($badgingText -match "native-code:\s+'armeabi-v7a'") {
+                'ARM32'
+            } else { 'UNVERIFIED_HOLD' }
+        } catch {
+            $package = 'UNAVAILABLE_HOLD'
+            $nativeAbi = 'UNAVAILABLE_HOLD'
+        }
+    } else {
+        $package = 'TOOL_NOT_FOUND'
+        $nativeAbi = 'TOOL_NOT_FOUND'
+    }
+}
+Write-Host "TTV_APK_SIGNER=$signature"
+Write-Host "TTV_APK_PACKAGE=$package"
+Write-Host "TTV_APK_NATIVE_ABI=$nativeAbi"
+
+# Do not auto-start ADB or acquire a new TV session. Inspect only an existing
+# local server, and never print a serial, LAN address, package path or movie ID.
+$adb = Join-Path $sdk 'platform-tools\adb.exe'
+$adbState = 'NO_EXISTING_LOCAL_SERVER'
+$arm32 = 'NOT_MEASURED'
+$normal = 'NOT_MEASURED'
+$test = 'NOT_MEASURED'
+$authorizedCount = 'NOT_MEASURED'
+if (Test-Path -LiteralPath $adb -PathType Leaf) {
+    $listener = @(Get-NetTCPConnection -LocalPort 5037 -State Listen -ErrorAction SilentlyContinue)
+    if ($listener.Count -gt 0) {
+        try {
+            $lines = @(& $adb devices 2>&1 | ForEach-Object { $_.ToString() })
+            $devices = @($lines | Where-Object { $_ -match '^\S+\s+device\s*$' })
+            $authorizedCount = [string]$devices.Count
+            $adbState = 'EXISTING_SERVER_QUERIED'
+            if ($devices.Count -eq 1) {
+                $deviceId = ($devices[0] -split '\s+')[0]
+                $abis = @(& $adb -s $deviceId shell getprop ro.product.cpu.abilist)
+                $abiText = ($abis -join '').Trim()
+                $arm32 = if ($abiText -match '(^|,)armeabi-v7a(,|$)') { 'YES' } else { 'NO' }
+                $normalPath = @(& $adb -s $deviceId shell pm path com.spacesarmat.omp 2>&1)
+                $testPath = @(& $adb -s $deviceId shell pm path com.spacesarmat.omp.test 2>&1)
+                $normal = if ($normalPath -match '^package:') { 'YES' } else { 'NO' }
+                $test = if ($testPath -match '^package:') { 'YES' } else { 'NO' }
+            }
+        } catch {
+            $adbState = 'QUERY_FAILED_NO_CHANGE'
+        }
+    }
+} else {
+    $adbState = 'ADB_TOOL_NOT_FOUND'
+}
+Write-Host "TTV_ADB_STATE=$adbState"
+Write-Host "TTV_ADB_AUTHORIZED_COUNT=$authorizedCount"
+Write-Host "TTV_DEVICE_ARM32_COMPATIBLE=$arm32"
+Write-Host "TTV_OMP_NORMAL_INSTALLED=$normal"
+Write-Host "TTV_OMP_TEST_INSTALLED=$test"
+Write-Host 'TTV_PREFLIGHT=READ_ONLY_COMPLETE_NO_INSTALL'
