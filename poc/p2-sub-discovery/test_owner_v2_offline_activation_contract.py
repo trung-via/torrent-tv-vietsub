@@ -55,6 +55,26 @@ class OfflineActivationContract(unittest.TestCase):
         ):
             self.assertIn(must, source)
 
+    def test_atomic_replace_requires_real_backup_and_tracks_failed_destination(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertNotRegex(source, r"\[IO\.File\]::Replace\([^\n]*\$null")
+        self.assertEqual(source.count("[IO.File]::Replace("), 1)
+        for required in (
+            "function InvokeTTVAtomicReplacement",
+            "[string]::IsNullOrWhiteSpace($source)",
+            "[string]::IsNullOrWhiteSpace($destination)",
+            "[IO.File]::Replace($src, $dst, $previous)",
+            "InvokeTTVAtomicReplacement $temp $dest 'v2-original'",
+            "InvokeTTVAtomicReplacement $temporary $dest 'v1-displaced'",
+            "ROLLBACK_NOT_VERIFIED_MANUAL_RECOVERY",
+        ):
+            self.assertIn(required, source)
+        self.assertLess(
+            source.index("$attempted += $name"),
+            source.index("InvokeTTVAtomicReplacement $temp $dest 'v2-original'"),
+        )
+        self.assertIn("ROLLBACK_TELEMETRY_REMAINS", source)
+
 
 if __name__ == "__main__":
     unittest.main()

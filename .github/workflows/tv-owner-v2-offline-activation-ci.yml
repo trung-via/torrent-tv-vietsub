@@ -5,6 +5,7 @@ on:
     paths:
       - hostops/setup/owner-p3p4-v2-offline-activation.ps1
       - poc/p2-sub-discovery/test_owner_v2_offline_activation_contract.py
+      - poc/p2-sub-discovery/test_owner_v2_atomic_replace_windows.ps1
       - docs/integration/P3P4_OWNER_V2_OFFLINE_ACTIVATION.md
       - .github/workflows/tv-owner-v2-offline-activation-ci.yml
 
@@ -20,7 +21,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Parse only, never invoke the Owner installer
-        shell: powershell
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $tokens = $null
@@ -35,3 +36,8 @@ jobs:
           python -m unittest discover -s poc/p2-sub-discovery -p test_owner_v2_offline_activation_contract.py -v
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_V2_OFFLINE_CONTRACT_FAIL' }
           Write-Host 'OWNER_V2_OFFLINE_CONTRACT=PASS'
+      - name: Real Windows file replacement and injected rollback fixture
+        shell: pwsh
+        run: |
+          & ./poc/p2-sub-discovery/test_owner_v2_atomic_replace_windows.ps1
+          if (-not $?) { throw 'OWNER_V2_WINDOWS_ATOMIC_REPLACE_FAIL' }

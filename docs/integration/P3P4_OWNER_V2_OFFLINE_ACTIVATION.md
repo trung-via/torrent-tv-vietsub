@@ -45,10 +45,27 @@ requires:
    one new V2 telemetry module.
 
 Existing files are replaced atomically on the same volume, with V1 backup
-retained. On apply failure, it attempts V1 restoration **only if the
+retained. The supervised Windows attempt on 2026-11-16 failed because
+`[IO.File]::Replace` with `$null` backup was reported as an empty `path`
+argument. The corrected code always supplies a unique, **nonempty**
+Owner-private previous-content path for both V2 overlay and V1 restoration;
+these forensic copies do not replace or erase the preexisting V1 recovery
+directory. Failed destinations are registered for recovery **before** each
+file operation so a mid-operation exception cannot escape rollback scope.
+On apply failure, it attempts V1 restoration **only if the
 maintenance lock still holds**, and verifies all three baseline hashes;
 any failure is a manual recovery HOLD, never a license to restart. Only a
 telemetry file added by this operation may be deleted during rollback.
+
+Windows-hosted GitHub CI now exercises the **actual extracted replacement
+helper** against synthetic temporary files, verifies original/updated/backup
+bytes, injects a downstream failure and restores the original via the same
+helper. This is source/runtime compatibility evidence only; CI cannot prove
+Owner identity, private task quiescence or real V2 activation on the laptop.
+The task is still Disabled following the failed, V1-rollback-verified apply.
+Do **not** rerun the old downloaded activation bundle. A new owner-specific
+maintenance authorization and verified packaged source are required for a
+future retry; CI success alone is not authorization.
 
 The installer deliberately **does not restart** the task or claim V2 live.
 The subsequent restart must be separately authorized, and the fresh V2

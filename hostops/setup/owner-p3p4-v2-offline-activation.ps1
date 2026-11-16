@@ -43,6 +43,31 @@ function V1CanonicalHash([string]$path) {
     try { return [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
     finally { $sha.Dispose() }
 }
+function InvokeTTVAtomicReplacement([string]$source, [string]$destination, [string]$backupKind) {
+    # File.Replace's third argument must be a real, nonempty path on the
+    # Owner's PowerShell/.NET runtime. A $null backup failed with
+    # ArgumentException(path) on the supervised Windows V1->V2 attempt.
+    if ([string]::IsNullOrWhiteSpace($source) -or
+        [string]::IsNullOrWhiteSpace($destination) -or
+        $backupKind -cnotin @('v2-original', 'v1-displaced')) {
+        throw 'TTV_ATOMIC_REPLACE_ARGUMENT_INVALID'
+    }
+    $src = [IO.Path]::GetFullPath($source)
+    $dst = [IO.Path]::GetFullPath($destination)
+    $sourceDirectory = [IO.Path]::GetDirectoryName($src)
+    $destinationDirectory = [IO.Path]::GetDirectoryName($dst)
+    if (-not $sourceDirectory.Equals($destinationDirectory, [StringComparison]::OrdinalIgnoreCase) -or
+        -not [IO.File]::Exists($src) -or -not [IO.File]::Exists($dst)) {
+        throw 'TTV_ATOMIC_REPLACE_PRECONDITION_FAILED'
+    }
+    $previous = Join-Path $destinationDirectory ('.' + $backupKind + '-' +
+                [Guid]::NewGuid().ToString('N') + '.tmp')
+    if (Test-Path -LiteralPath $previous) { throw 'TTV_ATOMIC_REPLACE_BACKUP_CONFLICT' }
+    [IO.File]::Replace($src, $dst, $previous)
+    # This private backup stays available as forensic evidence. The verified
+    # V1 recovery directory is independent and never overwritten here.
+    return $previous
+}
 function NoOpenWork([string]$root) {
     $inbox = Join-Path $root 'inbox'
     SafeItem $inbox $true
@@ -215,7 +240,8 @@ Write-Host 'TTV_OWNER_V2_OFFLINE_PREPARE=VERIFIED_DISABLED_STOPPED_AND_BACKED_UP
 AssertMaintenanceLock
 AssertNoOwnerProcess
 NoOpenWork $root
-$written = @()
+$attempted = @()
+$applyStep = 'PREPARE_V2_TEMP'
 try {
     foreach ($name in $v2.Keys) {
         AssertMaintenanceLock
@@ -224,41 +250,64 @@ try {
         $temp = Join-Path $app ('.v2-update-' + [Guid]::NewGuid().ToString('N') + '.tmp')
         [IO.File]::WriteAllBytes($temp, [IO.File]::ReadAllBytes((Join-Path $stage $name)))
         if ((ExactHash $temp) -cne $v2[$name]) { Hold 'TEMP_FILE_HASH_MISMATCH' }
+        # Record the attempted destination BEFORE the file operation: a
+        # mid-operation exception must not hide a partially changed module.
+        $attempted += $name
         if (Test-Path -LiteralPath $dest) {
-            [IO.File]::Replace($temp, $dest, $null)
+            $applyStep = 'REPLACE_V2_MODULE'
+            InvokeTTVAtomicReplacement $temp $dest 'v2-original' | Out-Null
         } else {
+            $applyStep = 'CREATE_V2_TELEMETRY'
             [IO.File]::Move($temp, $dest)
         }
-        $written += $name
     }
+    $applyStep = 'VERIFY_INSTALLED_V2'
     foreach ($name in $v2.Keys) {
         if ((ExactHash (Join-Path $app $name)) -cne $v2[$name]) {
             Hold 'POSTINSTALL_HASH_MISMATCH'
         }
     }
 } catch {
-    # Do not modify files during recovery if the maintenance lock was lost.
-    # A Human must then inspect the private backup and stop the process.
-    AssertMaintenanceLock
-    AssertNoOwnerProcess
-    # Installed code must be rolled back while the Owner task stays stopped.
-    # Do not claim rollback success unless every baseline hash verifies.
-    foreach ($name in $written) {
-        $dest = Join-Path $app $name
-        if ($baseline.Contains($name)) {
+    Write-Host ('TTV_OWNER_V2_APPLY_FAILED_STEP=' + $applyStep)
+    try {
+        # Do not modify files during recovery if the maintenance lock was
+        # lost. Any recovery exception is a manual-recovery HOLD, never PASS.
+        AssertMaintenanceLock
+        AssertNoOwnerProcess
+        foreach ($name in $attempted) {
             AssertMaintenanceLock
-            $temporary = Join-Path $app ('.v1-restore-' + [Guid]::NewGuid().ToString('N') + '.tmp')
-            [IO.File]::Copy((Join-Path $resolved $name), $temporary)
-            [IO.File]::Replace($temporary, $dest, $null)
-        } elseif ((ExactHash $dest) -ceq $v2[$name]) {
-            AssertMaintenanceLock
-            [IO.File]::Delete($dest) # Only the new telemetry module created by THIS attempt.
+            AssertNoOwnerProcess
+            $dest = Join-Path $app $name
+            if ($baseline.Contains($name)) {
+                $saved = Join-Path $resolved $name
+                SafeItem $saved $false
+                if ((V1CanonicalHash $saved) -cne $baseline[$name]) {
+                    Hold 'RECOVERY_BACKUP_HASH_MISMATCH'
+                }
+                $temporary = Join-Path $app ('.v1-restore-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+                [IO.File]::Copy($saved, $temporary)
+                if (Test-Path -LiteralPath $dest) {
+                    InvokeTTVAtomicReplacement $temporary $dest 'v1-displaced' | Out-Null
+                } else {
+                    [IO.File]::Move($temporary, $dest)
+                }
+            } elseif (Test-Path -LiteralPath $dest) {
+                if ((ExactHash $dest) -cne $v2[$name]) {
+                    Hold 'UNRECOGNIZED_TELEMETRY_STATE'
+                }
+                [IO.File]::Delete($dest) # Only exact V2 telemetry added by this attempt.
+            }
         }
-    }
-    foreach ($name in $baseline.Keys) {
-        if ((V1CanonicalHash (Join-Path $app $name)) -cne $baseline[$name]) {
-            Hold 'ROLLBACK_NOT_VERIFIED_MANUAL_RECOVERY'
+        foreach ($name in $baseline.Keys) {
+            if ((V1CanonicalHash (Join-Path $app $name)) -cne $baseline[$name]) {
+                Hold 'ROLLBACK_BASELINE_MISMATCH'
+            }
         }
+        if (Test-Path -LiteralPath (Join-Path $app 'p3_ingress_telemetry.py')) {
+            Hold 'ROLLBACK_TELEMETRY_REMAINS'
+        }
+    } catch {
+        Hold 'ROLLBACK_NOT_VERIFIED_MANUAL_RECOVERY'
     }
     Hold 'APPLY_FAILED_ROLLBACK_VERIFIED'
 }
