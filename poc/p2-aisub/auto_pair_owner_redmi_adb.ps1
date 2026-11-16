@@ -12,9 +12,10 @@ $folder=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\P4'
 $pair=Join-Path $folder 'pairing-token.txt'
 $receipt=Join-Path $folder 'adb-staged-v1.receipt'
 if (Test-Path -LiteralPath $receipt -PathType Leaf) {
-  Write-Host 'P4_ONE_OWNER_PC_ALREADY_STAGED=true'
-  $global:LASTEXITCODE=0
-  return
+  # A previous ADB write is NOT a durable proof of current AndroidKeyStore
+  # pairing. The TV consumes and deletes the private one-shot bootstrap file;
+  # the user may have explicitly revoked the key since the old receipt.
+  Write-Host 'P4_PRIOR_STAGE_RECEIPT_NOT_CURRENT_PAIR_PROOF=true'
 }
 if (-not (Test-Path -LiteralPath $pair -PathType Leaf) -or
     (Get-Item -LiteralPath $pair).Length -notin 130..240) {

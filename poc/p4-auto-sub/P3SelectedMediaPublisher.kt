@@ -293,7 +293,7 @@ internal object P3SelectedMediaPublisher {
     ) {
         if (!SESSION_RX.matches(bootId) || sequence < 1L ||
             !SESSION_RX.matches(current.session) ||
-            !HASH_RX.matches(current.hash) || current.hash.length != 40 ||
+            !HASH_RX.matches(current.hash) ||
             current.fileIndex !in 0..65535 ||
             choice !in setOf("ON", "REQUESTED", "OFF", "OTHER") ||
             current.kind !in setOf("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED") ||

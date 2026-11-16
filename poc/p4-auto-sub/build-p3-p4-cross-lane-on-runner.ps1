@@ -1,4 +1,4 @@
-# Explicit per-film Vietsub request Android Debug build for PR #162 on isolated Windows runner.
+# Explicit per-film Vietsub Android Debug build for PR #162 or its one-tap repair PR #168.
 # No ADB, public artifact upload, TV install or release. Exact PR #120 source verification.
 # Public-repository builds are allowed; CI must not publish debug APK artifacts from public runs.
 # No ADB, TV changes, release/signing, network/firewall/service or AIOS dispatch.
@@ -8,12 +8,16 @@ param([Parameter(Mandatory=$true)][string]$AppRepoRoot,
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = 'trung-via/torrent-tv-vietsub'
-$branch = 'feature/p3-p4-cross-lane-tv-owner-compose-20261114'
-# Only the exact owner-controlled PR #162 build-only workflow may compose this guarded tree.
-# The PR #162 build-only workflow calls this isolated builder; no installer or device gate.
-$allowedWorkflows = @(
-    '.github/workflows/tv-p3-p4-cross-lane-android-ci.yml'
-)
+$pr162 = $env:GITHUB_REF -ceq 'refs/pull/162/merge'
+$pr168 = $env:GITHUB_REF -ceq 'refs/pull/168/merge'
+if ($pr162 -eq $pr168) { throw 'STOP: expected exactly one approved build-only PR identity' }
+$branch = if ($pr162) { 'feature/p3-p4-cross-lane-tv-owner-compose-20261114' } else { 'feature/p3p4-r0-r2-single-tap-20261116' }
+$baseBranch = if ($pr162) { 'main' } else { 'feature/p3-owner-v2-offline-activation-20261115' }
+$allowedWorkflows = if ($pr162) {
+    @('.github/workflows/tv-p3-p4-cross-lane-android-ci.yml')
+} else {
+    @('.github/workflows/tv-p3p4-one-tap-android-ci.yml')
+}
 $workflowRefValid = @($allowedWorkflows | Where-Object {
     $env:GITHUB_WORKFLOW_REF -and
         $env:GITHUB_WORKFLOW_REF.StartsWith(($repo + '/' + $_ + '@'),[StringComparison]::Ordinal)
@@ -23,11 +27,19 @@ $ompPin = '52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f'
 $playerPin = '6ba6edd39f5d986ddfae29b5425b8ac0b319844e'
 if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_EVENT_NAME -cne 'pull_request' -or
     $env:GITHUB_REPOSITORY -cne $repo -or $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
-    $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REF -cne 'refs/pull/162/merge' -or
+    $env:RUNNER_OS -cne 'Windows' -or
     $env:GITHUB_HEAD_REF -cne $branch -or
-    $env:GITHUB_BASE_REF -cne 'main' -or
+    $env:GITHUB_BASE_REF -cne $baseBranch -or
     -not $workflowRefValid) {
     throw 'STOP: event, branch, workflow or dedicated runner identity mismatch'
+}
+if ($pr162 -and ($env:GITHUB_REF -cne 'refs/pull/162/merge' -or
+    $env:GITHUB_BASE_REF -cne 'main')) {
+    throw 'STOP: PR #162 build-only GitHub identity mismatch'
+}
+if ($pr168 -and ($env:GITHUB_REF -cne 'refs/pull/168/merge' -or
+    $env:GITHUB_BASE_REF -cne 'feature/p3-owner-v2-offline-activation-20261115')) {
+    throw 'STOP: PR #168 build-only GitHub identity mismatch'
 }
 if ($SourceCommit -notmatch '^[a-f0-9]{40}$' -or $env:GITHUB_SHA -notmatch '^[a-f0-9]{40}$') {
     throw 'STOP: G2 source commit not pinned to dispatched GitHub SHA'
@@ -37,14 +49,19 @@ if (-not $env:GITHUB_EVENT_PATH -or -not (Test-Path -LiteralPath $env:GITHUB_EVE
 }
 $eventData = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
 if ($eventData.repository.full_name -cne $repo -or
-    [int]$eventData.number -ne 162 -or
     $eventData.pull_request.head.repo.full_name -cne $repo -or
     $eventData.pull_request.head.ref -cne $branch -or
     $eventData.pull_request.head.sha -cne $SourceCommit -or
-    $eventData.pull_request.base.ref -cne 'main' -or
+    $eventData.pull_request.base.ref -cne $baseBranch -or
     $eventData.pull_request.user.login -cne 'trung-via' -or
     $eventData.action -notin @('opened','synchronize','reopened')) {
-    throw 'STOP: unexpected owner PR #162 identity or head SHA'
+    throw 'STOP: unexpected owner PR identity or head SHA'
+}
+if ($pr162 -and [int]$eventData.number -ne 162) {
+    throw 'STOP: PR #162 event number mismatch'
+}
+if ($pr168 -and [int]$eventData.number -ne 168) {
+    throw 'STOP: PR #168 event number mismatch'
 }
 if ($eventData.repository.private -ne $true -and $eventData.repository.private -ne $false) {
     throw 'STOP: repository visibility missing in workflow dispatch payload'
@@ -241,7 +258,7 @@ $activityP3 = [IO.File]::ReadAllText((Join-Path $playerDir 'PlayerActivity.kt'))
 foreach ($anchorP3 in @(
     'P3SelectedMediaPublisher.accepted(',
     'P3SelectedMediaPublisher.closed(applicationContext)',
-    'P3SelectedMediaPublisher.setEnabled(applicationContext, want)',
+    'P3SelectedMediaPublisher.setEnabled(applicationContext, true)',
     'internal fun receiveP4Revision('
 )) {
     if (-not $activityP3.Contains($anchorP3)) {
@@ -371,7 +388,7 @@ $hashes | Out-File -LiteralPath (Join-Path $dir 'SHA256SUMS-P4-COMPOSED.txt') -E
     "runner=$env:RUNNER_NAME",
     "run_id=$env:GITHUB_RUN_ID",
     'signing=debug_variant_only',
-    'source_set=feature/p3-p4-cross-lane-tv-owner-compose-20261114',
+    "source_set=$branch",
     'no_adb_or_tv_install=yes',
     'P4_AUTO_REFRESH_REAL_TV_UNVERIFIED',
     'P4_RELEASE_BINARY_UNVERIFIED'
@@ -381,7 +398,8 @@ $hashes | Out-File -LiteralPath (Join-Path $dir 'SHA256SUMS-P4-COMPOSED.txt') -E
 # before the next job. This copy is NEVER a device install or public artifact.
 $arm32 = @($apks | Where-Object { $_.Name -ceq 'app-armeabi-v7a-debug.apk' })
 if ($arm32.Count -ne 1) { throw 'P4_STAGE_EXPECTED_SINGLE_ARM32_APK' }
-$staged = Join-Path $cache ('p4-pr162-staged\' + $SourceCommit)
+$stagePrefix = if ($pr162) { 'p4-pr162-staged\' } else { 'p4-pr168-staged\' }
+$staged = Join-Path $cache ($stagePrefix + $SourceCommit)
 if (Test-Path -LiteralPath $staged -PathType Leaf) {
     throw 'P4_STAGE_TARGET_NOT_DIRECTORY'
 }
@@ -398,8 +416,9 @@ if (Test-Path -LiteralPath $target -PathType Leaf) {
 }
 $copied = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($copied -cne $srcHash) { throw 'P4_STAGE_COPIED_APK_SHA256_MISMATCH' }
+$stageSchema = if ($pr162) { 'schema=TTV-P4-PR162-APK-STAGE-V1' } else { 'schema=TTV-P4-PR168-APK-STAGE-V1' }
 @(
-    'schema=TTV-P4-PR162-APK-STAGE-V1',
+    $stageSchema,
     "app_commit=$SourceCommit",
     "omp_commit=$upstream",
     "submodule_commit=$submodule",
@@ -409,7 +428,7 @@ if ($copied -cne $srcHash) { throw 'P4_STAGE_COPIED_APK_SHA256_MISMATCH' }
     'device_installed=no',
     'real_lan_tested=no'
 ) | Set-Content -LiteralPath (Join-Path $staged 'stage-receipt.txt') -Encoding Ascii -ErrorAction Stop
-Write-Host 'P4_PR162_DEBUG_ARM32_STAGED_PRIVATELY_EXACT_SHA_PASS_NOT_INSTALLED'
+Write-Host "P4_APPROVED_PR_DEBUG_ARM32_STAGED_PRIVATELY_EXACT_SHA_PASS_NOT_INSTALLED branch=$branch"
 
 $global:LASTEXITCODE = 0
 Write-Host 'G2_DEBUG_APK_HASH_AND_ASSET_GUARDS_PASS'

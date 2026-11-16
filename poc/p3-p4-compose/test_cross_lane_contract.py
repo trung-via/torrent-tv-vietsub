@@ -14,6 +14,8 @@ from p3_p4_shared_https_route import P3_POST_ROUTE, P3_STATE_ROUTE
 
 ROOT = Path(__file__).resolve().parents[2]
 TV = (ROOT / "poc/p4-auto-sub/P3SelectedMediaPublisher.kt").read_text("utf-8")
+G1 = (ROOT / "poc/g1-prod/P1ProductionSubtitles.kt").read_text("utf-8")
+P4_KEY = (ROOT / "poc/p2-sub-discovery/p3_p4_media_key.py").read_text("utf-8")
 OWNER = (ROOT / "poc/p2-sub-discovery/p3_signed_signal_to_owner.py").read_text("utf-8")
 HANDLER = (ROOT / "poc/p2-sub-discovery/p3_p4_shared_https_route.py").read_text("utf-8")
 KEY = bytes(range(32))
@@ -75,6 +77,23 @@ class CrossLaneContractTests(unittest.TestCase):
         off_cache.receive(off, now_ms=NOW, monotonic_s=100.0)
         with self.assertRaisesRegex(RedmiStateRejected, "OFF_OR_INACTIVE"):
             off_cache.read_fresh(monotonic_s=101.0)
+
+    def test_full_v2_infohash_is_accepted_end_to_end_at_identity_boundary(self):
+        # A 64-hex hash must not trigger a silent TV-side status drop or be
+        # rejected later while mapping the EXACT selected file to G1/P4.
+        self.assertIn('[a-f0-9]{64}', TV)
+        self.assertNotIn('current.hash.length != 40', TV)
+        self.assertIn('[0-9a-fA-F]{64}', G1)
+        self.assertIn('[0-9a-f]{64}', P4_KEY)
+        hash64 = "b" * 64
+        cache = SignedRedmiStateCache(KEY)
+        raw = sign_synthetic_state(
+            KEY, boot_id="c" * 32, sequence=1,
+            kind="PLAY_REQUEST_ACCEPTED", tv_session_id=SESSION,
+            torrent_hash=hash64, file_index=4, active=True,
+            subtitle_choice="REQUESTED", sent_at_ms=NOW, nonce="d" * 32)
+        cache.receive(raw, now_ms=NOW, monotonic_s=100.0)
+        self.assertEqual(cache.read_fresh(monotonic_s=101).torrent_hash, hash64)
 
 
 if __name__ == "__main__":

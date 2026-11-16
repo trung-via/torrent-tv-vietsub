@@ -12,6 +12,7 @@ from owner_p3_p4_diagnostics import (
     RUNTIME_VERSION, _p3_only_snapshot, _tcp_only_probe,
     read_diagnostic, write_diagnostic,
 )
+from p3_p4_triage_readonly import triage_next_gate
 from p3_ingress_telemetry import MAX_COUNT, P3IngressTelemetry
 
 
@@ -144,6 +145,32 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
         ingress._counts["state_rejected"] = MAX_COUNT
         ingress.record("state_rejected")
         self.assertEqual(ingress.snapshot()["state_rejected"], MAX_COUNT)
+
+    def test_safe_triage_never_invents_pairing_or_real_torrserver_proof(self):
+        s = {"OWNER_HEARTBEAT": "READY_FRESH",
+             "P3_HTTPS_INSTRUMENTED": "YES",
+             "P3_HTTPS_STATE_ACCEPTED": "0",
+             "P3_HTTPS_STATE_REJECTED_AUTH": "0",
+             "P3_HTTPS_STATE_REJECTED_CLOCK": "0",
+             "P3_HTTPS_STATE_REJECTED_REPLAY": "0",
+             "P3_STATE_FRESH": "MISSING",
+             "TORRSERVER_READER_READY": "TCP_REACHABLE_METADATA_UNTESTED"}
+        self.assertEqual(triage_next_gate(s),
+                         "MEASURE_TV_PAIRING_TLS_AND_SIGNAL_PATH")
+        s["P3_HTTPS_STATE_REJECTED_AUTH"] = "1"
+        self.assertEqual(triage_next_gate(s),
+                         "INVESTIGATE_SIGNED_STATUS_AUTH")
+        s["P3_HTTPS_STATE_REJECTED_AUTH"] = "0"
+        s["P3_STATE_FRESH"] = "FRESH_REQUESTED"
+        s["P3_HTTPS_STATE_ACCEPTED"] = "1"
+        self.assertEqual(triage_next_gate(s),
+                         "VERIFY_EXACT_TORRSERVER_SELECTED_FILE_METADATA")
+        s["P3_STATE_FRESH"] = "FRESH_OFF"
+        self.assertEqual(triage_next_gate(s),
+                         "WAIT_FOR_EXPLICIT_CURRENT_FILM_REQUEST")
+        s["OWNER_HEARTBEAT"] = "NOT_OBSERVED"
+        self.assertEqual(triage_next_gate(s),
+                         "VERIFY_OWNER_PROCESS_FIRST")
 
 
 if __name__ == "__main__":

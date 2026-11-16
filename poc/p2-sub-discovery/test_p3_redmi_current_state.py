@@ -52,6 +52,18 @@ class StateTests(unittest.TestCase):
         self.assertEqual(len(obj["signature"]),64)
         self.assertEqual(obj["signature"],hmac.new(KEY,mac_body(obj),hashlib.sha256).hexdigest())
 
+    def test_v2_infohash_64_is_signed_and_accepted_just_like_40(self):
+        hash64="f"*64
+        c=SignedRedmiStateCache(KEY)
+        status=c.receive(packet(torrent_hash=hash64),now_ms=WHEN,monotonic_s=10)
+        self.assertEqual(status.torrent_hash,hash64)
+        self.assertEqual(c.read_fresh(monotonic_s=11).torrent_hash,hash64)
+        tampered=json.loads(packet(torrent_hash=hash64))
+        tampered["torrent_hash"]="e"*64
+        with self.assertRaisesRegex(RedmiStateRejected,"AUTH_FAILED"):
+            SignedRedmiStateCache(KEY).receive(json.dumps(tampered).encode(),
+                                                now_ms=WHEN,monotonic_s=10)
+
     def test_state_fresh_ttl_not_play_event(self):
         c=SignedRedmiStateCache(KEY)
         st=c.receive(packet(),now_ms=WHEN,monotonic_s=10.0)
