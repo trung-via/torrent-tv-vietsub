@@ -132,4 +132,79 @@ Write-Host "TTV_ADB_AUTHORIZED_COUNT=$authorizedCount"
 Write-Host "TTV_DEVICE_ARM32_COMPATIBLE=$arm32"
 Write-Host "TTV_OMP_NORMAL_INSTALLED=$normal"
 Write-Host "TTV_OMP_TEST_INSTALLED=$test"
+
+# Read the existing test app's base APK for an exact signing and version
+# comparison. No TV write, installation, pairing or APK content publication.
+$signerMatch = 'NOT_MEASURED'
+$versionGate = 'NOT_MEASURED'
+if ($apkProvenance -ceq 'PASS' -and
+    $adbState -ceq 'EXISTING_SERVER_QUERIED' -and
+    $authorizedCount -ceq '1' -and
+    $test -ceq 'YES' -and
+    $signer.Count -gt 0) {
+    $baseEntries = @($testPath | Where-Object {
+        [string]$_ -match '^package:/data/app/.+/base\.apk\s*$'
+    })
+    if ($baseEntries.Count -eq 1) {
+        $remoteBase = ([string]$baseEntries[0]).Substring(8).Trim()
+        $tempBase = Join-Path $env:RUNNER_TEMP ("ttv-pr168-existing-base-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.apk")
+        if (Test-Path -LiteralPath $tempBase) {
+            throw 'TTV_COMPARE_TEMP_PATH_ALREADY_EXISTS'
+        }
+        $created = $false
+        try {
+            $pullOutput = @(& $adb -s $deviceId pull $remoteBase $tempBase 2>&1)
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tempBase -PathType Leaf)) {
+                $created = $true
+                $candidateOutput = @(& $signer[0] verify --print-certs $apk 2>&1)
+                $candidateExit = $LASTEXITCODE
+                $installedOutput = @(& $signer[0] verify --print-certs $tempBase 2>&1)
+                $installedExit = $LASTEXITCODE
+                $pattern = 'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)'
+                $candidateCert = [regex]::Match(($candidateOutput -join [Environment]::NewLine), $pattern)
+                $installedCert = [regex]::Match(($installedOutput -join [Environment]::NewLine), $pattern)
+                if ($candidateExit -eq 0 -and $installedExit -eq 0 -and
+                    $candidateCert.Success -and $installedCert.Success) {
+                    $candidateDigest = $candidateCert.Groups[1].Value.Replace(':','').ToLowerInvariant()
+                    $installedDigest = $installedCert.Groups[1].Value.Replace(':','').ToLowerInvariant()
+                    $signerMatch = if ($candidateDigest -ceq $installedDigest) { 'MATCH' } else { 'MISMATCH_HOLD' }
+                } else {
+                    $signerMatch = 'CERT_UNVERIFIED_HOLD'
+                }
+                if ($aapt.Count -gt 0) {
+                    $newBadge = @(& $aapt[0] dump badging $apk 2>&1)
+                    $newExit = $LASTEXITCODE
+                    $oldBadge = @(& $aapt[0] dump badging $tempBase 2>&1)
+                    $oldExit = $LASTEXITCODE
+                    $newText = $newBadge -join [Environment]::NewLine
+                    $oldText = $oldBadge -join [Environment]::NewLine
+                    $newCode = [regex]::Match($newText, "versionCode='([0-9]+)'")
+                    $oldCode = [regex]::Match($oldText, "versionCode='([0-9]+)'")
+                    $newPkg = $newText -match "package:\s+name='com\.spacesarmat\.omp\.test'"
+                    $oldPkg = $oldText -match "package:\s+name='com\.spacesarmat\.omp\.test'"
+                    if ($newExit -eq 0 -and $oldExit -eq 0 -and
+                        $newCode.Success -and $oldCode.Success -and $newPkg -and $oldPkg) {
+                        $versionGate = if ([long]$newCode.Groups[1].Value -ge [long]$oldCode.Groups[1].Value) {
+                            'NO_DOWNGRADE'
+                        } else { 'DOWNGRADE_HOLD' }
+                    } else {
+                        $versionGate = 'VERSION_OR_PACKAGE_UNVERIFIED_HOLD'
+                    }
+                }
+            } else {
+                $signerMatch = 'ADB_READ_FAILED_HOLD'
+            }
+        } catch {
+            $signerMatch = 'READ_OR_VERIFY_FAILED_HOLD'
+        } finally {
+            if ($created -and (Test-Path -LiteralPath $tempBase -PathType Leaf)) {
+                Remove-Item -LiteralPath $tempBase -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } else {
+        $signerMatch = 'BASE_APK_PATH_UNAVAILABLE_HOLD'
+    }
+}
+Write-Host "TTV_EXISTING_TEST_SIGNER_MATCH=$signerMatch"
+Write-Host "TTV_EXISTING_TEST_VERSION_GATE=$versionGate"
 Write-Host 'TTV_PREFLIGHT=READ_ONLY_COMPLETE_NO_INSTALL'
