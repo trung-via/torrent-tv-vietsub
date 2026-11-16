@@ -1,0 +1,102 @@
+# Owner-only exact-PR Android Debug verification. No ADB, install, provider, release or public APK artifact.
+name: Torrent TV - P3 P4 One Tap Composed Android CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p4-auto-sub/**'
+      - 'poc/g1-prod/**'
+      - 'poc/g2-refresh/**'
+      - '.github/workflows/tv-p3p4-one-tap-android-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: torrent-tv-one-tap-android-pr168
+  cancel-in-progress: true
+jobs:
+  source-guard:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.number == 168 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3p4-r0-r2-single-tap-20261116' &&
+      github.event.pull_request.base.ref == 'feature/p3-owner-v2-offline-activation-20261115'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact owner PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify current one-tap consent and isolated Windows build guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/p4-auto-sub -p 'test_p3_tv_*.py' -v
+          python3 -m unittest discover -s poc/p4-auto-sub -p 'test_session_loss_contract.py' -v
+          python3 -m py_compile poc/p4-auto-sub/p3_activity_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path('poc/p4-auto-sub/build-p3-p4-cross-lane-on-runner.ps1').read_text(encoding='utf-8')
+          for required in (
+              'refs/pull/168/merge',
+              'eventData.number -ne 168',
+              "GITHUB_BASE_REF -cne 'feature/p3-owner-v2-offline-activation-20261115'",
+              "RUNNER_NAME -cne 'torrent-tv-vietsub-win'",
+              'tv-p3p4-one-tap-android-ci.yml',
+              'GITHUB_WORKFLOW_REF',
+              'gradlew.bat assembleDebug testDebugUnitTest',
+          ):
+              assert required in script, required
+          for prohibited in ('adb install', 'adb reboot', 'upload-artifact', 'workflow_dispatch'):
+              assert prohibited not in script, prohibited
+          print('ONE_TAP_PR168_APPROVED_RUNNER_SOURCE_GUARD_PASS')
+          PY
+  android-debug:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.number == 168 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3p4-r0-r2-single-tap-20261116' &&
+      github.event.pull_request.base.ref == 'feature/p3-owner-v2-offline-activation-20261115'
+    needs: source-guard
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact owned source, no persistent credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Parse guarded Windows build script without executing it
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $file = Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\build-p3-p4-cross-lane-on-runner.ps1'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'ONE_TAP_PR168_WINDOWS_BUILDER_PARSE_FAIL' }
+          Write-Host 'ONE_TAP_PR168_WINDOWS_BUILDER_PARSE_PASS'
+      - name: Compose pinned OMP G1 G2 P4 P3 and run Android Gradle gates
+        shell: powershell
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\build-p3-p4-cross-lane-on-runner.ps1') `
+            -AppRepoRoot $env:GITHUB_WORKSPACE `
+            -SourceCommit $env:PR_HEAD
+          if ($LASTEXITCODE -ne 0 -or -not $?) {
+            throw 'STOP: PR #168 source-pinned Android build/test failed'
+          }
+      - name: Build-only boundary receipt
+        if: success()
+        shell: powershell
+        run: |
+          Write-Host 'ONE_TAP_PR168_ANDROID_DEBUG_BUILD_ONLY_NO_TV_NO_ADB_NO_PROVIDER_NO_RELEASE'
