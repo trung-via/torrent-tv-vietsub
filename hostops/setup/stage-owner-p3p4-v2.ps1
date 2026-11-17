@@ -122,7 +122,7 @@ if (-not $Stage) {
 # Inert owner-only staging: no file is copied into the installed app tree.
 # The existing OwnerBridge root is already owner/SYSTEM ACL protected.
 $stages = Join-Path $root 'staged-releases'
-$target = Join-Path $stages 'p3p4-ingress-v2-f7fdb024'
+$target = Join-Path $stages 'p3p4-r0-eca75e1f-086ae9a7-d09c8503'
 foreach ($folder in @($stages, $target)) {
     if (Test-Path -LiteralPath $folder) {
         $item = Get-Item -LiteralPath $folder -Force
