@@ -90,10 +90,10 @@ Write-Host ('TTV_OWNER_V2_TASK_STATE=' + [string]$task.State)
 # Pin the four production modules, rather than trusting a movable branch or
 # a ZIP label. This staging script itself may live in a follow-up Draft PR.
 $files = [ordered]@{
-    'owner_p3_p4_diagnostics.py' = 'a30bc451c4d8d0c38d9899773c9c33a9c0e0ba7e0bf98cd0f351c2f873877886'
+    'owner_p3_p4_diagnostics.py' = 'eca75e1f29f98cf8df356f5bf9e29e1f30ffa0ea4205a4be93ffabe55e36f524'
     'p3_owner_state_wiring.py' = '4bbafda8444413a2d7e907f10aa2cce904be03e8bcb1075f39e01fa4bd60e73a'
-    'p3_p4_shared_https_route.py' = 'ab9deb57a7d568c1a5141a50a18afe5831577242d0e8e7723f569dec4ef27d2e'
-    'p3_ingress_telemetry.py' = '69f6711496575dd61ba82d3260d39726232b761bc395e22c10435d917c405b69'
+    'p3_p4_shared_https_route.py' = '086ae9a77816ba0077d257e5493676d46ba7347a316d1b8d15a36aaa5cb6ad4e'
+    'p3_ingress_telemetry.py' = 'd09c8503ab13577b3102f943e402cf98e2e78b4192f61597e9eb0a6d9c63b67d'
 }
 foreach ($name in $files.Keys) {
     $path = Join-Path $src $name

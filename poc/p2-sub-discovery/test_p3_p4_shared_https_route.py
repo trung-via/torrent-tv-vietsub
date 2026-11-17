@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from http.client import HTTPSConnection
 from http.server import HTTPServer
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 # Discovery's legacy CI invokes unittest with only this directory on
 # sys.path. Resolve sibling project modules exactly as earlier P3 tests do.
@@ -33,6 +35,7 @@ from paired_activation import (
     PairedActivation, activation_request_mac,
 )
 from p3_p4_shared_https_route import P3IngressTelemetry, make_p3_p4_handler
+from p3_p4_shared_https_route import _selection_reason_bucket
 from p3_redmi_current_state import SignedRedmiStateCache, sign_synthetic_state
 from p3_signed_playback_signal import (
     SignedPlaybackVerifier, sign_synthetic_event,
@@ -171,6 +174,8 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         self.assertEqual(wrong, 403)
         self.assertEqual(len(list((self.owner / "inbox").glob("event-*.json"))), 1)
         self.assertEqual(self.ingress.snapshot()["selection_rejected"], 3)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected_bad_wire"], 2)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected_media_mismatch"], 1)
 
     def test_no_content_or_unknown_p3_paths_block_before_reader(self):
         for path, body, headers, status in (
@@ -185,6 +190,40 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         self.assertEqual(self.reads, [])
         self.assertFalse(self.owner.exists())
         self.assertEqual(self.ingress.snapshot()["selection_rejected"], 2)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected_http_format"], 2)
+
+    def test_fixed_categories_cover_missing_current_policy_and_enqueue_failure(self):
+        headers = {"Content-Type":"application/json"}
+        # Signed request is valid, but the trusted current TV/TorrServer
+        # selection cannot be obtained. Never enqueue or emit raw errors.
+        with mock.patch.object(self.p3, "_read", side_effect=OSError("local secret")):
+            status, body = self.request("POST", "/p3/selection", signed_wire(nonce="1"*32), headers)
+        self.assertEqual(status, 403)
+        self.assertNotIn(b"secret", body)
+        self.assertEqual(self.ingress.snapshot()[
+            "selection_rejected_current_tv_or_torrserver_unavailable"], 1)
+
+        self.state = replace(selected(), media_rights_approved=False)
+        status, _ = self.request("POST", "/p3/selection", signed_wire(nonce="2"*32), headers)
+        self.assertEqual(status, 403)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected_owner_policy"], 1)
+
+        self.state = selected()
+        with mock.patch.object(self.p3._bridge, "on_current_selection_accepted",
+                               side_effect=ValueError("OWNER_PLAYBACK_PRIVATE_ENQUEUE_FAILED")):
+            status, _ = self.request("POST", "/p3/selection", signed_wire(nonce="3"*32), headers)
+        self.assertEqual(status, 403)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected_enqueue"], 1)
+        self.assertFalse(self.owner.exists())
+
+    def test_unknown_errors_do_not_leak_and_cannot_poison_categories(self):
+        with mock.patch.object(self.p3, "on_wire", side_effect=RuntimeError("private data")):
+            status, body = self.request("POST", "/p3/selection", signed_wire(nonce="4"*32),
+                                        {"Content-Type":"application/json"})
+        self.assertEqual(status, 403)
+        self.assertNotIn(b"private data", body)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected_unknown"], 1)
+        self.assertEqual(_selection_reason_bucket("MALICIOUS_CLIENT_INPUT"), "unknown")
 
     def test_same_handler_preserves_existing_authenticated_p4_activation(self):
         nonce = "f" * 32

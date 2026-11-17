@@ -10,6 +10,19 @@ from pathlib import Path
 
 from owner_p3_p4_diagnostics import read_diagnostic
 
+_SELECTION_BUCKETS = (
+    "BAD_WIRE", "CURRENT_TV_OR_TORRSERVER_UNAVAILABLE", "MEDIA_MISMATCH",
+    "OWNER_POLICY", "ENQUEUE", "HTTP_FORMAT", "UNKNOWN",
+)
+
+
+def _count(status: dict[str, str], field: str) -> int:
+    """Read only validated nonnegative count strings; ignore legacy fields."""
+    raw = status.get(field, "0")
+    if type(raw) is not str or not raw.isascii() or not raw.isdecimal():
+        return 0
+    return min(int(raw), 1_000_000)
+
 
 def triage_next_gate(status: dict[str, str]) -> str:
     """Classify a *next measurement*, not a guessed network root cause.
@@ -33,6 +46,15 @@ def triage_next_gate(status: dict[str, str]) -> str:
     if status.get("P3_STATE_FRESH") in ("FRESH_OFF", "FRESH_OTHER", "FRESH_INACTIVE"):
         return "WAIT_FOR_EXPLICIT_CURRENT_FILM_REQUEST"
     if status.get("P3_STATE_FRESH") in ("FRESH_ON", "FRESH_REQUESTED"):
+        if (_count(status, "P3_HTTPS_SELECTION_REJECTED") > 0
+                and _count(status, "P3_HTTPS_SELECTION_DISPATCHED") == 0):
+            categories = [bucket for bucket in _SELECTION_BUCKETS
+                          if _count(status, "P3_HTTPS_SELECTION_REJECTED_" + bucket) > 0]
+            if len(categories) == 1:
+                # Cumulative counters identify a next measurement, never a
+                # proven per-request cause or a current-film classification.
+                return "MEASURE_P3_SELECTION_" + categories[0]
+            return "MEASURE_P3_SELECTION_REJECT_CATEGORIES"
         if status.get("TORRSERVER_READER_READY") == "TCP_REACHABLE_METADATA_UNTESTED":
             return "VERIFY_EXACT_TORRSERVER_SELECTED_FILE_METADATA"
         return "VERIFY_OWNER_TORRSERVER_LOOPBACK"

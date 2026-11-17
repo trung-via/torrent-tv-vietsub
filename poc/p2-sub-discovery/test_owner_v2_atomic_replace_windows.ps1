@@ -104,15 +104,18 @@ try {
     $names = @('first.py', 'second.py', 'third.py')
     $baseline = [ordered]@{}
     $v2 = [ordered]@{}
+    $v2PreR0 = [ordered]@{}
     $utf8 = [Text.UTF8Encoding]::new($false)
     foreach ($name in $names) {
         $baseline[$name] = HashFixtureText ("v1-" + $name + "`n")
         $v2[$name] = HashFixtureText ("v2-" + $name + "`n")
+        $v2PreR0[$name] = HashFixtureText ("v2old-" + $name + "`n")
         # CRLF is allowed for V1 identity, but the recovery bytes stay intact.
         [IO.File]::WriteAllText((Join-Path $app $name),
             ("v1-" + $name + "`r`n"), $utf8)
     }
     $v2['p3_ingress_telemetry.py'] = HashFixtureText "v2-telemetry`n"
+    $v2PreR0['p3_ingress_telemetry.py'] = HashFixtureText "v2old-telemetry`n"
     if ((GetOwnerInstalledSourceVersion) -cne 'V1_SOURCE_EXACT') {
         throw 'TTV_WINDOWS_VERSION_V1_CLASSIFICATION_FAILED'
     }
@@ -126,8 +129,16 @@ try {
         [IO.File]::WriteAllText((Join-Path $app $name),
             ("v2-" + $name + "`n"), $utf8)
     }
-    if ((GetOwnerInstalledSourceVersion) -cne 'V2_SOURCE_EXACT') {
+    if ((GetOwnerInstalledSourceVersion) -cne 'V2_R0_SOURCE_EXACT') {
         throw 'TTV_WINDOWS_VERSION_V2_CLASSIFICATION_FAILED'
+    }
+    foreach ($name in $names) {
+        [IO.File]::WriteAllText((Join-Path $app $name),
+            ("v2old-" + $name + "`n"), $utf8)
+    }
+    [IO.File]::WriteAllText($telemetry, "v2old-telemetry`n", $utf8)
+    if ((GetOwnerInstalledSourceVersion) -cne 'V2_PRE_R0_SOURCE_EXACT') {
+        throw 'TTV_WINDOWS_VERSION_PRE_R0_V2_CLASSIFICATION_FAILED'
     }
     [IO.File]::WriteAllText((Join-Path $app 'second.py'), "unreviewed`n", $utf8)
     if ((GetOwnerInstalledSourceVersion) -cne 'MIXED_OR_UNKNOWN') {
