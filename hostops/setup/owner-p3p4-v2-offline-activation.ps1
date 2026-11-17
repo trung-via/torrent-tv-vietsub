@@ -104,7 +104,7 @@ if ([string]::IsNullOrWhiteSpace($logged) -or
 }
 $root = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $app = Join-Path $root 'app\poc\p2-sub-discovery'
-$stage = Join-Path $root 'staged-releases\p3p4-ingress-v2-f7fdb024'
+$stage = Join-Path $root 'staged-releases\p3p4-r0-eca75e1f-086ae9a7-d09c8503'
 $launcher = Join-Path $root 'start-owner-session-agent.ps1'
 foreach ($path in @($root, $app, $stage)) { SafeItem $path $true }
 SafeItem $launcher $false
