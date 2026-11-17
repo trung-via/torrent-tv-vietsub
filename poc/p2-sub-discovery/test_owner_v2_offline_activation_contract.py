@@ -48,8 +48,8 @@ class OfflineActivationContract(unittest.TestCase):
 
     def test_r0_offline_stage_uses_isolated_version_folder(self):
         source = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("staged-releases\\\\p3p4-r0-eca75e1f-086ae9a7-d09c8503", source)
-        self.assertNotIn("staged-releases\\\\p3p4-ingress-v2-f7fdb024", source)
+        self.assertIn("staged-releases\\p3p4-r0-eca75e1f-086ae9a7-d09c8503", source)
+        self.assertNotIn("staged-releases\\p3p4-ingress-v2-f7fdb024", source)
 
     def test_offline_only_and_fail_closed(self):
         source = SCRIPT.read_text(encoding="utf-8")
