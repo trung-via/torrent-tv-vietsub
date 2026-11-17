@@ -58,7 +58,7 @@ stage with:
 ```
 
 This creates/verifies copies of four `.py` files only under the existing
-owner-private `OwnerBridge/staged-releases/p3p4-ingress-v2-f7fdb024` tree.
+owner-private `OwnerBridge/staged-releases/p3p4-r0-eca75e1f-086ae9a7-d09c8503` tree.
 The running `OwnerBridge/app` code, launcher, task, service, Windows ACLs,
 TV/ADB and provider are **untouched**. The stage is idempotent only if all
 existing staged files match their pinned hashes; otherwise it holds.
