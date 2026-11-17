@@ -1,4 +1,4 @@
-"""Owner-local, resumable EN SRT/VTT -> LEAN120 Gemini -> VI SRT/VTT.
+"""Owner-local, resumable EN SRT/VTT -> provider gateway -> VI SRT/VTT.
 
 This is a library worker, NOT an implicit service. A previously matched and
 authorized source is required. It is started only by an explicitly opted-in
@@ -20,7 +20,8 @@ from typing import Callable, Mapping
 
 from assumed_source_handoff import AssumedEnglishSubtitle
 from cue_pipeline import parse_cues
-from lean120_api import ModelProfile, Transport, _https_post, make_gemini_payload, translate_window
+from lean120_api import ModelProfile
+from translator_gateway import Runner, _prompt, preflight_provider, provider_enabled, translate_window
 from progressive_handoff import ProgressiveSubtitleSession, SubtitleRevision
 
 _SAFE_JOB = re.compile(r"[0-9a-f]{64}\Z")
@@ -71,26 +72,24 @@ class AutomaticLean120Worker:
     """Close EN -> verified progressive VI -> private output + P4 callback.
 
     No implicit source discovery, network, model call or service startup.
-    Inject a fake transport for CI; the real HTTPS transport is used ONLY
-    when a caller explicitly runs this worker with an API key.
+    Inject a fake provider runner for CI; no direct model HTTP transport.
     """
 
     def __init__(self, *, state_root: Path, profile: ModelProfile,
-                 glossary: Mapping[str, str], api_key: str,
-                 transport: Transport = _https_post) -> None:
+                 glossary: Mapping[str, str],
+                 runner: Runner | None = None) -> None:
         if not isinstance(state_root, Path) or not state_root.is_absolute():
             raise ValueError("AUTO_LEAN120_ABSOLUTE_PRIVATE_STATE_REQUIRED")
-        if not isinstance(api_key, str) or not api_key.strip():
-            raise ValueError("GEMINI_API_KEY_REQUIRED")
+        if not provider_enabled(profile.provider):
+            raise ValueError("AUTO_LEAN120_PROVIDER_NOT_ENABLED")
         if not isinstance(glossary, Mapping):
             raise ValueError("LEAN120_GLOSSARY_INVALID")
-        if not callable(transport):
-            raise ValueError("AUTO_LEAN120_TRANSPORT_INVALID")
+        if runner is not None and not callable(runner):
+            raise ValueError("AUTO_LEAN120_RUNNER_INVALID")
         self.state_root = state_root
         self.profile = profile
         self.glossary = dict(glossary)
-        self.api_key = api_key
-        self.transport = transport
+        self.runner = runner
 
     def run(self, handoff: AssumedEnglishSubtitle, *,
             on_revision: Callable[[SubtitleRevision], object] | None = None,
@@ -116,10 +115,21 @@ class AutomaticLean120Worker:
         # Validate ALL windows and the configured glossary BEFORE any on-disk
         # in-flight marker or potentially billable call.
         for window in session.windows:
-            make_gemini_payload(window, self.profile, self.glossary)
+            _prompt(window, self.glossary)
+        if self.runner is None:
+            # Account/config/CI gate MUST run before a new in-flight marker is
+            # recorded, even for the first window of a new source.
+            preflight_provider(self.profile)
         digest = _job_fingerprint(source, self.profile, self.glossary)
         if not _SAFE_JOB.fullmatch(digest):
             raise ValueError("AUTO_LEAN120_JOB_KEY_INVALID")
+        # Changing from the old API profile changes the job fingerprint.
+        # Never let that bypass an unknown-effect batch from the old backend.
+        if self.state_root.is_dir():
+            for marker in self.state_root.rglob("batch-*.inflight"):
+                if (marker.parent != self.state_root / digest
+                        and not marker.with_suffix(".json").is_file()):
+                    raise ValueError("AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD")
         self.state_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         folder = self.state_root / digest
         folder.mkdir(mode=0o700, exist_ok=True)
@@ -167,12 +177,16 @@ class AutomaticLean120Worker:
                     _write_new_synced(inflight, _json_bytes({
                         "schema": "TTV-P2-INFLIGHT-V1", "job": digest,
                         "version": version}))
-                    # If transport errors, process dies, output is invalid or
+                    # If provider errors, process dies, output is invalid or
                     # checkpoint commit fails, keep marker. Unknown provider
-                    # effects must never be blindly replayed or charged twice.
-                    translations = translate_window(
-                        window, self.profile, glossary=self.glossary,
-                        api_key=self.api_key, transport=self.transport)
+                    # effects must never be blindly replayed or consume quota twice.
+                    if self.runner is None:
+                        translations = translate_window(
+                            window, self.profile, glossary=self.glossary)
+                    else:
+                        translations = translate_window(
+                            window, self.profile, glossary=self.glossary,
+                            runner=self.runner)
                     revision = session.commit(
                         window, translations, expected_version=version - 1,
                         source_sha256=source.source_sha256, media_key=source.media_key)
@@ -186,7 +200,7 @@ class AutomaticLean120Worker:
                     }))
                     inflight.unlink()
                 # Replayed versions also reach a freshly authenticated P4
-                # session; nothing is resent to Gemini for cached windows.
+                # session; nothing is resent to the provider for cached windows.
                 if on_revision is not None:
                     on_revision(revision)
             final = session.revision

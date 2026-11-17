@@ -1,4 +1,4 @@
-"""No-network tests for the explicitly started PC source→API gateway."""
+"""No-network tests for the explicitly started PC source→provider gateway."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -20,7 +20,7 @@ class PCGatewayBootstrapTests(unittest.TestCase):
             with mock.patch("run_assumed_source_gateway.create_paired_server",create=True) as server:
                 gateway=build_controller(
                     media_key=MEDIA,source_file=path,master_hex=MASTER.hex(),
-                    execute_api=False,profile_file=profile,api_key="")
+                    execute_provider=False,profile_file=profile)
                 nonce="6"*32
                 activated=gateway.activate({
                     "schema":"TTV-P4-ACTIVATE-V1",
@@ -29,18 +29,18 @@ class PCGatewayBootstrapTests(unittest.TestCase):
                 self.assertEqual(activated["media_key"],MEDIA)
                 self.assertIsNone(gateway.feed_for(activated["session_id"]).latest())
                 server.assert_not_called()
-            with self.assertRaisesRegex(ValueError,"GEMINI_API_KEY_ENV_REQUIRED"):
+            with self.assertRaisesRegex(ValueError,"P2_AUTO_PRIVATE_STATE_DIR_REQUIRED"):
                 build_controller(media_key=MEDIA,source_file=path,
-                    master_hex=MASTER.hex(),execute_api=True,
-                    profile_file=profile,api_key="")
+                    master_hex=MASTER.hex(),execute_provider=True,
+                    profile_file=profile)
             with self.assertRaisesRegex(ValueError,"P4_DEVICE_PAIRING_KEY_REQUIRED"):
                 build_controller(media_key=MEDIA,source_file=path,
-                    master_hex="short",execute_api=False,
-                    profile_file=profile,api_key="")
+                    master_hex="short",execute_provider=False,
+                    profile_file=profile)
             with self.assertRaisesRegex(ValueError,"P4_TIMED_SOURCE_FILE_REQUIRED"):
                 build_controller(media_key=MEDIA,source_file=Path(tmp)/"missing.srt",
-                    master_hex=MASTER.hex(),execute_api=False,
-                    profile_file=profile,api_key="")
+                    master_hex=MASTER.hex(),execute_provider=False,
+                    profile_file=profile)
 
     def test_single_paired_mock_autobinds_tv_media_without_any_manual_key(self):
         from synthetic_mock_feed import synthetic_source_sha256
@@ -48,7 +48,7 @@ class PCGatewayBootstrapTests(unittest.TestCase):
         with mock.patch("run_assumed_source_gateway.publish_synthetic_revisions"):
             gateway=build_controller(
                 media_key=None,source_file=None,master_hex=MASTER.hex(),
-                execute_api=False,profile_file=profile,api_key="",
+                execute_provider=False,profile_file=profile,
                 mock_revisions=True,mock_single_paired_media=True)
             nonce="a"*32
             reply=gateway.activate({
@@ -66,17 +66,17 @@ class PCGatewayBootstrapTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"SINGLE_PAIRED_MEDIA_SCOPE_INVALID"):
             build_controller(
                 media_key=MEDIA,source_file=None,master_hex=MASTER.hex(),
-                execute_api=False,profile_file=profile,api_key="",
+                execute_provider=False,profile_file=profile,
                 mock_revisions=True,mock_single_paired_media=True)
         with self.assertRaisesRegex(ValueError,"SINGLE_PAIRED_MEDIA_SCOPE_INVALID"):
             build_controller(
                 media_key=None,source_file=None,master_hex=MASTER.hex(),
-                execute_api=False,profile_file=profile,api_key="",
+                execute_provider=False,profile_file=profile,
                 mock_revisions=False,mock_single_paired_media=True)
         with self.assertRaisesRegex(ValueError,"TIMED_SOURCE_FILE_REQUIRED"):
             build_controller(
                 media_key=None,source_file=None,master_hex=MASTER.hex(),
-                execute_api=False,profile_file=profile,api_key="")
+                execute_provider=False,profile_file=profile)
 
     def test_import_never_starts_server_or_calls_api(self):
         import run_assumed_source_gateway as module

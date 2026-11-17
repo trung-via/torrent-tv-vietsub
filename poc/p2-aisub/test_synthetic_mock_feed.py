@@ -81,7 +81,7 @@ class SyntheticP4FeedTests(unittest.TestCase):
         with mock.patch("run_assumed_source_gateway.threading.Thread") as thread:
             controller=build_controller(
                 media_key=MEDIA,source_file=None,master_hex=MASTER.hex(),
-                execute_api=False,profile_file=profile,api_key="",
+                execute_provider=False,profile_file=profile,
                 mock_revisions=True)
             self.assertIsNone(controller.feed_for("nothing"))
             nonce="c"*32
@@ -94,14 +94,14 @@ class SyntheticP4FeedTests(unittest.TestCase):
             self.assertIsNotNone(controller.feed_for(result["session_id"]))
             thread.assert_called_once()
             thread.return_value.start.assert_called_once()
-        with self.assertRaisesRegex(ValueError,"MOCK_CANNOT_CALL_API"):
+        with self.assertRaisesRegex(ValueError,"MOCK_CANNOT_CALL_PROVIDER"):
             build_controller(media_key=MEDIA,source_file=None,
-                master_hex=MASTER.hex(),execute_api=True,
-                profile_file=profile,api_key="test",mock_revisions=True)
+                master_hex=MASTER.hex(),execute_provider=True,
+                profile_file=profile,mock_revisions=True)
         with self.assertRaisesRegex(ValueError,"MOCK_REJECTS_REAL_SOURCE_FILE"):
             build_controller(media_key=MEDIA,source_file=profile,
-                master_hex=MASTER.hex(),execute_api=False,
-                profile_file=profile,api_key="",mock_revisions=True)
+                master_hex=MASTER.hex(),execute_provider=False,
+                profile_file=profile,mock_revisions=True)
 
 
 if __name__=="__main__":

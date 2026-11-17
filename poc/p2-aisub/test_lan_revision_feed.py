@@ -124,6 +124,7 @@ class SessionRevisionFeedTests(TestCase):
 
     def test_api_batch_to_signed_feed_without_human_picker_or_network(self):
         from lean120_api import ModelProfile
+        from fake_antigravity_cli import FakeAntigravity
         src = ("\n\n".join(
             f"{i}\n00:{(i-1)//60:02d}:{(i-1)%60:02d},000 --> "
             f"00:{(i-1)//60:02d}:{(i-1)%60:02d},850\nSynthetic {i}"
@@ -132,31 +133,22 @@ class SessionRevisionFeedTests(TestCase):
         job = ProgressiveSubtitleSession(src,"srt",MEDIA)
         feed = SessionRevisionFeed(session_id=SID,media_key=MEDIA,
                     source_sha256=job.source_sha256,pairing_secret=SECRET)
-        calls=[]
-        def fake_api(url,headers,body,timeout):
-            req=json.loads(body)
-            ids=[x["id"] for x in json.loads(
-                req["contents"][0]["parts"][0]["text"])["target"]]
-            calls.append(ids)
-            rows=[{"id":i,"vi":f"Vietsub số {i}"} for i in ids]
-            return {"candidates":[{"finishReason":"STOP","content":{"parts":[
-                {"text":json.dumps({"translations":rows},ensure_ascii=False)}
-            ]}}]}
+        fake_cli=FakeAntigravity(text_prefix="Vietsub số")
         profile = ModelProfile.from_json({
-            "provider":"gemini", "model":"gemini-3.8-flash",
+            "provider":"antigravity", "model":"gemini-4-hydrogen-high",
             "thinking_level":"medium",
         })
         with self.assertRaisesRegex(ValueError,"P4_FEED_SOURCE_SHA_MISMATCH"):
             translate_into_feed(src+b"tamper","srt",MEDIA,profile,
-                feed=feed,glossary={},api_key="synthetic",transport=fake_api)
+                feed=feed,glossary={},runner=fake_cli)
         with self.assertRaisesRegex(ValueError,"P4_FEED_MEDIA_MISMATCH"):
             translate_into_feed(src,"srt",OTHER,profile,
-                feed=feed,glossary={},api_key="synthetic",transport=fake_api)
-        self.assertFalse(calls)
+                feed=feed,glossary={},runner=fake_cli)
+        self.assertFalse(fake_cli.calls)
         revisions=translate_into_feed(src,"srt",MEDIA,profile,
-            feed=feed,glossary={},api_key="synthetic",transport=fake_api)
+            feed=feed,glossary={},runner=fake_cli)
         self.assertEqual([r.translated_count for r in revisions],[120,240,241])
-        self.assertEqual([len(ids) for ids in calls],[120,120,1])
+        self.assertEqual([len(ids) for ids in fake_cli.calls],[120,120,1])
         wire=json.loads(feed.latest())
         self.assertEqual(wire["version"],3)
         self.assertEqual(wire["translated_count"],241)

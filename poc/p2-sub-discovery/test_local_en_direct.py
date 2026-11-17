@@ -258,8 +258,8 @@ class LocalDirectTests(unittest.TestCase):
         gemini = FakeGemini()
         worker = AutomaticLean120Worker(
             state_root=self.root / "worker",
-            profile=ModelProfile("gemini", "gemini-4-hydrogen", "high"),
-            glossary={}, api_key="synthetic-key", transport=gemini,
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini,
         )
         flow = AutomaticVietsubFlow(
             client=OpenSubtitles(api_key="synthetic", transport=provider),
@@ -285,8 +285,8 @@ class LocalDirectTests(unittest.TestCase):
         gemini = FakeGemini()
         worker = AutomaticLean120Worker(
             state_root=self.root / "worker",
-            profile=ModelProfile("gemini", "gemini-4-hydrogen", "high"),
-            glossary={}, api_key="synthetic-key", transport=gemini,
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini,
         )
         flow = AutomaticVietsubFlow(
             client=OpenSubtitles(api_key="synthetic", transport=provider),
@@ -304,8 +304,8 @@ class LocalDirectTests(unittest.TestCase):
         gemini = FakeGemini()
         worker = AutomaticLean120Worker(
             state_root=self.root / "worker",
-            profile=ModelProfile("gemini", "gemini-4-hydrogen", "high"),
-            glossary={}, api_key="synthetic-key", transport=gemini,
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini,
         )
         flow = AutomaticVietsubFlow(
             client=OpenSubtitles(api_key="synthetic", transport=provider),

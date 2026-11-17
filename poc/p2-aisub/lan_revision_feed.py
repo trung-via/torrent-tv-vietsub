@@ -193,12 +193,12 @@ def create_server(feed: SessionRevisionFeed, *, host: str, port: int) -> HTTPSer
 def translate_into_feed(
     source: bytes, fmt: str, media_key: str, profile: object,
     *, feed: SessionRevisionFeed, glossary: dict[str, str],
-    api_key: str, transport: object,
+    runner: object | None = None,
 ) -> tuple[SubtitleRevision, ...]:
-    """Lean120 API→cumulative signed feed, one callback per validated batch.
+    """Lean120 provider gateway→cumulative signed feed, validated per batch.
 
     Fail BEFORE the first provider request if this feed was paired for a
-    different source or film. Transport is injectable for entirely offline CI.
+    different source or film. CLI runner is injectable for entirely offline CI.
     No server/socket is started; a separate explicit owner action must run it.
     """
     if not isinstance(source, bytes) or hashlib.sha256(source).hexdigest() != feed.source_sha256:
@@ -206,11 +206,9 @@ def translate_into_feed(
     if media_key != feed.media_key:
         raise ValueError("P4_FEED_MEDIA_MISMATCH")
     from lean120_api import translate_all
-    return translate_all(
-        source, fmt, media_key, profile,
-        glossary=glossary, api_key=api_key, transport=transport,
-        on_revision=feed.publish,
-    )
+    return translate_all(source, fmt, media_key, profile,
+                         glossary=glossary, runner=runner,
+                         on_revision=feed.publish)
 
 
 # No CLI or automatic service startup is provided yet. A future trusted

@@ -9,12 +9,13 @@ from assumed_source_handoff import (
 )
 from lan_revision_feed import SessionRevisionFeed
 from lean120_api import ModelProfile
+from fake_antigravity_cli import FakeAntigravity
 
 MEDIA="media."+"a"*64
 OTHER="media."+"b"*64
 SID="synthetic_tv_session_0001"
 KEY=b"offline-paired-subtitle-secret-key-32"
-PROFILE=ModelProfile("gemini","gemini-3.8-flash","medium")
+PROFILE=ModelProfile("antigravity","gemini-4-hydrogen-high","medium")
 
 
 def synthetic_srt(n=245):
@@ -23,15 +24,6 @@ def synthetic_srt(n=245):
         f"00:{(i-1)//60:02d}:{(i-1)%60:02d},850\nEnglish synthetic {i}"
         for i in range(1,n+1)
     )+"\n").encode("utf8")
-
-
-def fake_transport(url,headers,body,timeout):
-    req=json.loads(body)
-    target=json.loads(req["contents"][0]["parts"][0]["text"])["target"]
-    return {"candidates":[{"finishReason":"STOP",
-        "content":{"parts":[{"text":json.dumps({
-            "translations":[{"id":x["id"],"vi":f"Câu thử {x['id']}"} for x in target]
-        },ensure_ascii=False)}]}}]}
 
 
 class AssumedSourceHandoffTests(unittest.TestCase):
@@ -48,7 +40,7 @@ class AssumedSourceHandoffTests(unittest.TestCase):
         self.assertEqual(self.handoff.source_sha256,hashlib.sha256(self.handoff.source_bytes).hexdigest())
         res=translate_supplied_to_feed(
             self.handoff,PROFILE,feed=self.feed,glossary={},
-            api_key="synthetic",transport=fake_transport)
+            runner=FakeAntigravity(text_prefix="Câu thử"))
         self.assertEqual([x.translated_count for x in res],[120,240,245])
         wire=json.loads(self.feed.latest())
         self.assertEqual(wire["translated_count"],245)
@@ -70,7 +62,7 @@ class AssumedSourceHandoffTests(unittest.TestCase):
         ]:
             with self.subTest(bad=bad),self.assertRaises(ValueError):
                 translate_supplied_to_feed(bad,PROFILE,feed=self.feed,
-                    glossary={},api_key="synthetic",transport=unexpected)
+                    glossary={},runner=unexpected)
         self.assertEqual(called,[])
 
     def test_invalid_source_rejected_without_claiming_language_verification(self):

@@ -21,7 +21,6 @@ $state = Join-Path $homeRoot 'P2\auto-lean120-state'
 
 foreach ($file in @(
     (Join-Path $secrets 'opensub.dpapi'),
-    (Join-Path $secrets 'gemini.dpapi'),
     $agent
 )) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
@@ -47,9 +46,15 @@ function Get-OwnerSecret([string] $file) {
 
 try {
     $env:OPENSUBTITLES_API_KEY = Get-OwnerSecret (Join-Path $secrets 'opensub.dpapi')
-    $env:GEMINI_API_KEY = Get-OwnerSecret (Join-Path $secrets 'gemini.dpapi')
+    # Antigravity must use the signed-in Windows owner's account quota,
+    # NEVER an API key accidentally inherited from another project.
+    foreach ($name in @('GEMINI_API_KEY','GOOGLE_API_KEY',
+                        'GOOGLE_GEMINI_BASE_URL','AGY_ADC_AUTH',
+                        'GOOGLE_CLOUD_PROJECT','GOOGLE_CLOUD_QUOTA_PROJECT')) {
+        Remove-Item -Path ("Env:" + $name) -ErrorAction SilentlyContinue
+    }
     $env:PYTHONUTF8 = '1'
-    # Owner-only Python; no keys or film data in GitHub runner context.
+    # Owner-only Python; no film data in GitHub runner context.
     # Optional P3/P4 mode is explicitly enrolled by the same Windows owner
     # via p3-p4-policy.json; never enabled by an OMP Play or GitHub runner.
     # With no policy, preserve the already accepted owner bridge unchanged.
@@ -75,6 +80,5 @@ try {
 }
 finally {
     Remove-Item Env:\OPENSUBTITLES_API_KEY -ErrorAction SilentlyContinue
-    Remove-Item Env:\GEMINI_API_KEY -ErrorAction SilentlyContinue
     Remove-Item Env:\PYTHONUTF8 -ErrorAction SilentlyContinue
 }

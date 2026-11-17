@@ -217,8 +217,8 @@ class V3CompositionTests(unittest.TestCase):
         provider = FakeProvider()
         worker = AutomaticLean120Worker(
             state_root=self.root / "work",
-            profile=ModelProfile("gemini", "gemini-4-hydrogen", "high"),
-            glossary={}, api_key="synthetic-key", transport=gemini)
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini)
         flow = AutomaticVietsubFlow(
             client=OpenSubtitles(api_key="synthetic", transport=provider),
             worker=worker, cache_root=self.root / "cache",
@@ -238,8 +238,8 @@ class V3CompositionTests(unittest.TestCase):
         gemini = FakeGemini()
         worker = AutomaticLean120Worker(
             state_root=self.root / "work-d1",
-            profile=ModelProfile("gemini", "gemini-4-hydrogen", "high"),
-            glossary={}, api_key="synthetic-key", transport=gemini)
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini)
         flow = AutomaticVietsubFlow(
             client=OpenSubtitles(api_key="synthetic", transport=provider),
             worker=worker, cache_root=self.root / "cache-d1",

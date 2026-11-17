@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
 
 from automatic_lean120_worker import AutomaticLean120Worker
 from assumed_source_handoff import AssumedEnglishSubtitle
@@ -20,7 +21,7 @@ from lean120_api import ModelProfile
 
 MEDIA = "media." + "a" * 64
 OTHER = "media." + "b" * 64
-PROFILE = ModelProfile("gemini", "gemini-4-hydrogen", "high")
+PROFILE = ModelProfile("antigravity", "gemini-4-hydrogen-high", "high")
 
 
 def source_srt(n: int) -> bytes:
@@ -55,23 +56,23 @@ def fake_response(ids) -> dict:
     }
 
 
-class FakeGemini:
+class FakeAntigravity:
     def __init__(self):
         self.calls = []
         self.fail_on = None
 
-    def __call__(self, url, headers, body, timeout):
-        payload = json.loads(body)
-        self_has_key = headers.get("x-goog-api-key")
-        assert self_has_key == "fake-test-key"
-        assert url.endswith("/gemini-4-hydrogen:generateContent")
-        assert payload["generationConfig"]["thinkingConfig"]["thinkingLevel"] in ("HIGH", "LOW")
-        ids = [x["id"] for x in json.loads(
-            payload["contents"][0]["parts"][0]["text"])["target"]]
+    def __call__(self, cmd, **kwargs):
+        assert "--sandbox" in cmd
+        assert "GEMINI_API_KEY" not in kwargs["env"]
+        prompt = json.loads(kwargs["input"].strip())["message"]["content"]
+        ids = [x["id"] for x in json.loads(prompt.split("\n", 1)[1])["target"]]
         self.calls.append(tuple(ids))
         if self.fail_on == len(self.calls):
-            raise ValueError("GEMINI_TRANSPORT_FAILED")
-        return fake_response(ids)
+            raise ValueError("AGY_PROCESS_FAILED_RESULT_UNKNOWN")
+        event = {"event": "result", "result": {"status": "SUCCESS",
+            "structured_output": {"translations": [
+                {"id": i, "vi": f"Phụ đề kiểm thử {i}"} for i in ids]}}}
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(event), "")
 
 
 class AutoLean120WorkerTests(unittest.TestCase):
@@ -79,15 +80,14 @@ class AutoLean120WorkerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "private-state"
-        self.provider = FakeGemini()
+        self.provider = FakeAntigravity()
 
     def worker(self, **kwargs):
         return AutomaticLean120Worker(
             state_root=kwargs.pop("state_root", self.root),
             profile=kwargs.pop("profile", PROFILE),
             glossary=kwargs.pop("glossary", {"Fictional": "Hư cấu"}),
-            api_key=kwargs.pop("api_key", "fake-test-key"),
-            transport=kwargs.pop("transport", self.provider),
+            runner=kwargs.pop("runner", self.provider),
         )
 
     def folders(self):
@@ -184,7 +184,7 @@ class AutoLean120WorkerTests(unittest.TestCase):
         source = handoff(241)
         self.provider.fail_on = 2
         emitted = []
-        with self.assertRaisesRegex(ValueError, "GEMINI_TRANSPORT_FAILED"):
+        with self.assertRaisesRegex(ValueError, "AGY_PROCESS_FAILED_RESULT_UNKNOWN"):
             self.worker().run(source, on_revision=emitted.append)
         self.assertEqual([r.translated_count for r in emitted], [120])
         self.assertEqual(len(self.provider.calls), 2)
@@ -252,8 +252,8 @@ class AutoLean120WorkerTests(unittest.TestCase):
             self.worker().run(replace(src, source_status="UNVERIFIED_OPEN_SUBTITLE"))
         with self.assertRaisesRegex(ValueError, "LEAN120_GLOSSARY_INVALID"):
             self.worker(glossary={"X": "Y" * 200}).run(src)
-        with self.assertRaisesRegex(ValueError, "GEMINI_API_KEY_REQUIRED"):
-            self.worker(api_key="")
+        with self.assertRaisesRegex(ValueError, "AUTO_LEAN120_RUNNER_INVALID"):
+            self.worker(runner="")
         with self.assertRaisesRegex(ValueError, "ABSOLUTE_PRIVATE_STATE_REQUIRED"):
             self.worker(state_root=Path("relative"))
         self.assertEqual(self.provider.calls, [])
@@ -262,7 +262,7 @@ class AutoLean120WorkerTests(unittest.TestCase):
     def test_profile_change_and_media_identity_create_isolated_jobs(self):
         src = handoff(1)
         self.worker().run(src)
-        low = ModelProfile("gemini", "gemini-4-hydrogen", "low")
+        low = ModelProfile("antigravity", "gemini-4-hydrogen-low", "low")
         self.worker(profile=low).run(src)
         self.worker().run(handoff(1, OTHER))
         self.assertEqual(len(self.folders()), 3)

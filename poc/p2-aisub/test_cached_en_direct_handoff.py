@@ -14,9 +14,10 @@ from cached_en_direct_handoff import (
     CachedEnReceipt, prepare_local_translation_source, run_local_translation,
 )
 from cue_pipeline import parse_cues
-from lean120_api import ModelProfile, _https_post
+from lean120_api import ModelProfile
+from fake_antigravity_cli import FakeAntigravity
 
-PROFILE = ModelProfile("gemini", "gemini-4-hydrogen", "high")
+PROFILE = ModelProfile("antigravity", "gemini-4-hydrogen-high", "high")
 
 
 def synthetic_srt(count: int = 125) -> bytes:
@@ -38,26 +39,6 @@ class FakeWorker:
     def run(self, source, *, on_revision):
         self.calls.append((source, on_revision))
         return "TRANSLATION_FAKE_OK"
-
-
-class FakeGemini:
-    def __init__(self):
-        self.calls = []
-    def __call__(self, url, headers, body, timeout):
-        data = json.loads(body)
-        cues = json.loads(data["contents"][0]["parts"][0]["text"])["target"]
-        ids = [cue["id"] for cue in cues]
-        self.calls.append(ids)
-        return {
-            "candidates": [{
-                "finishReason": "STOP",
-                "content": {"parts": [{
-                    "text": json.dumps({"translations": [
-                        {"id": i, "vi": f"Phụ đề kiểm thử {i}"} for i in ids
-                    ]}, ensure_ascii=False)
-                }]}
-            }]
-        }
 
 
 class CachedEnBridgeTests(unittest.TestCase):
@@ -103,13 +84,12 @@ class CachedEnBridgeTests(unittest.TestCase):
         self.assertEqual(fake.calls[0][0].cue_count, 125)
 
     def test_real_existing_lean120_worker_mocked_in_same_process(self):
-        provider = FakeGemini()
+        provider = FakeAntigravity(text_prefix="Phụ đề kiểm thử")
         worker = AutomaticLean120Worker(
             state_root=self.root / "checkpoint-only",
             profile=PROFILE,
             glossary={"Fictional": "Hư cấu"},
-            api_key="synthetic-only",
-            transport=provider,
+            runner=provider,
         )
         with mock.patch.dict("os.environ", {"CI": "true"}):
             final = run_local_translation(
@@ -144,11 +124,9 @@ class CachedEnBridgeTests(unittest.TestCase):
             state_root=self.root / "state",
             profile=PROFILE,
             glossary={},
-            api_key="fake",
-            transport=_https_post,
         )
         with mock.patch.dict("os.environ", {"CI": "true"}):
-            with self.assertRaisesRegex(ValueError, "LIVE_PROVIDER_FORBIDDEN_IN_CI"):
+            with self.assertRaisesRegex(ValueError, "P2_LIVE_PROVIDER_FORBIDDEN_IN_CI"):
                 run_local_translation(self.receipt, private_root=self.cache,
                                       worker=worker, cloud_upload_authorized=True)
         self.assertFalse((self.root / "state").exists())

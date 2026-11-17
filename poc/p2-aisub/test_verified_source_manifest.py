@@ -105,20 +105,20 @@ class VerifiedSourceManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "P2_OWNER_SOURCE_MANIFEST_SCOPE_INVALID"):
             build_controller(
                 media_key=MEDIA, source_file=None, source_manifest=self.manifest,
-                master_hex=SECRET.hex(), execute_api=True,
-                profile_file=profile, api_key="synthetic",
+                master_hex=SECRET.hex(), execute_provider=True,
+                profile_file=profile,
                 auto_state_dir=self.root/"private")
         with self.assertRaisesRegex(ValueError, "P2_OWNER_SOURCE_MANIFEST_SCOPE_INVALID"):
             build_controller(
                 media_key=None, source_file=None, source_manifest=self.manifest,
-                master_hex=SECRET.hex(), execute_api=False,
-                profile_file=profile, api_key="synthetic",
+                master_hex=SECRET.hex(), execute_provider=False,
+                profile_file=profile,
                 auto_state_dir=self.root/"private")
         with self.assertRaisesRegex(ValueError, "P2_AUTO_PRIVATE_STATE_DIR_REQUIRED"):
             build_controller(
                 media_key=None, source_file=None, source_manifest=self.manifest,
-                master_hex=SECRET.hex(), execute_api=True,
-                profile_file=profile, api_key="synthetic")
+                master_hex=SECRET.hex(), execute_provider=True,
+                profile_file=profile)
 
     def test_verified_source_by_tv_activation_starts_automatic_worker(self):
         from threading import Event
@@ -137,8 +137,8 @@ class VerifiedSourceManifestTests(unittest.TestCase):
         with mock.patch("run_assumed_source_gateway.AutomaticLean120Worker", FakeWorker):
             controller = build_controller(
                 media_key=None, source_file=None, source_manifest=self.manifest,
-                master_hex=SECRET.hex(), execute_api=True,
-                profile_file=profile, api_key="synthetic",
+                master_hex=SECRET.hex(), execute_provider=True,
+                profile_file=profile,
                 auto_state_dir=self.root/"private")
             self.assertEqual(invocations, [])  # No model invocation on setup.
             controller.activate(self.request(nonce="3"*32))

@@ -1,4 +1,4 @@
-"""Explicit PC-only prototype entrypoint: assumed EN source -> API -> paired TV.
+"""Explicit PC-only prototype entrypoint: EN source -> CLI provider -> paired TV.
 
 DOES NOT execute on import or in GitHub CI. No source discovery, no
 TorrServer/admin operations, no Windows service/firewall/UPnP modifications.
@@ -34,7 +34,7 @@ HEX_32 = re.compile(r"[0-9a-fA-F]{64}\Z")
 
 def build_controller(
     *, media_key: str, source_file: Path | None, master_hex: str,
-    execute_api: bool, profile_file: Path, api_key: str,
+    execute_provider: bool, profile_file: Path,
     glossary: dict[str,str] | None = None,
     mock_revisions: bool = False,
     mock_single_paired_media: bool = False,
@@ -43,15 +43,15 @@ def build_controller(
 ) -> PairedActivation:
     if not isinstance(master_hex,str) or not HEX_32.fullmatch(master_hex):
         raise ValueError("P4_DEVICE_PAIRING_KEY_REQUIRED")
-    if mock_revisions and execute_api:
-        raise ValueError("P4_MOCK_CANNOT_CALL_API")
+    if mock_revisions and execute_provider:
+        raise ValueError("P4_MOCK_CANNOT_CALL_PROVIDER")
     if mock_single_paired_media and (
         not mock_revisions or media_key is not None or
-        source_file is not None or execute_api
+        source_file is not None or execute_provider
     ):
         raise ValueError("P4_MOCK_SINGLE_PAIRED_MEDIA_SCOPE_INVALID")
     if source_manifest is not None:
-        if (not execute_api or mock_revisions or mock_single_paired_media or
+        if (not execute_provider or mock_revisions or mock_single_paired_media or
             media_key is not None or source_file is not None or
             not source_manifest.is_absolute() or
             not source_manifest.is_file() or source_manifest.is_symlink()):
@@ -71,9 +71,7 @@ def build_controller(
             media_key=media_key,fmt=source_file.suffix.lower()[1:],
             source_bytes=source_file.read_bytes())
     profile=load_profile(profile_file)
-    if execute_api and not api_key:
-        raise ValueError("GEMINI_API_KEY_ENV_REQUIRED")
-    if execute_api and auto_state_dir is None:
+    if execute_provider and auto_state_dir is None:
         raise ValueError("P2_AUTO_PRIVATE_STATE_DIR_REQUIRED")
     # The user-supplied file is assumed to be a correct English match.
     # No finder/ASR or semantic match claim from this function.
@@ -89,14 +87,14 @@ def build_controller(
             threading.Thread(target=run_mock,daemon=True,
                              name="p4-synthetic-feed").start()
             return
-        if not execute_api:
-            # Local activation dry-run; no paid API request and no fake captions.
+        if not execute_provider:
+            # Local activation dry-run; no provider call and no fake captions.
             return
         def run():
             try:
                 worker = AutomaticLean120Worker(
                     state_root=auto_state_dir, profile=profile,
-                    glossary=glossary, api_key=api_key)
+                    glossary=glossary)
                 final = worker.run(handoff, on_revision=feed.publish)
                 print("P2_AUTO_LEAN120_COMPLETE_PRIVATE_VI_FILE=true")
                 print("P2_AUTO_LEAN120_CUE_COUNT="+str(final.translated_count))
@@ -135,22 +133,22 @@ def main() -> int:
     parser.add_argument("--source-manifest",type=Path,
                         help="Owner-private verified EN source registry; exact TV media lookup AFTER HMAC")
     parser.add_argument("--mock-revisions",action="store_true",
-                        help="Dev-only synthetic 120→240; no source file or Gemini API")
+                        help="Dev-only synthetic 120→240; no source file or model call")
     parser.add_argument("--mock-single-paired-media",action="store_true",
                         help="Dev only: auto-bind one correctly HMAC-authenticated TV media, no manual key")
     parser.add_argument("--profile",type=Path,
         default=Path(__file__).with_name("translator_profile.json"))
     parser.add_argument("--glossary-json",type=Path)
-    parser.add_argument("--execute-api",action="store_true")
+    parser.add_argument("--execute-provider",action="store_true")
     parser.add_argument("--auto-state-dir",type=Path,
-        help="Required with --execute-api: private owner-only durable LEAN120 checkpoints")
+        help="Required with --execute-provider: private owner-only durable LEAN120 checkpoints")
     parser.add_argument("--start-lan",action="store_true")
     parser.add_argument("--tls-cert",type=Path,
                         help="Explicit owner-generated PEM with IP-SAN for --bind")
     parser.add_argument("--tls-key",type=Path,
                         help="Matching owner-held private key outside repository")
     args=parser.parse_args()
-    if args.execute_api and (
+    if args.execute_provider and (
         os.environ.get("GITHUB_ACTIONS", "").lower() == "true" or
         os.environ.get("CI", "").lower() == "true"
     ):
@@ -160,13 +158,12 @@ def main() -> int:
     if args.tls_cert is None or args.tls_key is None:
         parser.error("P4_TLS_CERT_AND_KEY_REQUIRED")
     key=os.environ.get("P4_PAIRING_MASTER_HEX","")
-    api_key=os.environ.get("GEMINI_API_KEY","")
     glossary=(json.loads(args.glossary_json.read_text(encoding="utf-8"))
               if args.glossary_json else {})
     controller=build_controller(
         media_key=args.media_key,source_file=args.source,
-        master_hex=key,execute_api=args.execute_api,
-        profile_file=args.profile,api_key=api_key,glossary=glossary,
+        master_hex=key,execute_provider=args.execute_provider,
+        profile_file=args.profile,glossary=glossary,
         mock_revisions=args.mock_revisions,
         mock_single_paired_media=args.mock_single_paired_media,
         auto_state_dir=args.auto_state_dir,

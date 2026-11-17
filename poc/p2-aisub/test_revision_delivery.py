@@ -10,13 +10,14 @@ from cue_pipeline import parse_cues
 from progressive_handoff import ProgressiveSubtitleSession
 from revision_delivery import PairedSubtitleReceiver, sign_revision
 from lean120_api import ModelProfile, translate_all
+from fake_antigravity_cli import FakeAntigravity
 
 SID = "synthetic_tv_session_0001"
 A = "media." + "a" * 64
 B = "media." + "b" * 64
 SECRET = b"synthetic_test_pairing_secret_32b"
 WRONG_SECRET = b"other_synthetic_pairing_secret"
-PROFILE = ModelProfile("gemini", "gemini-3.8-flash", "medium")
+PROFILE = ModelProfile("antigravity", "gemini-4-hydrogen-high", "medium")
 
 
 def srt(count: int) -> bytes:
@@ -25,14 +26,6 @@ def srt(count: int) -> bytes:
         f"00:{(i-1)//60:02d}:{(i-1)%60:02d},850\nFictional source {i}."
         for i in range(1, count+1)
     )+"\n").encode("utf8")
-
-
-def fake_api(url, headers, body, timeout):
-    req=json.loads(body.decode("utf-8"))
-    target=json.loads(req["contents"][0]["parts"][0]["text"])["target"]
-    rows=[{"id":r["id"],"vi":f"Câu dịch thử {r['id']}"} for r in target]
-    return {"candidates":[{"finishReason":"STOP",
-             "content":{"parts":[{"text":json.dumps({"translations":rows},ensure_ascii=False)}]}}]}
 
 
 class P4RevisionDeliveryTests(unittest.TestCase):
@@ -56,8 +49,7 @@ class P4RevisionDeliveryTests(unittest.TestCase):
 
     def revisions(self):
         return translate_all(self.source,"srt",A,PROFILE,
-            glossary={"name":"tên nhân vật"},api_key="synthetic",
-            transport=fake_api)
+            glossary={"name":"tên nhân vật"},runner=FakeAntigravity())
 
     def test_full_chain_api_to_cumulative_offers_no_per_batch_picker(self):
         revisions=self.revisions()
