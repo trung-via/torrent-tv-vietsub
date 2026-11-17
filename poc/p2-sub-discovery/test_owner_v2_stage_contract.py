@@ -46,6 +46,15 @@ class StageContractTest(unittest.TestCase):
                     hashlib.sha256(simulated_windows.replace(b"\r\n", b"\n")).hexdigest(),
                     expected)
 
+    def test_r0_stage_does_not_reuse_legacy_v2_staging(self):
+        stage = SCRIPT.read_text(encoding="utf-8")
+        activation = (REPO / "hostops/setup/owner-p3p4-v2-offline-activation.ps1").read_text(encoding="utf-8")
+        expected_folder = "p3p4-r0-eca75e1f-086ae9a7-d09c8503"
+        self.assertIn(expected_folder, stage)
+        self.assertIn(expected_folder, activation)
+        self.assertNotIn("p3p4-ingress-v2-f7fdb024", stage)
+        self.assertNotIn("p3p4-ingress-v2-f7fdb024", activation)
+
     def test_stage_does_not_change_running_owner_or_start_provider(self):
         script = SCRIPT.read_text(encoding="utf-8")
         for forbidden in (
