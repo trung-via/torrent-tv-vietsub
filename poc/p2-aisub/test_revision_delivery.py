@@ -17,7 +17,7 @@ A = "media." + "a" * 64
 B = "media." + "b" * 64
 SECRET = b"synthetic_test_pairing_secret_32b"
 WRONG_SECRET = b"other_synthetic_pairing_secret"
-PROFILE = ModelProfile("antigravity", "gemini-4-hydrogen-high", "medium")
+PROFILE = ModelProfile("antigravity", "gemini-4-hydrogen-high", "high")
 
 
 def srt(count: int) -> bytes:

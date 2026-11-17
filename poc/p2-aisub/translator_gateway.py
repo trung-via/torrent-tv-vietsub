@@ -20,6 +20,7 @@ from progressive_handoff import TranslationWindow
 
 
 _MODEL_SLUG = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
+_THINKING_LEVELS = frozenset({"low", "medium", "high"})
 _MAX_STDOUT = 2_000_000
 _SCHEMA = {
     "type": "object", "properties": {
@@ -151,13 +152,28 @@ def _parse_response(raw: str, window: TranslationWindow) -> dict[int, str]:
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def _validated_antigravity_alias(model: object, thinking_level: object) -> str:
+    """Require an explicit level-bearing CLI model alias, not an ignored knob.
+
+    This checks internal consistency only. The real CLI's advertised model
+    aliases still need a read-only Windows verification before a provider call.
+    """
+    if not isinstance(model, str) or not _MODEL_SLUG.fullmatch(model):
+        raise ValueError("AGY_MODEL_SLUG_INVALID")
+    if (not isinstance(thinking_level, str) or
+            thinking_level not in _THINKING_LEVELS or
+            not model.endswith("-" + thinking_level)):
+        raise ValueError("AGY_MODEL_THINKING_LEVEL_MISMATCH")
+    return model
+
+
 def antigravity_translate(window: TranslationWindow, *, model: str,
+                          thinking_level: str,
                           glossary: Mapping[str, str],
                           runner: Runner = subprocess.run,
                           executable: str = "agy") -> dict[int, str]:
     """One bounded CLI turn; no subtitle text in argv, logs or env."""
-    if not isinstance(model, str) or not _MODEL_SLUG.fullmatch(model):
-        raise ValueError("AGY_MODEL_SLUG_INVALID")
+    model = _validated_antigravity_alias(model, thinking_level)
     prompt = _prompt(window, glossary)  # Validate before invoking provider.
     cli = preflight_antigravity(executable=executable) if runner is subprocess.run else executable
     child_env = dict(os.environ)
@@ -196,6 +212,9 @@ def preflight_provider(profile: object) -> None:
     name = getattr(profile, "provider", None)
     if not provider_enabled(name):
         raise ValueError("TRANSLATION_PROVIDER_NOT_ENABLED")
+    if name == "antigravity":
+        _validated_antigravity_alias(getattr(profile, "model", None),
+                                     getattr(profile, "thinking_level", None))
     _PREFLIGHTS[name]()
 
 
@@ -207,4 +226,6 @@ def translate_window(window: TranslationWindow, profile: object, *,
     if not provider_enabled(name):
         raise ValueError("TRANSLATION_PROVIDER_NOT_ENABLED")
     backend = _BACKENDS[name]
-    return backend(window, model=profile.model, glossary=glossary, runner=runner)
+    return backend(window, model=profile.model,
+                   thinking_level=profile.thinking_level,
+                   glossary=glossary, runner=runner)

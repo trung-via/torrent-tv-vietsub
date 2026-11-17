@@ -64,7 +64,8 @@ Enabling `EN_DIRECT` explicitly skips **online** VI only; it does not mean
 ignoring an existing VI track in the active OMP session.
 
 EN delivery continues through D3 Draft #128 into the **existing** P2 LEAN120
-Gemini API Draft #118 (configurable provisional model profile), and then the
+worker (historically Gemini API Draft #118, now Antigravity CLI Draft #173;
+see [current owner guide](../p2-aisub/ANTIGRAVITY-OWNER-CURRENT.md)), and then the
 existing P4 signed receiver Draft #120/G2 Draft #115. No new translation
 transport/TV listener or duplicate model code is authorized by this policy.
 

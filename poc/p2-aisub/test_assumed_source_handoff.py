@@ -15,7 +15,7 @@ MEDIA="media."+"a"*64
 OTHER="media."+"b"*64
 SID="synthetic_tv_session_0001"
 KEY=b"offline-paired-subtitle-secret-key-32"
-PROFILE=ModelProfile("antigravity","gemini-4-hydrogen-high","medium")
+PROFILE=ModelProfile("antigravity","gemini-4-hydrogen-high","high")
 
 
 def synthetic_srt(n=245):

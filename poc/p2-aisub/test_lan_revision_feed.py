@@ -136,7 +136,7 @@ class SessionRevisionFeedTests(TestCase):
         fake_cli=FakeAntigravity(text_prefix="Vietsub số")
         profile = ModelProfile.from_json({
             "provider":"antigravity", "model":"gemini-4-hydrogen-high",
-            "thinking_level":"medium",
+            "thinking_level":"high",
         })
         with self.assertRaisesRegex(ValueError,"P4_FEED_SOURCE_SHA_MISMATCH"):
             translate_into_feed(src+b"tamper","srt",MEDIA,profile,

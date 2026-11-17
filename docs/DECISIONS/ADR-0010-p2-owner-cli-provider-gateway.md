@@ -51,6 +51,13 @@ The active profile is `poc/p2-aisub/translator_profile.json`:
 
 Changing the model/profile changes the checkpoint job fingerprint. It must
 never silently bypass an unfinished earlier provider call.
+The Antigravity implementation now rejects a model alias whose final
+`-low`, `-medium` or `-high` segment disagrees with the configured
+`thinking_level`; it does not silently ignore that setting. This is only a
+source-level consistency assertion. Verify actual CLI alias/flag support on
+Windows before a live call; no undocumented `--thinking-level` flag is assumed.
+The current runnable guide is
+[`ANTIGRAVITY-OWNER-CURRENT.md`](../../poc/p2-aisub/ANTIGRAVITY-OWNER-CURRENT.md).
 
 ## Account/cost controls
 

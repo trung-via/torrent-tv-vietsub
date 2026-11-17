@@ -128,7 +128,7 @@ class PCActivationTests(unittest.TestCase):
         fake_provider=FakeAntigravity(text_prefix="Câu thử nghiệm")
         def start_translation(feed,source):
             translate_supplied_to_feed(
-                source,ModelProfile("antigravity","gemini-4-hydrogen-high","medium"),
+                source,ModelProfile("antigravity","gemini-4-hydrogen-high","high"),
                 feed=feed,glossary={},runner=fake_provider)
         paired=PairedActivation(
             device_secret=MASTER,supplied={MEDIA:self.handoff},

@@ -1,5 +1,10 @@
 # D2.5 → P2 Direct Pipeline — composed source, no redundant handoffs
 
+> Historical composition note for Draft #134. Current P2 execution is
+> Antigravity CLI via Draft #173. Use
+> [current owner guide](../p2-aisub/ANTIGRAVITY-OWNER-CURRENT.md)
+> before any operator action; direct Gemini Developer API is retired.
+
 **Owner decision:** continue the small, direct integration. This is the
 standalone composed source candidate in [Draft #134](https://github.com/trung-via/torrent-tv-vietsub/pull/134),
 tracking [Issue #132](https://github.com/trung-via/torrent-tv-vietsub/issues/132).
@@ -47,7 +52,7 @@ D3 real TorrServer+OMP media match -> P4 signed receiver -> existing OMP/G2
 
 - Integration branch is a two-parent source-preserving Git composition of
   upstream D2.5 Draft #130 and P2 API/bridge Draft #133 (which contains #118).
-  No second Gemini client, VTT serializer, parser, prompt, model selection,
+  No second translation client, VTT serializer, parser, prompt, model selection,
   directory cache, dispatcher or new TCP/LAN listener was created.
 - Existing D2 function `download_one_exact_en(...)` now has an **optional**
   `on_cached_en(path, Asset)` callback, invoked once **only after successful
@@ -85,31 +90,31 @@ python poc/p2-sub-discovery/owner_vietsub_pipeline.py \
 
 This only performs local path/SHA/cue verification and reports
 `P2_CACHED_EN_REVALIDATED=PASS`, `OPEN_SUBTITLES_GET_POST=0`,
-`GEMINI_API_REQUESTS=0` and `TV_DELIVERY=NOT_RUN`. Keys do not need to be
+`ANTIGRAVITY_CLI_REQUESTS=0` and `TV_DELIVERY=NOT_RUN`. Provider credentials are not needed to
 configured to verify local cache. The baseline real EN provider acquisition
 is **HUMAN_REPORTED_PASS** with 1,761 cues; do not download it again just
 to start translation.
 
-The flags `--execute-api --authorize-cloud-upload` **both** must be present
-before the CLI uses the existing Gemini API/LEAN120 worker and the owner-local
-`GEMINI_API_KEY`. This is a distinct, future **authorized provider action**:
+The flags `--execute-provider --authorize-cloud-upload` **both** must be present
+before the current CLI invokes the Antigravity/LEAN120 worker under the
+signed-in interactive Windows account. This is a distinct **authorized provider action**:
 it can translate all source windows and incur quota, so do not run merely to
 prove the source integration. Provider/model are chosen by the existing local
-P2 `translator_profile.json` (configurable; current provisional Gemini
-profile). No source text is printed or sent to public GitHub. There is no
+P2 `translator_profile.json` (current Antigravity model alias
+`gemini-4-hydrogen-high`, level `high`). No source text is printed or sent to public GitHub. There is no
 P4 network activation in this CLI.
 
 ## Acceptance / failure boundaries
 
 **Source-only/MOCK**: test D2 VI_FAST and EN ranking, exactly one POST,
-SRT QA, callback, fake Gemini two LEAN120 windows, original source timestamps,
+SRT QA, callback, fake CLI two LEAN120 windows, original source timestamps,
 per-job checkpoint reuse, local read-only revalidation, no second POST or
 provider call, cancel/VI precedence/SDH denial/source tamper, cloud gate,
 and fail-closed provider uncertainty. Both D2 and P2 CI suites must PASS at
 the same combined SHA, not separately cited as composed proof.
 
 **Real evidence:** Human has already reported one EN provider acquisition
-and private cache PASS. This is **not** Gemini live translation, TorrServer
+and private cache PASS. This is **not** Antigravity live translation, TorrServer
 video synchronization, verified real OMP media binding, signed P4 delivery or
 Redmi on-screen E2E PASS. Do not merge this Draft to main without required
 review and the independent evidence gates of the applicable source and TV

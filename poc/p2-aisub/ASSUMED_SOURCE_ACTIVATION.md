@@ -1,5 +1,9 @@
 # P2 -> P4 assumed English subtitle input (2026-11-12)
 
+**2026-11-18 update:** translation execution now follows
+[the Antigravity CLI owner guide](ANTIGRAVITY-OWNER-CURRENT.md) and ADR-0010;
+the historical Gemini transport below is superseded.
+
 HUMAN DECISION: Brain subtitle discovery is deferred. Assume a correctly
 matched English timed SRT/VTT for the currently playing film has already
 been supplied to the PC. This is a TEST PRECONDITION, not evidence that a
@@ -21,8 +25,8 @@ finder exists or verified language, dialogue or timing against the video.
 5. Both sides derive the same per-film key from the paired master, session,
    media key and source SHA. TV reads that session's cumulative signed feed
    with a unique HMAC-authenticated GET nonce.
-6. Explicit PC worker may call configured LEAN120 Gemini API (temporary
-   gemini-3.8-flash, medium; profile replaceable), publishing cumulative
+6. Explicit PC worker may call the configured LEAN120 Antigravity CLI gateway
+   (profile-selected, no direct billed developer API), publishing cumulative
    120->240->... SRT/VTT after each validated batch.
 7. TV verifies session/film/source/sha/HMAC/version, user ON and VLC;
    native G1 app-private file import and G2 first-frame ACK remain distinct.
@@ -36,8 +40,9 @@ finder exists or verified language, dialogue or timing against the video.
   with fresh nonce and bounded replay ledger, RFC1918-only bind.
 - run_assumed_source_gateway.py: explicit opt-in Windows PC prototype.
   A real listener requires --start-lan; a live provider additionally
-  requires --execute-api, GEMINI_API_KEY in local environment and an
-  explicit supplied source file. Master key stays in P4_PAIRING_MASTER_HEX.
+  requires `--execute-provider`, a signed-in owner CLI session and an
+  explicitly supplied source or verified owner manifest. Master key stays in
+  P4_PAIRING_MASTER_HEX.
 - P4 PR #120 separately owns Android Keystore, one-time developer-stage
   host:port|64hex key provisioning, native D-pad Bật/Tắt Vietsub AI,
   per-film activation and polling.
@@ -56,5 +61,5 @@ The host must already know the exact film media key and source bytes:
 future Brain discovery can replace only this upstream input, without
 changing LEAN120 or the G1/G2 TV contract.
 
-Offline tests cannot certify real Gemini translation quality, source/movie
+Offline tests cannot certify real Antigravity translation quality, source/movie
 match, actual PC-TV LAN exchange, Redmi no-picker behavior or G4 release.

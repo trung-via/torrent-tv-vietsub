@@ -35,8 +35,8 @@ class Lean120GatewayTests(unittest.TestCase):
         self.assertEqual(load_profile(Path(__file__).with_name("translator_profile.json")),
                          self.profile)
         other = ModelProfile.from_json({
-            "provider": "antigravity", "model": "gemini-3.7-flash", "thinking_level": "low"})
-        self.assertEqual(other.model, "gemini-3.7-flash")
+            "provider": "antigravity", "model": "example-model-low", "thinking_level": "low"})
+        self.assertEqual(other.model, "example-model-low")
 
     def test_codex_is_future_configurable_but_not_active(self):
         future = ModelProfile.from_json({
@@ -140,8 +140,8 @@ class Lean120GatewayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "profile.json"
             source.write_text(json.dumps({"provider": "antigravity",
-                "model": "gemini-3.7-flash", "thinking_level": "medium"}), encoding="utf8")
-            self.assertEqual(load_profile(source).model, "gemini-3.7-flash")
+                "model": "example-model-medium", "thinking_level": "medium"}), encoding="utf8")
+            self.assertEqual(load_profile(source).model, "example-model-medium")
 
 
 if __name__ == "__main__":

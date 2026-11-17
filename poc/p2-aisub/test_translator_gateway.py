@@ -75,8 +75,29 @@ class GatewayTests(unittest.TestCase):
                 return subprocess.CompletedProcess(cmd, rc, raw, "private diagnostics")
             with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
                 antigravity_translate(self.window, model=self.profile.model,
+                                     thinking_level=self.profile.thinking_level,
                                      glossary={}, runner=fake)
             self.assertEqual(len(calls), 1)
+
+    def test_thinking_level_matches_forwarded_model_alias(self):
+        calls = []
+        def fake(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        mismatch = ModelProfile("antigravity", "gemini-4-hydrogen-high", "medium")
+        with self.assertRaisesRegex(ValueError, "AGY_MODEL_THINKING_LEVEL_MISMATCH"):
+            translate_window(self.window, mismatch, glossary={}, runner=fake)
+        self.assertEqual(calls, [])
+        for level in ("low", "medium", "high"):
+            profile = ModelProfile("antigravity", f"example-model-{level}", level)
+            result = {"event": "result", "result": {"status": "SUCCESS",
+                      "structured_output": {"translations": [{"id": 1, "vi": "Xin chào"}]}}}
+            def ok(cmd, **kwargs):
+                self.assertEqual(cmd[cmd.index("--model") + 1], profile.model)
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(result), "")
+            self.assertEqual(translate_window(self.window, profile, glossary={}, runner=ok),
+                             {1: "Xin chào"})
 
     def test_wrong_id_not_committed(self):
         payload = {"event": "result", "result": {"status": "SUCCESS",
