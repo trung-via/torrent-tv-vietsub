@@ -11,6 +11,13 @@ from threading import Lock
 EVENTS = frozenset((
     "state_accepted", "state_rejected", "selection_dispatched",
     "selection_skipped", "selection_rejected",
+    "selection_rejected_bad_wire",
+    "selection_rejected_current_tv_or_torrserver_unavailable",
+    "selection_rejected_media_mismatch",
+    "selection_rejected_owner_policy",
+    "selection_rejected_enqueue",
+    "selection_rejected_http_format",
+    "selection_rejected_unknown",
     "state_rejected_auth", "state_rejected_clock",
     "state_rejected_replay", "state_rejected_format",
     "state_rejected_other",

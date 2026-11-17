@@ -18,7 +18,7 @@ owner-interactive maintenance window, and a verified task/process stop.
 In default inspection mode, the corrected Owner-interactive tool compares all
 three **installed** modules with the reviewed V1 canonical hashes or V2 exact
 bytes, and checks the V2 telemetry module. It emits only
-`TTV_OWNER_V2_INSTALLED_SOURCE=V1_SOURCE_EXACT|V2_SOURCE_EXACT|MIXED_OR_UNKNOWN`.
+`TTV_OWNER_V2_INSTALLED_SOURCE=V1_SOURCE_EXACT|V2_PRE_R0_SOURCE_EXACT|V2_R0_SOURCE_EXACT|MIXED_OR_UNKNOWN`.
 Mixed, missing or modified modules fail closed. The stage-only hash result must
 never be interpreted as the installed version.
 

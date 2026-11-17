@@ -120,17 +120,25 @@ if (-not (Test-TTVOwnerTaskPrincipal -Principal $task.Principal -ExpectedSid $id
 Write-Host 'TTV_OWNER_V2_TASK_IDENTITY=VERIFIED'
 Write-Host ('TTV_OWNER_V2_TASK_STATE=' + [string]$task.State)
 
-# Baseline is the exact V1 source from Draft #164; V2 is exact Draft #165.
+# Baseline is V1 source from Draft #164; pre-R0 V2 remains recognizable.
+# Current R0 pins extend V2 telemetry and reject categories without making
+# any old running process automatically newer or permitting an in-place swap.
 $baseline = [ordered]@{
     'owner_p3_p4_diagnostics.py' = 'bfcea3975b92a34e6378785919ba5d079865933f9117476f04f39bf1bc8f0f69'
     'p3_owner_state_wiring.py' = '5129cea28781ab9f0e6aa22895769f1eb7074ce0703fc34c706dc9145432e740'
     'p3_p4_shared_https_route.py' = '65c0f5fd8c909091230bf69be954cdbab3b604a8f6a4fe60053a565341157189'
 }
-$v2 = [ordered]@{
+$v2PreR0 = [ordered]@{
     'owner_p3_p4_diagnostics.py' = 'a30bc451c4d8d0c38d9899773c9c33a9c0e0ba7e0bf98cd0f351c2f873877886'
     'p3_owner_state_wiring.py' = '4bbafda8444413a2d7e907f10aa2cce904be03e8bcb1075f39e01fa4bd60e73a'
     'p3_p4_shared_https_route.py' = 'ab9deb57a7d568c1a5141a50a18afe5831577242d0e8e7723f569dec4ef27d2e'
     'p3_ingress_telemetry.py' = '69f6711496575dd61ba82d3260d39726232b761bc395e22c10435d917c405b69'
+}
+$v2 = [ordered]@{
+    'owner_p3_p4_diagnostics.py' = 'eca75e1f29f98cf8df356f5bf9e29e1f30ffa0ea4205a4be93ffabe55e36f524'
+    'p3_owner_state_wiring.py' = '4bbafda8444413a2d7e907f10aa2cce904be03e8bcb1075f39e01fa4bd60e73a'
+    'p3_p4_shared_https_route.py' = '086ae9a77816ba0077d257e5493676d46ba7347a316d1b8d15a36aaa5cb6ad4e'
+    'p3_ingress_telemetry.py' = 'd09c8503ab13577b3102f943e402cf98e2e78b4192f61597e9eb0a6d9c63b67d'
 }
 foreach ($name in $v2.Keys) {
     $src = Join-Path $stage $name
@@ -144,6 +152,7 @@ Write-Host 'TTV_OWNER_V2_STAGED_BYTES=VERIFIED'
 function GetOwnerInstalledSourceVersion {
     $v1Exact = $true
     $v2Exact = $true
+    $v2PreR0Exact = $true
     foreach ($name in $baseline.Keys) {
         $installed = Join-Path $app $name
         if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) {
@@ -152,6 +161,7 @@ function GetOwnerInstalledSourceVersion {
         SafeItem $installed $false
         if ((V1CanonicalHash $installed) -cne $baseline[$name]) { $v1Exact = $false }
         if ((ExactHash $installed) -cne $v2[$name]) { $v2Exact = $false }
+        if ((ExactHash $installed) -cne $v2PreR0[$name]) { $v2PreR0Exact = $false }
     }
     $telemetry = Join-Path $app 'p3_ingress_telemetry.py'
     $hasTelemetry = Test-Path -LiteralPath $telemetry
@@ -159,7 +169,11 @@ function GetOwnerInstalledSourceVersion {
     if ($v1Exact -and -not $hasTelemetry) { return 'V1_SOURCE_EXACT' }
     if ($v2Exact -and $hasTelemetry -and
         (ExactHash $telemetry) -ceq $v2['p3_ingress_telemetry.py']) {
-        return 'V2_SOURCE_EXACT'
+        return 'V2_R0_SOURCE_EXACT'
+    }
+    if ($v2PreR0Exact -and $hasTelemetry -and
+        (ExactHash $telemetry) -ceq $v2PreR0['p3_ingress_telemetry.py']) {
+        return 'V2_PRE_R0_SOURCE_EXACT'
     }
     return 'MIXED_OR_UNKNOWN'
 }

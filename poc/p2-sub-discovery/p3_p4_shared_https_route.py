@@ -26,6 +26,35 @@ from p3_ingress_telemetry import P3IngressTelemetry
 
 P3_POST_ROUTE = "/p3/selection"
 P3_STATE_ROUTE = "/p3/state"
+
+# Map only the typed, source-defined decision vocabulary. These classifications
+# are internal counters, never sent in HTTP errors, logs or persisted payloads.
+_SELECTION_REASONS = {
+    "SIGNED_TV_MESSAGE_INVALID": "bad_wire",
+    "OWNER_CURRENT_TV_READ_FAILED": "current_tv_or_torrserver_unavailable",
+    "TRUSTED_SOURCE_UNAVAILABLE": "current_tv_or_torrserver_unavailable",
+    "MALFORMED_EVENT": "current_tv_or_torrserver_unavailable",
+    "UNATTESTED_OR_STALE_SELECTION": "current_tv_or_torrserver_unavailable",
+    "TV_VIEWER_REQUEST_CURRENT_MEDIA_MISMATCH": "media_mismatch",
+    "VIEWER_REQUEST_SOURCE_CHANGED": "media_mismatch",
+    "MEDIA_IDENTITY_UNVERIFIED": "media_mismatch",
+    "OWNER_AUTO_DISABLED": "owner_policy",
+    "SUBTITLE_CHOICE_UNKNOWN": "owner_policy",
+    "VIEWER_OFF_OR_OTHER": "owner_policy",
+    "MEDIA_POLICY_NOT_APPROVED": "owner_policy",
+    "NO_VERIFIED_VIEWER_REQUEST": "owner_policy",
+    "VI_TRACK_STATUS_INVALID": "owner_policy",
+    "OWNER_PLAYBACK_PRIVATE_ENQUEUE_FAILED": "enqueue",
+}
+
+
+def _selection_reason_bucket(reason: object) -> str:
+    """Conservatively classify a known rejection, never inspect raw details."""
+    if type(reason) is not str:
+        return "unknown"
+    return _SELECTION_REASONS.get(reason, "unknown")
+
+
 def make_p3_p4_handler(
     controller: PairedActivation, p3: SignedP3ToOwner,
     state_cache: SignedRedmiStateCache | None = None,
@@ -60,6 +89,14 @@ def make_p3_p4_handler(
                         # Only known, fixed private categories survive. Never
                         # persist raw exception text or return the category to TV.
                         ingress.record("state_rejected_" + reason)
+                    else:
+                        # HTTP framing uses the original `format` default.
+                        # Other selection causes are fixed vocabulary only.
+                        bucket = "http_format" if reason == "format" else reason
+                        if bucket not in _SELECTION_REASONS.values() and bucket not in (
+                                "http_format", "unknown"):
+                            bucket = "unknown"
+                        ingress.record("selection_rejected_" + bucket)
                 self.send_error(http_status)
 
             if self.path == P3_STATE_ROUTE and state_cache is None:
@@ -108,7 +145,7 @@ def make_p3_p4_handler(
                     self.end_headers()
                 else:
                     # Do not disclose which gate failed to the HTTP caller.
-                    rejected(403)
+                    rejected(403, _selection_reason_bucket(decision.reason))
             except RedmiStateRejected as exc:
                 code = exc.args[0] if exc.args else None
                 if code == "P3_STATE_AUTH_FAILED":
@@ -124,9 +161,17 @@ def make_p3_p4_handler(
                 else:
                     category = "format"
                 rejected(403, category)
+            except ValueError as exc:
+                if is_state:
+                    rejected(403, "other")
+                else:
+                    rejected(403, _selection_reason_bucket(
+                        "OWNER_PLAYBACK_PRIVATE_ENQUEUE_FAILED"
+                        if exc.args == ("OWNER_PLAYBACK_PRIVATE_ENQUEUE_FAILED",)
+                        else None))
             except Exception:
                 # No media filename/hash/path/secret or provider error in
                 # HTTP response, stdout or BaseHTTPRequestHandler logs.
-                rejected(403, "other")
+                rejected(403, "other" if is_state else "unknown")
 
     return PairedP3P4Handler

@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 from owner_p3_p4_diagnostics import (
-    RUNTIME_VERSION, _p3_only_snapshot, _tcp_only_probe,
+    RUNTIME_VERSION, _MAX_DIAG_BYTES, _p3_only_snapshot, _tcp_only_probe,
     read_diagnostic, write_diagnostic,
 )
 from p3_p4_triage_readonly import triage_next_gate
@@ -65,6 +65,7 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
         self.assertEqual(status["P3_HTTPS_STATE_REJECTED"], "1")
         self.assertEqual(status["P3_HTTPS_STATE_REJECTED_AUTH"], "0")
         self.assertEqual(status["P3_HTTPS_SELECTION_DISPATCHED"], "0")
+        self.assertEqual(status["P3_HTTPS_SELECTION_REJECTED_MEDIA_MISMATCH"], "0")
 
     def test_tcp_connect_is_local_only_and_cannot_claim_metadata_verified(self):
         self.assertEqual(_tcp_only_probe(object()), "CONFIG_INVALID")
@@ -109,7 +110,7 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
         path.write_text(json.dumps(value))
         self.assertEqual(read_diagnostic(owner_root=self.owner)["OWNER_RUNTIME_MODE"],
                          "NOT_OBSERVED")
-        path.write_text("x" * 1025)
+        path.write_text("x" * (_MAX_DIAG_BYTES + 1))
         self.assertEqual(read_diagnostic(owner_root=self.owner)["OWNER_RUNTIME_MODE"],
                          "NOT_OBSERVED")
         path.unlink()
@@ -146,6 +147,19 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
         ingress.record("state_rejected")
         self.assertEqual(ingress.snapshot()["state_rejected"], MAX_COUNT)
 
+    def test_all_selection_buckets_saturate_without_exceeding_receipt_limit(self):
+        for label in ("bad_wire", "current_tv_or_torrserver_unavailable",
+                      "media_mismatch", "owner_policy", "enqueue",
+                      "http_format", "unknown"):
+            self.wiring.ingress._counts["selection_rejected_" + label] = MAX_COUNT
+        with mock.patch("owner_p3_p4_diagnostics.socket.create_connection"):
+            write_diagnostic(owner_root=self.owner, wiring=self.wiring, state="READY")
+        self._health()
+        path = self.owner / "p3-p4-runtime-diagnostic.json"
+        self.assertLessEqual(path.stat().st_size, _MAX_DIAG_BYTES)
+        s = read_diagnostic(owner_root=self.owner)
+        self.assertEqual(s["P3_HTTPS_SELECTION_REJECTED_ENQUEUE"], str(MAX_COUNT))
+
     def test_safe_triage_never_invents_pairing_or_real_torrserver_proof(self):
         s = {"OWNER_HEARTBEAT": "READY_FRESH",
              "P3_HTTPS_INSTRUMENTED": "YES",
@@ -165,6 +179,17 @@ class OwnerP3P4DiagnosticTests(unittest.TestCase):
         s["P3_HTTPS_STATE_ACCEPTED"] = "1"
         self.assertEqual(triage_next_gate(s),
                          "VERIFY_EXACT_TORRSERVER_SELECTED_FILE_METADATA")
+        s["P3_HTTPS_SELECTION_REJECTED"] = "59"
+        self.assertEqual(triage_next_gate(s),
+                         "MEASURE_P3_SELECTION_REJECT_CATEGORIES")
+        s["P3_HTTPS_SELECTION_REJECTED_MEDIA_MISMATCH"] = "4"
+        self.assertEqual(triage_next_gate(s),
+                         "MEASURE_P3_SELECTION_MEDIA_MISMATCH")
+        s["P3_HTTPS_SELECTION_REJECTED_BAD_WIRE"] = "1"
+        self.assertEqual(triage_next_gate(s),
+                         "MEASURE_P3_SELECTION_REJECT_CATEGORIES")
+        s["P3_HTTPS_SELECTION_REJECTED_BAD_WIRE"] = "0"
+        s["P3_HTTPS_SELECTION_REJECTED_MEDIA_MISMATCH"] = "0"
         s["P3_STATE_FRESH"] = "FRESH_OFF"
         self.assertEqual(triage_next_gate(s),
                          "WAIT_FOR_EXPLICIT_CURRENT_FILM_REQUEST")
