@@ -1,5 +1,7 @@
 # G1 Production Vietsub — user-selected external SRT/VTT (Draft PR #38; Human-tested Debug)
 
+> **Superseded workflow note — 2026-11-17:** Issue #170 / FLAT Draft #172 is the current integration lane. The old PR #38 ChatGPT comment dispatch bridge is retired; the separate G1 manual build remains explicit-confirmation-only without repository visibility gating or publicly uploaded debug APK. Keep the 2026-11-05 real-TV G1 evidence below as a narrow historical acceptance, not a claim of R0–R3 automatic Vietsub E2E.
+
 ## Current acceptance checkpoint — 2026-11-05 (supersedes the historical draft milestones below)
 
 **Verdict:** `G1_FUNCTIONAL_ACCEPTED_HUMAN_REAL_TV_5_OF_5` / `G1_SUB_01_FIXED_IN_TESTED_SCENARIO` / `CI_DEBUG_UNIT_PASS` / `G4_RELEASE_UNVERIFIED` / `PR38_DRAFT_MERGE_PENDING`.
