@@ -77,11 +77,39 @@ class OfflineActivationContract(unittest.TestCase):
             "ROLLBACK_NOT_VERIFIED_MANUAL_RECOVERY",
         ):
             self.assertIn(required, source)
+        v1_apply = source.split("$attempted = @()", 1)[1]
         self.assertLess(
-            source.index("$attempted += $name"),
-            source.index("InvokeTTVAtomicReplacement $temp $dest 'v2-original'"),
+            v1_apply.index("$attempted += $name"),
+            v1_apply.index("InvokeTTVAtomicReplacement $temp $dest 'v2-original'"),
         )
         self.assertIn("ROLLBACK_TELEMETRY_REMAINS", source)
+
+    def test_pre_r0_offline_upgrade_is_scoped_and_recoverable(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        for required in (
+            "[switch]$BackupPreR0", "[switch]$ApplyPreR0",
+            "[string]$PreR0BackupFolder",
+            "V2_PRE_R0_SOURCE_EXACT", "p3p4-prer0-",
+            "PRE_R0_INSTALLED_SOURCE_NOT_EXACT",
+            "PRE_R0_INSTALLED_OR_BACKUP_HASH_MISMATCH",
+            "PRE_R0_ROLLBACK_HASH_MISMATCH",
+            "PRE_R0_ROLLBACK_NOT_VERIFIED_MANUAL_RECOVERY",
+            "TTV_OWNER_V2_PRE_R0=INSTALLED_R0_HASH_VERIFIED",
+        ):
+            self.assertIn(required, source)
+        apply = source.split("if ($ApplyPreR0) {", 1)[1].split(
+            "$recover = Join-Path $root 'recovery'\nSafeItem", 1)[0]
+        for required in (
+            "AssertMaintenanceLock", "AssertNoOwnerProcess",
+            "NoOpenWork $root", "ExactHash $saved",
+            "ExactHash $installed", "ExactHash $temp",
+        ):
+            self.assertIn(required, apply)
+        self.assertLess(
+            apply.index("$attemptedPreR0 += $name"),
+            apply.index("InvokeTTVAtomicReplacement $temp $dest 'v2-original'"),
+        )
+        self.assertIn("PRE_R0_APPLY_FAILED_ROLLBACK_VERIFIED", apply)
 
 
 if __name__ == "__main__":

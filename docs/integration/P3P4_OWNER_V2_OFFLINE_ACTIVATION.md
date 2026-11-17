@@ -82,6 +82,43 @@ Do **not** rerun the old downloaded activation bundle. A new owner-specific
 maintenance authorization and verified packaged source are required for a
 future retry; CI success alone is not authorization.
 
+## R0 upgrade from an already installed V2 pre-R0 Owner
+
+The additional **`-BackupPreR0` / `-ApplyPreR0 -PreR0BackupFolder`** modes
+address the real Owner diagnostic/version mismatch after the TV FLAT APK was
+installed: a fresh `P3P4-INTEGRATED-DIAGNOSTIC-V2` heartbeat can coexist with
+installed `V2_PRE_R0_SOURCE_EXACT`, which is not the R0 categorized version.
+The original V1-only `-Backup` and `-ApplyOffline` modes deliberately remain
+unchanged; **never** run V1 apply against installed pre-R0 V2.
+
+1. Use the exact reviewed FLAT R0 checkout (Draft #172), not the old downloaded
+   `3762d9f` activation folder. Owner-interactively run
+   `hostops/setup/stage-owner-p3p4-v2.ps1 -Stage`; it verifies all four source
+   SHA-256 pins and prepares inert Owner-private R0 module files. Stage never
+   replaces the currently running Owner.
+2. Owner-interactively invoke `owner-p3p4-v2-offline-activation.ps1` in default
+   read-only mode and require `V2_PRE_R0_SOURCE_EXACT`. If mixed/unknown, HOLD
+   and investigate; never infer pre-R0 merely from a `V2` runtime label.
+3. `-BackupPreR0` copies and verifies **all four installed V2 pre-R0 modules**
+   to a new private `recovery/p3p4-prer0-<random>` folder. Record the returned
+   backup ID; preserve the backup for an offline rollback.
+4. In an Owner-approved maintenance window, first ensure the TV Vietsub action
+   is inactive, verify inbox `event-*.json` and translator `.inflight` are empty,
+   disable then stop the **exact** Owner Scheduled Task from Owner PowerShell.
+   Verify the old heartbeat PID is gone, and no Owner process remains.
+5. Only then invoke `-ApplyPreR0 -PreR0BackupFolder <exact-private-backup>`.
+   The installer rechecks task disabled, process absence, work absence, stage,
+   installed pre-R0 and backup hashes, then atomically replaces the four
+   installed modules with pinned R0. Any mid-apply error attempts a verified
+   rollback to **the exact four pre-R0 bytes** while task remains disabled.
+6. Only after `TTV_OWNER_V2_PRE_R0=INSTALLED_R0_HASH_VERIFIED` should a separate
+   Owner-controlled task enable/start be considered. Verify a fresh new PID,
+   `P3P4-INTEGRATED-DIAGNOSTIC-V2-R0` and categorized P3 ingress counters.
+
+No mode stops/starts a task, terminates a process, touches credentials, re-pairs
+TV, modifies app data or invokes a paid API. This is source/CI only until the
+real Owner's supervised run and its receipt are observed.
+
 The installer deliberately **does not restart** the task or claim V2 live.
 The subsequent restart must be separately authorized, and the fresh V2
 diagnostic must be read in the **new matching Owner PID**, including real

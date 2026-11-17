@@ -5,7 +5,10 @@
 param(
     [Parameter(ParameterSetName = 'Backup')][switch]$Backup,
     [Parameter(ParameterSetName = 'Apply')][switch]$ApplyOffline,
-    [Parameter(ParameterSetName = 'Apply', Mandatory = $true)][string]$BackupFolder
+    [Parameter(ParameterSetName = 'Apply', Mandatory = $true)][string]$BackupFolder,
+    [Parameter(ParameterSetName = 'BackupPreR0')][switch]$BackupPreR0,
+    [Parameter(ParameterSetName = 'ApplyPreR0')][switch]$ApplyPreR0,
+    [Parameter(ParameterSetName = 'ApplyPreR0', Mandatory = $true)][string]$PreR0BackupFolder
 )
 
 $ErrorActionPreference = 'Stop'
@@ -178,7 +181,7 @@ function GetOwnerInstalledSourceVersion {
     return 'MIXED_OR_UNKNOWN'
 }
 
-if (-not $Backup -and -not $ApplyOffline) {
+if (-not $Backup -and -not $ApplyOffline -and -not $BackupPreR0 -and -not $ApplyPreR0) {
     $installedVersion = GetOwnerInstalledSourceVersion
     Write-Host ('TTV_OWNER_V2_INSTALLED_SOURCE=' + $installedVersion)
     Write-Host 'TTV_OWNER_V2_LOADED_RUNTIME=NOT_ATTESTED'
@@ -186,6 +189,41 @@ if (-not $Backup -and -not $ApplyOffline) {
         Hold 'INSTALLED_SOURCE_MIXED_OR_UNKNOWN'
     }
     Write-Host 'TTV_OWNER_V2_OFFLINE=READ_ONLY_INSPECT_PASS'
+    Write-Host 'TTV_OWNER_V2_RUNTIME=UNCHANGED'
+    exit 0
+}
+
+if ($BackupPreR0) {
+    if ((GetOwnerInstalledSourceVersion) -cne 'V2_PRE_R0_SOURCE_EXACT') {
+        Hold 'PRE_R0_INSTALLED_SOURCE_NOT_EXACT'
+    }
+    $recover = Join-Path $root 'recovery'
+    if (-not (Test-Path -LiteralPath $recover)) {
+        New-Item -ItemType Directory -Path $recover -ErrorAction Stop | Out-Null
+    }
+    SafeItem $recover $true
+    $folder = Join-Path $recover ('p3p4-prer0-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
+    foreach ($name in $v2PreR0.Keys) {
+        $installed = Join-Path $app $name
+        SafeItem $installed $false
+        if ((ExactHash $installed) -cne $v2PreR0[$name]) {
+            Hold 'PRE_R0_SOURCE_CHANGED_DURING_BACKUP'
+        }
+        $saved = Join-Path $folder $name
+        $stream = [IO.File]::Open($saved, [IO.FileMode]::CreateNew,
+                                  [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $bytes = [IO.File]::ReadAllBytes($installed)
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        } finally { $stream.Dispose() }
+        if ((ExactHash $saved) -cne $v2PreR0[$name]) {
+            Hold 'PRE_R0_BACKUP_HASH_MISMATCH'
+        }
+    }
+    Write-Host ('TTV_OWNER_V2_PRE_R0_BACKUP_ID=' + (Split-Path $folder -Leaf))
+    Write-Host 'TTV_OWNER_V2_PRE_R0_BACKUP=VERIFIED_PRIVATE'
     Write-Host 'TTV_OWNER_V2_RUNTIME=UNCHANGED'
     exit 0
 }
@@ -256,6 +294,90 @@ function AssertNoOwnerProcess {
 }
 AssertNoOwnerProcess
 NoOpenWork $root
+
+if ($ApplyPreR0) {
+    if ((GetOwnerInstalledSourceVersion) -cne 'V2_PRE_R0_SOURCE_EXACT') {
+        Hold 'PRE_R0_INSTALLED_SOURCE_NOT_EXACT'
+    }
+    $recover = Join-Path $root 'recovery'
+    SafeItem $recover $true
+    $recoverPrefix = [IO.Path]::GetFullPath($recover).TrimEnd('\') + '\'
+    $resolvedPreR0 = [IO.Path]::GetFullPath($PreR0BackupFolder)
+    if (-not $resolvedPreR0.StartsWith($recoverPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+        (Split-Path $resolvedPreR0 -Leaf) -cnotmatch '^p3p4-prer0-[0-9a-f]{32}$') {
+        Hold 'PRE_R0_BACKUP_PATH_INVALID'
+    }
+    SafeItem $resolvedPreR0 $true
+    foreach ($name in $v2PreR0.Keys) {
+        $installed = Join-Path $app $name
+        $saved = Join-Path $resolvedPreR0 $name
+        SafeItem $installed $false
+        SafeItem $saved $false
+        if ((ExactHash $installed) -cne $v2PreR0[$name] -or
+            (ExactHash $saved) -cne $v2PreR0[$name]) {
+            Hold 'PRE_R0_INSTALLED_OR_BACKUP_HASH_MISMATCH'
+        }
+    }
+    AssertMaintenanceLock
+    AssertNoOwnerProcess
+    NoOpenWork $root
+    Write-Host 'TTV_OWNER_V2_PRE_R0_PREPARE=VERIFIED_DISABLED_STOPPED_AND_BACKED_UP'
+    $attemptedPreR0 = @()
+    $applyPreR0Step = 'PREPARE_R0_TEMP'
+    try {
+        foreach ($name in $v2.Keys) {
+            AssertMaintenanceLock
+            AssertNoOwnerProcess
+            NoOpenWork $root
+            $dest = Join-Path $app $name
+            $temp = Join-Path $app ('.r0-update-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+            [IO.File]::WriteAllBytes($temp, [IO.File]::ReadAllBytes((Join-Path $stage $name)))
+            if ((ExactHash $temp) -cne $v2[$name]) { Hold 'R0_TEMP_HASH_MISMATCH' }
+            $attemptedPreR0 += $name
+            $applyPreR0Step = 'REPLACE_R0_MODULE'
+            InvokeTTVAtomicReplacement $temp $dest 'v2-original' | Out-Null
+        }
+        foreach ($name in $v2.Keys) {
+            if ((ExactHash (Join-Path $app $name)) -cne $v2[$name]) {
+                Hold 'R0_POSTINSTALL_HASH_MISMATCH'
+            }
+        }
+    } catch {
+        Write-Host ('TTV_OWNER_V2_PRE_R0_APPLY_FAILED_STEP=' + $applyPreR0Step)
+        try {
+            AssertMaintenanceLock
+            AssertNoOwnerProcess
+            foreach ($name in $attemptedPreR0) {
+                AssertMaintenanceLock
+                AssertNoOwnerProcess
+                $saved = Join-Path $resolvedPreR0 $name
+                if ((ExactHash $saved) -cne $v2PreR0[$name]) {
+                    Hold 'PRE_R0_RECOVERY_BACKUP_HASH_MISMATCH'
+                }
+                $dest = Join-Path $app $name
+                $temporary = Join-Path $app ('.prer0-restore-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+                [IO.File]::Copy($saved, $temporary)
+                if (Test-Path -LiteralPath $dest) {
+                    InvokeTTVAtomicReplacement $temporary $dest 'v1-displaced' | Out-Null
+                } else {
+                    [IO.File]::Move($temporary, $dest)
+                }
+            }
+            foreach ($name in $v2PreR0.Keys) {
+                if ((ExactHash (Join-Path $app $name)) -cne $v2PreR0[$name]) {
+                    Hold 'PRE_R0_ROLLBACK_HASH_MISMATCH'
+                }
+            }
+        } catch {
+            Hold 'PRE_R0_ROLLBACK_NOT_VERIFIED_MANUAL_RECOVERY'
+        }
+        Hold 'PRE_R0_APPLY_FAILED_ROLLBACK_VERIFIED'
+    }
+    Write-Host 'TTV_OWNER_V2_PRE_R0=INSTALLED_R0_HASH_VERIFIED'
+    Write-Host 'TTV_OWNER_V2_RESTART=NOT_PERFORMED'
+    Write-Host 'TTV_OWNER_V2_RUNTIME=NOT_YET_LOADED'
+    exit 0
+}
 
 $recover = Join-Path $root 'recovery'
 SafeItem $recover $true
