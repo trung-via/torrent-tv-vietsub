@@ -5,6 +5,7 @@ external network, LAN listener, private credentials or user media content.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
@@ -31,6 +32,7 @@ from owner_selected_file_resolver import CurrentPlaying, _fingerprint
 from owner_torrserver_readonly import OwnerTorrServerReader, OwnerLocalTorrServer
 from verified_v3_processor import VerifiedV3Processor
 from automatic_vietsub_flow import AutoResult
+from activation_gate import PlaybackSelected, evaluate_playback
 
 HASH = "a" * 40
 NAME = "Synthetic.Authorized.2017.1080p.BluRay-GRP.mkv"
@@ -169,6 +171,106 @@ class StreamOnlyPolicyTests(unittest.TestCase):
         policy = self.make_policy(probe=False)
         self.assertEqual(policy.verified_local_vi_state(PROFILE,HASH,2),"UNKNOWN")
         self.assertEqual(self.inventory_calls, [])
+
+    def test_empty_media_is_personal_one_tap_exact_stream_no_fake_local_file(self):
+        """R0 regression: empty per-film manifest must not reject every tap."""
+        self.cfg["media"] = []
+        policy = self.make_policy()
+        self.assertTrue(policy.owner_auto_allowed())
+        self.assertTrue(policy.media_rights_allowed(PROFILE, HASH, 2))
+        self.assertEqual(policy.verified_local_vi_state(PROFILE, HASH, 2),
+                         "ABSENT")
+        metadata_before_local_mapping = self.meta_calls
+        self.assertIsNone(policy.locate_owner_pinned_files(
+            PROFILE, HASH, 2, TSPATH))
+        self.assertEqual(self.meta_calls, metadata_before_local_mapping)
+        self.assertEqual(self.inventory_calls, [
+            ("http://127.0.0.1:8090/ffp/" + HASH + "/2", 3.0)])
+
+        event = PlaybackSelected(
+            kind="PLAY_REQUEST_ACCEPTED", attested=True, active=True,
+            server_id=PROFILE, tv_session_id=SESSION,
+            torrent_hash=HASH, file_index=2, video_name=NAME,
+            owner_auto_enabled=policy.owner_auto_allowed(),
+            subtitle_choice="REQUESTED",
+            media_rights_approved=policy.media_rights_allowed(PROFILE, HASH, 2),
+            local_vi_state=policy.verified_local_vi_state(PROFILE, HASH, 2))
+        self.assertEqual(evaluate_playback(event).status, "DISPATCH")
+        self.assertEqual(evaluate_playback(
+            replace(event, subtitle_choice="OFF")).status, "SKIP")
+        self.assertEqual(evaluate_playback(
+            replace(event, subtitle_choice="OTHER")).status, "SKIP")
+
+    def test_empty_media_requires_real_selected_video_metadata(self):
+        self.cfg["media"] = []
+        policy = self.make_policy()
+        for scope in (("another-profile", HASH, 2),
+                      (PROFILE, "x" * 40, 2),
+                      (PROFILE, HASH, 3),
+                      (PROFILE, HASH, True)):
+            with self.subTest(scope=scope):
+                self.assertFalse(policy.media_rights_allowed(*scope))
+                self.assertEqual(policy.verified_local_vi_state(*scope),
+                                 "UNKNOWN")
+        for non_video_path in ("Synthetic/notes.srt", "../" + NAME,
+                               "Synthetic/other\\path.mkv", "Synthetic/other"):
+            with self.subTest(path=non_video_path):
+                self.selected = non_video_path
+                self.assertFalse(policy.media_rights_allowed(PROFILE,HASH,2))
+                self.assertEqual(policy.verified_local_vi_state(PROFILE,HASH,2),
+                                 "UNKNOWN")
+        self.selected = TSPATH
+        with mock.patch.object(self.ts, "_transport", side_effect=OSError("offline")):
+            self.assertFalse(policy.media_rights_allowed(PROFILE,HASH,2))
+            self.assertEqual(policy.verified_local_vi_state(PROFILE,HASH,2),
+                             "UNKNOWN")
+        self.assertFalse(self.inventory_calls)
+
+    def test_empty_media_disabled_vi_present_or_unknown_cannot_dispatch(self):
+        self.cfg["media"] = []
+        self.cfg["enabled"] = False
+        policy = self.make_policy()
+        self.assertFalse(policy.media_rights_allowed(PROFILE,HASH,2))
+        self.assertEqual(policy.verified_local_vi_state(PROFILE,HASH,2),
+                         "UNKNOWN")
+        self.assertFalse(self.inventory_calls)
+        self.cfg["enabled"] = True
+        policy = self.make_policy()
+        self.probe_data = json.dumps(VI).encode()
+        self.assertEqual(policy.verified_local_vi_state(PROFILE,HASH,2),
+                         "PRESENT")
+        self.probe_data = b"bad-json"
+        self.assertEqual(policy.verified_local_vi_state(PROFILE,HASH,2),
+                         "UNKNOWN")
+        self.assertEqual(self.make_policy(probe=False).verified_local_vi_state(
+            PROFILE,HASH,2), "UNKNOWN")
+
+    def test_empty_media_uses_existing_v3_stream_fallback(self):
+        self.cfg["media"] = []
+        policy = self.make_policy()
+        calls = []
+
+        class SyntheticFlow:
+            def selected_media(self, video, *, verified_media,
+                               source_fingerprint, local_source):
+                calls.append((video, source_fingerprint, local_source))
+                return AutoResult("REVIEW_REQUIRED")
+
+        current = CurrentPlaying(
+            kind="PLAY_REQUEST_ACCEPTED", attested=True, active=True,
+            server_id=PROFILE, tv_session_id=SESSION,
+            torrent_hash=HASH, file_index=2, video_name=NAME,
+            owner_auto_enabled=True, viewer_choice="REQUESTED",
+            media_rights_approved=policy.media_rights_allowed(PROFILE,HASH,2),
+            local_vi_state=policy.verified_local_vi_state(PROFILE,HASH,2))
+        v3 = VerifiedV3Processor(
+            flow=SyntheticFlow(), private_media_root=self.media,
+            read_verified_current_playback=lambda: current,
+            read_verified_torrserver_file=self.ts,
+            locate_owner_pinned_files=policy.locate_owner_pinned_files)
+        v3.selected_media(NAME, source_fingerprint=_fingerprint(PROFILE,HASH,2),
+                          tv_session_id=SESSION)
+        self.assertEqual(calls, [(NAME, _fingerprint(PROFILE,HASH,2), None)])
 
     def test_wrong_torrserver_path_profile_hash_index_does_not_probe(self):
         policy = self.make_policy()

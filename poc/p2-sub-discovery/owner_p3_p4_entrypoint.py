@@ -1,9 +1,10 @@
 """Opt-in logged-in owner bootstrap for ONE P3 status/selection + P4 HTTPS.
 
 Reuses the already-enrolled owner's P4 pairing/cert identity, existing owner
-V3 event loop, and P2 OpenSubtitles/Gemini credentials. Only exact privately
-pinned, locally complete, rights-approved media with independently probed VI
-tracks can pass. Missing policy/pairing/bootstrap -> HOLD before opening port.
+V3 event loop, and P2 OpenSubtitles/Gemini credentials. An enabled, empty
+owner media list selects personal single-owner stream mode with exact local
+TorrServer metadata and independent VI probing; nonempty lists retain legacy
+per-film pins. Missing policy/pairing/bootstrap -> HOLD before opening port.
 
 No auto pairing, TV install, secret logging, external upload, or Windows task
 installation. Importing this module has no side effects.

@@ -1,12 +1,15 @@
-"""Exact owner-local media authorization for the real P3/P4 composition.
+"""Owner-local one-tap media eligibility for the real P3/P4 composition.
 
 The policy must be enrolled by the logged-in owner in OwnerBridge (NOT GitHub).
 No broad search, guessed permission, title-only match, trust in TV-supplied
 filenames, assumed 'ABSENT' VI tracks, or provider call is permitted.
 
-Only exact owner-pinned LOCAL, complete media with matching TorrServer file
-metadata can produce a positive rights answer. The VI inventory uses ffprobe
-on that exact LOCAL file; unavailable/ambiguous tracks return UNKNOWN (HOLD).
+The owner's enabled, EMPTY media list selects personal one-tap stream mode:
+only an exact owner-local TorrServer video file can become eligible, and the
+independent signed TV per-film REQUESTED gate still controls dispatch. A
+NONEMPTY list retains the older per-film pin behavior. VI inventory uses
+local ffprobe for pinned files or TorrServer /ffp for streams; unavailable or
+ambiguous tracks always return UNKNOWN (HOLD).
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ _OTHER_OK = frozenset(("en", "eng", "english", "fr", "fra", "fre", "es",
                       "zh", "zho", "chi", "pt", "por", "ru", "rus"))
 _VI_SIDECARS = (".vi.srt", ".vie.srt", ".vietnamese.srt",
                 ".vi.vtt", ".vie.vtt", ".vietnamese.vtt")
+_VIDEO_EXTENSIONS = frozenset((".mkv", ".mp4", ".m4v", ".webm"))
 
 
 class OwnerPolicyBlocked(ValueError):
@@ -103,7 +107,7 @@ def _probe_subtitle_languages(path: Path) -> str:
 
 
 class PrivateP3P4Policy:
-    """Owner-private explicit allowlist + independent exact-file checks."""
+    """Owner-private personal stream mode or legacy explicit media pins."""
 
     def __init__(self, *, manifest: Path, owner_root: Path,
                  private_media_root: Path, torrserver: OwnerTorrServerReader,
@@ -162,7 +166,7 @@ class PrivateP3P4Policy:
                 name = _one_basename(item["torrserver_path"])
             except (ValueError, TypeError):
                 raise OwnerPolicyBlocked("OWNER_POLICY_MEDIA_PATH_INVALID") from None
-            if Path(name).suffix.lower() not in (".mkv", ".mp4", ".m4v", ".webm"):
+            if Path(name).suffix.lower() not in _VIDEO_EXTENSIONS:
                 raise OwnerPolicyBlocked("OWNER_POLICY_VIDEO_EXTENSION_INVALID")
             # A stream-only pin has no fake local video. Only an explicit
             # per-film, rights-approved manifest item may choose this mode.
@@ -191,11 +195,32 @@ class PrivateP3P4Policy:
         self._ts = torrserver
         self._root = private_media_root
         self._pins = pins
+        # Empty list means FLAT personal mode, not an accidental blanket
+        # remote allowlist. Actual work still requires signed TV REQUESTED,
+        # fresh session, exact localhost metadata and VI inventory.
+        self._personal_stream_mode = not pins
         self._probe = probe
         self._stream_probe = stream_probe
 
     def owner_auto_allowed(self) -> bool:
         return self._enabled is True
+
+    def _verified_personal_stream(self, profile: str, infohash: str,
+                                  index: int,
+                                  torrent_path: str | None = None) -> bool:
+        """No per-film registration; require the exact owner-selected video."""
+        if (self._enabled is not True or not self._personal_stream_mode
+                or profile != self._profile):
+            return False
+        try:
+            selected = self._ts(profile, infohash, index)
+            name = _one_basename(selected.path)
+            return (selected.id == index and type(selected.length) is int
+                    and selected.length > 0
+                    and Path(name).suffix.lower() in _VIDEO_EXTENSIONS
+                    and (torrent_path is None or torrent_path == selected.path))
+        except (OSError, ValueError, TypeError, RuntimeError):
+            return False
 
     def _verified_pin(self, profile: str, infohash: str, index: int,
                       torrent_path: str | None = None) -> PrivateMediaPin | None:
@@ -219,9 +244,20 @@ class PrivateP3P4Policy:
         return pin
 
     def media_rights_allowed(self, profile: str, infohash: str, index: int) -> bool:
+        if self._personal_stream_mode:
+            return self._verified_personal_stream(profile, infohash, index)
         return self._verified_pin(profile, infohash, index) is not None
 
     def verified_local_vi_state(self, profile: str, infohash: str, index: int) -> str:
+        if self._personal_stream_mode:
+            if (not self._verified_personal_stream(profile, infohash, index)
+                    or self._stream_probe is None):
+                return "UNKNOWN"
+            try:
+                outcome = self._stream_probe(profile, infohash, index)
+            except Exception:
+                return "UNKNOWN"
+            return outcome if outcome in ("PRESENT", "ABSENT") else "UNKNOWN"
         pin = self._verified_pin(profile, infohash, index)
         if pin is None:
             return "UNKNOWN"
@@ -248,6 +284,11 @@ class PrivateP3P4Policy:
     def locate_owner_pinned_files(
         self, profile: str, infohash: str, index: int, torrent_path: str
     ) -> OwnerPinnedFiles | None:
+        if self._personal_stream_mode:
+            # No invented local file/sidecar. The V3 caller has already
+            # verified exact signed TV + TorrServer identity and this method
+            # must not issue a redundant network read.
+            return None
         pin = self._verified_pin(profile, infohash, index, torrent_path)
         if pin is None or pin.stream_only or pin.video_path is None:
             # Verified V3 still binds the exact TV and TorrServer release,

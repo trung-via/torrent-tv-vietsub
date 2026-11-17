@@ -1,12 +1,13 @@
-"""Bounded read-only TorrServer ffprobe inventory for authorized stream-only OMP.
+"""Bounded read-only TorrServer ffprobe inventory for owner-approved OMP streams.
 
 The endpoint is reused from upstream OMP TorrServerClient.probe():
 GET /ffp/<exact hash>/<file index>. No /stream, torrent add/rem, ffmpeg,
 arbitrary host, proxy, redirects, media bytes, TV names, auth in URL or logs.
 
-The owner PRIVATE policy independently authorizes exact torrent/path/rights
-and a signed fresh TV request BEFORE calling this reader. Failure = UNKNOWN;
-it NEVER guesses Vietnamese absence or calls OpenSubtitles/Gemini.
+The owner PRIVATE policy independently verifies the selected TorrServer video
+(personal one-tap mode or a legacy per-film pin); a separately signed fresh TV
+request controls dispatch. Failure = UNKNOWN; it NEVER guesses Vietnamese
+absence or calls OpenSubtitles/Gemini.
 """
 from __future__ import annotations
 

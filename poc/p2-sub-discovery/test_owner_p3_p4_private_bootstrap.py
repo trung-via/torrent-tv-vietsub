@@ -6,6 +6,7 @@ real subtitles. Config and file paths exist only under ephemeral test roots.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -189,6 +190,20 @@ class PrivateP3P4PolicyTests(unittest.TestCase):
             self.assertEqual(_probe_subtitle_languages(self.video),"PRESENT")
             proc.side_effect=OSError("synthetic ffprobe missing")
             self.assertEqual(_probe_subtitle_languages(self.video),"UNKNOWN")
+
+    def test_r0_personal_offline_upgrade_pins_the_exact_policy_source(self):
+        """Fail CI if the guarded Windows overlay stages a stale Python file."""
+        root = Path(__file__).resolve().parents[2]
+        source = root / "poc/p2-sub-discovery/owner_p3_p4_private_policy.py"
+        overlay = (root / "hostops/setup/owner-r0-personal-policy-offline-upgrade.ps1"
+                   ).read_text(encoding="utf-8")
+        sha = hashlib.sha256(source.read_bytes()).hexdigest()
+        self.assertIn("$newSha = '" + sha + "'", overlay)
+        self.assertIn("R0_PERSONAL_UPGRADE=INSTALLED_HASH_VERIFIED", overlay)
+        self.assertIn("TASK_MUST_BE_DISABLED", overlay)
+        self.assertIn("OWNER_PROCESS_REMAINS", overlay)
+        self.assertNotIn("Start-ScheduledTask", overlay)
+        self.assertNotIn("Stop-ScheduledTask", overlay)
 
 
 if __name__ == "__main__":
