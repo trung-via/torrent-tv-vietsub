@@ -1,4 +1,5 @@
-# Explicit per-film Vietsub Android Debug build for PR #162 or its one-tap repair PR #168.
+# Explicit per-film Vietsub Android Debug build for historical PRs and the
+# current FLAT/main integration lane, without a hardcoded FLAT PR number.
 # No ADB, public artifact upload, TV install or release. Exact PR #120 source verification.
 # Public-repository builds are allowed; CI must not publish debug APK artifacts from public runs.
 # No ADB, TV changes, release/signing, network/firewall/service or AIOS dispatch.
@@ -10,13 +11,26 @@ Set-StrictMode -Version Latest
 $repo = 'trung-via/torrent-tv-vietsub'
 $pr162 = $env:GITHUB_REF -ceq 'refs/pull/162/merge'
 $pr168 = $env:GITHUB_REF -ceq 'refs/pull/168/merge'
-if ($pr162 -eq $pr168) { throw 'STOP: expected exactly one approved build-only PR identity' }
-$branch = if ($pr162) { 'feature/p3-p4-cross-lane-tv-owner-compose-20261114' } else { 'feature/p3p4-r0-r2-single-tap-20261116' }
-$baseBranch = if ($pr162) { 'main' } else { 'feature/p3-owner-v2-offline-activation-20261115' }
+$requestedPr = $null
+if ($env:GITHUB_REF -cmatch '^refs/pull/([1-9][0-9]*)/merge$') {
+    $requestedPr = [int]$Matches[1]
+}
+$flat = ($requestedPr -ne $null -and
+    $env:GITHUB_HEAD_REF -cmatch '^feature/r0-flat-[a-z0-9-]+$' -and
+    $env:GITHUB_BASE_REF -ceq 'main')
+if (@(@($pr162,$pr168,$flat) | Where-Object { $_ }).Count -ne 1) {
+    throw 'STOP: expected exactly one approved build-only PR identity'
+}
+$branch = if ($pr162) { 'feature/p3-p4-cross-lane-tv-owner-compose-20261114' } elseif ($pr168) {
+    'feature/p3p4-r0-r2-single-tap-20261116'
+} else { $env:GITHUB_HEAD_REF }
+$baseBranch = if ($pr168) { 'feature/p3-owner-v2-offline-activation-20261115' } else { 'main' }
 $allowedWorkflows = if ($pr162) {
     @('.github/workflows/tv-p3-p4-cross-lane-android-ci.yml')
-} else {
+} elseif ($pr168) {
     @('.github/workflows/tv-p3p4-one-tap-android-ci.yml')
+} else {
+    @('.github/workflows/tv-flat-integration-android-ci.yml')
 }
 $workflowRefValid = @($allowedWorkflows | Where-Object {
     $env:GITHUB_WORKFLOW_REF -and
@@ -41,6 +55,10 @@ if ($pr168 -and ($env:GITHUB_REF -cne 'refs/pull/168/merge' -or
     $env:GITHUB_BASE_REF -cne 'feature/p3-owner-v2-offline-activation-20261115')) {
     throw 'STOP: PR #168 build-only GitHub identity mismatch'
 }
+if ($flat -and ($env:GITHUB_REF -cne ('refs/pull/' + $requestedPr + '/merge') -or
+    $env:GITHUB_BASE_REF -cne 'main')) {
+    throw 'STOP: FLAT build-only PR event identity mismatch'
+}
 if ($SourceCommit -notmatch '^[a-f0-9]{40}$' -or $env:GITHUB_SHA -notmatch '^[a-f0-9]{40}$') {
     throw 'STOP: G2 source commit not pinned to dispatched GitHub SHA'
 }
@@ -62,6 +80,9 @@ if ($pr162 -and [int]$eventData.number -ne 162) {
 }
 if ($pr168 -and [int]$eventData.number -ne 168) {
     throw 'STOP: PR #168 event number mismatch'
+}
+if ($flat -and [int]$eventData.number -ne $requestedPr) {
+    throw 'STOP: FLAT event number mismatch'
 }
 if ($eventData.repository.private -ne $true -and $eventData.repository.private -ne $false) {
     throw 'STOP: repository visibility missing in workflow dispatch payload'
@@ -398,7 +419,9 @@ $hashes | Out-File -LiteralPath (Join-Path $dir 'SHA256SUMS-P4-COMPOSED.txt') -E
 # before the next job. This copy is NEVER a device install or public artifact.
 $arm32 = @($apks | Where-Object { $_.Name -ceq 'app-armeabi-v7a-debug.apk' })
 if ($arm32.Count -ne 1) { throw 'P4_STAGE_EXPECTED_SINGLE_ARM32_APK' }
-$stagePrefix = if ($pr162) { 'p4-pr162-staged\' } else { 'p4-pr168-staged\' }
+$stagePrefix = if ($pr162) { 'p4-pr162-staged\' } elseif ($pr168) {
+    'p4-pr168-staged\'
+} else { 'p4-flat-staged\' }
 $staged = Join-Path $cache ($stagePrefix + $SourceCommit)
 if (Test-Path -LiteralPath $staged -PathType Leaf) {
     throw 'P4_STAGE_TARGET_NOT_DIRECTORY'
@@ -416,7 +439,9 @@ if (Test-Path -LiteralPath $target -PathType Leaf) {
 }
 $copied = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($copied -cne $srcHash) { throw 'P4_STAGE_COPIED_APK_SHA256_MISMATCH' }
-$stageSchema = if ($pr162) { 'schema=TTV-P4-PR162-APK-STAGE-V1' } else { 'schema=TTV-P4-PR168-APK-STAGE-V1' }
+$stageSchema = if ($pr162) { 'schema=TTV-P4-PR162-APK-STAGE-V1' } elseif ($pr168) {
+    'schema=TTV-P4-PR168-APK-STAGE-V1'
+} else { 'schema=TTV-P4-FLAT-APK-STAGE-V1' }
 @(
     $stageSchema,
     "app_commit=$SourceCommit",
