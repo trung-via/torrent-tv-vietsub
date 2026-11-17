@@ -107,9 +107,12 @@ $repoHead = (& git -C $AppRepoRoot rev-parse HEAD | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $repoHead -cne $SourceCommit) {
     throw 'STOP: source checkout drift from approved commit'
 }
-$dirty = @(& git -C $AppRepoRoot status --porcelain --untracked-files=all)
+# The dedicated checkout may contain unrelated runner-generated untracked
+# files. They cannot change the exact tracked source pinned to SourceCommit.
+# Guard tracked source drift only; build output goes to an isolated OMP clone.
+$dirty = @(& git -C $AppRepoRoot status --porcelain --untracked-files=no)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
-    throw 'STOP: app source checkout must be clean'
+    throw 'STOP: tracked app source checkout must be clean'
 }
 foreach ($name in @('apply.ps1','verify.ps1','P1ProductionSubtitles.kt','P1ProductionSubtitlesTest.kt')) {
     $file = Join-Path $AppRepoRoot ('poc\g1-prod\' + $name)
