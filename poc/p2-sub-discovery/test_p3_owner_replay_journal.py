@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import json
 import sqlite3
 import tempfile
@@ -139,7 +140,9 @@ class DurableReplayTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(try_accept, [1,2]))
         self.assertCountEqual(results, ["ok", "reject"])
-        with sqlite3.connect(self.root / "p3-replay" / "ledger.sqlite3") as c:
+        # sqlite3.Connection.__exit__ commits/rolls back but DOES NOT close.
+        # Explicit close releases the Windows file handle before temp cleanup.
+        with closing(sqlite3.connect(self.root / "p3-replay" / "ledger.sqlite3")) as c:
             self.assertEqual(c.execute(
                 "SELECT COUNT(*) FROM recent_nonce "
                 "WHERE stream='state'").fetchone()[0], 1)
@@ -149,7 +152,7 @@ class DurableReplayTests(unittest.TestCase):
         j.accept_state(boot_id=BOOT_A, sequence=1,
                        nonce=NONCE_1, now_ms=TIME)
         j.accept_selection(nonce=NONCE_2, sent_ms=TIME, now_ms=TIME)
-        with sqlite3.connect(self.root / "p3-replay" / "ledger.sqlite3") as c:
+        with closing(sqlite3.connect(self.root / "p3-replay" / "ledger.sqlite3")) as c:
             rows = c.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             self.assertCountEqual([x[0] for x in rows],
