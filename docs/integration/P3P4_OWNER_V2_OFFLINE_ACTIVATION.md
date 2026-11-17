@@ -94,8 +94,10 @@ unchanged; **never** run V1 apply against installed pre-R0 V2.
 1. Use the exact reviewed FLAT R0 checkout (Draft #172), not the old downloaded
    `3762d9f` activation folder. Owner-interactively run
    `hostops/setup/stage-owner-p3p4-v2.ps1 -Stage`; it verifies all four source
-   SHA-256 pins and prepares inert Owner-private R0 module files. Stage never
-   replaces the currently running Owner.
+   SHA-256 pins and prepares inert Owner-private R0 module files in
+   `staged-releases/p3p4-r0-eca75e1f-086ae9a7-d09c8503`. This R0 path is separate from the previous V2
+   staging directory, which may contain old Python bytecode and must be kept
+   untouched. Stage never replaces the currently running Owner.
 2. Owner-interactively invoke `owner-p3p4-v2-offline-activation.ps1` in default
    read-only mode and require `V2_PRE_R0_SOURCE_EXACT`. If mixed/unknown, HOLD
    and investigate; never infer pre-R0 merely from a `V2` runtime label.
