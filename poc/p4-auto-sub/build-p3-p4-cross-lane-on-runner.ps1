@@ -112,12 +112,6 @@ if ($LASTEXITCODE -ne 0 -or $repoHead -cne $SourceCommit) {
 # Guard tracked source drift only; build output goes to an isolated OMP clone.
 $dirty = @(& git -C $AppRepoRoot status --porcelain --untracked-files=no)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
-    # Tracked paths already exist in this PUBLIC source tree. Report names
-    # only (never bytes, diff bodies, local untracked files or credentials).
-    Write-Host "FLAT_TRACKED_DRIFT_COUNT=$($dirty.Count)"
-    foreach ($entry in @($dirty | Select-Object -First 12)) {
-        Write-Host ("FLAT_TRACKED_DRIFT_PATH=" + $entry)
-    }
     throw 'STOP: tracked app source checkout must be clean'
 }
 foreach ($name in @('apply.ps1','verify.ps1','P1ProductionSubtitles.kt','P1ProductionSubtitlesTest.kt')) {
