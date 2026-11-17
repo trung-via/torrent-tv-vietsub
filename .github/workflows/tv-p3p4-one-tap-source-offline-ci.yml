@@ -1,0 +1,50 @@
+# Synthetic only: no self-hosted runners, TV, ADB, Windows task, TorrServer or AI providers.
+name: Torrent TV - P3 P4 One Tap Source Offline CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p4-auto-sub/**'
+      - 'poc/g1-prod/**'
+      - 'poc/p2-sub-discovery/**'
+      - 'poc/p2-aisub/**'
+      - 'poc/p3-p4-compose/**'
+      - '.github/workflows/tv-p3p4-one-tap-source-offline-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: torrent-tv-one-tap-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  source-and-mock:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3p4-r0-r2-single-tap-20261116' &&
+      github.event.pull_request.base.ref == 'feature/p3-owner-v2-offline-activation-20261115'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Exact candidate source (no persistent credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Python/source regressions and no-effects diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p3-p4-compose:$PWD/poc/p3-vietsub-trigger:$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub"
+          python3 -m unittest discover -s poc/p3-p4-compose -p 'test_*.py' -q
+          python3 -m unittest discover -s poc/p4-auto-sub -p 'test_*.py' -q
+          python3 -m unittest discover -s poc/g1-prod -p 'test_helper_blob_pin.py' -q
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -q
+          # Native Kotlin/Android compilation is a separate Windows runner
+          # gate; do not silently skip it by interpreting these as APK tests.
+          for contract in test_p4_overlay.py test_p4_tls_source.py test_paired_activation.py test_lean120_api.py; do
+            python3 -m unittest discover -s poc/p2-aisub -p "$contract" -q
+          done
+          git diff --check HEAD^ HEAD
+          echo 'SOURCE_MOCK_ONLY_NO_REAL_TV_LAN_ADB_WINDOWS_PROVIDER_OR_APK'

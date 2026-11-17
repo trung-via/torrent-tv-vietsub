@@ -11,14 +11,105 @@ on:
         description: 'Type BUILD_G2_REFRESH_DEBUG_ONCE (no ADB/TV install, no Release)'
         required: true
         type: string
+      bridge_comment_id:
+        description: 'Optional verified PR #115 owner-comment ID, used only by the trusted G2 dispatch bridge'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
+  authorize:
+    name: Verify exact G2 PR head and trusted dispatch provenance
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/feature/g2-refresh-vietsub-inplace-20261111' &&
+      inputs.confirmation == 'BUILD_G2_REFRESH_DEBUG_ONCE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      trusted: ${{ steps.gate.outputs.trusted }}
+      source_sha: ${{ steps.gate.outputs.source_sha }}
+    steps:
+      - name: Verify owner manual input or exact owner PR comment and pinned PR head
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRIDGE_COMMENT_ID: ${{ inputs.bridge_comment_id }}
+        run: |
+          set -euo pipefail
+          repo='trung-via/torrent-tv-vietsub'
+          branch='feature/g2-refresh-vietsub-inplace-20261111'
+          pr="$(gh api "repos/$repo/pulls/115")"
+          [[ "$(jq -r '.state' <<< "$pr")" == 'open' ]] || exit 1
+          [[ "$(jq -r '.draft' <<< "$pr")" == 'true' ]] || exit 1
+          [[ "$(jq -r '.base.ref' <<< "$pr")" == 'main' ]] || exit 1
+          [[ "$(jq -r '.head.ref' <<< "$pr")" == "$branch" ]] || exit 1
+          [[ "$(jq -r '.head.repo.full_name' <<< "$pr")" == "$repo" ]] || exit 1
+          [[ "$(jq -r '.head.sha' <<< "$pr")" == "$GITHUB_SHA" ]] || {
+            echo 'STOP: G2 feature head moved from dispatch SHA'
+            exit 1
+          }
+          if [[ -z "$BRIDGE_COMMENT_ID" ]]; then
+            [[ "$GITHUB_ACTOR" == 'trung-via' ]] || {
+              echo 'STOP: direct manual dispatch requires repository owner'
+              exit 1
+            }
+          else
+            [[ "$GITHUB_ACTOR" == 'trung-via' || "$GITHUB_ACTOR" == 'github-actions[bot]' ]] || exit 1
+            [[ "$BRIDGE_COMMENT_ID" =~ ^[0-9]+$ ]] || exit 1
+            comment="$(gh api "repos/$repo/issues/comments/$BRIDGE_COMMENT_ID")"
+            [[ "$(jq -r '.user.login' <<< "$comment")" == 'trung-via' ]] || exit 1
+            [[ "$(jq -r '.author_association' <<< "$comment")" == 'OWNER' ]] || exit 1
+            [[ "$(jq -r '.issue_url' <<< "$comment")" == "https://api.github.com/repos/$repo/issues/115" ]] || exit 1
+            [[ "$(jq -r '.body' <<< "$comment")" == "/tv-action g2-refresh-debug $GITHUB_SHA" ]] || exit 1
+          fi
+          printf 'trusted=true\nsource_sha=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo 'G2_OWNER_DISPATCH_PROVENANCE_PASS'
+
+  g2-recovery-smoke:
+    name: G2 B2 pure Kotlin rollback smoke on isolated hosted runner
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.trusted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact reviewed G2 SHA (no stored credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Compile and run bounded synthetic recovery smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v kotlinc
+          command -v kotlin
+          d="$RUNNER_TEMP/g2-b2-pure"
+          mkdir -p "$d"
+          src=poc/g2-refresh
+          kotlinc "$src/G2RefreshDecision.kt" "$src/G2RefreshRecovery.kt" \
+            "$src/stubs/FakeAndroid.kt" "$src/stubs/FakeOmp.kt" \
+            "$src/stubs/G2RecoverySmoke.kt" -d "$d/classes"
+          kotlin -classpath "$d/classes" com.spacesarmat.omp.player.G2RecoverySmokeKt
+          echo 'G2_B2_SYNTHETIC_RECOVERY_KOTLIN_SMOKE_PASS_NOT_TV'
+
   g2-refresh:
     name: G1 plus G2 source guard, Android Debug build and unit tests
-    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.actor == 'trung-via' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/g2-refresh-vietsub-inplace-20261111' && inputs.confirmation == 'BUILD_G2_REFRESH_DEBUG_ONCE'
+    needs: [authorize, g2-recovery-smoke]
+    if: >-
+      needs.authorize.result == 'success' &&
+      needs.authorize.outputs.trusted == 'true' &&
+      needs.authorize.outputs.source_sha == github.sha &&
+      needs['g2-recovery-smoke'].result == 'success'
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
@@ -44,6 +135,13 @@ jobs:
             -AppRepoRoot $env:GITHUB_WORKSPACE `
             -SourceCommit $env:GITHUB_SHA
           if (-not $?) { throw 'STOP: G2 build did not pass' }
+
+      - name: Retain ARM32 Debug APK in local ACL-private vault (never public upload)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\g2-refresh\retain-private-arm32.ps1') -SourceCommit $env:GITHUB_SHA
+          if (-not $?) { throw 'STOP: G2 private APK retention not verified' }
 
       - name: Upload G2 Debug APK and provenance (private repo only)
         if: github.event.repository.private == true
