@@ -22,15 +22,29 @@ class OwnerBootstrapCompatContract(unittest.TestCase):
     def setUpClass(cls):
         cls.script = SCRIPT.read_text(encoding="utf-8")
 
-    def test_all_three_bootstrap_files_are_pinned_to_exact_bytes(self):
+    def test_all_three_bootstrap_files_are_pinned_to_canonical_utf8_bytes(self):
         for name in MODULES:
             with self.subTest(name=name):
-                sha = hashlib.sha256((SUB / name).read_bytes()).hexdigest()
+                # F6 Canonical-Bytes normalizes CRLF to LF before hashing.
+                # Windows .gitattributes checks out *.ps1 with CRLF; pinning
+                # its raw checkout SHA causes a false SOURCE_PIN_MISMATCH.
+                canonical = (SUB / name).read_bytes().replace(b"\r\n", b"\n")
+                sha = hashlib.sha256(canonical).hexdigest()
                 self.assertRegex(
                     self.script,
                     re.escape("'" + name + "' = @{")
                     + r"\s*new = '" + sha + "'",
                 )
+
+    def test_powershell_crlf_checkout_and_lf_blob_share_the_same_pin(self):
+        name = "start-owner-session-agent.ps1"
+        raw = (SUB / name).read_bytes()
+        canonical = raw.replace(b"\r\n", b"\n")
+        windows_checkout = canonical.replace(b"\n", b"\r\n")
+        sha = hashlib.sha256(canonical).hexdigest()
+        self.assertEqual(hashlib.sha256(windows_checkout.replace(b"\r\n", b"\n")).hexdigest(), sha)
+        self.assertIn("new = '" + sha + "'", self.script)
+        self.assertNotEqual(hashlib.sha256(windows_checkout).hexdigest(), sha)
 
     def test_legacy_base_is_recognized_but_unknown_source_is_refused(self):
         self.assertEqual(self.script.count("old = '"), 3)
