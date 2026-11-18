@@ -106,6 +106,42 @@ Apply mode remains an **untested Windows-owner deployment action** until a
 real owner-session rehearsal verifies the task checks and file receipts; the
 reviewed source and offline tests alone do not authorize it on the laptop.
 
+## P2-F3 offline worker upgrade (candidate only)
+
+`hostops/setup/p2-offline-worker-upgrade.ps1` is read-only by default. It
+reports the raw SHA-256 of the installed worker and verifies that the reviewed
+worker source has the expected canonical UTF-8/LF SHA-256. It does not modify
+the Owner task or any P2 in-flight state.
+
+```powershell
+pwsh -NoProfile -File .\hostops\setup\p2-offline-worker-upgrade.ps1
+```
+
+The *separately authorized* `-InstallOffline -ExpectedInstalledSha256 <SHA>`
+mode requires the task to be **Disabled**, all Owner Python workers stopped,
+zero queued events and active locks, at most one preserved `.inflight` marker,
+verified exact Owner task identity and exact SHA-256 equality with the
+previously inspected installed worker. It also checks that all six direct
+worker runtime dependencies and the selected Antigravity profile already
+match the reviewed source. A stale legacy provider gateway therefore produces
+`P2_F3_INSTALLED_GATEWAY_DEPENDENCIES_NOT_READY` with **no changes**; do not
+replace only the worker in an incompatible old installation.
+
+For a compatible installation, the script saves the *original bytes* and a
+manifest in a unique owner-private backup folder, verifies the backup hash,
+then stages and atomically replaces exactly
+`app/poc/p2-aisub/automatic_lean120_worker.py`. It verifies installed bytes
+again and leaves the Owner Disabled. The backup folder is printed for later
+recovery. It neither resets the batch nor executes a provider. The explicitly
+requested `-RestoreOffline -BackupFolder <owner-private-folder>` can restore
+the original worker while still offline, but refuses rollback **after** any
+unknown-effect batch has been quarantined or abandoned, because the old
+worker might ignore no-retry tombstones. It preserves displaced bytes.
+
+PowerShell parsing, file/ACL behavior and actual installed dependencies need
+Windows owner-session inspection before any apply mode. No PR source or
+synthetic unit test constitutes approval to modify an active Owner instance.
+
 ## Not proved by this Draft
 
 Actual Windows Antigravity CLI flags/model availability, subscription or
