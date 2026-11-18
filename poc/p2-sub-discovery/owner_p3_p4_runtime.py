@@ -20,6 +20,7 @@ from typing import Callable
 
 from owner_session_bridge import run_owner_agent
 from owner_p3_p4_diagnostics import write_diagnostic
+from owner_hostops_snapshot import publish_owner_snapshot
 # p3_owner_state_wiring installs this repository's two pinned sibling paths.
 from p3_owner_state_wiring import OwnerP3StatusComposition
 from lan_revision_feed import private_lan_ip
@@ -28,6 +29,17 @@ from p4_tls import create_tls_context
 
 class OwnerRuntimeBlocked(ValueError):
     """Fixed, non-sensitive failure reason; never report media or key."""
+
+
+def _diagnostic_tick(*, owner_root: Path, wiring: OwnerP3StatusComposition,
+                     state: str) -> None:
+    """Keep old installed diagnostic pins, optionally publish sanitized copy."""
+    write_diagnostic(owner_root=owner_root, wiring=wiring, state=state)
+    try:
+        publish_owner_snapshot(owner_root=owner_root)
+    except (OSError, ValueError):
+        # A missing/locked HostOps reader is not a reason to stop the Owner.
+        pass
 
 
 def _interactive_windows_session() -> bool:
@@ -111,7 +123,7 @@ def _serve_and_consume(*, server: HTTPServer, wiring: OwnerP3StatusComposition,
         agent(private_root=owner_root, cache_root=cache_root,
               state_root=state_root, interval_seconds=interval_seconds,
               trusted_v3_factory=wiring.trusted_v3_factory,
-              diagnostic_tick=lambda state: write_diagnostic(
+              diagnostic_tick=lambda state: _diagnostic_tick(
                   owner_root=owner_root, wiring=wiring, state=state))
     finally:
         try:
