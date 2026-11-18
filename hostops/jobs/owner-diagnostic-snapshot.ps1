@@ -110,6 +110,8 @@ if ($status -ceq 'READY_FRESH') {
 } else {
     # Never let obsolete counters look like evidence of the current TV press.
     $report.p3_state = 'UNKNOWN'
+    $report.torrserver = 'UNTESTED'
+    $report.ingress_instrumented = 'NOT_OBSERVED'
     foreach ($field in $ingressFields) { $report.ingress.$field = -1 }
 }
 Write-Output "HOSTOPS_OWNER_SNAPSHOT_STATUS=$status"
