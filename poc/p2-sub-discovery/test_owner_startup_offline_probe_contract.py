@@ -23,6 +23,16 @@ class OfflineOwnerStartupProbeContract(unittest.TestCase):
         self.assertIn("TTV_STARTUP_TASK_OWNER=MATCH", self.text)
         self.assertIn("start-owner-session-agent.ps1", self.text)
 
+    def test_launcher_matches_owner_root_not_module_folder(self):
+        self.assertIn("Join-Path $ownerRoot 'start-owner-session-agent.ps1'", self.text)
+        self.assertNotIn("Join-Path $subdir 'start-owner-session-agent.ps1'", self.text)
+        self.assertIn("[IO.Path]::GetFullPath($fileArg)", self.text)
+        self.assertIn("[StringComparison]::OrdinalIgnoreCase", self.text)
+        for reason in ("COUNT", "WORKDIR", "SWITCHES", "EXECUTABLE",
+                       "LAUNCHER", "PATH_INVALID"):
+            with self.subTest(reason=reason):
+                self.assertIn("'" + reason + "'", self.text)
+
     def test_private_owner_read_only_checks(self):
         for item in ("TTV_STARTUP_LAUNCHER_PARSE=PASS",
                      "TTV_STARTUP_DPAPI=UNSEAL_PASS",
