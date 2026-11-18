@@ -30,12 +30,15 @@ class OfflineOwnerStartupProbeContract(unittest.TestCase):
                      "TTV_STARTUP_BIND_IP=",
                      "TTV_STARTUP_BIND_PORT=",
                      "TTV_STARTUP_PYTHON=PASS",
+                     "TTV_STARTUP_TLS=LOAD_PASS",
+                     "TTV_STARTUP_TLS=LOAD_FAIL",
                      "TTV_STARTUP_PROBE_RESULT=READ_ONLY_PASS_RUNTIME_UNVERIFIED"):
             with self.subTest(item=item):
                 self.assertIn(item, self.text)
         self.assertIn("ConvertTo-SecureString", self.text)
         self.assertNotIn("SecureStringToBSTR", self.text)
         self.assertNotIn("PtrToStringBSTR", self.text)
+        self.assertIn("ctx.load_cert_chain", self.text)
 
     def test_no_mutation_or_external_transport(self):
         for forbidden in ("Start-ScheduledTask", "Stop-ScheduledTask",
