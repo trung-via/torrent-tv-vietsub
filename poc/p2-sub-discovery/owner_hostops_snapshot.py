@@ -1,15 +1,17 @@
 """One-way, fixed-schema Owner -> HostOps diagnostic receipt.
 
-The Owner's existing P3/P4 diagnostic tick invokes this module. No private
-file, movie title, key, claim, provider state or raw HTTP data crosses into
-ProgramData. The destination must be pre-enrolled by an interactive owner;
-this module never creates/changes ACLs or opens a Windows service.
+The Owner's existing P3/P4 tick reads private diagnostics and P2 marker
+metadata. Only sanitized counts, fixed enums and marker-byte hashes cross
+into ProgramData: never media, claims, secrets or provider payloads. The
+destination must be pre-enrolled; this module never changes ACLs or tasks.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import time
 
@@ -19,16 +21,126 @@ from owner_p3_p4_diagnostics import (
 from p3_ingress_telemetry import EVENTS as INGRESS_FIELDS
 
 
-SCHEMA = "TTV-HOSTOPS-OWNER-SNAPSHOT-V1"
-_MAX_BYTES = 3072
+SCHEMA = "TTV-HOSTOPS-OWNER-SNAPSHOT-V2"
+_MAX_BYTES = 4096
 _DIR_PARTS = ("TorrentTVVietsub", "OwnerBridge", "Diagnostics")
 _FILENAME = "owner-snapshot.json"
 _OBSERVATIONS = frozenset({"MISSING", "STALE", "PID_MISMATCH",
                            "INVALID_SCHEMA", "OWNER_NOT_RUNNING", "READY_FRESH"})
+# Reviewed no-retry worker Git blob on PR #175 (fa44cdbb). Comparing bytes,
+# rather than a version string, keeps any old installed worker fail-closed.
+_P2_NO_RETRY_WORKER_BLOB = "69245ba65db167a63643ddcd6a4ce4a81a38a1e2"
+_P2_JOB = re.compile(r"[0-9a-f]{64}\Z")
+_P2_BATCH = re.compile(r"batch-([0-9]{4})\.inflight\Z")
 
 
 def _is_link(path: Path) -> bool:
     return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+
+
+def _p2_observation(owner_root: Path) -> dict:
+    """Inspect Owner-private P2 metadata; never read cues, secrets or provider.
+
+    Export only bounded aggregate counts, marker-byte SHA and fixed enums.
+    An uncertain call is always HOLD; this observer never changes its marker.
+    """
+    result = {
+        "status": "READ_UNAVAILABLE", "pending_events": -1,
+        "inflight_count": -1, "batch": "NOT_OBSERVED",
+        "marker_sha256": "NOT_OBSERVED", "checkpoint_present": "NOT_OBSERVED",
+        "active_lock_present": "NOT_OBSERVED",
+        "installed_no_retry_worker_match": "NOT_OBSERVED",
+    }
+    try:
+        if _is_link(owner_root) or _is_link(owner_root.parent):
+            return result
+        inbox = owner_root / "inbox"
+        if inbox.is_dir() and not _is_link(inbox):
+            pending = 0
+            for event in inbox.glob("event-*.json"):
+                if event.is_file():
+                    pending += 1
+                if pending > 10000:
+                    break
+            result["pending_events"] = pending
+        worker = (owner_root / "app" / "poc" / "p2-aisub" /
+                  "automatic_lean120_worker.py")
+        if (worker.is_file() and not _is_link(worker)
+                and 0 < worker.stat().st_size <= 262144):
+            payload = worker.read_bytes()
+            blob = hashlib.sha1(
+                b"blob " + str(len(payload)).encode("ascii") + b"\0" +
+                payload).hexdigest()
+            result["installed_no_retry_worker_match"] = (
+                "YES" if blob == _P2_NO_RETRY_WORKER_BLOB else "NO")
+        state = owner_root.parent / "P2" / "auto-lean120-state"
+        if not state.exists():
+            result["status"] = "STATE_MISSING"
+            return result
+        if not state.is_dir() or _is_link(state):
+            return result
+        # Worker state has one 64-hex job directory per source/model profile.
+        # Reject unexpected nested paths rather than reporting a false CLEAR.
+        markers = []
+        for job in state.iterdir():
+            if _is_link(job):
+                return result
+            if not job.is_dir():
+                continue
+            if not _P2_JOB.fullmatch(job.name):
+                return result
+            for child in job.iterdir():
+                if _is_link(child):
+                    return result
+                if child.is_dir():
+                    return result
+                if child.name.endswith(".inflight"):
+                    markers.append(child)
+                    if len(markers) > 10000:
+                        return result
+        result["inflight_count"] = len(markers)
+        if not markers:
+            result["status"] = "CLEAR"
+            return result
+        if len(markers) > 1:
+            result["status"] = "MULTIPLE_HOLD"
+            return result
+        marker = markers[0]
+        matched = _P2_BATCH.fullmatch(marker.name)
+        if not matched or marker.stat().st_size > 4096:
+            result["status"] = "INVALID_MARKER"
+            return result
+        raw = marker.read_bytes()
+        try:
+            doc = json.loads(raw)
+        except (ValueError, UnicodeError):
+            result["status"] = "INVALID_MARKER"
+            return result
+        if (not isinstance(doc, dict) or set(doc) != {"schema", "job", "version"}
+                or doc["schema"] != "TTV-P2-INFLIGHT-V1"
+                or doc["job"] != marker.parent.name
+                or type(doc["version"]) is not int
+                or doc["version"] != int(matched.group(1))
+                or doc["version"] < 1):
+            result["status"] = "INVALID_MARKER"
+            return result
+        checkpoint = marker.with_suffix(".json")
+        lock = marker.parent / "active.lock"
+        if _is_link(checkpoint) or _is_link(lock):
+            return result
+        result.update({
+            "status": "UNKNOWN_EFFECT_HOLD", "batch": marker.stem,
+            "marker_sha256": hashlib.sha256(raw).hexdigest(),
+            "checkpoint_present": "YES" if checkpoint.is_file() else "NO",
+            "active_lock_present": "YES" if lock.is_file() else "NO",
+        })
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        result.update({"status": "READ_UNAVAILABLE", "inflight_count": -1,
+                       "batch": "NOT_OBSERVED",
+                       "marker_sha256": "NOT_OBSERVED",
+                       "checkpoint_present": "NOT_OBSERVED",
+                       "active_lock_present": "NOT_OBSERVED"})
+    return result
 
 
 def _classify(owner_root: Path, tick: int,
@@ -108,6 +220,7 @@ def build_snapshot(*, owner_root: Path, now: int | None = None) -> dict:
         "ingress_instrumented": (
             observed["P3_HTTPS_INSTRUMENTED"] if ready else "NOT_OBSERVED"),
         "ingress": counts,
+        "p2": _p2_observation(owner_root),
     }
 
 

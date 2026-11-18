@@ -1,6 +1,7 @@
 """#174: offline Owner/HostOps boundary, no runner, TV or model execution."""
 from pathlib import Path
 from types import SimpleNamespace
+import hashlib
 import json
 import os
 import tempfile
@@ -78,6 +79,8 @@ class HostOpsSnapshotTests(unittest.TestCase):
         data = json.loads((self.shared / "owner-snapshot.json").read_text())
         self.assertEqual(data["schema"], SCHEMA)
         self.assertEqual(data["status"], "READY_FRESH")
+        self.assertEqual(data["p2"]["status"], "STATE_MISSING")
+        self.assertEqual(data["p2"]["inflight_count"], -1)
         self.assertEqual(data["ingress"]["selection_dispatched"], 1)
         self.assertLessEqual(data["owner_snapshot_age_seconds"], 5)
         self.assertEqual(set(self.shared.iterdir()),
@@ -92,6 +95,75 @@ class HostOpsSnapshotTests(unittest.TestCase):
         invalid = json.loads((self.shared / "owner-snapshot.json").read_text())
         self.assertEqual(invalid["status"], "PID_MISMATCH")
         self.assertEqual(invalid["ingress"]["selection_dispatched"], -1)
+
+    def test_owner_p2_unknown_effect_is_sanitized_without_replay(self):
+        self._health()
+        self._diag()
+        (self.owner / "inbox").mkdir()
+        (self.owner / "inbox" / "event-test.json").write_text(
+            '{"movie_title":"PRIVATE_SYNTHETIC"}')
+        reviewed = (Path(__file__).resolve().parents[1] / "p2-aisub" /
+                    "automatic_lean120_worker.py")
+        installed = (self.owner / "app" / "poc" / "p2-aisub" /
+                     "automatic_lean120_worker.py")
+        installed.parent.mkdir(parents=True)
+        installed.write_bytes(reviewed.read_bytes())
+        job = "a" * 64
+        folder = self.root / "private" / "P2" / "auto-lean120-state" / job
+        folder.mkdir(parents=True)
+        marker = folder / "batch-0001.inflight"
+        marker.write_text(json.dumps({"schema": "TTV-P2-INFLIGHT-V1",
+                                      "job": job, "version": 1}))
+        original = marker.read_bytes()
+        snapshot = build_snapshot(owner_root=self.owner)
+        p2 = snapshot["p2"]
+        self.assertEqual(snapshot["schema"], SCHEMA)
+        self.assertEqual(p2["status"], "UNKNOWN_EFFECT_HOLD")
+        self.assertEqual(p2["pending_events"], 1)
+        self.assertEqual(p2["inflight_count"], 1)
+        self.assertEqual(p2["batch"], "batch-0001")
+        self.assertEqual(p2["marker_sha256"], hashlib.sha256(original).hexdigest())
+        self.assertEqual(p2["checkpoint_present"], "NO")
+        self.assertEqual(p2["active_lock_present"], "NO")
+        self.assertEqual(p2["installed_no_retry_worker_match"], "YES")
+        self.shared.mkdir(parents=True)
+        self.assertTrue(publish_owner_snapshot(
+            owner_root=self.owner, shared_dir=self.shared))
+        public = (self.shared / "owner-snapshot.json").read_text()
+        self.assertNotIn("PRIVATE_SYNTHETIC", public)
+        self.assertNotIn(job, public)
+        self.assertNotIn(str(self.owner), public)
+        self.assertEqual(marker.read_bytes(), original)
+        self.assertFalse((folder / "batch-0001.json").exists())
+        self.assertFalse((folder / "active.lock").exists())
+
+        (folder / "active.lock").write_text("synthetic")
+        (folder / "batch-0001.json").write_text("synthetic")
+        locked = build_snapshot(owner_root=self.owner)["p2"]
+        self.assertEqual(locked["checkpoint_present"], "YES")
+        self.assertEqual(locked["active_lock_present"], "YES")
+        marker.write_text("not-json")
+        self.assertEqual(build_snapshot(owner_root=self.owner)["p2"]["status"],
+                         "INVALID_MARKER")
+        marker.write_text(json.dumps({"schema": "TTV-P2-INFLIGHT-V1",
+                                      "job": job, "version": 1}))
+        (folder / "batch-0002.inflight").write_text("unknown")
+        self.assertEqual(build_snapshot(owner_root=self.owner)["p2"]["status"],
+                         "MULTIPLE_HOLD")
+
+    def test_owner_p2_missing_or_invalid_worker_never_claims_match(self):
+        state = self.root / "private" / "P2" / "auto-lean120-state"
+        state.mkdir(parents=True)
+        p2 = build_snapshot(owner_root=self.owner)["p2"]
+        self.assertEqual(p2["status"], "CLEAR")
+        self.assertEqual(p2["inflight_count"], 0)
+        self.assertEqual(p2["installed_no_retry_worker_match"], "NOT_OBSERVED")
+        installed = (self.owner / "app" / "poc" / "p2-aisub" /
+                     "automatic_lean120_worker.py")
+        installed.parent.mkdir(parents=True)
+        installed.write_text("# old synthetic worker\n")
+        self.assertEqual(build_snapshot(owner_root=self.owner)["p2"]
+                         ["installed_no_retry_worker_match"], "NO")
 
     def test_no_symlink_export_and_not_owner_private_read_from_runner(self):
         self._health()

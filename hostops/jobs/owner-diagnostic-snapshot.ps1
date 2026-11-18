@@ -66,7 +66,7 @@ foreach ($path in @($root, $file)) {
     }
 }
 $item = Get-Item -LiteralPath $file -Force
-if ($item.Length -le 0 -or $item.Length -gt 3072) {
+if ($item.Length -le 0 -or $item.Length -gt 4096) {
     throw 'HOSTOPS_OWNER_DIAG_INVALID_SIZE'
 }
 try {
@@ -77,6 +77,11 @@ try {
 $fields = @('schema','status','snapshot_utc_epoch','owner_observed_utc_epoch',
     'owner_snapshot_age_seconds','mode','version','heartbeat','p3_state',
     'torrserver','ingress_instrumented','ingress')
+$p2Fields = @('status','pending_events','inflight_count','batch',
+    'marker_sha256','checkpoint_present','active_lock_present',
+    'installed_no_retry_worker_match')
+$isV2 = $report.schema -ceq 'TTV-HOSTOPS-OWNER-SNAPSHOT-V2'
+if ($isV2) { $fields += 'p2' }
 $ingressFields = @('state_accepted','state_rejected','selection_dispatched',
     'selection_skipped','selection_rejected','selection_rejected_bad_wire',
     'selection_rejected_current_tv_or_torrserver_unavailable',
@@ -99,7 +104,8 @@ $validP3 = @('FRESH_ON','FRESH_REQUESTED','FRESH_OFF','FRESH_OTHER',
 $validTs = @('TCP_REACHABLE_METADATA_UNTESTED','TCP_UNREACHABLE',
     'CONFIG_INVALID','UNTESTED')
 $validInstrumented = @('YES','NO','NOT_OBSERVED')
-if ($report.schema -cne 'TTV-HOSTOPS-OWNER-SNAPSHOT-V1' -or
+if ($report.schema -cnotin @('TTV-HOSTOPS-OWNER-SNAPSHOT-V1',
+                             'TTV-HOSTOPS-OWNER-SNAPSHOT-V2') -or
     $report.status -cnotin $validStatuses -or
     $report.p3_state -cnotin $validP3 -or
     $report.torrserver -cnotin $validTs -or
@@ -120,6 +126,46 @@ foreach ($field in $ingressFields) {
     if (($count -isnot [int] -and $count -isnot [long]) -or
         $count -lt -1 -or $count -gt 1000000) {
         throw 'HOSTOPS_OWNER_DIAG_INVALID_COUNTER'
+    }
+}
+# V1 receipts from previously installed Owners remain readable. Only the new
+# V2 exact-schema P2 observation is emitted, never the Owner-private marker.
+if ($isV2) {
+    if (-not $report.p2 -or
+        (@($report.p2.PSObject.Properties.Name | Sort-Object) -join ',') -cne
+            (@($p2Fields | Sort-Object) -join ',')) {
+        throw 'HOSTOPS_OWNER_P2_INVALID_FIELDS'
+    }
+    if ($report.p2.status -cnotin @('READ_UNAVAILABLE','STATE_MISSING',
+                                   'CLEAR','MULTIPLE_HOLD','INVALID_MARKER',
+                                   'UNKNOWN_EFFECT_HOLD') -or
+        $report.p2.batch -isnot [string] -or
+        $report.p2.marker_sha256 -isnot [string] -or
+        $report.p2.checkpoint_present -cnotin @('YES','NO','NOT_OBSERVED') -or
+        $report.p2.active_lock_present -cnotin @('YES','NO','NOT_OBSERVED') -or
+        $report.p2.installed_no_retry_worker_match -cnotin @('YES','NO','NOT_OBSERVED')) {
+        throw 'HOSTOPS_OWNER_P2_INVALID_ENUM'
+    }
+    foreach ($field in @('pending_events','inflight_count')) {
+        $count = $report.p2.$field
+        if (($count -isnot [int] -and $count -isnot [long]) -or
+            $count -lt -1 -or $count -gt 10001) {
+            throw 'HOSTOPS_OWNER_P2_INVALID_COUNTER'
+        }
+    }
+    if ($report.p2.status -ceq 'UNKNOWN_EFFECT_HOLD') {
+        if ($report.p2.batch -cnotmatch '^batch-[0-9]{4}$' -or
+            $report.p2.marker_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+            $report.p2.inflight_count -ne 1 -or
+            $report.p2.checkpoint_present -cnotin @('YES','NO') -or
+            $report.p2.active_lock_present -cnotin @('YES','NO')) {
+            throw 'HOSTOPS_OWNER_P2_HOLD_CONTRACT_INVALID'
+        }
+    } elseif ($report.p2.batch -cne 'NOT_OBSERVED' -or
+              $report.p2.marker_sha256 -cne 'NOT_OBSERVED' -or
+              $report.p2.checkpoint_present -cne 'NOT_OBSERVED' -or
+              $report.p2.active_lock_present -cne 'NOT_OBSERVED') {
+        throw 'HOSTOPS_OWNER_P2_INACTIVE_CONTRACT_INVALID'
     }
 }
 $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$report.snapshot_utc_epoch
@@ -152,6 +198,21 @@ foreach ($field in @('state_accepted','state_rejected','selection_dispatched',
                      'selection_rejected_media_mismatch',
                      'selection_rejected_current_tv_or_torrserver_unavailable')) {
     Write-Output ("HOSTOPS_OWNER_" + $field.ToUpperInvariant() + '=' + $report.ingress.$field)
+}
+# Missing/stale Owner data and old V1 writers report NOT_OBSERVED, never zero.
+if ($isV2 -and $status -ceq 'READY_FRESH') {
+    Write-Output "HOSTOPS_OWNER_P2_STATUS=$($report.p2.status)"
+    Write-Output "HOSTOPS_OWNER_P2_PENDING_EVENTS=$($report.p2.pending_events)"
+    Write-Output "HOSTOPS_OWNER_P2_INFLIGHT_COUNT=$($report.p2.inflight_count)"
+    Write-Output "HOSTOPS_OWNER_P2_BATCH=$($report.p2.batch)"
+    Write-Output "HOSTOPS_OWNER_P2_MARKER_SHA256=$($report.p2.marker_sha256)"
+    Write-Output "HOSTOPS_OWNER_P2_CHECKPOINT_PRESENT=$($report.p2.checkpoint_present)"
+    Write-Output "HOSTOPS_OWNER_P2_ACTIVE_LOCK_PRESENT=$($report.p2.active_lock_present)"
+    Write-Output "HOSTOPS_OWNER_P2_INSTALLED_NO_RETRY_WORKER_MATCH=$($report.p2.installed_no_retry_worker_match)"
+} else {
+    Write-Output 'HOSTOPS_OWNER_P2_STATUS=NOT_OBSERVED'
+    Write-Output 'HOSTOPS_OWNER_P2_INFLIGHT_COUNT=-1'
+    Write-Output 'HOSTOPS_OWNER_P2_PENDING_EVENTS=-1'
 }
 Write-Output 'HOSTOPS_OWNER_PRIVATE_DATA=NOT_ACCESSED'
 Write-Output 'HOSTOPS_OWNER_PROVIDER_OR_TV=NOT_RUN'
