@@ -68,6 +68,13 @@ def _p2_observation(owner_root: Path) -> dict:
         if (worker.is_file() and not _is_link(worker)
                 and 0 < worker.stat().st_size <= 262144):
             payload = worker.read_bytes()
+            # Windows Git checkouts may copy CRLF source to the Owner app;
+            # compare the reviewed LF Git blob after strict newline folding.
+            # Any lone CR, BOM or semantic source edit still fails closed.
+            if not payload.startswith(b"\xef\xbb\xbf"):
+                payload = payload.replace(b"\r\n", b"\n")
+            if b"\r" in payload:
+                payload = b""
             blob = hashlib.sha1(
                 b"blob " + str(len(payload)).encode("ascii") + b"\0" +
                 payload).hexdigest()

@@ -107,7 +107,10 @@ class HostOpsSnapshotTests(unittest.TestCase):
         installed = (self.owner / "app" / "poc" / "p2-aisub" /
                      "automatic_lean120_worker.py")
         installed.parent.mkdir(parents=True)
-        installed.write_bytes(reviewed.read_bytes())
+        # Simulate the Windows checkout CRLF normalization that a Linux-only
+        # test would miss; it must still match the reviewed LF Git blob.
+        installed.write_bytes(reviewed.read_bytes().replace(
+            b"\r\n", b"\n").replace(b"\n", b"\r\n"))
         job = "a" * 64
         folder = self.root / "private" / "P2" / "auto-lean120-state" / job
         folder.mkdir(parents=True)
