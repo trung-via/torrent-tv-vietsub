@@ -56,8 +56,7 @@ class ReadyRegistryTests(unittest.TestCase):
                                 "p2-aisub" / "translator_profile.json"))
         self.worker = AutomaticLean120Worker(
             state_root=self.state, profile=profile, glossary={},
-            api_key="synthetic-no-live-provider",
-            transport=lambda *args, **kwargs: (_ for _ in ()).throw(
+            runner=lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("LIVE_PROVIDER_FORBIDDEN")))
         self.flow = FlowStub(self.cache, self.worker)
         self.current = CurrentPlaying(

@@ -66,8 +66,7 @@ foreach ($name in @('pairing-key.hex','gateway-bind.txt','pairing-token.txt',
         $pairingReady = $false
     }
 }
-$secretsReady = (Test-Path -LiteralPath (Join-Path $owner 'secrets\opensub.dpapi') -PathType Leaf) -and
-                (Test-Path -LiteralPath (Join-Path $owner 'secrets\gemini.dpapi') -PathType Leaf)
+$secretsReady = (Test-Path -LiteralPath (Join-Path $owner 'secrets\opensub.dpapi') -PathType Leaf)
 # Resolve TaskScheduler's UserId to SID rather than comparing Windows
 # presentation strings (which may be SID/DOMAIN\user/UPN or differ in case).
 $principalGuard = Join-Path $PSScriptRoot 'owner-task-principal-identity.ps1'

@@ -42,9 +42,9 @@ foreach ($needed in @(
 
 # Fail closed on accidental stale P2 model config from another Draft.
 $translatorProfileConfig = Get-Content -LiteralPath (Join-Path $srcP2 'translator_profile.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-if ($translatorProfileConfig.provider -cne 'gemini' -or $translatorProfileConfig.model -cne 'gemini-4-hydrogen' -or
+if ($translatorProfileConfig.provider -cne 'antigravity' -or $translatorProfileConfig.model -cne 'gemini-4-hydrogen-high' -or
     $translatorProfileConfig.thinking_level -cne 'high') {
-    throw 'OWNER_BRIDGE_GEMINI_HYDROGEN_HIGH_PROFILE_REQUIRED'
+    throw 'OWNER_BRIDGE_ANTIGRAVITY_HYDROGEN_HIGH_PROFILE_REQUIRED'
 }
 
 # Inspect existing task BEFORE changing ACLs, copying code or enrolling keys.
@@ -111,8 +111,7 @@ Copy-Item -LiteralPath (Join-Path $srcTrigger 'activation_gate.py') -Destination
 # Store each key only once. DPAPI binds ciphertext to this Windows account.
 # A later login can start the agent with NO prompts or key sent to GitHub.
 foreach ($item in @(
-    @{ Label = 'OpenSubtitles API key'; Name = 'opensub.dpapi'; EnvName = 'OPENSUBTITLES_API_KEY' },
-    @{ Label = 'Gemini API key'; Name = 'gemini.dpapi'; EnvName = 'GEMINI_API_KEY' }
+    @{ Label = 'OpenSubtitles API key'; Name = 'opensub.dpapi'; EnvName = 'OPENSUBTITLES_API_KEY' }
 )) {
     $dest = Join-Path $secretsDir $item.Name
     if (-not (Test-Path -LiteralPath $dest -PathType Leaf)) {
@@ -171,5 +170,5 @@ if ([string]$state -ceq 'Running') {
 Write-Host 'OWNER_BRIDGE_ONE_TIME_ENROLLMENT=COMPLETED'
 Write-Host 'OWNER_BRIDGE_TASK_SCOPE=INTERACTIVE_OWNER_ONLY'
 Write-Host 'OWNER_BRIDGE_RUNNER_ADMIN_GRANTED=NO'
-Write-Host 'OWNER_BRIDGE_SRT_OR_API_KEY_COPIED_TO_GITHUB=NO'
+Write-Host 'OWNER_BRIDGE_SUBTITLE_OR_SECRET_COPIED_TO_GITHUB=NO'
 Write-Host 'OWNER_BRIDGE_OMP_SELECTED_MEDIA_HOOK=REQUIRES_INTEGRATION'

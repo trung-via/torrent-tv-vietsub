@@ -1,6 +1,6 @@
 """Composed D2 GET/one POST/cache -> existing P2 LEAN120 worker, all synthetic.
 
-Zero actual OpenSubtitles, Gemini or TV connections. This deliberately tests
+Zero actual OpenSubtitles, Antigravity or TV connections. This deliberately tests
 the entire controller across both previously independent repository branches.
 """
 from __future__ import annotations
@@ -24,20 +24,20 @@ from owner_vietsub_pipeline import (
     validate_existing_en,
     main,
     PipelineReceipt,
-    GeminiModelPreflightError,
-    verify_gemini_developer_endpoint,
+    verify_owner_translation_provider,
 )
 from cached_en_direct_handoff import CachedEnReceipt
 from automatic_lean120_worker import AutomaticLean120Worker
 from cue_pipeline import parse_cues
 from lean120_api import ModelProfile
+from fake_antigravity_cli import FakeAntigravity
 from opensubtitles import OpenSubtitles
 
 VIDEO = "Example.Film.2017.1080p.BluRay.x265-GRP"
 STANDARD = VIDEO + "_eng"
 SDH = VIDEO + "_eng SDH"
 VI = VIDEO + "_vi"
-MODEL = ModelProfile("gemini", "gemini-4-hydrogen", "high")
+MODEL = ModelProfile("antigravity", "gemini-4-hydrogen-high", "high")
 
 
 def _srt(n=125):
@@ -82,24 +82,6 @@ class FakeOpenSubtitles:
         raise AssertionError("Unexpected network operation")
 
 
-class FakeGemini:
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, url, headers, body, timeout):
-        data = json.loads(body)
-        ids = [x["id"] for x in json.loads(
-            data["contents"][0]["parts"][0]["text"])["target"]]
-        self.calls.append(tuple(ids))
-        return {
-            "candidates": [{"finishReason": "STOP", "content": {
-                "parts": [{"text": json.dumps({"translations": [
-                    {"id": i, "vi": f"Câu thử nghiệm {i}"} for i in ids
-                ]}, ensure_ascii=False)}]
-            }}]
-        }
-
-
 class ComposedPipelineTests(unittest.TestCase):
     def setUp(self):
         t = tempfile.TemporaryDirectory()
@@ -108,12 +90,11 @@ class ComposedPipelineTests(unittest.TestCase):
         self.cache = self.root / "subtitle-trials"
         self.cache.mkdir()
         self.provider = FakeOpenSubtitles()
-        self.gemini = FakeGemini()
+        self.gemini = FakeAntigravity(text_prefix="Câu thử nghiệm")
         self.client = OpenSubtitles(api_key="synthetic-key", transport=self.provider)
         self.worker = AutomaticLean120Worker(
             state_root=self.root / "p2-checkpoints",
-            profile=MODEL, glossary={},
-            api_key="synthetic-only", transport=self.gemini)
+            profile=MODEL, glossary={}, runner=self.gemini)
         self.lines = []
 
     def _run_fresh(self, *, grant=True, answer="DOWNLOAD ONE"):
@@ -183,7 +164,7 @@ class ComposedPipelineTests(unittest.TestCase):
                          "--sha256", sha, "--cues", "125"])
         self.assertEqual(code, 0)
         self.assertIn("P2_CACHED_EN_REVALIDATED=PASS", output.getvalue())
-        self.assertIn("GEMINI_API_REQUESTS=0", output.getvalue())
+        self.assertIn("ANTIGRAVITY_CLI_REQUESTS=0", output.getvalue())
         self.assertIn("OPEN_SUBTITLES_GET_POST=0", output.getvalue())
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.gemini.calls, [])
@@ -195,24 +176,24 @@ class ComposedPipelineTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {"LOCALAPPDATA": str(local)}), redirect_stdout(output):
             code = main(["--cache-filename", basename,
                          "--sha256", sha, "--cues", "125",
-                         "--execute-api"])
+                         "--execute-provider"])
         self.assertEqual(code, 1)
         self.assertIn("CLOUD_UPLOAD_AUTHORIZATION_REQUIRED", output.getvalue())
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.gemini.calls, [])
 
-    def test_owner_cli_requires_gemini_key_for_authorized_execution(self):
+    def test_owner_cli_requires_signed_in_provider_for_authorized_execution(self):
         local, basename, sha = self._owner_cli_fixture()
         output = io.StringIO()
         with mock.patch.dict("os.environ", {
-            "LOCALAPPDATA": str(local), "GEMINI_API_KEY": "",
-            "CI": "", "GITHUB_ACTIONS": "",
-        }), redirect_stdout(output):
+            "LOCALAPPDATA": str(local), "CI": "", "GITHUB_ACTIONS": "",
+        }), mock.patch("owner_vietsub_pipeline.verify_owner_translation_provider",
+                       side_effect=ValueError("AGY_CLI_NOT_INSTALLED_FOR_OWNER")), redirect_stdout(output):
             code = main(["--cache-filename", basename,
                          "--sha256", sha, "--cues", "125",
-                         "--execute-api", "--authorize-cloud-upload"])
+                         "--execute-provider", "--authorize-cloud-upload"])
         self.assertEqual(code, 1)
-        self.assertIn("P2_GEMINI_API_KEY_REQUIRED", output.getvalue())
+        self.assertIn("P2_LOCAL_TRANSLATION_STOP_PRIVATE_REVIEW", output.getvalue())
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.gemini.calls, [])
 
@@ -258,13 +239,11 @@ class ComposedPipelineTests(unittest.TestCase):
         out = io.StringIO()
         simulated = PipelineReceipt(sha, 125, True, 125)
         with mock.patch.dict("os.environ", {
-            "LOCALAPPDATA": str(local),
-            "GEMINI_API_KEY": "test-only-model-key",
-            "CI": "", "GITHUB_ACTIONS": ""
-        }), mock.patch("owner_vietsub_pipeline.verify_gemini_developer_endpoint") as check_model, mock.patch("owner_vietsub_pipeline.translate_existing_en",
+            "LOCALAPPDATA": str(local), "CI": "", "GITHUB_ACTIONS": ""
+        }), mock.patch("owner_vietsub_pipeline.verify_owner_translation_provider") as check_model, mock.patch("owner_vietsub_pipeline.translate_existing_en",
                        return_value=simulated) as invoke, redirect_stdout(out):
             code = main(["--cache-filename", basename, "--sha256", sha,
-                         "--cues", "125", "--execute-api",
+                         "--cues", "125", "--execute-provider",
                          "--authorize-cloud-upload"])
         self.assertEqual(code, 0)
         self.assertFalse(invoke.call_args.kwargs["pilot_first_window"])
@@ -280,79 +259,44 @@ class ComposedPipelineTests(unittest.TestCase):
         out = io.StringIO()
         simulated = PipelineReceipt(sha, 125, False, 120)
         with mock.patch.dict("os.environ", {
-            "LOCALAPPDATA": str(local),
-            "GEMINI_API_KEY": "test-only-model-key",
-            "CI": "", "GITHUB_ACTIONS": ""
-        }), mock.patch("owner_vietsub_pipeline.verify_gemini_developer_endpoint") as check_model, mock.patch("owner_vietsub_pipeline.translate_existing_en",
+            "LOCALAPPDATA": str(local), "CI": "", "GITHUB_ACTIONS": ""
+        }), mock.patch("owner_vietsub_pipeline.verify_owner_translation_provider") as check_model, mock.patch("owner_vietsub_pipeline.translate_existing_en",
                        return_value=simulated) as invoke, redirect_stdout(out):
             code = main(["--cache-filename", basename, "--sha256", sha,
-                         "--cues", "125", "--execute-api",
+                         "--cues", "125", "--execute-provider",
                          "--authorize-cloud-upload", "--pilot-first-window"])
         self.assertEqual(code, 0)
         self.assertTrue(invoke.call_args.kwargs["pilot_first_window"])
         self.assertIn("P2_LOCAL_LEAN120=FIRST_WINDOW_CHECKPOINTED", out.getvalue())
         self.assertIn("P2_PILOT_WINDOW_LIMIT=1", out.getvalue())
 
-    def test_hydrogen_preflight_get_only_never_sends_subtitle_bytes(self):
-        from lean120_api import ModelProfile
-        class FakeResponse:
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-            def read(self, limit):
-                return json.dumps({
-                    "name": "models/gemini-4-hydrogen",
-                    "supportedGenerationMethods": ["generateContent"]
-                }).encode()
-        with mock.patch("owner_vietsub_pipeline.urllib.request.urlopen",
-                        return_value=FakeResponse()) as request:
-            verify_gemini_developer_endpoint(
-                ModelProfile("gemini", "gemini-4-hydrogen", "high"),
-                "synthetic-key",
-            )
-        sent = request.call_args.args[0]
-        self.assertEqual(sent.get_method(), "GET")
-        self.assertTrue(sent.full_url.endswith("/models/gemini-4-hydrogen"))
-        self.assertNotIn("synthetic-key", sent.full_url)
-        self.assertIsNone(sent.data)
+    def test_antigravity_cli_preflight_is_local_and_does_not_upload_text(self):
+        with mock.patch.dict("translator_gateway._PREFLIGHTS", {
+                 "antigravity": lambda: None}) as check:
+            verify_owner_translation_provider(MODEL)
 
-    def test_hydrogen_preflight_wrong_endpoint_model_stops_before_worker(self):
+    def test_antigravity_preflight_unavailable_stops_before_worker(self):
         local, basename, sha = self._owner_cli_fixture()
         out = io.StringIO()
         with mock.patch.dict("os.environ", {
             "LOCALAPPDATA": str(local),
-            "GEMINI_API_KEY": "synthetic-key",
             "CI": "", "GITHUB_ACTIONS": ""
         }), mock.patch(
-            "owner_vietsub_pipeline.verify_gemini_developer_endpoint",
-            side_effect=GeminiModelPreflightError(
-                "P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API")
+            "owner_vietsub_pipeline.verify_owner_translation_provider",
+            side_effect=ValueError("AGY_OWNER_ACCOUNT_NOT_AVAILABLE")
         ), mock.patch("owner_vietsub_pipeline.translate_existing_en") as run_worker, redirect_stdout(out):
             code = main(["--cache-filename", basename, "--sha256", sha,
-                         "--cues", "125", "--execute-api",
+                         "--cues", "125", "--execute-provider",
                          "--authorize-cloud-upload"])
         self.assertEqual(code, 1)
-        self.assertIn("P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API",
-                      out.getvalue())
-        self.assertIn("GEMINI_TRANSLATION_REQUESTS=0", out.getvalue())
-        self.assertIn("NO_SOURCE_UPLOADED=YES", out.getvalue())
+        self.assertIn("P2_LOCAL_TRANSLATION_STOP_PRIVATE_REVIEW", out.getvalue())
+        self.assertIn("NO_AUTOMATIC_PROVIDER_RETRY=YES", out.getvalue())
         run_worker.assert_not_called()
         self.assertFalse((local / "TorrentTVVietsub" / "P2").exists())
 
-    def test_hydrogen_preflight_malformed_response_rejected(self):
-        from lean120_api import ModelProfile
-        class FakeResponse:
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-            def read(self, limit):
-                return b'{"name":"models/gemini-4-hydrogen"}'
-        with mock.patch("owner_vietsub_pipeline.urllib.request.urlopen",
-                        return_value=FakeResponse()):
-            with self.assertRaisesRegex(GeminiModelPreflightError,
-                                         "HYDROGEN_NOT_AVAILABLE"):
-                verify_gemini_developer_endpoint(
-                    ModelProfile("gemini", "gemini-4-hydrogen", "high"),
-                    "synthetic-key",
-                )
+    def test_antigravity_preflight_rejects_legacy_direct_provider(self):
+        with self.assertRaisesRegex(ValueError, "TRANSLATION_PROVIDER_NOT_ENABLED"):
+            verify_owner_translation_provider(ModelProfile("gemini", "legacy", "high"))
 
     def test_cli_pilot_requires_explicit_cloud_grant(self):
         local, basename, sha = self._owner_cli_fixture()
@@ -412,15 +356,15 @@ class ComposedPipelineTests(unittest.TestCase):
         self.assertEqual(len(self.gemini.calls), 2)
 
     def test_cloud_failure_after_cached_download_does_not_retry_post(self):
-        class CrashingGemini(FakeGemini):
-            def __call__(self, url, headers, body, timeout):
+        class CrashingCLI(FakeAntigravity):
+            def __call__(self, args, **kwargs):
                 self.calls.append(("CRASH",))
-                raise ValueError("FAKE_GEMINI_FAILED")
-        bad = CrashingGemini()
+                raise ValueError("FAKE_CLI_FAILED")
+        bad = CrashingCLI()
         self.worker = AutomaticLean120Worker(
             state_root=self.root / "p2-checkpoints", profile=MODEL,
-            glossary={}, api_key="synthetic-only", transport=bad)
-        with self.assertRaisesRegex(ValueError, "FAKE_GEMINI_FAILED"):
+            glossary={}, runner=bad)
+        with self.assertRaisesRegex(ValueError, "FAKE_CLI_FAILED"):
             self._run_fresh()
         self.assertEqual([m for m, _ in self.provider.calls].count("POST"), 1)
         self.assertEqual(len(list(self.cache.glob("*.srt"))), 1)

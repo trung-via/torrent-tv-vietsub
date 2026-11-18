@@ -1,5 +1,10 @@
 # P2-AISUB.2b — Attended Antigravity 12-cue synthetic benchmark
 
+> **Historical manual benchmark.** Current unattended P2 uses the separately
+> implemented Antigravity CLI gateway; see
+> [owner guide](ANTIGRAVITY-OWNER-CURRENT.md). This older benchmark's
+> reference to a future Gemini Developer API is superseded.
+
 **Purpose:** Human-confirmed proof of Antigravity CLI `agy -p ... --model gemini-3.8-flash-medium --output-format json` from Windows. This experiment is a **manual CLI session**, **not** a supported automation API for OMP/Torrent TV and **not** a substitute for Gemini Developer API. No script here invokes `agy`, calls a provider, consumes quota, downloads media or modifies TV/TorrServer. A CI pass proves only offline parsing logic, never a new model run.
 
 ## How to run (PowerShell, inside a fresh checked-out Torrent TV repository)

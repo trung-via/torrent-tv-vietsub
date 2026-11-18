@@ -56,11 +56,11 @@ class AssumedEnglishSubtitle:
 def translate_supplied_to_feed(
     handoff: AssumedEnglishSubtitle, profile: ModelProfile,
     *, feed: SessionRevisionFeed, glossary: dict[str, str],
-    api_key: str, transport: object,
+    runner: object | None = None,
 ) -> tuple[SubtitleRevision, ...]:
-    """Explicit API invocation, with film/source preflight before tokens.
+    """Explicit provider invocation, with film/source preflight before quota.
 
-    The provided transport is injectable for an offline fake provider.
+    The provided CLI runner is injectable for an offline fake provider.
     Human approves actual media text/cloud upload in a separate live gate.
     """
     if not isinstance(handoff, AssumedEnglishSubtitle) or handoff.source_status != (
@@ -79,6 +79,5 @@ def translate_supplied_to_feed(
         raise ValueError("ASSUMED_SOURCE_FEED_SCOPE_INVALID")
     return translate_into_feed(
         handoff.source_bytes, handoff.fmt, handoff.media_key, profile,
-        feed=feed, glossary=glossary, api_key=api_key,
-        transport=transport,
+        feed=feed, glossary=glossary, runner=runner,
     )

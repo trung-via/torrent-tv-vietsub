@@ -1,28 +1,32 @@
-# P2/P4 — API-first progressive subtitle handoff (OFFLINE seam)
+# P2/P4 — progressive subtitle handoff (OFFLINE seam)
+
+**Current execution guide:** [Antigravity CLI owner guide](ANTIGRAVITY-OWNER-CURRENT.md)
+and ADR-0010 supersede the historical Gemini Developer API adapter described
+in the original Draft. The signed P4 revision semantics below remain valid.
 
 ## Human direction and separation of responsibility (2026-11-11)
 
 Human wants an eventual one-tap **Xem ngay với Vietsub AI** experience:
-start authorized media once, translate through an approved API in batches
+start authorized media once, translate through the owner's approved CLI in batches
 without returning to interactive Brain, compile cumulative captions, deliver
 revisions to the matching TV session, and refresh G2 without manual track
-selection. Lower API speed than Brain is acceptable **only while the playback
+selection. Lower translation speed than Brain is acceptable **only while the playback
 buffer/horizon remains adequate**. The Human does not want a separate
 per-film spend calculator or repeated rights-approval flow; accuracy and
 secrecy still matter.
 
-This PR provides a deterministic subtitle revision bridge **and an optional
-CLI Gemini API client**. A network request occurs only if a user explicitly
-runs the CLI with --execute-api and a local GEMINI_API_KEY. No key or real
-source was used in GitHub CI; no TorrServer, TV/APK or media extraction is
-included. Historical 90-cue Gemini/R3.3 and Brain LEAN120 workdirs stay intact.
+The present branch provides deterministic cumulative revisions plus an
+owner-account Antigravity CLI provider gateway. No developer-API key or direct
+model HTTP transport is used. A real CLI request still requires an explicit
+authorized owner request; no real source was used in source-only tests.
+Historical 90-cue and Brain LEAN120 workdirs stay intact.
 
-## LEAN120 API adapter (new on this Draft PR)
+## LEAN120 provider gateway (current Draft #173)
 
-- `lean120_api.py` adapts the **same LEAN120 contract** to an actual Gemini
-  `generateContent` request. Cues are chunked at **120 target IDs / 6500
+- `lean120_api.py` and `translator_gateway.py` adapt the **same LEAN120 contract**
+  to the local signed-in Antigravity CLI. Cues are chunked at **120 target IDs / 6500
   source characters**, with **4 neighboring cues on each side as read-only
-  context**; a stable film glossary is carried to every request. The API
+  context**; a stable film glossary is carried to every request. The CLI
   transport uses structured JSON `[{id, vi}]`, semantically identical to the
   compact, historical `ID|VI` outputs. Only translated text is replaced:
   cue ID, timing, order and context association are immutable.
@@ -30,42 +34,36 @@ included. Historical 90-cue Gemini/R3.3 and Brain LEAN120 workdirs stay intact.
   `poc/p2-aisub/translator_profile.json`:
 
   ```json
-  {"provider":"gemini","model":"gemini-3.8-flash","thinking_level":"medium"}
+  {"provider":"antigravity","model":"gemini-4-hydrogen-high","thinking_level":"high"}
   ```
 
-  This is **configuration, not a hard-coded fallback in the Python client**.
-  Change the model string or thinking level in the profile without touching
-  the parser/translation algorithm. To switch to a different provider family,
-  implement its dedicated adapter against the same `TranslationWindow`
-  and `SubtitleRevision` interface; do not rename Gemini models into
-  another provider's endpoint.
-- The official Google API model ID is **`gemini-3.8-flash`** and the separate
-  `thinkingLevel` value is **`MEDIUM`**, *not* a synthetic model ID like
-  `gemini-3.8-flash-medium`. Source:
-  https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
-  and https://ai.google.dev/gemini-api/docs/generate-content/thinking
+  The Antigravity backend requires a model alias whose suffix agrees with
+  `thinking_level`; it refuses mismatches before calling the model. Real CLI
+  model availability and interpretation are unverified until Windows help/
+  non-sensitive account checks. Codex is reserved but **not registered**.
+  No model or provider has an implicit paid-API fallback.
 - `translate_all()` processes every window sequentially without a Human
   file-picking step. Its `on_revision` callback publishes the **validated**
   cumulative payload after each batch (120 → 240 → …), not at end of film.
   Existing G1's 256-KiB per-file cap still applies.
-- The CLI needs only an existing user-supplied `.srt`/`.vtt`, opaque
-  `media.<64 hex>` identity, API key in `GEMINI_API_KEY`, output dir,
-  and explicit `--execute-api`. Keys never enter JSON profile or repo.
+- The file-output CLI needs only an existing authorized `.srt`/`.vtt`, opaque
+  `media.<64 hex>` identity, owner-local `agy` session, output dir,
+  and explicit `--execute-provider`. No paid-model API key is required.
   The CLI writes versioned files, not the TV; no provider calls occur in CI.
   Example (locally, with a source the user may submit to that provider):
 
   ```powershell
-  $env:GEMINI_API_KEY = '<key in local secret environment>'
-  python poc/p2-aisub/lean120_api.py --source source.srt --media-key "media.$('a' * 64)" --output-dir .\local-revisions --execute-api
+  # Only after owner account, exact source and prior .inflight reconciliation:
+  python poc/p2-aisub/lean120_api.py --source source.srt --media-key "media.$('a' * 64)" --output-dir .\local-revisions --execute-provider
   ```
 
 - **Human operational simplification:** no per-120-cue manual confirmation,
   budget calculator, quotas comparison or repeated rights questionnaire.
-  A single explicitly initiated API job and lawful user-supplied source are
+  A single explicitly initiated owner provider job and lawful source are
   the trust boundary. Existing privacy safeguards (don't log caption text
   or credentials, no GitHub upload) remain.
-- **Verified level:** synthetic CI with injected mock transport; **no live
-  Gemini API token was used and no real subtitle text was sent**.
+- **Verified level:** synthetic CI with injected CLI output; **no live
+  Antigravity call and no real subtitle text was sent**.
 
 ## Module: progressive_handoff.py
 
@@ -127,9 +125,9 @@ no-picker Redmi PASS.
 
 ### Integration stages
 
-1. **Current:** callable Gemini API adapter + versioned LEAN120 translation
-   output + authenticated signed delivery offer (all reviewed via synthetic
-   tests; live API not yet tested).
+1. **Current:** callable Antigravity CLI gateway + versioned LEAN120 translation
+   output + authenticated signed delivery offer (reviewed via synthetic
+   tests; live CLI provider not yet tested).
 2. **P4 receiver:** native OMP/Android activity or session-scoped subscriber
    using paired credentials in private app storage. The receiver must validate
    session identity, SHA256/version/HMAC and ON/OFF/OTHER before importing
@@ -147,11 +145,11 @@ no-picker Redmi PASS.
 
 ## Next independently authorized stages
 
-1. **API adapter + initial LEAN120 implementation:** now present in this PR
-   for `gemini-3.8-flash` / `MEDIUM` via replaceable JSON profile, strict
-   structured response validation and on-demand `generateContent` client.
-   The **first live request** remains untested until an authorized source
-   and local API key are available. The older `cloud_contract.py` is a
+1. **Owner CLI gateway + LEAN120 implementation:** now present in Draft #173
+   via replaceable JSON profile, strict response validation and local
+   Antigravity CLI invocation. The **first live request** remains untested
+   until an authorized source and signed-in local owner account are available.
+   The older `cloud_contract.py` is a
    separate 12-cue Gemini-specific offline contract and is not silently
    mutated. ChatGPT Brain remains a quality reference only, not a required
    interactive per-batch step.
@@ -177,7 +175,7 @@ no-picker Redmi PASS.
 New tests exercise 120→240→245, true original timeline, media/source
 identity, stale/extra/unsafe values, in-memory rollback, TV 256 KiB size cap,
 first/last horizon, VTT settings, and pure no-transport operation. A green CI
-result means **OFFLINE CONTRACT PASS**, not live API, TV auto-update or release.
+result means **OFFLINE CONTRACT PASS**, not live CLI, TV auto-update or release.
 
 No new user interaction, existing media upload, public subtitle text, ADB,
 TorrServer, cloud bill or host service is authorized/attempted here.

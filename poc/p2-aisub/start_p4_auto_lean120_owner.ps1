@@ -1,4 +1,4 @@
-# Owner PC, explicit foreground EN -> LEAN120 Gemini -> VI -> signed P4 LAN.
+# Owner PC, explicit foreground EN -> LEAN120 Antigravity -> VI -> signed P4 LAN.
 # NO automatic boot, CI/provider invocation, secret output or firewall changes.
 # The already-paired Debug TV supplies media identity in signed activation.
 [CmdletBinding()]
@@ -15,8 +15,8 @@ if (-not $AuthorizeCloudTranslation) {
 if ($env:GITHUB_ACTIONS -eq 'true' -or $env:CI -eq 'true' -or $env:TF_BUILD) {
   throw 'P2_AUTO_STOP_CI_PROVIDER_FORBIDDEN'
 }
-if (-not $env:LOCALAPPDATA -or -not $env:GEMINI_API_KEY) {
-  throw 'P2_AUTO_STOP_OWNER_PROFILE_OR_GEMINI_KEY_REQUIRED'
+if (-not $env:LOCALAPPDATA) {
+  throw 'P2_AUTO_STOP_OWNER_PROFILE_REQUIRED'
 }
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
 $pair=Join-Path $owner 'P4'
@@ -71,14 +71,14 @@ $prior=[Environment]::GetEnvironmentVariable('P4_PAIRING_MASTER_HEX','Process')
 try {
   $env:P4_PAIRING_MASTER_HEX=$key
   Write-Host 'P2_AUTO_EN_SOURCE_FROM_OWNER_MANIFEST=true'
-  Write-Host 'P2_AUTO_GEMINI_LEAN120_ON_AUTHENTICATED_TV_ACTIVATION=true'
+  Write-Host 'P2_AUTO_ANTIGRAVITY_LEAN120_ON_AUTHENTICATED_TV_ACTIVATION=true'
   Write-Host 'P2_AUTO_PRIVATE_CUMULATIVE_VI_SRT=true'
   Write-Host 'P2_AUTO_PROVIDER_AND_LAN_REQUIRE_EXPLICIT_OWNER_START=true'
   Write-Host 'P2_AUTO_NO_FIREWALL_ROUTER_OR_TORRSERVER_CHANGES=true'
   # Foreground PC process. No film IDs or subtitles are echoed in output.
   $launchArgs=@('--bind',$ip,'--port',"$port",'--source-manifest',
     $ManifestPath,'--profile',$ProfilePath,'--auto-state-dir',$state,
-    '--execute-api','--start-lan','--tls-cert',$cert,'--tls-key',$private)
+    '--execute-provider','--start-lan','--tls-cert',$cert,'--tls-key',$private)
   & $python.Source @pythonArgs $gateway @launchArgs
   if ($LASTEXITCODE -ne 0) {throw 'P2_AUTO_STOP_TRANSLATION_GATEWAY_FAILED'}
 } finally {

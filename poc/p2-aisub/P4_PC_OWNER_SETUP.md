@@ -1,5 +1,9 @@
 # P4 owner-local PC HTTPS onboarding (Draft PR #118)
 
+**Current translation setup:** [Antigravity owner guide](ANTIGRAVITY-OWNER-CURRENT.md)
+supersedes legacy Gemini API steps. This page describes *synthetic P4 LAN
+acceptance* and does not authorize a live translation call.
+
 **Scope:** one *manual*, foreground, synthetic-only Windows PC gateway for a trusted home LAN. The installed Redmi P4 Debug APK comes from Draft PR #120. This page does not prove a live TV handshake or subtitle render and does not request any real film, private API credentials or cloud translation.
 
 ## Current proof vs pending
@@ -63,7 +67,10 @@ At normal playback timestamps near cue 131 (4m22s) check Vietnamese synthetic
 caption only after the TV actually ingests it; do not claim an E2E PASS from
 PC publishing alone. Use Ctrl+C to close the listener.
 
-The script reads the local, ACL-protected materials and launches the P2 CLI using `--start-lan --mock-revisions` with **no `--source` and no `--execute-api`**. It does not invoke TorrServer, Gemini, a background scheduled task or a Windows service. It does not open/configure Windows Firewall; if inbound traffic is blocked, **stop and request a specific owner firewall decision**, never disable TLS checks or open WAN.
+The script reads local owner materials and launches the P2 gateway using
+`--start-lan --mock-revisions`, with **no real source or provider execution**.
+It does not invoke TorrServer, Antigravity, a background scheduled task or a
+Windows service. It does not open/configure Windows Firewall.
 
 For this ONE-laptop setup, there is **no D-pad pairing dialog, token typing or confirmation**. The owner-local gateway launcher silently calls `auto_pair_owner_redmi_adb.ps1` once, which stages the existing private token via the authenticated owner ADB connection into the Debug app. The next native PlayerActivity load imports it into AndroidKeyStore and deletes the plaintext staging file. The Windows owner-local staging receipt prevents repeated ADB transfers on later launches.
 
@@ -75,4 +82,4 @@ The **Bật Vietsub AI** action is about explicit consent to process subtitles f
 
 Record separately, with no private identifiers in public artifacts: successful HTTPS activation and authenticated GET; pinned certificate and exact IP SAN; synthetic cumulative SRT 120 then 240 including cue 131 on Redmi; same-item VLC/G2 refresh with first-frame ACK; OFF/OTHER refusal; film switch and network failure rollback. Test only licensed/authorized fixtures. The gateway may be stopped with Ctrl+C; afterward no service remains listening.
 
-**No real Gemini API call, release build, auto-merge, firewall adjustment, raw TorrServer/MCP or WAN exposure is included in this step.**
+**No real Antigravity call, release build, auto-merge, firewall adjustment, raw TorrServer/MCP or WAN exposure is included in this step.**

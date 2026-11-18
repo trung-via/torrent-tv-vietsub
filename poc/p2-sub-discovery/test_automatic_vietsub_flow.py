@@ -17,11 +17,13 @@ from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_
 from matcher import Media
 from automatic_lean120_worker import AutomaticLean120Worker
 from lean120_api import ModelProfile
+from fake_antigravity_cli import FakeAntigravity
 
 VIDEO = "Example.Film.2017.1080p.BluRay.x265-GRP"
 EN = VIDEO + "_eng"
 SDH = EN + " SDH"
 VI = VIDEO + "_vi"
+FakeGemini = FakeAntigravity  # Deprecated fixture alias for adjacent integration tests.
 
 
 def srt(count=125):
@@ -68,23 +70,6 @@ class FakeProvider:
         raise AssertionError("unexpected network operation")
 
 
-class FakeGemini:
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, url, headers, body, timeout):
-        data = json.loads(body)
-        ids = [int(t["id"]) for t in json.loads(
-            data["contents"][0]["parts"][0]["text"])["target"]]
-        self.calls.append(ids)
-        return {"candidates": [{"finishReason": "STOP", "content": {
-            "parts": [{"text": json.dumps({
-                "translations": [
-                    {"id": i, "vi": f"Vietnamese synthetic text {i}"} for i in ids]
-            })}]
-        }}]}
-
-
 class AutomaticFlowTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -92,13 +77,12 @@ class AutomaticFlowTests(unittest.TestCase):
         self.root = Path(temp.name).resolve()
         self.cache = self.root / "subtitle-trials"
         self.provider = FakeProvider()
-        self.gemini = FakeGemini()
+        self.gemini = FakeAntigravity(text_prefix="Vietnamese synthetic text")
         self.worker = AutomaticLean120Worker(
             state_root=self.root / "P2" / "state",
-            profile=ModelProfile("gemini", "gemini-4-hydrogen", "high"),
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
             glossary={},
-            api_key="synthetic-gemini-key",
-            transport=self.gemini,
+            runner=self.gemini,
         )
         self.events = []
         self.client = OpenSubtitles(api_key="synthetic-ost-key",
@@ -136,7 +120,7 @@ class AutomaticFlowTests(unittest.TestCase):
                          ["GET", "POST", "GET_BINARY"])
         self.assertEqual(self.gemini.calls, [])
         self.assertEqual(len(list(self.cache.glob("*.srt"))), 1)
-        self.assertIn("AUTO_GEMINI_REQUESTS=0", self.events)
+        self.assertIn("AUTO_AI_TRANSLATION_REQUESTS=0", self.events)
 
     def test_no_confident_source_does_not_download_or_translate(self):
         self.provider.en = (row(12, VIDEO.replace("GRP", "OTHER") + "_eng", "en"),)
@@ -263,14 +247,14 @@ class AutomaticFlowTests(unittest.TestCase):
             auto = build_owner_auto_flow(
                 enabled=True, cache_root=self.cache,
                 state_root=self.root / "owner-state",
-                model_preflight=lambda profile, key: preflights.append((profile, key)),
+            model_preflight=lambda: preflights.append("called"),
             )
         self.assertTrue(auto.permissions.auto_download)
         self.assertTrue(auto.permissions.auto_translate_en)
         # Startup is side-effect-free with respect to Gemini. A VI-only
         # movie must not be blocked by a Hydrogen API endpoint outage.
         self.assertEqual(preflights, [])
-        self.assertEqual(auto.worker.profile.model, "gemini-4-hydrogen")
+        self.assertEqual(auto.worker.profile.model, "gemini-4-hydrogen-high")
         self.assertEqual(auto.worker.profile.thinking_level, "high")
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.gemini.calls, [])
@@ -285,7 +269,7 @@ class AutomaticFlowTests(unittest.TestCase):
                 build_owner_auto_flow(
                     enabled=False, cache_root=self.cache,
                     state_root=self.root / "owner-state")
-            with self.assertRaisesRegex(ValueError, "OWNER_KEYS_NOT_PROVISIONED"):
+            with self.assertRaisesRegex(ValueError, "OPENSUB_KEY_NOT_PROVISIONED"):
                 build_owner_auto_flow(
                     enabled=True, cache_root=self.cache,
                     state_root=self.root / "owner-state")
@@ -300,7 +284,7 @@ class AutomaticFlowTests(unittest.TestCase):
             owner = build_owner_auto_flow(
                 enabled=True, cache_root=self.cache,
                 state_root=self.root / "owner-state",
-                model_preflight=lambda profile, key:
+                model_preflight=lambda:
                     (_ for _ in ()).throw(ValueError("MODEL_NOT_AVAILABLE")),
             )
         # No Gemini GET on initial boot; no OpenSubtitles call either.
@@ -319,7 +303,7 @@ class AutomaticFlowTests(unittest.TestCase):
                 build_owner_auto_flow(
                     enabled=True, cache_root=self.cache,
                     state_root=self.root / "owner-state",
-                    model_preflight=lambda profile, key: None)
+                    model_preflight=lambda: None)
         self.assertFalse(self.cache.exists())
 
     def test_verified_source_fingerprint_controls_private_cache_identity(self):
@@ -364,18 +348,16 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual(len([x for x in self.provider.calls if x[0] == "POST"]), 1)
 
     def test_hydrogen_unavailable_blocks_before_en_download_and_quota(self):
-        from owner_vietsub_pipeline import GeminiModelPreflightError
         events = []
         calls = []
         def unavailable():
             calls.append("get-model-no-source")
-            raise GeminiModelPreflightError(
-                "P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API")
+            raise ValueError("AGY_ACCOUNT_NOT_AVAILABLE")
         self.flow = AutomaticVietsubFlow(
             client=self.client, worker=self.worker, cache_root=self.cache,
             permissions=AutoPermissions(True, True), emit=events.append,
             model_preflight=unavailable)
-        with self.assertRaisesRegex(GeminiModelPreflightError, "NOT_AVAILABLE"):
+        with self.assertRaisesRegex(ValueError, "NOT_AVAILABLE"):
             self.flow.selected_media(VIDEO)
         self.assertEqual(calls, ["get-model-no-source"])
         self.assertEqual([p[0] for p in self.provider.calls], ["GET", "GET"])
@@ -397,19 +379,17 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 1)
 
     def test_existing_en_cached_model_unavailable_does_not_download_again(self):
-        from owner_vietsub_pipeline import GeminiModelPreflightError
         data = srt()
         asset = Asset(10, "en", "srt", data, hashlib.sha256(data).hexdigest(), 125)
         media = Media("synthetic-owner", "a" * 64, 0, VIDEO)
         path = write_private_cache(self.cache, media, asset)
         preflight = lambda: (_ for _ in ()).throw(
-            GeminiModelPreflightError(
-                "P2_GEMINI_HYDROGEN_NOT_AVAILABLE_ON_DEVELOPER_API"))
+            ValueError("AGY_ACCOUNT_NOT_AVAILABLE"))
         self.flow = AutomaticVietsubFlow(
             client=self.client, worker=self.worker, cache_root=self.cache,
             permissions=AutoPermissions(True, True),
             model_preflight=preflight)
-        with self.assertRaises(GeminiModelPreflightError):
+        with self.assertRaisesRegex(ValueError, "NOT_AVAILABLE"):
             self.flow.after_en_cached(asset, path)
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.gemini.calls, [])

@@ -72,7 +72,7 @@ class AutomaticVietsubFlow:
 
     def _ensure_en_model_ready(self) -> None:
         # Only a source that actually needs EN->VI invokes this no-content
-        # model availability check. A missing Hydrogen endpoint must not
+        # owner-local CLI check. A missing signed-in provider must not
         # prevent automatic VI downloads or terminate the Windows agent.
         # Success is cached for the lifetime of the owner process; failures
         # remain fail-closed and never trigger an alternate model.
@@ -81,7 +81,7 @@ class AutomaticVietsubFlow:
         if self._model_preflight is not None:
             self._model_preflight()
         self._model_ready = True
-        self.emit("AUTO_GEMINI_MODEL_AVAILABLE=YES")
+        self.emit("AUTO_TRANSLATION_PROVIDER_AVAILABLE=YES")
 
     def _cache_index(self, video_name: str, *,
                      source_fingerprint: str | None = None) -> Path:
@@ -319,7 +319,7 @@ class AutomaticVietsubFlow:
             source_fingerprint=source_fingerprint)
         self.emit("AUTO_SUBTITLE_CACHED=YES")
         if asset.language == "vi":
-            self.emit("AUTO_GEMINI_REQUESTS=0")
+            self.emit("AUTO_AI_TRANSLATION_REQUESTS=0")
             return AutoResult("VI_READY", cue_count=asset.cues,
                               get_requests=route.get_requests, download_posts=1)
         if asset.language != "en":
@@ -334,7 +334,7 @@ class AutomaticVietsubFlow:
 
 
 def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
-                          model_preflight: Callable[[object, str], None] | None = None
+                          model_preflight: Callable[[], None] | None = None
                           ) -> AutomaticVietsubFlow:
     """Owner-process bootstrap. One permission/secret load, never per-media UI.
 
@@ -342,8 +342,8 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     supplies user-owned credential environment. None of these credentials
     may be stored in GitHub, repository configs or Windows runner logs.
 
-    The model GET is DEFERRED until an EN source needs Gemini and runs only
-    once on first success per process. An unavailable Hydrogen endpoint
+    The CLI preflight is DEFERRED until an EN source needs translation and
+    runs only once on first success per process. An unavailable account CLI
     must never prevent VI-only work or kill the owner agent at startup.
     The authenticated OMP event consumer calls selected_media(video_name).
     """
@@ -357,31 +357,27 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
             or cache_root.is_symlink() or state_root.is_symlink()):
         raise ValueError("AUTO_VIETSUB_PRIVATE_ROOT_REQUIRED")
     open_key = os.environ.get("OPENSUBTITLES_API_KEY", "")
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if (not open_key.strip() or not gemini_key.strip()
-            or any(ch in open_key + gemini_key for ch in "\r\n")):
-        raise ValueError("AUTO_VIETSUB_OWNER_KEYS_NOT_PROVISIONED")
+    if not open_key.strip() or any(ch in open_key for ch in "\r\n"):
+        raise ValueError("AUTO_VIETSUB_OPENSUB_KEY_NOT_PROVISIONED")
     from automatic_lean120_worker import AutomaticLean120Worker
     from lean120_api import load_profile
-    from owner_vietsub_pipeline import _P2, verify_gemini_developer_endpoint
+    from owner_vietsub_pipeline import _P2
+    from translator_gateway import preflight_provider, provider_enabled
 
     profile = load_profile(_P2 / "translator_profile.json")
-    if (profile.provider, profile.model, profile.thinking_level) != (
-            "gemini", "gemini-4-hydrogen", "high"):
-        raise ValueError("AUTO_VIETSUB_OWNER_PROFILE_MISMATCH")
+    if not provider_enabled(profile.provider):
+        raise ValueError("AUTO_VIETSUB_PROVIDER_NOT_ENABLED")
 
-    # No model network request at owner process startup. Gemini Developer
-    # API availability can differ from the documented Enterprise endpoint;
-    # defer the no-subtitle GET until EN translation is truly needed.
-    preflight = model_preflight or verify_gemini_developer_endpoint
+    # No CLI model request at owner startup. Only when EN needs translation,
+    # validate the owner's signed-in Antigravity CLI (never an API key).
+    preflight = model_preflight or (lambda: preflight_provider(profile))
     worker = AutomaticLean120Worker(
         state_root=state_root, profile=profile, glossary={},
-        api_key=gemini_key,
     )
     return AutomaticVietsubFlow(
         client=OpenSubtitles(api_key=open_key),
         worker=worker, cache_root=cache_root,
         permissions=AutoPermissions(
             auto_download=True, auto_translate_en=True),
-        model_preflight=lambda: preflight(profile, gemini_key),
+        model_preflight=lambda: preflight(),
     )
