@@ -142,6 +142,48 @@ PowerShell parsing, file/ACL behavior and actual installed dependencies need
 Windows owner-session inspection before any apply mode. No PR source or
 synthetic unit test constitutes approval to modify an active Owner instance.
 
+## P2-F4 unified offline gateway bundle (2026-11-18; source candidate)
+
+After P2-F3 was published at PR #173 head `fdf2371`, the Owner's read-only
+inspection reported a different installed worker, a different
+`assumed_source_handoff.py`, and a missing `translator_gateway.py`. The Owner's
+follow-up inventory confirmed four mismatches plus the missing module:
+`automatic_lean120_worker.py`, `assumed_source_handoff.py`, `lean120_api.py`,
+`translator_profile.json`, and `translator_gateway.py`. `cue_pipeline.py` and
+`progressive_handoff.py` matched. `lan_revision_feed.py` and
+`revision_delivery.py` are additional transitive imports, so they are included
+in the nine-file closure rather than assumed identical.
+
+`hostops/setup/p2-offline-gateway-bundle-upgrade.ps1` checks exact source
+hashes, prints only installed-versus-reviewed module statuses and an opaque
+nine-file installed inventory digest by default. **Inspection does not
+modify anything.** The bundle install is a separate explicit operation:
+
+```powershell
+pwsh -NoProfile -File .\hostops\setup\p2-offline-gateway-bundle-upgrade.ps1
+```
+
+The `-InstallOffline -ExpectedInstalledInventorySha256 <the inspected digest>`
+mode must NOT run while the Owner task is Running. It requires the task to be
+Disabled, no Owner Python process, pending inbox event or active translation
+lock, verified task identity, and at most one preserved unknown-effect marker.
+It preserves old bytes of **all present files** and records the absent file
+before replacing mismatched modules. Every new file is canonical source-pinned
+and checked after installation. A partial interruption leaves the Owner
+disabled and a recovery folder; do not resume the task in that state.
+
+`-RestoreOffline -BackupFolder <owner-private folder>` verifies all original
+bytes and restores even an interrupted install, removing only newly added
+files that were originally absent. It refuses any rollback after a
+quarantine/tombstone because the older worker might automatically retry a
+batch with uncertain provider effect. Neither mode clears `.inflight`, touches
+secrets or executes `agy`; neither starts/stops/enables/disables the Owner task.
+
+This source-only script is **not Windows-runtime acceptance**. Run the
+PowerShell parser check on Windows CI, then independently prove the exact
+Owner identity and offline procedure before permitting any install. Reconcile
+the old `batch-0001.inflight` separately; never infer a missed provider call.
+
 ## Not proved by this Draft
 
 Actual Windows Antigravity CLI flags/model availability, subscription or
