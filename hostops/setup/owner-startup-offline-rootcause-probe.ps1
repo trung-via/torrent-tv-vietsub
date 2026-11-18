@@ -167,6 +167,26 @@ try {
     exit 2
 }
 
+$tlsCert = Join-Path $ownerRoot 'p4-identity\pc-cert.pem'
+$tlsKey = Join-Path $ownerRoot 'p4-identity\pc-key.pem'
+if (-not (Test-Path -LiteralPath $tlsCert -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $tlsKey -PathType Leaf)) {
+    Write-Host 'TTV_STARTUP_TLS=FILES_MISSING'
+    Write-Host 'TTV_STARTUP_PROBE_RESULT=HOLD_TLS_FILES'
+    exit 2
+}
+try {
+    # Construct the server TLS context only; do not bind a listening socket.
+    $pythonTls = 'import ssl,sys; ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(sys.argv[1],sys.argv[2])'
+    & py -3 -c $pythonTls $tlsCert $tlsKey 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'TLS_LOAD_FAILED' }
+    Write-Host 'TTV_STARTUP_TLS=LOAD_PASS'
+} catch {
+    Write-Host 'TTV_STARTUP_TLS=LOAD_FAIL'
+    Write-Host 'TTV_STARTUP_PROBE_RESULT=HOLD_TLS_CONTEXT'
+    exit 2
+}
+
 # Never claim a healthy Owner from these checks. A real startup still has
-# TLS context construction, HTTP bind and the foreground agent loop to pass.
+# HTTP bind and the foreground agent loop to pass.
 Write-Host 'TTV_STARTUP_PROBE_RESULT=READ_ONLY_PASS_RUNTIME_UNVERIFIED'
