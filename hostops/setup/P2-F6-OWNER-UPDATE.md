@@ -6,9 +6,9 @@ the billed Gemini Developer API credentials/profile, while F4/F5 already
 installed the owner-local Antigravity CLI P2 modules. A mixed installation
 cannot construct the automatic subtitle flow.
 
-**Source:** Draft PR #173, expected head `dc2206bd3bbd0c9b12d468148ee9f40d991b908f`
-(F6 script and contract test; the three replacement files are unchanged from
-`e18660655d0df780dccc8982926ce1ceb45b165e`).
+**Source:** Draft PR #173. F6 was introduced in commit `a8683caa112ec9c07bc8e5f1228d6a2aa6580ddd`;
+the three replacement files are pinned to their unchanged bytes in
+`e18660655d0df780dccc8982926ce1ceb45b165e`.
 
 The standalone archive contains exactly three reviewed source files plus the
 F6 installer. It does NOT download code during installation, modify secrets,
