@@ -10,6 +10,13 @@ cannot construct the automatic subtitle flow.
 the three replacement files are pinned to their unchanged bytes in
 `e18660655d0df780dccc8982926ce1ceb45b165e`.
 
+**F6.1 source-pin correction (2026-11-18):** The original F6 pinned
+`start-owner-session-agent.ps1` to its **Windows checkout CRLF** SHA while the
+installer's `Canonical-Bytes` hashes **LF-normalized** bytes. Thus a clean,
+hash-verified archive still hit `P2_F6_SOURCE_PIN_MISMATCH` on the third file.
+F6.1 pins the canonical LF hash and adds a CRLF-vs-LF regression test. The
+replacement bootstrap files and installed Owner state are otherwise unchanged.
+
 The standalone archive contains exactly three reviewed source files plus the
 F6 installer. It does NOT download code during installation, modify secrets,
 call OpenSubtitles/Antigravity, bind a listener, touch the TV or alter quarantine.
@@ -20,25 +27,26 @@ Open PowerShell 7.7 **as the same signed-in Windows owner**. Extract the ZIP to 
 new directory and `Set-Location` into its root. Copy this block as a whole:
 
 ```powershell
-$repair = Join-Path (Get-Location).Path 'hostops\setup\p2-f6-owner-bootstrap-compat-upgrade.ps1'
+& {
+    $ErrorActionPreference = 'Stop'
+    $repair = Join-Path (Get-Location).Path 'hostops\setup\p2-f6-owner-bootstrap-compat-upgrade.ps1'
+    & pwsh -NoProfile -File $repair
+    if ($LASTEXITCODE -ne 0) { throw 'P2_F6_INSPECT_HOLD_NO_MUTATION' }
 
-# Read-only check. Unrecognized installed source or dependency drift HALTS.
-& pwsh -NoProfile -File $repair
-if ($LASTEXITCODE -ne 0) { throw 'P2_F6_INSPECT_HOLD_NO_MUTATION' }
+    Disable-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' | Out-Null
+    & pwsh -NoProfile -File $repair -InstallOffline
+    if ($LASTEXITCODE -ne 0) {
+        throw 'P2_F6_INSTALL_HOLD_TASK_REMAINS_DISABLED_REVIEW_OUTPUT'
+    }
 
-Disable-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' | Out-Null
-& pwsh -NoProfile -File $repair -InstallOffline
-if ($LASTEXITCODE -ne 0) {
-    throw 'P2_F6_INSTALL_HOLD_TASK_REMAINS_DISABLED_REVIEW_OUTPUT'
+    Enable-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' | Out-Null
+    Start-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent'
+    Start-Sleep -Seconds 6
+    Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' |
+        Select-Object TaskName,State
+    Get-ScheduledTaskInfo -TaskName 'TorrentTV-Vietsub-OwnerAgent' |
+        Select-Object LastTaskResult,LastRunTime
 }
-
-Enable-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' | Out-Null
-Start-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent'
-Start-Sleep -Seconds 6
-Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' |
-    Select-Object TaskName,State
-Get-ScheduledTaskInfo -TaskName 'TorrentTV-Vietsub-OwnerAgent' |
-    Select-Object LastTaskResult,LastRunTime
 ```
 
 Success in the installer must read:
