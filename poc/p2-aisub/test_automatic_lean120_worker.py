@@ -197,6 +197,46 @@ class AutoLean120WorkerTests(unittest.TestCase):
             self.worker().run(source)
         self.assertEqual(len(self.provider.calls), 2)
 
+    def test_acknowledged_unknown_effect_never_replays_original_job(self):
+        source = handoff(1)
+        self.provider.fail_on = 1
+        with self.assertRaisesRegex(ValueError, "AGY_PROCESS_FAILED_RESULT_UNKNOWN"):
+            self.worker().run(source)
+        job = self.folders()[0]
+        marker = job / "batch-0001.inflight"
+        self.assertTrue(marker.is_file())
+        # The offline owner tool creates the durable no-retry ledger first,
+        # then preserves the marker bytes under a non-inflight extension.
+        (job / "batch-0001.abandoned.json").write_text(
+            '{"result":"UNKNOWN_EFFECT_NO_RETRY"}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "PRIOR_PROVIDER_INFLIGHT_HOLD"):
+            self.worker().run(handoff(1, OTHER))
+        self.assertEqual(len(self.provider.calls), 1)
+        marker.rename(job / "batch-0001.quarantined")
+        with self.assertRaisesRegex(ValueError, "AUTO_LEAN120_ABANDONED_JOB_HOLD"):
+            self.worker().run(source)
+        self.assertEqual(len(self.provider.calls), 1)
+        self.assertTrue((job / "batch-0001.quarantined").exists())
+        self.assertFalse((job / "active.lock").exists())
+        # The owner can deliberately authorize a different job, but the
+        # unknown result from the original job is never retried.
+        different = self.worker().run(handoff(1, OTHER))
+        self.assertTrue(different.complete)
+        different_profile = self.worker(profile=ModelProfile(
+            "antigravity", "gemini-4-hydrogen-low", "low")).run(source)
+        self.assertTrue(different_profile.complete)
+        self.assertEqual(len(self.provider.calls), 3)
+
+    def test_abandonment_tombstone_alone_fails_closed(self):
+        source = handoff(1)
+        self.worker().run(source)
+        job = self.folders()[0]
+        (job / "batch-0001.abandoned.json").write_text(
+            "partially written ledger", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "AUTO_LEAN120_ABANDONED_JOB_HOLD"):
+            self.worker().run(source)
+        self.assertEqual(len(self.provider.calls), 1)
+
     def test_checkpoint_then_publish_failure_is_replayed_without_api(self):
         source = handoff(125)
         def crashed(_):

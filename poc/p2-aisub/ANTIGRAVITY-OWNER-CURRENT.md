@@ -68,6 +68,44 @@ Expected statuses include `P2_CACHED_EN_REVALIDATED=PASS`,
 - Keep original `.inflight` markers when provider effect is uncertain;
   automatic replays of completed checkpoints do not call the provider again.
 
+## Unknown-effect `.inflight` reconciliation (source-only, not activated)
+
+`hostops/setup/p2-inflight-reconcile-offline.ps1` provides an owner-local
+inspection path for a stranded P2 batch. It performs **no modification** by
+default, reports only an opaque batch number, marker SHA-256, checkpoint/lock
+presence and Owner task/process/inbox counts. It does not read credentials or
+emit subtitle text. Use the same interactive Windows account as Owner:
+
+```powershell
+pwsh -NoProfile -File .\hostops\setup\p2-inflight-reconcile-offline.ps1
+```
+
+If an independently checked provider result cannot be reconstructed and the
+owner **explicitly accepts abandoning that one unknown result**, an offline
+maintenance mode can preserve the exact marker bytes as
+`batch-NNNN.quarantined` and create a `batch-NNNN.abandoned.json` no-retry
+receipt. This is **not** evidence that the provider never ran; credits or quota
+may already have been consumed. The source worker refuses to translate the
+same job fingerprint after a tombstone, while a separately authorized new
+job remains possible.
+
+Before any quarantine, separately establish the old provider receipt status.
+The operator must disable and stop the exact Owner Scheduled Task and verify
+zero Owner Python workers, zero queued inbox events, zero active lock and no
+completed checkpoint. The script also requires the actually installed Owner
+worker's SHA-256 to match the reviewed source containing the no-retry
+tombstone check, and the expected task launcher/principal identity. This
+prevents an older Owner build from replaying the job after restart. Quarantine
+requires an exact marker SHA-256 and both
+`-ApplyQuarantine` and `-AcknowledgeUnknownEffect`. It refuses missing or
+multiple markers, invalid marker bytes, concurrent Owner work or destination
+collisions. **Never use this while the Owner task is Running.** No script here
+stops a service, deletes any marker, retires a key, merges a PR or calls `agy`.
+
+Apply mode remains an **untested Windows-owner deployment action** until a
+real owner-session rehearsal verifies the task checks and file receipts; the
+reviewed source and offline tests alone do not authorize it on the laptop.
+
 ## Not proved by this Draft
 
 Actual Windows Antigravity CLI flags/model availability, subscription or

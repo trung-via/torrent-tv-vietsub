@@ -133,6 +133,11 @@ class AutomaticLean120Worker:
         self.state_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         folder = self.state_root / digest
         folder.mkdir(mode=0o700, exist_ok=True)
+        # An owner-acknowledged, unknown-effect batch is never silently
+        # recreated. A separate, explicitly authorized job may proceed after
+        # the old marker is preserved in owner-private quarantine.
+        if any(folder.glob("batch-*.abandoned.json")):
+            raise ValueError("AUTO_LEAN120_ABANDONED_JOB_HOLD")
         lock = folder / "active.lock"
         # An existing/stale lock is deliberately NOT broken or auto-replayed.
         _write_new_synced(lock, b"TTV-P2-LOCK-V1\n")
