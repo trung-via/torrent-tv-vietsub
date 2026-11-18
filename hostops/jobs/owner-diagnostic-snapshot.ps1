@@ -97,9 +97,8 @@ $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$report.snapshot_utc
 $status = $report.status
 if ($age -lt 0 -or $age -gt 10) { $status = 'STALE' }
 if ($taskState -ceq 'NOT_RUNNING') { $status = 'OWNER_NOT_RUNNING' }
-if ($taskState -ceq 'UNKNOWN' -and $status -ceq 'READY_FRESH') {
-    $status = 'OWNER_TASK_UNVERIFIED'
-}
+# A service token may not enumerate the Owner's scheduled task. Report that
+# independently; do not mask a genuinely fresh, Owner-written receipt.
 if ($status -ceq 'READY_FRESH') {
     if ($report.mode -cne 'INTEGRATED_P3_P4' -or
         $report.heartbeat -cne 'READY_FRESH' -or

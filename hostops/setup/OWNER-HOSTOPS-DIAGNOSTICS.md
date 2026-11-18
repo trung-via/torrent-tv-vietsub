@@ -17,6 +17,8 @@ Status: **source candidate**, not Windows-enrolled, not an actual Redmi test.
    ProgramData sanitized receipt, checks its schema/freshness and optionally
    reads the fixed scheduled-task state. It never opens `LOCALAPPDATA` or
    creates/changes private Owner files.
+   If the service cannot enumerate the Task, task state remains `UNKNOWN`;
+   that fact is reported independently from a fresh Owner-produced receipt.
 
 ### One-time setup — only if needed after reviewed source deployment
 
