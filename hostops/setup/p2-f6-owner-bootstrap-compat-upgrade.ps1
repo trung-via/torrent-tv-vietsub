@@ -9,7 +9,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Write-Host 'P2_F6_VERSION=OWNER_BOOTSTRAP_COMPAT_V1'
+Write-Host 'P2_F6_VERSION=OWNER_BOOTSTRAP_COMPAT_V1_1_CRLF_PIN'
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw 'P2_F6_WINDOWS_REQUIRED'
@@ -24,8 +24,10 @@ if ($identity.User.Value -in @('S-1-5-18','S-1-5-19','S-1-5-20')) {
     throw 'P2_F6_SERVICE_OWNER_FORBIDDEN'
 }
 
-# Fixed source and base hashes derived from exact PR #173 head e186606 and
-# its R0 integration base eb7695e. Unknown installed source is never replaced.
+# Fixed CANONICAL (UTF-8 + LF) hashes derived from exact PR #173 head e186606
+# and R0 integration base eb7695e. Git .gitattributes checks out PowerShell
+# sources with CRLF; Canonical-Bytes normalizes those back to LF before SHA.
+# Unknown installed source is never replaced.
 $modules = [ordered]@{
     'automatic_vietsub_flow.py' = @{
         new = '57529953f6e0d5e13f7cc56165873e40818b801ac3e4144b94445a583076af04'
@@ -36,7 +38,7 @@ $modules = [ordered]@{
         old = '391b1c81c3071d68eedcacc34a6257cf7480a788facfd2cc72d2f05bc3b3a30b'
     }
     'start-owner-session-agent.ps1' = @{
-        new = '3570921ab3a147279deec9e581339bda7b91eb7a08e7df2a5a40a2535ee2fcdc'
+        new = '29d66749f4c44dfb396f971ea09660dd50e958eb0c10cbb312f07fd19df5bf74'
         old = '74d3139a5bc255023058d6029eb28d09065fef92caa195fd4f894c4e2d64fd70'
     }
 }
