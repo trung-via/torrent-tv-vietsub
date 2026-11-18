@@ -7,7 +7,7 @@ param()
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-Write-Host 'TTV_STARTUP_PROBE_VERSION=V1_READ_ONLY_OWNER'
+Write-Host 'TTV_STARTUP_PROBE_VERSION=V2_READ_ONLY_OWNER'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     Write-Host 'TTV_STARTUP_PROBE_RESULT=HOLD_WINDOWS_REQUIRED'
     exit 2
@@ -56,13 +56,64 @@ Write-Host 'TTV_STARTUP_TASK_OWNER=MATCH'
 
 $ownerRoot = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $subdir = Join-Path $ownerRoot 'app\poc\p2-sub-discovery'
-$launcher = Join-Path $subdir 'start-owner-session-agent.ps1'
+# Scheduled Task launches the script in the OwnerBridge ROOT. Python modules
+# live in app/poc/p2-sub-discovery. Do not conflate these two locations.
+$launcher = Join-Path $ownerRoot 'start-owner-session-agent.ps1'
 $entrypoint = Join-Path $subdir 'owner_p3_p4_entrypoint.py'
 $actions = @($task.Actions)
-if ($actions.Count -ne 1 -or
-    [string]$actions[0].Arguments -notmatch '(?i)-File\s+' -or
-    -not ([string]$actions[0].Arguments).Contains($launcher)) {
+$actionReason = 'NONE'
+if ($actions.Count -ne 1) {
+    $actionReason = 'COUNT'
+} else {
+    $action = $actions[0]
+    $expectedExe = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    $actualExe = ([string]$action.Execute).Trim().Trim('"')
+    if ($actualExe -ieq 'pwsh.exe' -or $actualExe -ieq 'pwsh') {
+        $actualExe = $expectedExe
+    }
+    $argsText = ([string]$action.Arguments).Trim()
+    $pattern = @'
+(?ix) \A \s*
+-NoLogo \s+ -NoProfile \s+ -NonInteractive \s+ -File \s+
+(?:"(?<double>[^"]+)"|'(?<single>[^']+)'|(?<bare>\S+))
+\s* \z
+'@
+    $match = [regex]::Match($argsText, $pattern)
+    if (-not [string]::IsNullOrWhiteSpace([string]$action.WorkingDirectory)) {
+        $actionReason = 'WORKDIR'
+    } elseif (-not $match.Success -or $argsText -match '[\r\n]') {
+        $actionReason = 'SWITCHES'
+    } else {
+        $fileArg = if ($match.Groups['double'].Success) {
+            $match.Groups['double'].Value
+        } elseif ($match.Groups['single'].Success) {
+            $match.Groups['single'].Value
+        } else {
+            $match.Groups['bare'].Value
+        }
+        try {
+            if (-not [IO.Path]::IsPathRooted($actualExe) -or
+                -not [IO.Path]::IsPathRooted($fileArg) -or
+                $fileArg -match '[%$*?"\r\n]') {
+                throw 'ACTION_PATH_UNSAFE'
+            }
+            if (-not [IO.Path]::GetFullPath($actualExe).Equals(
+                [IO.Path]::GetFullPath($expectedExe),
+                [StringComparison]::OrdinalIgnoreCase)) {
+                $actionReason = 'EXECUTABLE'
+            } elseif (-not [IO.Path]::GetFullPath($fileArg).Equals(
+                [IO.Path]::GetFullPath($launcher),
+                [StringComparison]::OrdinalIgnoreCase)) {
+                $actionReason = 'LAUNCHER'
+            }
+        } catch {
+            $actionReason = 'PATH_INVALID'
+        }
+    }
+}
+if ($actionReason -cne 'NONE') {
     Write-Host 'TTV_STARTUP_TASK_ACTION=MISMATCH'
+    Write-Host ('TTV_STARTUP_TASK_ACTION_REASON=' + $actionReason)
     Write-Host 'TTV_STARTUP_PROBE_RESULT=HOLD_TASK_ACTION'
     exit 2
 }
