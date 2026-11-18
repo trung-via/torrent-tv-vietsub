@@ -25,7 +25,36 @@ $root = Join-Path $env:ProgramData 'TorrentTVVietsub\OwnerBridge\Diagnostics'
 $file = Join-Path $root 'owner-snapshot.json'
 if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
     Write-Output 'HOSTOPS_OWNER_SNAPSHOT_STATUS=MISSING'
-    Write-Output 'HOSTOPS_OWNER_DIAG_ENROLLMENT=HOSTOPS_SETUP_REQUIRED'
+    # A missing receipt does not mean enrollment is missing. The Owner writer
+    # may simply not be installed/running yet; classify the directory/ACL
+    # independently so an owner is not asked to repeat a completed UAC step.
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+        Write-Output 'HOSTOPS_OWNER_DIAG_ENROLLMENT=HOSTOPS_SETUP_REQUIRED'
+    } else {
+        $directory = Get-Item -LiteralPath $root -Force -ErrorAction Stop
+        if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw 'HOSTOPS_OWNER_DIAG_REPARSE_PATH_BLOCKED'
+        }
+        $enrollment = 'READ_GRANT_NOT_VERIFIED'
+        try {
+            $acl = Get-Acl -LiteralPath $root -ErrorAction Stop
+            $mask = [Security.AccessControl.FileSystemRights]::ReadAndExecute
+            $rules = $acl.GetAccessRules(
+                $true, $false, [Security.Principal.SecurityIdentifier])
+            foreach ($rule in $rules) {
+                if ($rule.IdentityReference.Value -ceq 'S-1-5-20' -and
+                    $rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+                    ($rule.FileSystemRights -band $mask) -eq $mask) {
+                    $enrollment = 'READ_GRANT_VERIFIED'
+                    break
+                }
+            }
+        } catch {
+            $enrollment = 'ACL_READ_UNAVAILABLE'
+        }
+        Write-Output "HOSTOPS_OWNER_DIAG_ENROLLMENT=$enrollment"
+    }
+    Write-Output 'HOSTOPS_OWNER_WRITER=NOT_OBSERVED'
     Write-Output 'HOSTOPS_OWNER_PRIVATE_DATA=NOT_ACCESSED'
     Write-Output 'HOSTOPS_OWNER_PROVIDER_OR_TV=NOT_RUN'
     return
