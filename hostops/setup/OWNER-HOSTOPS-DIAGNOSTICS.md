@@ -59,6 +59,35 @@ restart or P2 replay is not authorized. P3 counters still require a fresh
 running Owner tick. An old/missing receipt remains `NOT_OBSERVED`, never CLEAR.
 Only stage/use the reviewed HostOps job at its exact trusted branch SHA;
 source candidate alone is not a live enrollment or acceptance.
+
+### Explicitly approved P2 `batch-0001` preservation-first recovery
+
+The Owner approved a **single** `UNKNOWN_EFFECT_NO_RETRY` quarantine on
+2026-11-19. Existing HostOps #82 runs under `NETWORK_SERVICE`, not the signed-in
+Owner, and cannot stop the two uninspectable Owner Python processes or write
+Owner-private P2 files. This is `HOSTOPS_SETUP_REQUIRED` for future native
+fixed Owner-session maintenance; the service may still collect preflight and
+postflight read-only receipts. Do not grant the service access to LOCALAPPDATA.
+
+`hostops/setup/owner-p2-quarantine-once.ps1` is the bounded interactive
+Owner-only **source candidate** for this one approved batch. It requires the
+exact prior `batch-0001` marker SHA, checks the existing reviewed no-retry
+worker and absence of pending events/checkpoint/lock, and fetches only its
+dependencies from immutable commit `cac462c1dd854a7b19fd0eb02018c9bd1aebb7fe`
+with SHA-256 verification. Only after all preflight checks pass does it
+disable and stop `TorrentTV-Vietsub-OwnerAgent`, invoke the existing offline
+reconciler to write the tombstone **before** preserving the marker as
+`.quarantined`, and export a fresh sanitized HostOps snapshot. It deliberately
+leaves the Task disabled even on success, for separate installed-source,
+worker/PID and no-replay review before a controlled new-film restart.
+
+This script is **not** a HostOps service operation, has **not** been executed
+on Windows, and does not call Antigravity, OpenSubtitles, TV or LAN. If source
+download, identity, marker, task state or stop fails, no quarantine is
+authorized. Any failure after Task disable leaves it disabled; do not
+attempt to force a retry or silently re-enable it. Windows hosted CI only
+parses/tests source; it cannot certify the future live maintenance effect.
+
 For a future reviewed HostOps read-only run, create the trusted
 `hostops/owner-diagnostic-snapshot` branch at the exact audited commit and
 submit owner-authored comment to Issue #82:

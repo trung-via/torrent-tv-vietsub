@@ -8,9 +8,11 @@ on:
       - 'poc/p2-sub-discovery/owner_hostops_snapshot.py'
       - 'poc/p2-sub-discovery/test_owner_hostops_snapshot.py'
       - 'poc/p2-sub-discovery/test_owner_p2_snapshot_once.py'
+      - 'poc/p2-sub-discovery/test_owner_p2_quarantine_once.py'
       - 'hostops/jobs/owner-diagnostic-snapshot.ps1'
       - 'hostops/setup/enroll-owner-diagnostic-spool.ps1'
       - 'hostops/setup/owner-p2-snapshot-once.ps1'
+      - 'hostops/setup/owner-p2-quarantine-once.ps1'
       - '.github/workflows/tv-owner-hostops-diagnostic-ci.yml'
   workflow_dispatch:
 
@@ -37,12 +39,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_LEGACY_DIAGNOSTIC_REGRESSION' }
           python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_p2_snapshot_once.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_OWNER_ONESHOT_REGRESSION' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_p2_quarantine_once.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_OWNER_QUARANTINE_SOURCE_REGRESSION' }
       - name: Parse Owner enrollment and trusted HostOps read-only PowerShell
         shell: pwsh
         run: |
           foreach ($file in @(
             'hostops/setup/enroll-owner-diagnostic-spool.ps1',
             'hostops/setup/owner-p2-snapshot-once.ps1',
+            'hostops/setup/owner-p2-quarantine-once.ps1',
             'hostops/jobs/owner-diagnostic-snapshot.ps1'
           )) {
             $tokens = $null
