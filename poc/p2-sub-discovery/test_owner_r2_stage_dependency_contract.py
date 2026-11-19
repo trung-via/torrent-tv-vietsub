@@ -30,7 +30,13 @@ class R2StageDependencyContract(unittest.TestCase):
                 self.assertTrue(relative.startswith((
                     "poc/p2-sub-discovery/", "poc/p2-aisub/")))
                 source = ROOT / relative
-                self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), expected)
+                # GitHub's Windows checkout can expand Git LF blobs to CRLF.
+                # The Owner stage downloads exact raw Git bytes, not checkout
+                # materialization. Match the raw committed LF blob hash.
+                checkout = source.read_bytes()
+                canonical = checkout.replace(b"\r\n", b"\n")
+                self.assertNotIn(b"\r", canonical)
+                self.assertEqual(hashlib.sha256(canonical).hexdigest(), expected)
 
         # These three files are imported by R2 but were NOT part of the
         # previous 14-file release. Their installed provenance was unproven
