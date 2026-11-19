@@ -21,6 +21,12 @@ from owner_session_bridge import (
     PreProviderTransient,
 )
 from verified_v3_processor import VerifiedV3Processor, V3IdentityError
+from owner_r2_verified_processor import R2VerifiedV3Processor
+from owner_r2_progressive_registry import R2OwnerProgressiveRegistry
+from owner_r2_progressive_worker import R2ProgressiveWorker
+from paired_activation import PairedActivation, activation_request_mac
+from p3_p4_media_key import p4_media_key
+from synthetic_mock_feed import decode_latest_test_only
 from automatic_vietsub_flow import AutomaticVietsubFlow, AutoPermissions, AutoResult, select_vi_then_en
 from automatic_lean120_worker import AutomaticLean120Worker
 from lean120_api import ModelProfile
@@ -247,6 +253,53 @@ class V3CompositionTests(unittest.TestCase):
                          (1, ["OWNER_BRIDGE_EVENT_COMPLETE"]))
         self.assertEqual(provider.calls, [])
         self.assertEqual([len(part) for part in gemini.calls], [120, 5])
+
+    def test_r2_actual_v3_local_en_first_120_reaches_p4_before_complete(self):
+        """The real V3→local EN→pinned worker call now emits P4 v1, v2."""
+        gemini = FakeGemini()
+        provider = FakeProvider()
+        worker = R2ProgressiveWorker(existing=AutomaticLean120Worker(
+            state_root=self.root / "work-r2",
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini))
+        flow = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic", transport=provider),
+            worker=worker, cache_root=self.root / "cache-r2",
+            permissions=AutoPermissions(True, True))
+        registry = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=self.read_tv)
+        p4 = PairedActivation(
+            device_secret=bytes(range(32)), supplied={},
+            authenticated_vietsub_factory=registry.resolve,
+            authenticated_progressive_factory=registry.resolve_progressive)
+        seen = []
+        original = registry.publish_worker_revision
+        def capture_first(**kwargs):
+            original(**kwargs)
+            if not seen:
+                key = p4_media_key(Media(SERVER, HASH, 5, VIDEO), vlc_selected=True)
+                nonce = "1" * 32
+                response = p4.activate(dict(
+                    schema="TTV-P4-ACTIVATE-V1", media_key=key,
+                    nonce=nonce,
+                    auth=activation_request_mac(bytes(range(32)), key, nonce)))
+                feed = p4.feed_for(response["session_id"])
+                self.assertEqual(decode_latest_test_only(feed)["translated_count"], 120)
+                seen.append(feed)
+        with mock.patch.object(registry, "publish_worker_revision",
+                               side_effect=capture_first):
+            r2 = R2VerifiedV3Processor(
+                progressive_registry=registry,
+                flow=flow, private_media_root=self.media,
+                read_verified_current_playback=self.read_tv,
+                read_verified_torrserver_file=self.read_file,
+                locate_owner_pinned_files=self.map_local,
+                on_vietsub_ready=registry.register)
+            self.dispatch(processor=r2)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(decode_latest_test_only(seen[0])["translated_count"], 125)
+        self.assertEqual(len(gemini.calls), 2)
+        self.assertEqual(provider.calls, [])
 
     def test_no_local_source_sends_exact_verified_media_to_real_d1_d2_router(self):
         # The release filename, torrent and *selected episode/file index* are

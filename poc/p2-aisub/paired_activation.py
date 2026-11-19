@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import re
@@ -31,6 +32,18 @@ MAC_RX = re.compile(r"[0-9a-f]{64}\Z")
 SESSION_RX = re.compile(r"[A-Za-z0-9_-]{16,80}\Z")
 ACTIVATE_ROUTE = "/p4/activate"
 MAX_ACTIVATE_BYTES = 800
+
+
+@dataclass(frozen=True)
+class AuthenticatedProgressiveSource:
+    """Owner-verified EN source with already-checkpointed rolling VI output.
+
+    The callback only attaches an existing P2 producer to the original P4
+    session; it must NEVER start translation, download or another provider.
+    """
+    media_key: str
+    source_sha256: str
+    subscribe: Callable[[SessionRevisionFeed], None]
 
 
 def derive_session_secret(device_secret: bytes, session_id: str,
@@ -75,7 +88,8 @@ class PairedActivation:
                  on_activate: Callable[[SessionRevisionFeed, AssumedEnglishSubtitle], None] | None = None,
                  authenticated_mock_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None,
                  authenticated_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None,
-                 authenticated_vietsub_factory: Callable[[str], VerifiedVietsubReady] | None = None):
+                 authenticated_vietsub_factory: Callable[[str], VerifiedVietsubReady] | None = None,
+                 authenticated_progressive_factory: Callable[[str], AuthenticatedProgressiveSource | None] | None = None):
         if not isinstance(device_secret, bytes) or len(device_secret) != 32:
             raise ValueError("P4_DEVICE_SECRET_INVALID")
         if len(supplied) > 32 or any(
@@ -89,7 +103,8 @@ class PairedActivation:
         if authenticated_mock_source_factory is not None and (
             not callable(authenticated_mock_source_factory) or supplied or
             authenticated_source_factory is not None or
-            authenticated_vietsub_factory is not None
+            authenticated_vietsub_factory is not None or
+            authenticated_progressive_factory is not None
         ):
             raise ValueError("P4_MOCK_SOURCE_FACTORY_SCOPE_INVALID")
         if authenticated_source_factory is not None and not callable(authenticated_source_factory):
@@ -99,7 +114,13 @@ class PairedActivation:
                  authenticated_source_factory is not None or
                  on_activate is not None)):
             raise ValueError("P4_VERIFIED_VI_FACTORY_SCOPE_INVALID")
+        if (authenticated_progressive_factory is not None and
+                (not callable(authenticated_progressive_factory) or supplied or
+                 authenticated_source_factory is not None or
+                 on_activate is not None)):
+            raise ValueError("P4_PROGRESSIVE_FACTORY_SCOPE_INVALID")
         self.__vietsub_factory = authenticated_vietsub_factory
+        self.__progressive_factory = authenticated_progressive_factory
         self.__mock_factory = authenticated_mock_source_factory
         self.__source_factory = authenticated_source_factory
         self.__locked_mock_media: str | None = None
@@ -154,8 +175,20 @@ class PairedActivation:
                     raise ValueError("P4_SOURCE_FACTORY_MEDIA_MISMATCH")
                 source = candidate
                 self.__sources[media] = source
+            progressive = None
+            if source is None and self.__progressive_factory is not None:
+                candidate = self.__progressive_factory(media)
+                if candidate is not None:
+                    if (not isinstance(candidate, AuthenticatedProgressiveSource)
+                            or candidate.media_key != media
+                            or not re.fullmatch(r"[0-9a-f]{64}",
+                                                candidate.source_sha256)
+                            or not callable(candidate.subscribe)):
+                        raise ValueError("P4_PROGRESSIVE_SOURCE_MISMATCH")
+                    progressive = candidate
             ready = None
-            if source is None and self.__vietsub_factory is not None:
+            if (source is None and progressive is None
+                    and self.__vietsub_factory is not None):
                 # The ready registry is populated ONLY by the existing owner
                 # VI_FAST or EN→LEAN120 completion, never by a bare Play.
                 # It independently rechecks the CURRENT signed TV session.
@@ -165,13 +198,15 @@ class PairedActivation:
                     raise ValueError("P4_READY_FACTORY_MEDIA_MISMATCH")
                 candidate.as_final_revision()  # strict hash/cues/timeline
                 ready = candidate
-            if source is None and ready is None:
+            if source is None and ready is None and progressive is None:
                 raise ValueError("P4_ASSUMED_SOURCE_MISSING")
             if len(self.__feeds)>=16:
                 raise ValueError("P4_TOO_MANY_SESSIONS")
             self.__seen[nonce]=now
             sid=secrets.token_urlsafe(24)
-            source_sha = (ready.source_sha256 if ready is not None else source.source_sha256)
+            source_sha = (ready.source_sha256 if ready is not None else
+                          progressive.source_sha256 if progressive is not None
+                          else source.source_sha256)
             session_key=derive_session_secret(self.__key,sid,media,source_sha)
             feed=SessionRevisionFeed(
                 session_id=sid,media_key=media,
@@ -184,6 +219,12 @@ class PairedActivation:
             except Exception:
                 with self.__lock: self.__feeds.pop(sid,None)
                 raise ValueError("P4_READY_FEED_PUBLISH_FAILED") from None
+        if progressive is not None:
+            try:
+                progressive.subscribe(feed)
+            except Exception:
+                with self.__lock: self.__feeds.pop(sid,None)
+                raise ValueError("P4_PROGRESSIVE_FEED_BIND_FAILED") from None
         if source is not None and self.__on_activate is not None:
             try: self.__on_activate(feed,source)
             except Exception:

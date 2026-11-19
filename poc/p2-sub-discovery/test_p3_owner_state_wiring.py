@@ -23,6 +23,11 @@ from automatic_vietsub_flow import AutoResult
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader
 from owner_session_bridge import poll_private_events
 from p3_owner_state_wiring import compose_owner_redmi_status
+from p3_owner_state_wiring_r2 import (
+    R2OwnerP3StatusComposition,
+    compose_owner_redmi_status as compose_r2,
+)
+from owner_r2_progressive_registry import R2OwnerProgressiveRegistry
 from p3_signed_playback_signal import sign_synthetic_event
 from p3_redmi_current_state import sign_synthetic_state, RedmiStateRejected
 
@@ -132,6 +137,25 @@ class CompleteStatusWiringTests(unittest.TestCase):
     def test_no_real_listener_or_extra_translator_is_constructed(self):
         self.assertTrue(callable(self.wiring.handler))
         self.assertTrue(callable(self.wiring.trusted_v3_factory))
+        self.assertFalse(self.owner.exists())
+        self.assertEqual(self.reads,0)
+
+    def test_r2_uses_same_paired_listener_and_adds_rolling_registry(self):
+        r2 = compose_r2(
+            p4_gateway=None,
+            paired_device_secret=KEY,
+            torrserver_reader=self.wiring.current._ts,
+            owner_root=self.owner,
+            private_media_root=self.media,
+            owner_auto_allowed=lambda: self.consent,
+            media_rights_allowed=lambda *_: self.rights,
+            verified_local_vi_state=lambda *_: self.vi,
+            locate_owner_pinned_files=lambda *_: None,
+            enable_verified_vietsub_ready=True)
+        self.assertIsInstance(r2, R2OwnerP3StatusComposition)
+        self.assertIsInstance(r2.ready_registry, R2OwnerProgressiveRegistry)
+        self.assertIsInstance(r2.p4_gateway, PairedActivation)
+        self.assertEqual(r2.handler.__name__, "R0PairedHandler")
         self.assertFalse(self.owner.exists())
         self.assertEqual(self.reads,0)
 

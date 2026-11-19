@@ -39,7 +39,7 @@ from owner_p3_p4_runtime import (
 )
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader
 from owner_torrserver_ffp_tracks import TorrServerFfpTrackReader
-from p3_owner_state_wiring_r0 import compose_owner_redmi_status
+from p3_owner_state_wiring_r2 import compose_owner_redmi_status
 from lan_revision_feed import private_lan_ip
 
 
