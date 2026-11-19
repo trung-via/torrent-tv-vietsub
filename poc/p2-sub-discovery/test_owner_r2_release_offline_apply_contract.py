@@ -43,8 +43,9 @@ class OwnerR2ReleaseOfflineApplyContract(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.script)
         for required in (
-            "param([switch]$ApplyOffline)",
-            "if (-not $ApplyOffline)",
+            "[CmdletBinding(DefaultParameterSetName = 'Inspect')]",
+            "[Parameter(ParameterSetName = 'Apply')][switch]$ApplyOffline",
+            "if (-not $ApplyOffline -and -not $RollbackOffline)",
             "OWNER_R2_OFFLINE=READ_ONLY_INSPECT_PASS",
             "OWNER_TASK_NOT_DISABLED", "OWNER_PROCESS_STILL_RUNNING",
             "PENDING_OWNER_EVENTS", "P2_UNCERTAIN_INFLIGHT",
@@ -74,6 +75,29 @@ class OwnerR2ReleaseOfflineApplyContract(unittest.TestCase):
             self.script.index("AtomicReplace $temporary $destination 'r2-original'"),
         )
         self.assertNotIn("[IO.File]::Replace($source,$destination,$null)", self.script)
+
+    def test_owner_only_rollback_requires_original_backup_and_exact_r2(self):
+        for required in (
+            "[Parameter(ParameterSetName = 'Rollback')][switch]$RollbackOffline",
+            "[ValidatePattern('^owner-r2-[0-9a-f]{32}$')]",
+            "if ($RollbackOffline)",
+            "ROLLBACK_LEDGER_SCHEMA_INVALID",
+            "ROLLBACK_INSTALLED_R2_DRIFT",
+            "ROLLBACK_PRIVATE_BACKUP_DRIFT",
+            "ROLLBACK_INSTALLED_R2_CHANGED",
+            "ROLLBACK_ORIGINAL_HASH_NOT_RESTORED",
+            "OWNER_R2_ROLLBACK=ORIGINAL_BYTES_RESTORED_OWNER_STOPPED",
+        ):
+            self.assertIn(required, self.script)
+        preflight = self.script.split("if ($RollbackOffline) {", 1)[1]
+        self.assertLess(
+            preflight.index("ROLLBACK_INSTALLED_R2_DRIFT"),
+            preflight.index("foreach ($rel in @($files.Keys)[($files.Count-1)..0])"),
+        )
+        self.assertLess(
+            self.script.index("AssertOwnerStopped\nAssertNoOpenP2Work $root"),
+            self.script.index("if ($RollbackOffline) {"),
+        )
 
 
 if __name__ == "__main__":

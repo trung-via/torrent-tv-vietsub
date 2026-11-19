@@ -133,3 +133,8 @@ the service runner cannot apply this script using its current permissions.
 The offline script itself never stops, enables or starts Owner, invokes
 OpenSubtitles/Gemini, or touches Redmi. A verified stopped/installed Owner still
 requires a separately controlled startup and fresh heartbeat/TV proof.
+The same reviewed script also has an explicit -RollbackOffline -BackupId
+mode: it checks every installed R2 byte and the exact Owner-private pre-R2
+ledger/backup before reversing all 14 paths while the Owner remains disabled.
+Files originally absent are removed only if they still match this release.
+The rollback never starts Owner or touches the P2 provider/checkpoints.

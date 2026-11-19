@@ -1,8 +1,13 @@
 # Offline Owner-only R2 install from a previously verified, private STAGE_ONLY
 # release. Inspect is the default. This script never stops/starts Owner,
 # calls a provider/TV, alters P2 state, or authorizes an old inflight replay.
-[CmdletBinding()]
-param([switch]$ApplyOffline)
+[CmdletBinding(DefaultParameterSetName = 'Inspect')]
+param(
+    [Parameter(ParameterSetName = 'Apply')][switch]$ApplyOffline,
+    [Parameter(ParameterSetName = 'Rollback')][switch]$RollbackOffline,
+    [Parameter(ParameterSetName = 'Rollback',Mandatory = $true)]
+    [ValidatePattern('^owner-r2-[0-9a-f]{32}$')][string]$BackupId
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -120,7 +125,7 @@ foreach ($rel in $files.Keys) {
 }
 Write-Output 'OWNER_R2_STAGE_FILES=14_HASH_VERIFIED'
 Write-Output ('OWNER_R2_OWNER_TASK=' + [string]$task.State)
-if (-not $ApplyOffline) {
+if (-not $ApplyOffline -and -not $RollbackOffline) {
     Write-Output 'OWNER_R2_OFFLINE=READ_ONLY_INSPECT_PASS'
     Write-Output 'OWNER_R2_INSTALLED=NOT_CHANGED'
     return
@@ -131,6 +136,72 @@ if (-not $ApplyOffline) {
 AssertOwnerStopped
 AssertNoOpenP2Work $root
 $recovery = Join-Path $root 'recovery'
+if ($RollbackOffline) {
+    Directory $recovery
+    $originalBackup = Join-Path $recovery $BackupId
+    Directory $originalBackup
+    $ledgerPath = Join-Path $originalBackup 'ledger.json'
+    File $ledgerPath
+    if ((Get-Item -LiteralPath $ledgerPath).Length -gt 8192) {
+        Hold 'ROLLBACK_LEDGER_TOO_LARGE'
+    }
+    $ledgerRecord = Get-Content -LiteralPath $ledgerPath -Raw |
+        ConvertFrom-Json -AsHashtable
+    if ($ledgerRecord.schema -cne 'TTV-OWNER-R2-ROLLBACK-V1' -or
+        $ledgerRecord.source_commit -cne '90b8c18f343fc37bbfcee8752eec9d6890490d78' -or
+        $ledgerRecord.previous -isnot [System.Collections.IDictionary] -or
+        $ledgerRecord.previous.Count -ne $files.Count) {
+        Hold 'ROLLBACK_LEDGER_SCHEMA_INVALID'
+    }
+    # Preflight the entire restoration before changing a single file.
+    foreach ($rel in $files.Keys) {
+        if (-not $ledgerRecord.previous.Contains($rel)) { Hold 'ROLLBACK_LEDGER_PATH_MISSING' }
+        $oldHash = [string]$ledgerRecord.previous[$rel]
+        $installed = Join-Path $app ($rel.Replace('/','\'))
+        File $installed
+        if ((Hash $installed) -cne $files[$rel]) { Hold 'ROLLBACK_INSTALLED_R2_DRIFT' }
+        if ($oldHash -cne 'ABSENT') {
+            if ($oldHash -cnotmatch '\A[0-9a-f]{64}\z') {
+                Hold 'ROLLBACK_PREVIOUS_HASH_INVALID'
+            }
+            $saved = Join-Path $originalBackup ($rel.Replace('/','\'))
+            File $saved
+            if ((Hash $saved) -cne $oldHash) { Hold 'ROLLBACK_PRIVATE_BACKUP_DRIFT' }
+        }
+    }
+    foreach ($rel in @($files.Keys)[($files.Count-1)..0]) {
+        AssertOwnerStopped
+        AssertNoOpenP2Work $root
+        $installed = Join-Path $app ($rel.Replace('/','\'))
+        File $installed
+        if ((Hash $installed) -cne $files[$rel]) { Hold 'ROLLBACK_INSTALLED_R2_CHANGED' }
+        $oldHash = [string]$ledgerRecord.previous[$rel]
+        if ($oldHash -ceq 'ABSENT') {
+            [IO.File]::Delete($installed) # Only exact R2 module added by this release.
+        } else {
+            $saved = Join-Path $originalBackup ($rel.Replace('/','\'))
+            $temp = Join-Path (Split-Path -Parent $installed) (
+                '.r2-restore-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+            [IO.File]::Copy($saved,$temp,$false)
+            if ((Hash $temp) -cne $oldHash) { Hold 'ROLLBACK_RESTORE_TEMP_DRIFT' }
+            AtomicReplace $temp $installed 'r2-rollback-displaced'
+        }
+    }
+    foreach ($rel in $files.Keys) {
+        $installed = Join-Path $app ($rel.Replace('/','\'))
+        $oldHash = [string]$ledgerRecord.previous[$rel]
+        if ($oldHash -ceq 'ABSENT') {
+            if (Test-Path -LiteralPath $installed) { Hold 'ROLLBACK_ADDED_MODULE_REMAINS' }
+        } elseif (-not (Test-Path -LiteralPath $installed) -or
+            (Hash $installed) -cne $oldHash) {
+            Hold 'ROLLBACK_ORIGINAL_HASH_NOT_RESTORED'
+        }
+    }
+    Write-Output 'OWNER_R2_ROLLBACK=ORIGINAL_BYTES_RESTORED_OWNER_STOPPED'
+    Write-Output 'OWNER_R2_OWNER_RESTART=NOT_RUN'
+    Write-Output 'OWNER_R2_P2_CHECKPOINTS=NOT_CHANGED'
+    return
+}
 if (-not (Test-Path -LiteralPath $recovery)) {
     New-Item -ItemType Directory -Path $recovery -ErrorAction Stop | Out-Null
 }
