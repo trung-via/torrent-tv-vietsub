@@ -12,6 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 ENROLL = ROOT / "hostops/setup/enroll-owner-p2-quarantine-task.ps1"
 DISPATCH = ROOT / "hostops/jobs/owner-p2-quarantine-dispatch.ps1"
+PROBE = ROOT / "hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1"
 HELPER = ROOT / "hostops/setup/owner-p2-quarantine-once.ps1"
 KNOWN_SOURCE_COMMIT = "50f282a484dd6ad6104587a914b753e1ed467972"
 KNOWN_HELPER_SHA256 = "a21ff672e15db0b2efca20909ae88b35957193f99a52a83a3000dfa65f3d7cb3"
@@ -94,6 +95,20 @@ class HostOpsOwnerTaskTests(unittest.TestCase):
             "Invoke-WebRequest", "Invoke-RestMethod", "LOCALAPPDATA", "acy ", "agy ",
         ):
             self.assertNotIn(prohibited, self.dispatch)
+
+    def test_failed_enrollment_can_be_inspected_by_service_without_write(self):
+        probe = PROBE.read_text(encoding="utf-8")
+        self.assertIn("HOSTOPS_P2_ENROLL_PROBE_TRUSTED_RUNNER_REQUIRED", probe)
+        self.assertIn("HOSTOPS_P2_MAINTENANCE_TASK=FOUND", probe)
+        self.assertIn("HOSTOPS_P2_NETWORKSERVICE_ACE_MASK=0x", probe)
+        self.assertIn("HOSTOPS_P2_NETWORKSERVICE_ACE_COUNT=", probe)
+        self.assertIn("HOSTOPS_P2_MAINTENANCE_EXECUTION=NOT_RUN", probe)
+        for prohibited in (
+            "Start-ScheduledTask", "Stop-ScheduledTask", "Register-ScheduledTask",
+            "Unregister-ScheduledTask", "Disable-ScheduledTask", "Enable-ScheduledTask",
+            "SetSecurityDescriptor", "Invoke-WebRequest", "LOCALAPPDATA",
+        ):
+            self.assertNotIn(prohibited, probe)
 
 
 if __name__ == "__main__":

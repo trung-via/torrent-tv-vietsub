@@ -12,6 +12,7 @@ on:
       - 'poc/p2-sub-discovery/test_owner_p2_hostops_task.py'
       - 'hostops/jobs/owner-diagnostic-snapshot.ps1'
       - 'hostops/jobs/owner-p2-quarantine-dispatch.ps1'
+      - 'hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1'
       - 'hostops/setup/enroll-owner-diagnostic-spool.ps1'
       - 'hostops/setup/enroll-owner-p2-quarantine-task.ps1'
       - 'hostops/setup/owner-p2-snapshot-once.ps1'
@@ -55,6 +56,7 @@ jobs:
             'hostops/setup/owner-p2-quarantine-once.ps1',
             'hostops/setup/enroll-owner-p2-quarantine-task.ps1',
             'hostops/jobs/owner-p2-quarantine-dispatch.ps1',
+            'hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1',
             'hostops/jobs/owner-diagnostic-snapshot.ps1'
           )) {
             $tokens = $null
