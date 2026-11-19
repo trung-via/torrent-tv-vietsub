@@ -43,11 +43,12 @@ try {
     Write-Output 'HOSTOPS_P2_QUARANTINE_ENROLLMENT=HOSTOPS_SETUP_REQUIRED'
     throw 'HOSTOPS_P2_QUARANTINE_DEDICATED_TASK_NOT_ACCESSIBLE'
 }
+$triggerCount = if ($null -eq $task.Triggers) { 0 } else { @($task.Triggers).Count }
 if ([string]$task.State -cne 'Ready' -or
     [string]$task.Description -cne $description -or
     [string]$task.Principal.LogonType -ine 'Interactive' -or
     [string]$task.Principal.RunLevel -ine 'Limited' -or
-    @($task.Triggers).Count -ne 0 -or
+    $triggerCount -ne 0 -or
     [string]$task.Settings.MultipleInstances -ine 'IgnoreNew' -or
     @($task.Actions).Count -ne 1) {
     throw 'HOSTOPS_P2_QUARANTINE_TASK_IDENTITY_DRIFT'

@@ -16,10 +16,13 @@ $approvedHelperHash = 'a21ff672e15db0b2efca20909ae88b35957193f99a52a83a3000dfa65
 
 function AssertDedicatedTask {
     param($Task, $Identity, [string]$Pwsh, [string]$Helper, [string]$Description)
+    $triggerCount = if ($null -eq $Task -or $null -eq $Task.Triggers) {
+        0
+    } else { @($Task.Triggers).Count }
     if ($null -eq $Task -or
         [string]$Task.Description -cne $Description -or
         -not (Test-TTVOwnerTaskPrincipal -Principal $Task.Principal -ExpectedSid $Identity.User.Value) -or
-        @($Task.Triggers).Count -ne 0 -or
+        $triggerCount -ne 0 -or
         [string]$Task.Settings.MultipleInstances -ine 'IgnoreNew' -or
         -not (Get-TTVOwnerTaskActionState -Task $Task -ExpectedExecutable $Pwsh `
             -ExpectedLauncher $Helper).Accepted) {
