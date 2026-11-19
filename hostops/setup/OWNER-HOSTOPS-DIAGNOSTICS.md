@@ -113,6 +113,15 @@ stays running with its original launcher and `IgnoreNew` policy.
   It does not grant service admin, Owner profile, file or task-write access.
   Owner must be signed in. If the Windows DACL grant is rejected, enrollment
   fails; never fall back to changing the runner service account.
+  On 2026-11-19, the live signed-in Owner and subsequent dedicated HostOps
+  read-only probe agreed on **one** `AccessAllowed` ACE for `NETWORK_SERVICE`,
+  with Windows-mapped mask `0x001200A9` (specific READ + EXECUTE), rather
+  than the submitted generic `GRGX` mask `0xA0000000`. The first enrollment
+  script incorrectly rejected this valid readback and reported
+  `OWNER_P2_ENROLL_NETWORKSERVICE_RX_NOT_VERIFIED` **after registering** the
+  task. The source now accepts exactly these two read/execute encodings;
+  no Owner re-enrollment or permission broadening is needed to correct the
+  false-negative check.
 - The trusted owner-comment command `/tv-hostops run <exact-SHA>
   owner-p2-quarantine-dispatch` uses the fixed HostOps job and requires the
   corresponding reviewed `hostops/owner-p2-quarantine-dispatch` branch to

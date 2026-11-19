@@ -162,7 +162,10 @@ try {
     }
     $parsed = [Security.AccessControl.RawSecurityDescriptor]::new($before)
     $nsSid = 'S-1-5-20'
-    $approvedMask = -1610612736 # signed 0xA0000000 = GENERIC_READ | GENERIC_EXECUTE
+    # Windows Task Scheduler maps GR|GX from generic 0xA0000000 to the
+    # object-specific file READ|EXECUTE mask 0x001200A9 on roundtrip.
+    # Both forms have been checked; NEVER accept write/full-control masks.
+    $approvedMasks = @(-1610612736, 0x001200A9)
     $nsAceCount = 0
     foreach ($ace in $parsed.DiscretionaryAcl) {
         if ($ace -isnot [Security.AccessControl.QualifiedAce]) {
@@ -171,7 +174,7 @@ try {
         if ($null -ne $ace.SecurityIdentifier -and $ace.SecurityIdentifier.Value -ceq $nsSid) {
             $nsAceCount += 1
             if ($ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or
-                $ace.AccessMask -ne $approvedMask) {
+                $ace.AccessMask -notin $approvedMasks) {
                 throw 'OWNER_P2_ENROLL_UNEXPECTED_NETWORKSERVICE_GRANT'
             }
         }
@@ -189,7 +192,7 @@ try {
         }
         if ($null -ne $ace.SecurityIdentifier -and $ace.SecurityIdentifier.Value -ceq $nsSid -and
             $ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed -and
-            $ace.AccessMask -eq $approvedMask) {
+            $ace.AccessMask -in $approvedMasks) {
             $grantCount += 1
         }
     }
