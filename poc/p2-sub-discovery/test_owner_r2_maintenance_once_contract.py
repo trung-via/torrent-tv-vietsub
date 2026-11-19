@@ -21,7 +21,12 @@ class OwnerR2MaintenanceOnceContract(unittest.TestCase):
     def test_pinned_exact_applier_source(self):
         pin = re.search(r"\$applierSHA\s*=\s*'([0-9a-f]{64})'", self.source)
         self.assertIsNotNone(pin)
-        self.assertEqual(pin.group(1), hashlib.sha256(APPLIER.read_bytes()).hexdigest())
+        # GitHub checkout is allowed to materialize .ps1 as CRLF even on
+        # Linux; raw.githubusercontent serves the exact LF Git blob.
+        checkout = APPLIER.read_bytes()
+        self.assertNotIn(b"\r", checkout.replace(b"\r\n", b""))
+        canonical = checkout.replace(b"\r\n", b"\n")
+        self.assertEqual(pin.group(1), hashlib.sha256(canonical).hexdigest())
         self.assertIn("87003ddd1ffa2b2ab2a7a05f95292f8d519a43cc", self.source)
 
     def test_no_silent_apply_and_no_service_context(self):
