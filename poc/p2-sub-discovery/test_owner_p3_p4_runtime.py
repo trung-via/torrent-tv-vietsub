@@ -19,6 +19,7 @@ from owner_p3_p4_runtime import (
 )
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader
 from p3_owner_state_wiring import compose_owner_redmi_status
+from p3_owner_state_wiring_r2 import compose_owner_redmi_status as compose_r2
 
 
 KEY = bytes(range(32))
@@ -61,6 +62,28 @@ class OwnerIntegratedRuntimeTests(unittest.TestCase):
         self.assertTrue(callable(self.wiring.handler))
         self.assertFalse((self.owner / "inbox").exists())
         _validate_wiring(self.wiring)
+
+    def test_r2_composition_is_startup_compatible_without_opening_lan(self):
+        """The actual R2 entrypoint composition must be instantiable offline."""
+        reader = OwnerTorrServerReader(
+            OwnerLocalTorrServer("test-profile", 8090),
+            transport=lambda *_: b'{"hash":"' + TORRENT.encode() + b'","file_stats":[]}',
+        )
+        wiring = compose_r2(
+            p4_gateway=None,
+            paired_device_secret=KEY,
+            torrserver_reader=reader,
+            owner_root=self.owner,
+            private_media_root=self.media,
+            owner_auto_allowed=lambda: True,
+            media_rights_allowed=lambda *_: True,
+            verified_local_vi_state=lambda *_: "UNKNOWN",
+            locate_owner_pinned_files=lambda *_: None,
+            enable_verified_vietsub_ready=True,
+        )
+        _validate_wiring(wiring)
+        self.assertTrue(callable(wiring.handler))
+        self.assertFalse((self.owner / "inbox").exists())
 
     def test_signed_p3_and_owner_v3_must_share_one_private_inbox(self):
         _validate_owner_root(self.wiring, self.owner)

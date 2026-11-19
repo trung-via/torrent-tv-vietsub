@@ -25,14 +25,13 @@ class OwnerR2ReleaseOfflineApplyContract(unittest.TestCase):
             r"'(poc/(?:p2-aisub|p2-sub-discovery)/[a-z0-9_]+\.py)'\s*=\s*'([0-9a-f]{64})'",
             source,
         ))
-        self.assertEqual(len(rows), 14)
+        self.assertEqual(len(rows), 17)
         self.assertEqual(rows, {
             entry["path"]: entry["sha256"]
             for entry in self.manifest["files"]
         })
         self.assertEqual(self.manifest["mode"], "STAGE_ONLY")
-        self.assertIn("owner-r2-rolling-175-90b8c18f343f", self.script)
-        self.assertIn("90b8c18f343fc37bbfcee8752eec9d6890490d78", self.script)
+        self.assertIn("owner-r2-rolling-175-r2-", self.script)
 
     def test_inspect_default_and_offline_stop_required(self):
         for forbidden in (

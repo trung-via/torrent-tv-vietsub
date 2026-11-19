@@ -64,8 +64,8 @@ Write-Output 'OWNER_RELEASE_SOURCE_POWERSHELL_PARSE=PASS'
 $manifest = Get-Content -LiteralPath (Join-Path $root 'hostops\releases\owner-r2-stage-v1.json') `
     -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.schema -cne 'TTV-OWNER-RELEASE-STAGE-V1' -or
-    $manifest.release_id -cne 'r2-rolling-175' -or
-    $manifest.mode -cne 'STAGE_ONLY' -or @($manifest.files).Count -ne 14) {
+    $manifest.release_id -cne 'r2-rolling-175-r2' -or
+    $manifest.mode -cne 'STAGE_ONLY' -or @($manifest.files).Count -ne 17) {
     throw 'OWNER_RELEASE_SOURCE_CHECK_MANIFEST_INVALID'
 }
 $seen = @{}

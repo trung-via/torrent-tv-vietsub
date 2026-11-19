@@ -49,7 +49,7 @@ if ($manifestHash -cnotmatch '\A[0-9a-f]{64}\z') {
 }
 $manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.schema -cne 'TTV-OWNER-RELEASE-STAGE-V1' -or
-    $manifest.release_id -cne 'r2-rolling-175' -or
+    $manifest.release_id -cne 'r2-rolling-175-r2' -or
     $manifest.mode -cne 'STAGE_ONLY') {
     throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_SCOPE_INVALID'
 }
