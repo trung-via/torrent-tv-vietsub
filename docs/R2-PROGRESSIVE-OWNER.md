@@ -138,3 +138,21 @@ mode: it checks every installed R2 byte and the exact Owner-private pre-R2
 ledger/backup before reversing all 14 paths while the Owner remains disabled.
 Files originally absent are removed only if they still match this release.
 The rollback never starts Owner or touches the P2 provider/checkpoints.
+
+## One-time interactive R2 activation entrypoint (source candidate)
+
+The Owner-only hostops/setup/owner-r2-maintenance-once.ps1 is a convenience
+entrypoint when reusable HostOps STAGE_ONLY access cannot replace installed
+files. It pins/downloads the exact offline applier (SHA-256), defaults to
+inspect-only and requires explicit -ApplyR2 to transition a Windows Owner.
+It checks Owner task identity and absence of pending/inflight/active P2 jobs
+before disabling/stopping the main task, then runs the guarded offline apply
+and restarts the main Owner. It requires a fresh READY heartbeat with a new
+PID. If new startup fails, it stops Owner again, verifies and restores the
+original source via -RollbackOffline, then attempts to restart the old Owner.
+An uncertain file transition or rollback leaves Owner stopped for recovery.
+
+The task has not been run on the real PC, and the one-time entrypoint is not
+a HostOps service privilege grant. It must pass Windows source parsing and
+be explicitly invoked by the interactive Owner in a maintenance window;
+real P3/P2/P4 and Redmi subtitle acceptance remain separate gates.
