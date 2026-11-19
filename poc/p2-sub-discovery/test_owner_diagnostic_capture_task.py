@@ -12,6 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 ENROLL = ROOT / "hostops/setup/enroll-owner-diagnostic-capture.ps1"
 DISPATCH = ROOT / "hostops/jobs/owner-diagnostic-capture.ps1"
+SNAPSHOT = ROOT / "hostops/jobs/owner-diagnostic-snapshot.ps1"
 HELPER = ROOT / "hostops/setup/owner-p2-snapshot-once.ps1"
 OWNER = "TorrentTV-Vietsub-OwnerAgent"
 CAPTURE = "TorrentTV-Vietsub-Owner-Diagnostic-Capture"
@@ -67,6 +68,17 @@ class OwnerCaptureTests(unittest.TestCase):
             "GEMINI_API_KEY", "OpenSubtitles",
         ):
             self.assertNotIn(forbidden, self.dispatch)
+
+    def test_hostops_exposes_every_fixed_selection_rejection_category(self):
+        consumer = SNAPSHOT.read_text(encoding="utf-8")
+        for category in (
+            "bad_wire", "current_tv_or_torrserver_unavailable",
+            "media_mismatch", "owner_policy", "enqueue",
+            "http_format", "unknown",
+        ):
+            self.assertIn("'selection_rejected_" + category + "'", consumer)
+        self.assertIn("HOSTOPS_OWNER_", consumer)
+        self.assertIn("OWNER_PRIVATE_DATA=NOT_ACCESSED", consumer)
 
 
 if __name__ == "__main__":

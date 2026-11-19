@@ -195,8 +195,13 @@ Write-Output "HOSTOPS_OWNER_P3_STATE=$($report.p3_state)"
 Write-Output "HOSTOPS_OWNER_TORRSERVER=$($report.torrserver)"
 foreach ($field in @('state_accepted','state_rejected','selection_dispatched',
                      'selection_rejected','selection_skipped',
+                     'selection_rejected_bad_wire',
                      'selection_rejected_media_mismatch',
-                     'selection_rejected_current_tv_or_torrserver_unavailable')) {
+                     'selection_rejected_current_tv_or_torrserver_unavailable',
+                     'selection_rejected_owner_policy',
+                     'selection_rejected_enqueue',
+                     'selection_rejected_http_format',
+                     'selection_rejected_unknown')) {
     Write-Output ("HOSTOPS_OWNER_" + $field.ToUpperInvariant() + '=' + $report.ingress.$field)
 }
 # P3 freshness (10s + live Task) and P2 capture freshness are separate.

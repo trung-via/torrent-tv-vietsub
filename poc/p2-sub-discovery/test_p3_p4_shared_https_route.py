@@ -8,6 +8,8 @@ from __future__ import annotations
 from http.client import HTTPSConnection
 from http.server import HTTPServer
 from dataclasses import replace
+from email.message import Message
+from io import BytesIO
 import json
 from pathlib import Path
 import sys
@@ -127,6 +129,37 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
             return reply.status, reply.read()
         finally:
             client.close()
+
+    def disconnected_handler(self, body):
+        """Exercise response failures deterministically without a TV socket."""
+        handler_type = make_p3_p4_handler(
+            self.p4, self.p3, self.state_cache, self.ingress)
+        handler = handler_type.__new__(handler_type)
+        handler.path = "/p3/selection"
+        handler.headers = Message()
+        handler.headers["Content-Type"] = "application/json"
+        handler.headers["Content-Length"] = str(len(body))
+        handler.rfile = BytesIO(body)
+        return handler
+
+    def test_client_reset_during_403_does_not_double_reject_or_traceback(self):
+        handler = self.disconnected_handler(signed_wire(file_index=99))
+        handler.send_error = mock.Mock(side_effect=ConnectionResetError(10054, "client closed"))
+        handler.do_POST()
+        self.assertEqual(handler.send_error.call_count, 1)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected"], 1)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected_media_mismatch"], 1)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected_unknown"], 0)
+
+    def test_client_reset_after_204_does_not_create_false_403(self):
+        handler = self.disconnected_handler(signed_wire())
+        handler.send_response = mock.Mock(side_effect=ConnectionResetError(10054, "client closed"))
+        handler.send_error = mock.Mock()
+        handler.do_POST()
+        self.assertEqual(handler.send_response.call_count, 1)
+        handler.send_error.assert_not_called()
+        self.assertEqual(self.ingress.snapshot()["selection_dispatched"], 1)
+        self.assertEqual(self.ingress.snapshot()["selection_rejected"], 0)
 
     def test_exact_valid_signed_tv_signal_enqueues_v3_without_p4_or_api_call(self):
         raw = signed_wire()

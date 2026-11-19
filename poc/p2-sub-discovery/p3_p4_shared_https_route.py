@@ -97,7 +97,13 @@ def make_p3_p4_handler(
                                 "http_format", "unknown"):
                             bucket = "unknown"
                         ingress.record("selection_rejected_" + bucket)
-                self.send_error(http_status)
+                try:
+                    self.send_error(http_status)
+                except (BrokenPipeError, ConnectionResetError,
+                        ConnectionAbortedError):
+                    # A TV that closes before receiving our rejection must
+                    # not make the outer handler reject/count a second time.
+                    pass
 
             if self.path == P3_STATE_ROUTE and state_cache is None:
                 # State ingress must be explicitly configured by the owner.
@@ -139,10 +145,16 @@ def make_p3_p4_handler(
                         ingress.record("state_accepted" if is_state else (
                             "selection_dispatched" if decision.status == "DISPATCH"
                             else "selection_skipped"))
-                    self.send_response(204)
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("Content-Length", "0")
-                    self.end_headers()
+                    try:
+                        self.send_response(204)
+                        self.send_header("Cache-Control", "no-store")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                    except (BrokenPipeError, ConnectionResetError,
+                            ConnectionAbortedError):
+                        # The accepted/skip decision remains authoritative;
+                        # an abandoned HTTP response is not a new 403.
+                        return
                 else:
                     # Do not disclose which gate failed to the HTTP caller.
                     rejected(403, _selection_reason_bucket(decision.reason))
