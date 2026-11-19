@@ -58,7 +58,7 @@ class OwnerCaptureTests(unittest.TestCase):
         self.assertIn("(GetTaskSid $task.Principal) -cne (GetTaskSid $ownerTask.Principal)", self.dispatch)
         self.assertIn("owner-p2-snapshot-once\\.ps1", self.dispatch)
         self.assertIn("Start-ScheduledTask -TaskName $taskName", self.dispatch)
-        self.assertIn("HOSTOPS_OWNER_CAPTURE=FRESH_V2_RECEIPT_VERIFIED", self.dispatch)
+        self.assertIn("HOSTOPS_OWNER_CAPTURE=FRESH_${receiptVersion}_RECEIPT_VERIFIED", self.dispatch)
         self.assertIn("HOSTOPS_OWNER_CAPTURE=TRIGGERED_NOT_VERIFIED", self.dispatch)
         self.assertIn("owner-diagnostic-snapshot.ps1", self.dispatch)
         for forbidden in (

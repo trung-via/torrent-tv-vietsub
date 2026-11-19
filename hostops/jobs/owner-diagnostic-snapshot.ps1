@@ -81,7 +81,9 @@ $p2Fields = @('status','pending_events','inflight_count','batch',
     'marker_sha256','checkpoint_present','active_lock_present',
     'installed_no_retry_worker_match')
 $isV2 = $report.schema -ceq 'TTV-HOSTOPS-OWNER-SNAPSHOT-V2'
-if ($isV2) { $fields += 'p2' }
+$isV3 = $report.schema -ceq 'TTV-HOSTOPS-OWNER-SNAPSHOT-V3'
+if ($isV2 -or $isV3) { $fields += 'p2' }
+if ($isV3) { $p2Fields += @('blocked_events','review_events','deferred_events') }
 $ingressFields = @('state_accepted','state_rejected','selection_dispatched',
     'selection_skipped','selection_rejected','selection_rejected_bad_wire',
     'selection_rejected_current_tv_or_torrserver_unavailable',
@@ -105,7 +107,8 @@ $validTs = @('TCP_REACHABLE_METADATA_UNTESTED','TCP_UNREACHABLE',
     'CONFIG_INVALID','UNTESTED')
 $validInstrumented = @('YES','NO','NOT_OBSERVED')
 if ($report.schema -cnotin @('TTV-HOSTOPS-OWNER-SNAPSHOT-V1',
-                             'TTV-HOSTOPS-OWNER-SNAPSHOT-V2') -or
+                             'TTV-HOSTOPS-OWNER-SNAPSHOT-V2',
+                             'TTV-HOSTOPS-OWNER-SNAPSHOT-V3') -or
     $report.status -cnotin $validStatuses -or
     $report.p3_state -cnotin $validP3 -or
     $report.torrserver -cnotin $validTs -or
@@ -130,7 +133,7 @@ foreach ($field in $ingressFields) {
 }
 # V1 receipts from previously installed Owners remain readable. Only the new
 # V2 exact-schema P2 observation is emitted, never the Owner-private marker.
-if ($isV2) {
+if ($isV2 -or $isV3) {
     if (-not $report.p2 -or
         (@($report.p2.PSObject.Properties.Name | Sort-Object) -join ',') -cne
             (@($p2Fields | Sort-Object) -join ',')) {
@@ -146,7 +149,9 @@ if ($isV2) {
         $report.p2.installed_no_retry_worker_match -cnotin @('YES','NO','NOT_OBSERVED')) {
         throw 'HOSTOPS_OWNER_P2_INVALID_ENUM'
     }
-    foreach ($field in @('pending_events','inflight_count')) {
+    $p2Counters = @('pending_events','inflight_count')
+    if ($isV3) { $p2Counters += @('blocked_events','review_events','deferred_events') }
+    foreach ($field in $p2Counters) {
         $count = $report.p2.$field
         if (($count -isnot [int] -and $count -isnot [long]) -or
             $count -lt -1 -or $count -gt 10001) {
@@ -208,11 +213,20 @@ foreach ($field in @('state_accepted','state_rejected','selection_dispatched',
 # A one-shot Owner-only read-only capture is still useful for reconciliation
 # when an older P3 runtime is running; it is NEVER a restart/replay clearance.
 $p2CaptureRecent = $age -ge 0 -and $age -le 900
-if ($isV2 -and $p2CaptureRecent) {
+if (($isV2 -or $isV3) -and $p2CaptureRecent) {
     Write-Output "HOSTOPS_OWNER_P2_RECEIPT_AGE_SECONDS=$age"
     Write-Output "HOSTOPS_OWNER_P2_STATUS=$($report.p2.status)"
     Write-Output "HOSTOPS_OWNER_P2_PENDING_EVENTS=$($report.p2.pending_events)"
     Write-Output "HOSTOPS_OWNER_P2_INFLIGHT_COUNT=$($report.p2.inflight_count)"
+    if ($isV3) {
+        Write-Output "HOSTOPS_OWNER_P2_BLOCKED_EVENTS=$($report.p2.blocked_events)"
+        Write-Output "HOSTOPS_OWNER_P2_REVIEW_EVENTS=$($report.p2.review_events)"
+        Write-Output "HOSTOPS_OWNER_P2_DEFERRED_EVENTS=$($report.p2.deferred_events)"
+    } else {
+        Write-Output 'HOSTOPS_OWNER_P2_BLOCKED_EVENTS=-1'
+        Write-Output 'HOSTOPS_OWNER_P2_REVIEW_EVENTS=-1'
+        Write-Output 'HOSTOPS_OWNER_P2_DEFERRED_EVENTS=-1'
+    }
     Write-Output "HOSTOPS_OWNER_P2_BATCH=$($report.p2.batch)"
     Write-Output "HOSTOPS_OWNER_P2_MARKER_SHA256=$($report.p2.marker_sha256)"
     Write-Output "HOSTOPS_OWNER_P2_CHECKPOINT_PRESENT=$($report.p2.checkpoint_present)"
@@ -223,6 +237,9 @@ if ($isV2 -and $p2CaptureRecent) {
     Write-Output 'HOSTOPS_OWNER_P2_STATUS=NOT_OBSERVED'
     Write-Output 'HOSTOPS_OWNER_P2_INFLIGHT_COUNT=-1'
     Write-Output 'HOSTOPS_OWNER_P2_PENDING_EVENTS=-1'
+    Write-Output 'HOSTOPS_OWNER_P2_BLOCKED_EVENTS=-1'
+    Write-Output 'HOSTOPS_OWNER_P2_REVIEW_EVENTS=-1'
+    Write-Output 'HOSTOPS_OWNER_P2_DEFERRED_EVENTS=-1'
 }
 Write-Output 'HOSTOPS_OWNER_P2_RESTART_OR_REPLAY_AUTHORIZED=NO'
 Write-Output 'HOSTOPS_OWNER_PRIVATE_DATA=NOT_ACCESSED'

@@ -48,6 +48,13 @@ class OwnerCurrentRedmiReader:
         self._owner = owner_auto_allowed
         self._rights = media_rights_allowed
         self._vi = verified_local_vi_state
+        self._selected_file_inspector = None
+
+    def bind_selected_file_inspector(self, inspector: Callable) -> None:
+        """Set once during Owner composition, before serving any TV requests."""
+        if (self._selected_file_inspector is not None or not callable(inspector)):
+            raise OwnerTvStateUnavailable("P3_SELECTED_INSPECTOR_INVALID")
+        self._selected_file_inspector = inspector
 
     def _current(self) -> tuple[object, str, bool, bool, str]:
         try:
@@ -58,10 +65,15 @@ class OwnerCurrentRedmiReader:
                               first.torrent_hash, first.file_index)
             name = _one_basename(chosen.path)
             allowed = self._owner()
-            rights = self._rights(self._ts.profile_id,
-                                  first.torrent_hash, first.file_index)
-            vi = self._vi(self._ts.profile_id,
-                          first.torrent_hash, first.file_index)
+            if self._selected_file_inspector is not None:
+                rights, vi = self._selected_file_inspector(
+                    self._ts.profile_id, first.torrent_hash,
+                    first.file_index, chosen)
+            else:
+                rights = self._rights(self._ts.profile_id,
+                                      first.torrent_hash, first.file_index)
+                vi = self._vi(self._ts.profile_id,
+                              first.torrent_hash, first.file_index)
             second = self._cache.read_fresh()
             if (first.tv_session_id != second.tv_session_id
                     or first.torrent_hash != second.torrent_hash

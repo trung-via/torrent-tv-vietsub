@@ -12,7 +12,7 @@ verified-ready registry and PairedActivation serve the original P4 revision.
 from __future__ import annotations
 
 import os
-from http.server import HTTPServer
+from http.server import HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 import ssl
 from threading import Thread
@@ -20,7 +20,7 @@ from typing import Callable
 
 from owner_session_bridge import run_owner_agent
 from owner_p3_p4_diagnostics import write_diagnostic
-from owner_hostops_snapshot import publish_owner_snapshot
+from owner_hostops_snapshot_v3 import publish_owner_snapshot_v3
 # p3_owner_state_wiring installs this repository's two pinned sibling paths.
 from p3_owner_state_wiring import OwnerP3StatusComposition
 from lan_revision_feed import private_lan_ip
@@ -36,7 +36,7 @@ def _diagnostic_tick(*, owner_root: Path, wiring: OwnerP3StatusComposition,
     """Keep old installed diagnostic pins, optionally publish sanitized copy."""
     write_diagnostic(owner_root=owner_root, wiring=wiring, state=state)
     try:
-        publish_owner_snapshot(owner_root=owner_root)
+        publish_owner_snapshot_v3(owner_root=owner_root)
     except (OSError, ValueError):
         # A missing/locked HostOps reader is not a reason to stop the Owner.
         pass
@@ -100,7 +100,11 @@ def make_integrated_https_server(*, wiring: OwnerP3StatusComposition,
             or tls_context.protocol != ssl.PROTOCOL_TLS_SERVER
             or tls_context.minimum_version < ssl.TLSVersion.TLSv1_2):
         raise OwnerRuntimeBlocked("P3_P4_TLS_CONTEXT_REQUIRED")
-    server = HTTPServer((host, port), wiring.handler)
+    # P3 /p3/state arrives every three seconds. A metadata/ffprobe read for
+    # /p3/selection must not hold that heartbeat behind a single HTTP worker
+    # until the authenticated eight-second TV snapshot expires.
+    server = ThreadingHTTPServer((host, port), wiring.handler)
+    server.daemon_threads = True
     try:
         server.socket = tls_context.wrap_socket(server.socket, server_side=True)
     except Exception:

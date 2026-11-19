@@ -18,6 +18,7 @@ from owner_selected_file_resolver import (
 )
 from owner_session_bridge import (
     enqueue_selected_media, poll_private_events, _parse_event,
+    PreProviderTransient,
 )
 from verified_v3_processor import VerifiedV3Processor, V3IdentityError
 from automatic_vietsub_flow import AutomaticVietsubFlow, AutoPermissions, AutoResult, select_vi_then_en
@@ -148,6 +149,23 @@ class V3CompositionTests(unittest.TestCase):
         self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY"])
         self.assertEqual(self.capture.calls, [])
         self.assertFalse(list((self.owner / "inbox").glob("event-*.json")))
+
+    def test_v3_unavailable_reader_is_typed_preprovider_and_never_calls_flow(self):
+        def unavailable():
+            raise OSError("synthetic offline TV")
+        with self.assertRaisesRegex(PreProviderTransient, "V3_TV_READER_UNAVAILABLE"):
+            self.processor(read_tv=unavailable).selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
+        self.assertEqual(self.read_calls, [])
+
+    def test_v3_identity_mismatch_stays_non_retryable(self):
+        with self.assertRaises(V3IdentityError):
+            self.processor().selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, "b" * 40, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
 
     def test_different_torrent_with_same_video_name_never_reuses_fingerprint(self):
         enqueue_selected_media(

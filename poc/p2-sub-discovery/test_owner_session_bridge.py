@@ -3,12 +3,14 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from owner_session_bridge import (
     enqueue_selected_media, poll_private_events, run_owner_agent,
     consume_inert_runner_wakes,
     _owner_process_lock,
     write_owner_agent_health, read_owner_agent_health,
+    PreProviderTransient,
 )
 
 
@@ -60,6 +62,94 @@ class OwnerSessionBridgeTests(unittest.TestCase):
         self.assertEqual(len(processor.calls), 1)
         self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY"])
         self.assertNotIn("private API key", " ".join(self.lines))
+
+    def test_preprovider_transient_bounded_retry_then_success(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.mkv", owner_root=self.root,
+            source_fingerprint="a" * 64, tv_session_id="b" * 32)
+        class TemporaryReader:
+            calls = 0
+            def selected_media(self, name, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise PreProviderTransient("V3_TV_READER_UNAVAILABLE")
+                return type("Result", (), {"status": "VI_READY"})()
+        processor = TemporaryReader()
+        with mock.patch("owner_session_bridge.time.time", return_value=100):
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=processor,
+                emit=self.lines.append), 1)
+        folder = self.root / "inbox"
+        self.assertFalse((folder / ("claim-" + event_id)).exists())
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_PREPROVIDER_DEFERRED"])
+        with mock.patch("owner_session_bridge.time.time", return_value=103):
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=processor,
+                emit=self.lines.append), 0)
+        with mock.patch("owner_session_bridge.time.time", return_value=106):
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=processor,
+                emit=self.lines.append), 1)
+        self.assertEqual(processor.calls, 2)
+        self.assertTrue((folder / ("event-" + event_id + ".done")).is_file())
+        self.assertTrue((folder / ("claim-" + event_id)).is_file())
+        self.assertFalse((folder / ("preprovider-retry-" + event_id + ".json")).exists())
+
+    def test_preprovider_retry_exhaustion_preserves_no_retry_claim(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.mkv", owner_root=self.root,
+            source_fingerprint="a" * 64, tv_session_id="b" * 32)
+        class FailingReader:
+            calls = 0
+            def selected_media(self, name, **kwargs):
+                self.calls += 1
+                raise PreProviderTransient("V3_SERVER_READER_UNAVAILABLE")
+        processor = FailingReader()
+        for moment in (100, 106, 122, 153):
+            with mock.patch("owner_session_bridge.time.time", return_value=moment):
+                self.assertEqual(poll_private_events(
+                    owner_root=self.root, processor=processor,
+                    emit=self.lines.append), 1)
+        folder = self.root / "inbox"
+        self.assertEqual(processor.calls, 4)
+        self.assertTrue((folder / ("event-" + event_id + ".blocked")).exists())
+        self.assertTrue((folder / ("claim-" + event_id)).exists())
+        self.assertFalse((folder / ("preprovider-retry-" + event_id + ".json")).exists())
+        self.assertEqual(self.lines[-1],
+                         "OWNER_BRIDGE_EVENT_PREPROVIDER_RETRIES_EXHAUSTED")
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor), 0)
+
+    def test_legacy_event_preprovider_error_must_not_replay(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.mkv", owner_root=self.root)
+        class FailingReader:
+            calls = 0
+            def selected_media(self, name):
+                self.calls += 1
+                raise PreProviderTransient("V3_TV_READER_UNAVAILABLE")
+        processor = FailingReader()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor,
+            emit=self.lines.append), 1)
+        folder = self.root / "inbox"
+        self.assertEqual(processor.calls, 1)
+        self.assertTrue((folder / ("event-" + event_id + ".blocked")).exists())
+        self.assertTrue((folder / ("claim-" + event_id)).exists())
+        self.assertFalse((folder / ("preprovider-retry-" + event_id + ".json")).exists())
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY"])
+
+    def test_corrupt_preprovider_retry_receipt_fails_closed(self):
+        event_id = enqueue_selected_media("Synthetic.Film.2017.mkv", owner_root=self.root)
+        (self.root / "inbox" /
+         ("preprovider-retry-" + event_id + ".json")).write_text("invalid")
+        processor = FakeProcessor()
+        poll_private_events(owner_root=self.root, processor=processor,
+                            emit=self.lines.append)
+        self.assertEqual(processor.calls, [])
+        self.assertIn("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY", self.lines)
+        self.assertTrue((self.root / "inbox" /
+                         ("event-" + event_id + ".blocked")).exists())
 
     def test_review_is_not_paid_retry(self):
         event_id = enqueue_selected_media(

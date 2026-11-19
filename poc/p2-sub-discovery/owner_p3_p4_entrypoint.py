@@ -33,13 +33,13 @@ for _sibling in ("p2-aisub", "p3-vietsub-trigger"):
     if _text not in sys.path:
         sys.path.insert(0, _text)
 
-from owner_p3_p4_private_policy import PrivateP3P4Policy, OwnerPolicyBlocked
+from owner_p3_p4_policy_r0 import R0PrivateP3P4Policy
 from owner_p3_p4_runtime import (
     _interactive_windows_session, run_owner_p3_p4_runtime,
 )
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader
 from owner_torrserver_ffp_tracks import TorrServerFfpTrackReader
-from p3_owner_state_wiring import compose_owner_redmi_status
+from p3_owner_state_wiring_r0 import compose_owner_redmi_status
 from lan_revision_feed import private_lan_ip
 
 
@@ -133,7 +133,7 @@ def build_private_composition(*, owner_root: Path,
                               torrserver_port: int):
     reader = OwnerTorrServerReader(
         OwnerLocalTorrServer(torrserver_profile, torrserver_port))
-    policy = PrivateP3P4Policy(
+    policy = R0PrivateP3P4Policy(
         manifest=policy_file, owner_root=owner_root,
         private_media_root=private_media_root,
         torrserver=reader,
@@ -148,6 +148,7 @@ def build_private_composition(*, owner_root: Path,
         media_rights_allowed=policy.media_rights_allowed,
         verified_local_vi_state=policy.verified_local_vi_state,
         locate_owner_pinned_files=policy.locate_owner_pinned_files,
+        selected_file_inspector=policy.inspect_verified_file,
         enable_verified_vietsub_ready=True)
 
 
@@ -188,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             raise OwnerEntrypointBlocked("P3_P4_OWNER_TS_PROFILE_REQUIRED")
         # Validate policy before copying private PEM into the agent root.
         reader = OwnerTorrServerReader(OwnerLocalTorrServer(profile, port_ts))
-        verified = PrivateP3P4Policy(
+        verified = R0PrivateP3P4Policy(
             manifest=policy_path, owner_root=owner,
             private_media_root=media_root, torrserver=reader,
             stream_probe=TorrServerFfpTrackReader(reader))
@@ -203,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             media_rights_allowed=verified.media_rights_allowed,
             verified_local_vi_state=verified.verified_local_vi_state,
             locate_owner_pinned_files=verified.locate_owner_pinned_files,
+            selected_file_inspector=verified.inspect_verified_file,
             enable_verified_vietsub_ready=True)
         print("P3_P4_PRIVATE_OWNER_POLICY_PAIRING_VERIFIED")
         if args.preflight_only:

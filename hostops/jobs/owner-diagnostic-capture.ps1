@@ -95,6 +95,7 @@ Write-Output 'HOSTOPS_OWNER_CAPTURE_TRIGGER=OWNER_TASK_START_REQUESTED'
 
 $verified = $false
 $failed = $false
+$receiptVersion = 'V2'
 for ($attempt = 0; $attempt -lt 50; $attempt++) {
     Start-Sleep -Seconds 1
     $nowTask = Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
@@ -115,11 +116,15 @@ for ($attempt = 0; $attempt -lt 50; $attempt++) {
             ConvertFrom-Json -ErrorAction Stop
         $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -
             [long]$receipt.snapshot_utc_epoch
-        if ($receipt.schema -ceq 'TTV-HOSTOPS-OWNER-SNAPSHOT-V2' -and
+        if ($receipt.schema -cin @('TTV-HOSTOPS-OWNER-SNAPSHOT-V2',
+                                  'TTV-HOSTOPS-OWNER-SNAPSHOT-V3') -and
             [long]$receipt.snapshot_utc_epoch -gt $beforeEpoch -and
             [long]$receipt.snapshot_utc_epoch -ge ($startedEpoch - 3) -and
             $age -ge 0 -and $age -le 30) {
             $verified = $true
+            if ($receipt.schema -ceq 'TTV-HOSTOPS-OWNER-SNAPSHOT-V3') {
+                $receiptVersion = 'V3'
+            }
             break
         }
     } catch {
@@ -128,7 +133,7 @@ for ($attempt = 0; $attempt -lt 50; $attempt++) {
     }
 }
 if ($verified) {
-    Write-Output 'HOSTOPS_OWNER_CAPTURE=FRESH_V2_RECEIPT_VERIFIED'
+    Write-Output "HOSTOPS_OWNER_CAPTURE=FRESH_${receiptVersion}_RECEIPT_VERIFIED"
 } elseif ($failed) {
     Write-Output 'HOSTOPS_OWNER_CAPTURE=OWNER_TASK_FAILED_NO_RETRY'
 } else {

@@ -42,7 +42,7 @@ class OwnerP2OneShotContractTests(unittest.TestCase):
     def test_hostops_p2_capture_does_not_require_live_p3_tick(self) -> None:
         consumer = CONSUMER.read_text(encoding="utf-8")
         self.assertIn("$p2CaptureRecent = $age -ge 0 -and $age -le 900", consumer)
-        self.assertIn("if ($isV2 -and $p2CaptureRecent)", consumer)
+        self.assertIn("if (($isV2 -or $isV3) -and $p2CaptureRecent)", consumer)
         self.assertIn("HOSTOPS_OWNER_P2_RECEIPT_AGE_SECONDS", consumer)
         self.assertIn("HOSTOPS_OWNER_P2_RESTART_OR_REPLAY_AUTHORIZED=NO", consumer)
         self.assertNotIn("if ($isV2 -and $status -ceq 'READY_FRESH')", consumer)

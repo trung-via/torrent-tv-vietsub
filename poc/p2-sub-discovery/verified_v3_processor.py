@@ -24,6 +24,7 @@ from owner_selected_file_resolver import (
     SelectedFileResolveError, resolve_selected_local_source, _fingerprint,
 )
 from local_en_direct import LocalMediaSelection
+from owner_session_bridge import PreProviderTransient
 
 
 class V3IdentityError(ValueError):
@@ -137,9 +138,9 @@ class VerifiedV3Processor:
         try:
             current = self.read_current()
         except Exception:
-            raise V3IdentityError("V3_TV_READER_UNAVAILABLE") from None
+            raise PreProviderTransient("V3_TV_READER_UNAVAILABLE") from None
         if not isinstance(current, CurrentPlaying):
-            raise V3IdentityError("V3_CURRENT_MEDIA_UNAVAILABLE")
+            raise PreProviderTransient("V3_CURRENT_MEDIA_UNAVAILABLE")
         if (source_fingerprint != _fingerprint(
                 current.server_id, current.torrent_hash,
                 current.file_index)):
@@ -149,7 +150,7 @@ class VerifiedV3Processor:
                 current.server_id, current.torrent_hash.lower(),
                 current.file_index)
         except Exception:
-            raise V3IdentityError("V3_SERVER_READER_UNAVAILABLE") from None
+            raise PreProviderTransient("V3_SERVER_READER_UNAVAILABLE") from None
 
         # The resolver performs ALL exact TV, session, metadata, owner-root,
         # local file and subtitle controls, even when no local EN is mapped.
@@ -172,7 +173,7 @@ class VerifiedV3Processor:
         try:
             latest = self.read_current()
         except Exception:
-            raise V3IdentityError("V3_TV_REFRESH_UNAVAILABLE") from None
+            raise PreProviderTransient("V3_TV_REFRESH_UNAVAILABLE") from None
         if (not isinstance(latest, CurrentPlaying)
                 or latest != current):
             raise V3IdentityError("V3_TV_SELECTION_CHANGED")

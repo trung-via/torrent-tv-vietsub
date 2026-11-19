@@ -38,6 +38,75 @@ _MAX_EVENT_BYTES = 768
 _MAX_EVENTS_PER_POLL = 3
 _HEALTH_STATES = frozenset({"STARTING", "READY", "STOPPED", "BLOCKED"})
 _HEALTH_SCHEMA = "TTV-OWNER-AGENT-HEALTH-V1"
+_RETRY_SCHEMA = "TTV-OWNER-PREPROVIDER-RETRY-V1"
+_RETRY_DELAYS = (5, 15, 30)
+
+
+class PreProviderTransient(RuntimeError):
+    """Only a verified V3 preflight may raise this before ANY provider call.
+
+    Do not use this exception for discovery, download, translation, the P4
+    ready callback, or any operation with an uncertain external effect.
+    """
+
+    _REASONS = frozenset({
+        "V3_TV_READER_UNAVAILABLE", "V3_CURRENT_MEDIA_UNAVAILABLE",
+        "V3_SERVER_READER_UNAVAILABLE", "V3_TV_REFRESH_UNAVAILABLE",
+    })
+
+    def __init__(self, reason: str):
+        if reason not in self._REASONS:
+            raise ValueError("OWNER_BRIDGE_PREPROVIDER_REASON_INVALID")
+        super().__init__(reason)
+
+
+def _retry_file(inbox: Path, event_id: str) -> Path:
+    return inbox / ("preprovider-retry-" + event_id + ".json")
+
+
+def _retry_state(file: Path) -> tuple[int, int]:
+    if not file.exists() and not file.is_symlink():
+        return 0, 0
+    if file.is_symlink() or not file.is_file() or file.stat().st_size > 256:
+        raise ValueError("OWNER_BRIDGE_RETRY_STATE_INVALID")
+    try:
+        state = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        raise ValueError("OWNER_BRIDGE_RETRY_STATE_INVALID") from None
+    if (not isinstance(state, dict)
+            or set(state) != {"schema", "attempts", "not_before_epoch"}
+            or state["schema"] != _RETRY_SCHEMA
+            or type(state["attempts"]) is not int
+            or not 1 <= state["attempts"] <= len(_RETRY_DELAYS)
+            or type(state["not_before_epoch"]) is not int
+            or state["not_before_epoch"] < 0):
+        raise ValueError("OWNER_BRIDGE_RETRY_STATE_INVALID")
+    return state["attempts"], state["not_before_epoch"]
+
+
+def _record_preprovider_retry(file: Path, attempts: int, now: int) -> None:
+    """Durably record a bounded retry BEFORE releasing the provider claim."""
+    record = {"schema": _RETRY_SCHEMA, "attempts": attempts,
+              "not_before_epoch": now + _RETRY_DELAYS[attempts - 1]}
+    temporary = file.parent / ("preprovider-retry-" + secrets.token_hex(8) + ".tmp")
+    try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(json.dumps(record, sort_keys=True,
+                                    separators=(",", ":")).encode("ascii"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, file)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _remove_finished_retry(file: Path) -> None:
+    """Best effort: the terminal event + preserved claim are authoritative."""
+    try:
+        file.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 @dataclass(frozen=True)
@@ -179,6 +248,17 @@ def poll_private_events(
         except ValueError:
             emit("OWNER_BRIDGE_EVENT_REJECTED")
             continue
+        retry = _retry_file(inbox, event.event_id)
+        try:
+            retry_attempts, retry_at = _retry_state(retry)
+        except (OSError, ValueError):
+            # An untrusted/inconsistent retry receipt must NEVER trigger a
+            # new provider operation. Preserve the event for Owner review.
+            os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
+            emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
+            continue
+        if int(time.time()) < retry_at:
+            continue
         claim = inbox / ("claim-" + event.event_id)
         try:
             fd = os.open(claim, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -208,12 +288,37 @@ def poll_private_events(
                 raise ValueError("OWNER_BRIDGE_INVALID_RESULT")
             suffix = ".done" if status != "REVIEW_REQUIRED" else ".review"
             os.replace(path, inbox / ("event-" + event.event_id + suffix))
+            _remove_finished_retry(retry)
             emit("OWNER_BRIDGE_EVENT_" + (
                 "COMPLETE" if suffix == ".done" else "NEEDS_REVIEW"))
+        except PreProviderTransient:
+            # Only the V3 verified preflight can prove no OpenSubtitles/AGY
+            # request has been attempted. It will revalidate the live TV on
+            # each retry. Uncertain provider failures remain blocked below.
+            if event.tv_session_id is None:
+                # Old V1/V2 events cannot re-attest a live TV session.
+                os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
+                _remove_finished_retry(retry)
+                emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
+            elif retry_attempts >= len(_RETRY_DELAYS):
+                os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
+                _remove_finished_retry(retry)
+                emit("OWNER_BRIDGE_EVENT_PREPROVIDER_RETRIES_EXHAUSTED")
+            else:
+                try:
+                    _record_preprovider_retry(
+                        retry, retry_attempts + 1, int(time.time()))
+                    claim.unlink()
+                except (OSError, ValueError):
+                    # Leave a claim on failure: no ambiguous automatic replay.
+                    emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFER_HOLD")
+                else:
+                    emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFERRED")
         except Exception:
             # Error text may include private file paths/API material; do not
             # print it, or attempt a second quota-bearing provider request.
             os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
+            _remove_finished_retry(retry)
             emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
     return processed
 

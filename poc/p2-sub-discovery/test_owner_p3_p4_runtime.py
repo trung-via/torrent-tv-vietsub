@@ -115,7 +115,7 @@ class OwnerIntegratedRuntimeTests(unittest.TestCase):
                 self.closed = False
             def server_close(self):
                 self.closed = True
-        with (mock.patch("owner_p3_p4_runtime.HTTPServer", FakeServer),
+        with (mock.patch("owner_p3_p4_runtime.ThreadingHTTPServer", FakeServer),
               mock.patch("owner_p3_p4_runtime.ssl.SSLContext", FakeTLS)):
             ctx = FakeTLS()
             result = make_integrated_https_server(
