@@ -21,7 +21,19 @@ $manifestFile = Join-Path $env:GITHUB_WORKSPACE ($manifestRel.Replace('/', '\'))
 if (-not (Test-Path -LiteralPath $manifestFile -PathType Leaf)) {
     throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_MISSING'
 }
-$manifestHash = (Get-FileHash -LiteralPath $manifestFile -Algorithm SHA256).Hash.ToLowerInvariant()
+# The Owner fetches the Git LF blob over HTTPS. Pin those bytes even if the
+# Windows runner checkout converted this JSON to CRLF.
+$utf8 = [Text.UTF8Encoding]::new($false,$true)
+$manifestText = $utf8.GetString([IO.File]::ReadAllBytes($manifestFile))
+if ($manifestText.StartsWith([char]0xFEFF) -or
+    $manifestText.Replace("`r`n", "`n").Contains("`r")) {
+    throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_LINE_ENDINGS_INVALID'
+}
+$normal = $utf8.GetBytes($manifestText.Replace("`r`n", "`n"))
+$hasher = [Security.Cryptography.SHA256]::Create()
+try {
+    $manifestHash = [BitConverter]::ToString($hasher.ComputeHash($normal)).Replace('-','').ToLowerInvariant()
+} finally { $hasher.Dispose() }
 if ($manifestHash -cnotmatch '\A[0-9a-f]{64}\z') {
     throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_HASH_INVALID'
 }
