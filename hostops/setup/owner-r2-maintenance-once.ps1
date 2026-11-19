@@ -155,6 +155,64 @@ function StartOwnerAfterMaintenance([long]$oldPid) {
     Start-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
     return (HealthyNewOwner $oldPid)
 }
+function TestR2StagedImports {
+    # Reproduce Python's new staged overlay over the actual prior Owner app
+    # BEFORE stopping a healthy task. The full Git checkout is not an accurate
+    # proxy for the Windows installation. No LAN bind, provider or bytecode.
+    $stageRoot = Join-Path $ownerRoot 'staged-releases\owner-r2-rolling-175-r2-e81578816f00'
+    $python = @'
+import importlib, pathlib, sys
+stage, installed = (pathlib.Path(value) for value in sys.argv[1:3])
+locations = [stage / 'poc/p2-sub-discovery', stage / 'poc/p2-aisub',
+             installed / 'poc/p2-sub-discovery', installed / 'poc/p2-aisub',
+             installed / 'poc/p3-vietsub-trigger']
+for location in reversed(locations):
+    sys.path.insert(0, str(location))
+names = ('paired_activation', 'owner_hostops_snapshot',
+         'owner_hostops_snapshot_v3', 'owner_p3_p4_private_policy',
+         'owner_p3_p4_policy_r0', 'owner_p3_p4_runtime',
+         'owner_r2_progressive_registry', 'owner_r2_progressive_worker',
+         'owner_r2_verified_processor', 'owner_session_bridge',
+         'owner_torrserver_ffp_tracks', 'p3_owner_current_redmi',
+         'p3_owner_state_wiring_r0', 'p3_owner_state_wiring_r2',
+         'p3_p4_shared_https_route_r0', 'verified_v3_processor')
+try:
+    for name in names:
+        module = importlib.import_module(name)
+        expected = (stage / 'poc/p2-aisub' / (name + '.py') if name == 'paired_activation'
+                    else stage / 'poc/p2-sub-discovery' / (name + '.py'))
+        if pathlib.Path(module.__file__).resolve() != expected.resolve():
+            raise RuntimeError('STAGED_ORIGIN_DRIFT')
+    entry = stage / 'poc/p2-sub-discovery/owner_p3_p4_entrypoint.py'
+    compile(entry.read_bytes(), str(entry), 'exec')
+except BaseException:
+    print('OWNER_R2_IMPORT_SMOKE=HOLD_DEPENDENCY_OR_ORIGIN')
+    sys.exit(2)
+print('OWNER_R2_IMPORT_SMOKE=PASS_NO_LAN_NO_PROVIDER')
+'@
+    $result = @(& py -3 -I -B -c $python $stageRoot (Join-Path $ownerRoot 'app') 2>$null)
+    if ($LASTEXITCODE -ne 0 -or
+        @($result | Where-Object { [string]$_ -ceq 'OWNER_R2_IMPORT_SMOKE=PASS_NO_LAN_NO_PROVIDER' }).Count -ne 1) {
+        Hold 'STAGED_IMPORT_PREFLIGHT_FAILED_OWNER_UNCHANGED'
+    }
+    Write-Output 'OWNER_R2_IMPORT_SMOKE=PASS_NO_LAN_NO_PROVIDER'
+}
+function TestR2PrivatePreflight {
+    # This is the new Owner's own --preflight-only mode: it verifies private
+    # policy/pairing but never starts HTTPS or requests subtitles/provider.
+    $entry = Join-Path $ownerRoot 'app\poc\p2-sub-discovery\owner_p3_p4_entrypoint.py'
+    $homeRoot = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
+    $cacheRoot = Join-Path $homeRoot 'subtitle-trials'
+    $result = @(& py -3 -B $entry --owner-root $ownerRoot --cache-root $cacheRoot `
+        --state-root $stateRoot --preflight-only 2>$null)
+    if ($LASTEXITCODE -eq 0 -and
+        @($result | Where-Object { [string]$_ -ceq 'P3_P4_OWNER_PREFLIGHT=PASS_NO_LAN_NO_PROVIDER' }).Count -eq 1) {
+        Write-Output 'OWNER_R2_NEW_PRIVATE_PREFLIGHT=PASS_NO_LAN_NO_PROVIDER'
+        return $true
+    }
+    Write-Output 'OWNER_R2_NEW_PRIVATE_PREFLIGHT=HOLD_NO_START'
+    return $false
+}
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $logged = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName
@@ -191,17 +249,43 @@ if ($ResumeAfterStoppedTaskHold -and -not $ApplyR2) {
     Hold 'RESUME_REQUIRES_APPLY_R2'
 }
 $applier = Join-Path $maintenance 'owner-r2-release-offline-apply.ps1'
-$applierSHA = '2624d595277214bbdb95af104cffe972d382d2836aa5f8c38427dd4d9e1a2308'
+$applierSHA = '4855ca4f2f222971fbb259c077c635acf46fb402e04a0e214fcfc48a6075ef71'
+$legacyApplierSHA = '2624d595277214bbdb95af104cffe972d382d2836aa5f8c38427dd4d9e1a2308'
 $temp = Join-Path $env:TEMP ('ttv-owner-r2-applier-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 try {
     $uri = 'https://raw.githubusercontent.com/trung-via/torrent-tv-vietsub/' +
-        '87003ddd1ffa2b2ab2a7a05f95292f8d519a43cc/hostops/setup/owner-r2-release-offline-apply.ps1'
+        '642303fcfa77fbb22e950b5cefb035b8722b13bc/hostops/setup/owner-r2-release-offline-apply.ps1'
     Invoke-WebRequest -Uri $uri -OutFile $temp -ErrorAction Stop
     RegularFile $temp
     if ((Hash $temp) -cne $applierSHA) { Hold 'REVIEWED_APPLIER_HASH_MISMATCH' }
     if (Test-Path -LiteralPath $applier) {
         RegularFile $applier
-        if ((Hash $applier) -cne $applierSHA) { Hold 'EXISTING_APPLIER_DRIFT' }
+        $existingSHA = Hash $applier
+        if ($existingSHA -cne $applierSHA) {
+            if ($existingSHA -cne $legacyApplierSHA) { Hold 'EXISTING_APPLIER_DRIFT' }
+            # The first failed upgrade left this exact, reviewed V1 applier.
+            # Preserve it privately and atomically replace the helper only;
+            # the live Owner/P2 app remains entirely untouched here.
+            $legacy = Join-Path $maintenance 'owner-r2-release-offline-apply.legacy-v1.ps1'
+            if (Test-Path -LiteralPath $legacy) {
+                RegularFile $legacy
+                if ((Hash $legacy) -cne $legacyApplierSHA) { Hold 'LEGACY_APPLIER_BACKUP_DRIFT' }
+            } else {
+                [IO.File]::Copy($applier,$legacy,$false)
+                if ((Hash $legacy) -cne $legacyApplierSHA) { Hold 'LEGACY_APPLIER_BACKUP_FAILED' }
+            }
+            $replacement = Join-Path $maintenance ('.r2-applier-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+            try {
+                [IO.File]::Copy($temp,$replacement,$false)
+                [IO.File]::Replace($replacement,$applier,$null)
+                if ((Hash $applier) -cne $applierSHA) { Hold 'NEW_APPLIER_REPLACEMENT_FAILED' }
+            } finally {
+                if (Test-Path -LiteralPath $replacement) {
+                    Remove-Item -LiteralPath $replacement -Force -ErrorAction SilentlyContinue
+                }
+            }
+            Write-Output 'OWNER_R2_LEGACY_APPLIER=PRIVATE_BACKUP_VERIFIED'
+        }
     } else {
         [IO.File]::Copy($temp,$applier,$false)
     }
@@ -214,6 +298,7 @@ try {
 & pwsh -NoProfile -NonInteractive -File $applier
 if ($LASTEXITCODE -ne 0) { Hold 'OWNER_R2_STAGE_INSPECTION_FAILED' }
 Write-Output 'OWNER_R2_MAINTENANCE_PREFLIGHT=STAGE_VERIFIED'
+TestR2StagedImports
 if (-not $ApplyR2) {
     Write-Output 'OWNER_R2_MAINTENANCE=INSPECT_ONLY_OWNER_UNCHANGED'
     return
@@ -257,7 +342,8 @@ if ($exit -ne 0 -or -not $installed -or $tokens.Count -ne 1) {
     Hold 'OFFLINE_APPLY_FAILED_OWNER_DISABLED'
 }
 $backupId = ([string]$tokens[0]).Split('=')[1]
-if (StartOwnerAfterMaintenance $oldPid) {
+$privatePreflightPassed = TestR2PrivatePreflight
+if ($privatePreflightPassed -and (StartOwnerAfterMaintenance $oldPid)) {
     Write-Output 'OWNER_R2_MAINTENANCE=R2_ACTIVE_FRESH_OWNER_HEARTBEAT'
     Write-Output 'OWNER_R2_PROVIDER_TV=NOT_RUN_BY_MAINTENANCE'
     Write-Output 'OWNER_R2_REDMi=NOT_VERIFIED'
@@ -277,4 +363,4 @@ if ($rollbackExit -ne 0 -or
 if (-not (StartOwnerAfterMaintenance $oldPid)) {
     Hold 'OLD_OWNER_ROLLBACK_VERIFIED_BUT_HEARTBEAT_FAILED'
 }
-Hold 'R2_STARTUP_FAILED_OLD_OWNER_RECOVERED'
+Hold 'R2_PREFLIGHT_OR_STARTUP_FAILED_OLD_OWNER_RECOVERED'

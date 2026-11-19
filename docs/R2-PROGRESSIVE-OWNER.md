@@ -93,7 +93,7 @@ modified by merely enrolling it.
   **`STAGE_ONLY`**. It does not replace installed app files, call providers,
   touch TV/APK or restart Owner.
 - The initial exact R2 candidate is
-  `hostops/releases/owner-r2-stage-v1.json`: 14 additive/replacement modules
+  `hostops/releases/owner-r2-stage-v1.json`: 17 additive/replacement modules
   with hashes from PR #175 R2 reviewed source tree
   `b9e42ef91be1c5c347f418e4e4a6133e2a963366`. The generic task may stage
   a future separately reviewed exact-SHA Python manifest with the same schema
@@ -112,7 +112,7 @@ receipt remain required.
 
 The new hostops/setup/owner-r2-release-offline-apply.ps1 adds a narrowly scoped
 Owner-interactive -ApplyOffline file transition; without the switch it only
-inspects the 14 staged hashes, destination types and original task identity.
+inspects the 17 staged hashes, destination types and original task identity.
 It pins the successful R2 stage commit and every staged Python SHA. It does
 not use arbitrary user-supplied paths or execute repository Python.
 
@@ -152,10 +152,33 @@ PID. If new startup fails, it stops Owner again, verifies and restores the
 original source via -RollbackOffline, then attempts to restart the old Owner.
 An uncertain file transition or rollback leaves Owner stopped for recovery.
 
-The task has not been run on the real PC, and the one-time entrypoint is not
-a HostOps service privilege grant. It must pass Windows source parsing and
-be explicitly invoked by the interactive Owner in a maintenance window;
-real P3/P2/P4 and Redmi subtitle acceptance remain separate gates.
+The first real Owner attempt was stopped before applying anything because of
+a residual Python worker. The controlled resume applied the 14-file release,
+but R2 did not reach the fresh READY heartbeat within its 30-second gate.
+The maintenance script verified all 14 original files restored and restarted
+the old Owner. A subsequent HostOps receipt confirmed the old task `RUNNING`,
+Owner `READY_FRESH`, P2 `CLEAR`, pending/inflight `0/0`. **This was not a
+successful R2 activation.**
+
+The 14-file overlay omitted three baseline source dependencies used by the
+new R2 imports (`owner_p3_p4_private_policy.py`,
+`owner_torrserver_ffp_tracks.py`, `owner_hostops_snapshot.py`). The exact
+Windows startup exception was not collected, so the dependency gap is a
+verified *packaging defect*, not proof that it was the sole startup failure.
+The next candidate adds those three pinned files to a 17-file staged release,
+an Owner-context **read-only staged/import smoke before stopping** the old
+task, and a `--preflight-only` private policy/pairing check **before starting**
+the new task. If this latter preflight fails, all changed files are rolled
+back and the old task is recovered; no provider or TV action is run.
+The exact old applier left by the failed release is retained as an Owner-only
+`legacy-v1` backup and atomically replaced with the 17-file applier; an
+unexpected existing helper hash is a hard HOLD. The release stage is pinned
+to commit `e81578816f00a4051f72690c7e7633eeb29b6159` and **must be
+staged and verified separately** before any new maintenance attempt. The
+prior 14-file private stage does not satisfy the new manifest.
+The Owner one-time entrypoint remains an interactive-owner maintenance action,
+not a HostOps service privilege grant. Real P3/P2/P4 and Redmi subtitle
+acceptance remain separate gates.
 
 If the Windows Scheduler stops its PowerShell task but leaves an Owner Python
 child alive, the entrypoint may terminate only a bounded set (at most four)

@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from pathlib import Path
 import hashlib
+import json
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "hostops/setup/owner-r2-maintenance-once.ps1"
 APPLIER = ROOT / "hostops/setup/owner-r2-release-offline-apply.ps1"
+MANIFEST = ROOT / "hostops/releases/owner-r2-stage-v1.json"
 
 
 class OwnerR2MaintenanceOnceContract(unittest.TestCase):
@@ -27,7 +33,39 @@ class OwnerR2MaintenanceOnceContract(unittest.TestCase):
         self.assertNotIn(b"\r", checkout.replace(b"\r\n", b""))
         canonical = checkout.replace(b"\r\n", b"\n")
         self.assertEqual(pin.group(1), hashlib.sha256(canonical).hexdigest())
-        self.assertIn("87003ddd1ffa2b2ab2a7a05f95292f8d519a43cc", self.source)
+        self.assertIn("642303fcfa77fbb22e950b5cefb035b8722b13bc", self.source)
+
+    def test_staged_overlay_imports_before_owner_task_is_stopped(self):
+        section = self.source.split("$python = @'\n", 1)[1].split("\n'@", 1)[0]
+        self.assertIn("OWNER_R2_IMPORT_SMOKE=PASS_NO_LAN_NO_PROVIDER", section)
+        self.assertIn("STAGED_IMPORT_PREFLIGHT_FAILED_OWNER_UNCHANGED", self.source)
+        self.assertLess(
+            self.source.index("TestR2StagedImports\nif (-not $ApplyR2)"),
+            self.source.index("StopOwnerForMaintenance\nNoOpenWork"),
+        )
+        with tempfile.TemporaryDirectory(prefix="ttv-r2-import-synthetic-") as tmp:
+            stage = Path(tmp)
+            rows = json.loads(MANIFEST.read_text(encoding="utf-8"))["files"]
+            for row in rows:
+                source = ROOT / row["path"]
+                destination = stage / row["path"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            def probe():
+                return subprocess.run(
+                    [sys.executable, "-I", "-B", "-c", section, str(stage), str(ROOT)],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, timeout=15, check=False,
+                )
+            result = probe()
+            self.assertEqual(result.returncode, 0, result.stderr[-500:])
+            self.assertEqual(result.stdout.strip(),
+                             "OWNER_R2_IMPORT_SMOKE=PASS_NO_LAN_NO_PROVIDER")
+            (stage / "poc/p2-sub-discovery/owner_torrserver_ffp_tracks.py").unlink()
+            failed = probe()
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertEqual(failed.stdout.strip(),
+                             "OWNER_R2_IMPORT_SMOKE=HOLD_DEPENDENCY_OR_ORIGIN")
 
     def test_no_silent_apply_and_no_service_context(self):
         for required in (
@@ -49,6 +87,18 @@ class OwnerR2MaintenanceOnceContract(unittest.TestCase):
             "Invoke-RestMethod", "icacls.exe",
         ):
             self.assertNotIn(forbidden, self.source)
+
+    def test_previous_failed_release_applier_is_replaced_only_if_pinned(self):
+        self.assertIn("$legacyApplierSHA = '2624d595277214bbdb95af104cffe972d382d2836aa5f8c38427dd4d9e1a2308'", self.source)
+        for phrase in (
+            "EXISTING_APPLIER_DRIFT", "LEGACY_APPLIER_BACKUP_DRIFT",
+            "LEGACY_APPLIER_BACKUP_FAILED", "NEW_APPLIER_REPLACEMENT_FAILED",
+            "[IO.File]::Replace($replacement,$applier,$null)",
+            "OWNER_R2_LEGACY_APPLIER=PRIVATE_BACKUP_VERIFIED",
+        ):
+            self.assertIn(phrase, self.source)
+        self.assertLess(self.source.index("LEGACY_APPLIER_BACKUP_FAILED"),
+                        self.source.index("[IO.File]::Replace($replacement,$applier,$null)"))
 
     def test_disabled_resume_only_after_exact_preapply_hold(self):
         for required in (
@@ -113,7 +163,10 @@ class OwnerR2MaintenanceOnceContract(unittest.TestCase):
             "-File $applier -ApplyOffline",
             "-File $applier -RollbackOffline -BackupId $backupId",
             "NEW_OWNER_UNHEALTHY_ROLLBACK_NOT_VERIFIED_TASK_DISABLED",
-            "R2_STARTUP_FAILED_OLD_OWNER_RECOVERED",
+            "R2_PREFLIGHT_OR_STARTUP_FAILED_OLD_OWNER_RECOVERED",
+            "OWNER_R2_NEW_PRIVATE_PREFLIGHT=PASS_NO_LAN_NO_PROVIDER",
+            "OWNER_R2_NEW_PRIVATE_PREFLIGHT=HOLD_NO_START",
+            "--preflight-only 2>$null",
             "OWNER_R2_MAINTENANCE=R2_ACTIVE_FRESH_OWNER_HEARTBEAT",
             "OWNER_R2_REDMi=NOT_VERIFIED",
         ):
