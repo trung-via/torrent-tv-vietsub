@@ -77,7 +77,7 @@ if ($env:GITHUB_ACTIONS -ceq 'true' -or -not [Environment]::UserInteractive -or
 }
 $root = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $app = Join-Path $root 'app'
-$stage = Join-Path $root 'staged-releases\owner-r2-rolling-175-90b8c18f343f'
+$stage = Join-Path $root 'staged-releases\owner-r2-rolling-175-r2-e81578816f00'
 $launcher = Join-Path $root 'start-owner-session-agent.ps1'
 foreach ($dir in @($root,$app,$stage)) { Directory $dir }
 File $launcher
@@ -96,18 +96,21 @@ if ($ownerSid -cne $identity.User.Value -or
     Hold 'ORIGINAL_OWNER_TASK_IDENTITY_DRIFT'
 }
 
-# Exact raw-Git bytes pinned by the already successful Stage receipt.
+# Exact raw-Git bytes pinned by the complete 17-file R2 stage receipt.
 # No manifest-, filename- or destination-controlled code execution.
 $files = [ordered]@{
     'poc/p2-aisub/paired_activation.py' = 'c8714306f96cd4fdbfa748b01795991d045f108476aea830b366486e68012ca8'
     'poc/p2-sub-discovery/owner_hostops_snapshot_v3.py' = '2d3c3b3417f11b3e426c5060ab6a97ec22f907be352b7b74ae18d3a0c215d0a9'
+    'poc/p2-sub-discovery/owner_hostops_snapshot.py' = '91e1c3400cfdca347c0cd15c5da9ee942d2a189a095e4ab7cb583a1d7664eb4f'
     'poc/p2-sub-discovery/owner_p3_p4_entrypoint.py' = '6704086141e0823b5024661ee0183542ac6445da0a04939ca79f4cf5189f3b7b'
     'poc/p2-sub-discovery/owner_p3_p4_policy_r0.py' = 'f52e5ce0fd41fd6bbd593d9dd11265aaf0f8334d85dd99f0ebb075238d918121'
+    'poc/p2-sub-discovery/owner_p3_p4_private_policy.py' = '3804a2afa1b66889488a8a515472609b0b4b476f85876f9456a73e2e1bf842c5'
     'poc/p2-sub-discovery/owner_p3_p4_runtime.py' = 'b03a3b8fb204dabc431bca3fdcec2e62b5462d11fa9c541d16489dbec2b6efd2'
     'poc/p2-sub-discovery/owner_r2_progressive_registry.py' = '8946dfd48e63d318cd9bb327d786411a10f01552f073d62187939f4658cd9cc7'
     'poc/p2-sub-discovery/owner_r2_progressive_worker.py' = 'f024ac97d6989876975a2c32bffdf3d0dccf51bbbc964b4e0bd29e4e4e3e8457'
     'poc/p2-sub-discovery/owner_r2_verified_processor.py' = 'f8a4aec4ed350488e92821b6400eb40782d9603141c07099b023abfd1effff13'
     'poc/p2-sub-discovery/owner_session_bridge.py' = '6a8af62e4ff33806b7fd3c2deb66df08283302d3441c51edd65da02d1633ce31'
+    'poc/p2-sub-discovery/owner_torrserver_ffp_tracks.py' = '0ebcea4ad6a1d08da12539f06fd7db5a3a4f654ca7697277f868e8ea124a437a'
     'poc/p2-sub-discovery/p3_owner_current_redmi.py' = '42a15e926d515c6779e54cbef8bff45a9e46d70467ba60b7189d3500b637f98e'
     'poc/p2-sub-discovery/p3_owner_state_wiring_r0.py' = '149a914127d3aff5636ecb23d7d5ae1128e28a5b219c868098663bc0510d734b'
     'poc/p2-sub-discovery/p3_owner_state_wiring_r2.py' = '89ee220d2526a11a4baead89839c27df3601fb299923bf8ed966bc3833e1e596'
@@ -123,7 +126,7 @@ foreach ($rel in $files.Keys) {
     if ((Hash $source) -cne $files[$rel]) { Hold 'STAGED_SOURCE_BYTES_DRIFT' }
     if (Test-Path -LiteralPath $destination) { File $destination }
 }
-Write-Output 'OWNER_R2_STAGE_FILES=14_HASH_VERIFIED'
+Write-Output 'OWNER_R2_STAGE_FILES=17_HASH_VERIFIED'
 Write-Output ('OWNER_R2_OWNER_TASK=' + [string]$task.State)
 if (-not $ApplyOffline -and -not $RollbackOffline) {
     Write-Output 'OWNER_R2_OFFLINE=READ_ONLY_INSPECT_PASS'
