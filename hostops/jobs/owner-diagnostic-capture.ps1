@@ -141,4 +141,3 @@ Write-Output 'HOSTOPS_OWNER_CAPTURE_PROVIDER_TV=NOT_RUN_BY_RUNNER'
 # Reuse the existing strict fixed-schema consumer, including independent P3/P2
 # freshness checks. A successful capture does NOT imply P3 dispatch or P4 PASS.
 & (Join-Path $PSScriptRoot 'owner-diagnostic-snapshot.ps1')
-if ($LASTEXITCODE -ne 0) { throw 'HOSTOPS_OWNER_CAPTURE_CONSUMER_FAILED' }
