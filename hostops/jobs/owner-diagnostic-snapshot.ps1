@@ -199,8 +199,12 @@ foreach ($field in @('state_accepted','state_rejected','selection_dispatched',
                      'selection_rejected_current_tv_or_torrserver_unavailable')) {
     Write-Output ("HOSTOPS_OWNER_" + $field.ToUpperInvariant() + '=' + $report.ingress.$field)
 }
-# Missing/stale Owner data and old V1 writers report NOT_OBSERVED, never zero.
-if ($isV2 -and $status -ceq 'READY_FRESH') {
+# P3 freshness (10s + live Task) and P2 capture freshness are separate.
+# A one-shot Owner-only read-only capture is still useful for reconciliation
+# when an older P3 runtime is running; it is NEVER a restart/replay clearance.
+$p2CaptureRecent = $age -ge 0 -and $age -le 900
+if ($isV2 -and $p2CaptureRecent) {
+    Write-Output "HOSTOPS_OWNER_P2_RECEIPT_AGE_SECONDS=$age"
     Write-Output "HOSTOPS_OWNER_P2_STATUS=$($report.p2.status)"
     Write-Output "HOSTOPS_OWNER_P2_PENDING_EVENTS=$($report.p2.pending_events)"
     Write-Output "HOSTOPS_OWNER_P2_INFLIGHT_COUNT=$($report.p2.inflight_count)"
@@ -210,10 +214,12 @@ if ($isV2 -and $status -ceq 'READY_FRESH') {
     Write-Output "HOSTOPS_OWNER_P2_ACTIVE_LOCK_PRESENT=$($report.p2.active_lock_present)"
     Write-Output "HOSTOPS_OWNER_P2_INSTALLED_NO_RETRY_WORKER_MATCH=$($report.p2.installed_no_retry_worker_match)"
 } else {
+    Write-Output 'HOSTOPS_OWNER_P2_RECEIPT_AGE_SECONDS=-1'
     Write-Output 'HOSTOPS_OWNER_P2_STATUS=NOT_OBSERVED'
     Write-Output 'HOSTOPS_OWNER_P2_INFLIGHT_COUNT=-1'
     Write-Output 'HOSTOPS_OWNER_P2_PENDING_EVENTS=-1'
 }
+Write-Output 'HOSTOPS_OWNER_P2_RESTART_OR_REPLAY_AUTHORIZED=NO'
 Write-Output 'HOSTOPS_OWNER_PRIVATE_DATA=NOT_ACCESSED'
 Write-Output 'HOSTOPS_OWNER_PROVIDER_OR_TV=NOT_RUN'
 Write-Output 'HOSTOPS_OWNER_DIAG=READ_ONLY_COMPLETE'

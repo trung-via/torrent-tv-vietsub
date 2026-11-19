@@ -39,6 +39,26 @@ Status: **source candidate**, not Windows-enrolled, not an actual Redmi test.
 The Owner's **installed** app must be upgraded to a reviewed, pinned snapshot
 that includes `owner_hostops_snapshot.py`, with installed SHA/provenance checked.
 No host-side install or restart is performed merely by merging a PR.
+
+### One-time P2 inspection while the old Owner runtime is still running
+
+If the existing Owner runtime cannot yet be upgraded because one P2 provider
+effect is uncertain, the interactive signed-in **Owner**, not NETWORK_SERVICE,
+may run the fixed `hostops/setup/owner-p2-snapshot-once.ps1` source candidate.
+It downloads three immutable, SHA-256-checked Python diagnostic modules from
+the reviewed PR #175 commit, then exports one sanitized V2 receipt to the
+**already enrolled** ProgramData folder. It does not need a Git checkout or
+Administrator elevation, and never changes the Task, queue, inflight marker,
+provider, LAN or TV. Do not rerun it to erase uncertainty: each invocation is
+an independent read-only point-in-time capture.
+
+The trusted `owner-diagnostic-snapshot` HostOps consumer now reports V2/P2
+counts and HOLD enums for a receipt at most 900 seconds old, **independent of
+P3 runtime freshness**. It labels capture age and always states that Owner
+restart or P2 replay is not authorized. P3 counters still require a fresh
+running Owner tick. An old/missing receipt remains `NOT_OBSERVED`, never CLEAR.
+Only stage/use the reviewed HostOps job at its exact trusted branch SHA;
+source candidate alone is not a live enrollment or acceptance.
 For a future reviewed HostOps read-only run, create the trusted
 `hostops/owner-diagnostic-snapshot` branch at the exact audited commit and
 submit owner-authored comment to Issue #82:
