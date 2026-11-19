@@ -9,19 +9,32 @@ if ($env:GITHUB_ACTIONS -cne 'true' -or
     throw 'HOSTOPS_OWNER_RELEASE_SOURCE_CHECK_RUNNER_REQUIRED'
 }
 $root = $env:GITHUB_WORKSPACE
-function CanonicalGitSHA([string]$path) {
-    # Windows Git may materialize a reviewed LF blob as CRLF. The manifest
-    # pins raw Git/download bytes, not checkout-dependent disk bytes.
-    $utf8 = [Text.UTF8Encoding]::new($false,$true)
-    $source = $utf8.GetString([IO.File]::ReadAllBytes($path))
-    if ($source.StartsWith([char]0xFEFF) -or
-        $source.Replace("`r`n", "`n").Contains("`r")) {
-        throw 'OWNER_RELEASE_SOURCE_CHECK_NONCANONICAL_LINE_ENDING'
+function GitBlobSHA([string]$path) {
+    # Read Git's exact binary blob, not Windows checkout bytes (CRLF/BOM filters).
+    if ($path -cnotmatch '\A(?:poc/|hostops/)[a-z0-9_./-]+\z') {
+        throw 'OWNER_RELEASE_SOURCE_CHECK_UNSAFE_GIT_PATH'
     }
-    $normal = $utf8.GetBytes($source.Replace("`r`n", "`n"))
+    $psi = [Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = 'git.exe'
+    $psi.Arguments = 'show HEAD:' + $path
+    $psi.WorkingDirectory = $root
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::Start($psi)
+    $stream = [IO.MemoryStream]::new()
+    try {
+        $process.StandardOutput.BaseStream.CopyTo($stream)
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0 -or $stream.Length -le 0 -or
+            $stream.Length -gt 1048576) {
+            throw 'OWNER_RELEASE_SOURCE_CHECK_GIT_BLOB_UNAVAILABLE'
+        }
+        $bytes = $stream.ToArray()
+    } finally { $stream.Dispose(); $process.Dispose() }
     $hash = [Security.Cryptography.SHA256]::Create()
     try {
-        return [BitConverter]::ToString($hash.ComputeHash($normal)).Replace('-','').ToLowerInvariant()
+        return [BitConverter]::ToString($hash.ComputeHash($bytes)).Replace('-','').ToLowerInvariant()
     } finally { $hash.Dispose() }
 }
 $scripts = @(
@@ -63,7 +76,7 @@ foreach ($row in $manifest.files) {
     $seen[$row.path] = $true
     $file = Join-Path $root ($row.path.Replace('/', '\'))
     if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or
-        (CanonicalGitSHA $file) -cne $row.sha256) {
+        (GitBlobSHA $row.path) -cne $row.sha256) {
         throw 'OWNER_RELEASE_SOURCE_CHECK_FILE_HASH_INVALID'
     }
 }

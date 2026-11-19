@@ -21,18 +21,28 @@ $manifestFile = Join-Path $env:GITHUB_WORKSPACE ($manifestRel.Replace('/', '\'))
 if (-not (Test-Path -LiteralPath $manifestFile -PathType Leaf)) {
     throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_MISSING'
 }
-# The Owner fetches the Git LF blob over HTTPS. Pin those bytes even if the
-# Windows runner checkout converted this JSON to CRLF.
-$utf8 = [Text.UTF8Encoding]::new($false,$true)
-$manifestText = $utf8.GetString([IO.File]::ReadAllBytes($manifestFile))
-if ($manifestText.StartsWith([char]0xFEFF) -or
-    $manifestText.Replace("`r`n", "`n").Contains("`r")) {
-    throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_LINE_ENDINGS_INVALID'
-}
-$normal = $utf8.GetBytes($manifestText.Replace("`r`n", "`n"))
+# Read exact Git bytes through binary stdout, independent of checkout filters.
+$psi = [Diagnostics.ProcessStartInfo]::new()
+$psi.FileName = 'git.exe'
+$psi.Arguments = 'show HEAD:' + $manifestRel
+$psi.WorkingDirectory = $env:GITHUB_WORKSPACE
+$psi.UseShellExecute = $false
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError = $true
+$process = [Diagnostics.Process]::Start($psi)
+$stream = [IO.MemoryStream]::new()
+try {
+    $process.StandardOutput.BaseStream.CopyTo($stream)
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0 -or $stream.Length -le 0 -or
+        $stream.Length -gt 8192) {
+        throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_GIT_BLOB_UNAVAILABLE'
+    }
+    $exactBlob = $stream.ToArray()
+} finally { $stream.Dispose(); $process.Dispose() }
 $hasher = [Security.Cryptography.SHA256]::Create()
 try {
-    $manifestHash = [BitConverter]::ToString($hasher.ComputeHash($normal)).Replace('-','').ToLowerInvariant()
+    $manifestHash = [BitConverter]::ToString($hasher.ComputeHash($exactBlob)).Replace('-','').ToLowerInvariant()
 } finally { $hasher.Dispose() }
 if ($manifestHash -cnotmatch '\A[0-9a-f]{64}\z') {
     throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_HASH_INVALID'
