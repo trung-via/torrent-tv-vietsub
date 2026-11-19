@@ -60,6 +60,34 @@ running Owner tick. An old/missing receipt remains `NOT_OBSERVED`, never CLEAR.
 Only stage/use the reviewed HostOps job at its exact trusted branch SHA;
 source candidate alone is not a live enrollment or acceptance.
 
+### Repeatable read-only Owner capture without restarting the live P3/P4 process
+
+`hostops/setup/enroll-owner-diagnostic-capture.ps1 -Enroll` is an **Owner-only,
+one-time** enrollment candidate. The Owner must be signed in. It checks the
+original `TorrentTV-Vietsub-OwnerAgent` identity, downloads an immutable,
+SHA-256-verified copy of the existing `owner-p2-snapshot-once.ps1` helper,
+stores that exact helper in the already private `OwnerBridge/Maintenance`, and
+registers the separate **no-trigger**
+`TorrentTV-Vietsub-Owner-Diagnostic-Capture` task under the same interactive
+Owner. The sole `NETWORK_SERVICE` grant is READ+EXECUTE on **this task only**.
+No Owner profile, P2/provider, TV, LAN or original task permissions change.
+The original Owner task stays Running throughout enrollment.
+
+After one-time enrollment, exact-source trusted HostOps
+`owner-diagnostic-capture` triggers the fixed read-only helper and reads the
+V2 sanitized ProgramData snapshot using the existing strict consumer. The
+helper captures **current P2 aggregates**, plus whichever P3 diagnostic was
+actually published privately by the existing Owner process. If that older
+runtime's P3 heartbeat is stale, P3 remains `UNKNOWN`; capture success **does
+not** imply P3 DISPATCH, P2 provider or P4 TV rendering success. HostOps may
+capture again after a *new* TV press without asking the Owner to run scripts.
+Use `-Revoke` from the exact reviewed entry script to unregister only this
+dedicated task (the private helper is preserved, never executed during revoke).
+
+Enrollment is `HOSTOPS_SETUP_REQUIRED` until an actual Owner-task read/execute
+grant and a new HostOps post-enrollment capture are verified. Source-only CI
+must never be represented as live deployment.
+
 ### Explicitly approved P2 `batch-0001` preservation-first recovery
 
 The Owner approved a **single** `UNKNOWN_EFFECT_NO_RETRY` quarantine on

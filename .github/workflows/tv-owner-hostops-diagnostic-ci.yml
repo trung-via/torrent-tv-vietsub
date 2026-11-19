@@ -10,10 +10,13 @@ on:
       - 'poc/p2-sub-discovery/test_owner_p2_snapshot_once.py'
       - 'poc/p2-sub-discovery/test_owner_p2_quarantine_once.py'
       - 'poc/p2-sub-discovery/test_owner_p2_hostops_task.py'
+      - 'poc/p2-sub-discovery/test_owner_diagnostic_capture_task.py'
       - 'hostops/jobs/owner-diagnostic-snapshot.ps1'
+      - 'hostops/jobs/owner-diagnostic-capture.ps1'
       - 'hostops/jobs/owner-p2-quarantine-dispatch.ps1'
       - 'hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1'
       - 'hostops/setup/enroll-owner-diagnostic-spool.ps1'
+      - 'hostops/setup/enroll-owner-diagnostic-capture.ps1'
       - 'hostops/setup/enroll-owner-p2-quarantine-task.ps1'
       - 'hostops/setup/owner-p2-snapshot-once.ps1'
       - 'hostops/setup/owner-p2-quarantine-once.ps1'
@@ -47,17 +50,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_OWNER_QUARANTINE_SOURCE_REGRESSION' }
           python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_p2_hostops_task.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_OWNER_TASK_ENROLL_SOURCE_REGRESSION' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_diagnostic_capture_task.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_CAPTURE_TASK_SOURCE_REGRESSION' }
       - name: Parse Owner enrollment and trusted HostOps read-only PowerShell
         shell: pwsh
         run: |
           foreach ($file in @(
             'hostops/setup/enroll-owner-diagnostic-spool.ps1',
+            'hostops/setup/enroll-owner-diagnostic-capture.ps1',
             'hostops/setup/owner-p2-snapshot-once.ps1',
             'hostops/setup/owner-p2-quarantine-once.ps1',
             'hostops/setup/enroll-owner-p2-quarantine-task.ps1',
             'hostops/jobs/owner-p2-quarantine-dispatch.ps1',
             'hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1',
-            'hostops/jobs/owner-diagnostic-snapshot.ps1'
+            'hostops/jobs/owner-diagnostic-snapshot.ps1',
+            'hostops/jobs/owner-diagnostic-capture.ps1'
           )) {
             $tokens = $null
             $errors = $null
