@@ -62,6 +62,7 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
             if (p4LanScope != null || p4ActivationInFlight || waiting) {
                 handler.removeCallbacks(p3ActivationTick)
                 p3ActivationAttempts = 0
+                p3LastDelivery = null
                 p4ActivationGeneration++
                 p4ActivationInFlight = false
                 if (p4LanScope != null) stopP4LanSession()
@@ -81,10 +82,15 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
                 P4OwnerBootstrap.consume(applicationContext)
                 val enabled = P3SelectedMediaPublisher.enabled(applicationContext) ||
                     P3SelectedMediaPublisher.setEnabled(applicationContext, true)
+                val selectedIndex = index()
                 val allowed = enabled && P3SelectedMediaPublisher.requestViewer(
-                    applicationContext, current, index(), engine is VlcEngine)
+                    applicationContext, current, selectedIndex, engine is VlcEngine
+                ) { acknowledged ->
+                    showP3Delivery(current, selectedIndex, acknowledged)
+                }
                 if (allowed) {
                     p3ActivationAttempts = 0
+                    p3LastDelivery = null
                     handler.removeCallbacks(p3ActivationTick)
                     p3ActivationTick.run()
                     showMessage("Đang gửi yêu cầu tìm Vietsub cho phim này đến PC...", false)
@@ -97,6 +103,28 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
 
 P3_RETRY = """    /** Bound only to explicit request, never to a native Play event. */
     private var p3ActivationAttempts = 0
+    private var p3LastDelivery: Boolean? = null
+
+    /** HTTP 204 is a P3 signal receipt, NOT a claim that P2 has finished. */
+    private fun showP3Delivery(
+        expected: PlayRequest?, expectedIndex: Int, acknowledged: Boolean,
+    ) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed || closedSent || !::session.isInitialized ||
+                p4LanScope != null || session.request !== expected ||
+                index() != expectedIndex ||
+                !P3SelectedMediaPublisher.viewerRequested(
+                    applicationContext, expected, expectedIndex, engine is VlcEngine)
+            ) return@runOnUiThread
+            if (p3LastDelivery == acknowledged) return@runOnUiThread
+            p3LastDelivery = acknowledged
+            showMessage(
+                if (acknowledged) "PC đã nhận tín hiệu tìm Vietsub. Đang chờ phụ đề..."
+                else "PC chưa xác nhận yêu cầu Vietsub. Sẽ tự thử lại.",
+                !acknowledged)
+        }
+    }
+
     private val p3ActivationTick = object : Runnable {
         override fun run() {
             if (isFinishing || isDestroyed || closedSent || !::session.isInitialized ||
@@ -114,8 +142,12 @@ P3_RETRY = """    /** Bound only to explicit request, never to a native Play eve
             }
             if (!p4ActivationInFlight) {
                 if (p3ActivationAttempts > 0) {
+                    val selectedIndex = index()
                     P3SelectedMediaPublisher.reaffirmViewer(
-                        applicationContext, playing, index(), engine is VlcEngine)
+                        applicationContext, playing, selectedIndex, engine is VlcEngine
+                    ) { acknowledged ->
+                        showP3Delivery(playing, selectedIndex, acknowledged)
+                    }
                 }
                 p3ActivationAttempts++
                 beginP4Activation()
@@ -130,6 +162,13 @@ P4_PENDING_MESSAGE = """                if (result == null) {
                     showMessage("PC chưa sẵn sàng hoặc chưa có phụ đề nguồn cho phim.", true)
                     return@runOnUiThread
                 }"""
+P4_CONNECTING_MESSAGE = '        showMessage("Đang kết nối Vietsub AI với PC...", false)'
+P4_CONNECTING_REPLACEMENT = """        // The one-tap P3 request already displayed progress. P4 polls for
+        // source readiness in the background; it is NOT reconnecting the PC.
+        if (!P3SelectedMediaPublisher.viewerRequested(
+                applicationContext, r, idx, engine is VlcEngine)) {
+            showMessage("Đang kết nối Vietsub AI với PC...", false)
+        }"""
 P4_PENDING_REPLACEMENT = """                if (result == null) {
                     // Missing source is expected while the existing P2/D2
                     // pipeline runs. A bounded retry is owned by the user's
@@ -224,6 +263,7 @@ def patch_activity(text: str) -> str:
         commitPendingSeek()"""),
         (P4_BUTTON, P4_BUTTON_REQUEST),
         (P4_REVOKE, P4_REVOKE_REQUEST),
+        (P4_CONNECTING_MESSAGE, P4_CONNECTING_REPLACEMENT),
         (P4_PENDING_MESSAGE, P4_PENDING_REPLACEMENT),
         (P4_SUCCESS, P4_SUCCESS_REPLACEMENT),
     )

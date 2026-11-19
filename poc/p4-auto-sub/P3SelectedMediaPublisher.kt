@@ -108,7 +108,7 @@ internal object P3SelectedMediaPublisher {
     /** Called ONLY by the direct on-TV Vietsub AI button. */
     internal fun requestViewer(
         ctx: Context, request: PlayRequest?, selectedIndex: Int,
-        nativeVlc: Boolean,
+        nativeVlc: Boolean, onDelivery: (Boolean) -> Unit,
     ): Boolean {
         if (!enabled(ctx) || !nativeVlc || request?.engine != EngineMode.VLC) {
             return false
@@ -133,7 +133,7 @@ internal object P3SelectedMediaPublisher {
         // One bounded serial executor: authenticated REQUESTED status must
         // precede signed viewer-tap event for this exact native selection.
         sample(ctx, request, selectedIndex, nativeVlc)
-        enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED")
+        enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED", onDelivery)
         return true
     }
 
@@ -143,12 +143,12 @@ internal object P3SelectedMediaPublisher {
      */
     internal fun reaffirmViewer(
         ctx: Context, request: PlayRequest?, selectedIndex: Int,
-        nativeVlc: Boolean,
+        nativeVlc: Boolean, onDelivery: (Boolean) -> Unit,
     ) {
         if (!viewerRequested(ctx, request, selectedIndex, nativeVlc)) return
         val current = active ?: return
         sample(ctx, request, selectedIndex, nativeVlc)
-        enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED")
+        enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED", onDelivery)
     }
 
     /** A current user's OFF/OTHER/manual choice revokes any pending request. */
@@ -233,38 +233,54 @@ internal object P3SelectedMediaPublisher {
         return bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 
-    private fun enqueue(ctx: Context, selected: Current, kind: String) {
+    private fun enqueue(
+        ctx: Context, selected: Current, kind: String,
+        onDelivery: ((Boolean) -> Unit)? = null,
+    ) {
         val gen = generation.get()
         queue.execute {
             if (generation.get() != gen ||
                 (kind != "PLAYBACK_CLOSED" && active !== selected) || !enabled(ctx) ||
                 (kind == "VIEWER_VIETSUB_REQUESTED" &&
                     !selected.requestedByViewer)) return@execute
-            val paired = P4PairingStore(ctx).load() ?: return@execute
-            try {
-                if (generation.get() != gen ||
-                    (kind != "PLAYBACK_CLOSED" && active !== selected) ||
-                    (kind == "VIEWER_VIETSUB_REQUESTED" &&
-                        !selected.requestedByViewer)) return@execute
-                postOnce(paired, selected, kind)
-            } catch (_: Exception) {
-                // Metadata signal is strictly best-effort and MUST NOT
-                // interrupt native playback or expose private torrent data.
-            } finally {
-                paired.deviceSecret.fill(0)
+            val paired = P4PairingStore(ctx).load()
+            var delivered = false
+            if (paired != null) {
+                try {
+                    if (generation.get() != gen ||
+                        (kind != "PLAYBACK_CLOSED" && active !== selected) ||
+                        (kind == "VIEWER_VIETSUB_REQUESTED" &&
+                            !selected.requestedByViewer)) return@execute
+                    delivered = postOnce(paired, selected, kind)
+                } catch (_: Exception) {
+                    // Never leak torrent data, private HTTP details or
+                    // interrupt native playback on a failed P3 delivery.
+                } finally {
+                    paired.deviceSecret.fill(0)
+                }
+            }
+            // A queued callback is valid only for this still-current,
+            // unrevoked viewer request. The Activity checks again on UI.
+            if (kind == "VIEWER_VIETSUB_REQUESTED" && generation.get() == gen &&
+                active === selected && selected.requestedByViewer && enabled(ctx)) {
+                try {
+                    onDelivery?.invoke(delivered)
+                } catch (_: Exception) {
+                    // UI lifecycle failures must not kill the serial executor.
+                }
             }
         }
     }
 
     private fun postOnce(
         paired: P4PairingStore.Pairing, current: Current, kind: String,
-    ) {
+    ): Boolean {
         if (!KINDS.contains(kind) || !SESSION_RX.matches(current.session) ||
             !HASH_RX.matches(current.hash) || current.fileIndex !in 0..65535 ||
             paired.deviceSecret.size != 32 ||
             !P4LanClient.isPrivateIPv4(paired.host) ||
             paired.port !in 1024..65535
-        ) return
+        ) return false
         val sent = System.currentTimeMillis()
         val nonce = randomHex()
         val canonical = "$SCHEMA\n$kind\n" +
@@ -283,8 +299,9 @@ internal object P3SelectedMediaPublisher {
             .put("nonce", nonce)
             .put("signature", signature)
             .toString().toByteArray(Charsets.UTF_8)
-        if (body.isEmpty() || body.size > 1024) return
+        if (body.isEmpty() || body.size > 1024) return false
         postJson(paired, "/p3/selection", body)
+        return true
     }
 
     private fun postStatusOnce(

@@ -41,6 +41,7 @@ class PlayerActivity {
         commitPendingSeek()
     }
     private fun beginP4Activation() {
+        showMessage("Đang kết nối Vietsub AI với PC...", false)
         runOnUiThread {
                 if (result == null) {
                     showMessage("PC chưa sẵn sàng hoặc chưa có phụ đề nguồn cho phim.", true)
@@ -181,7 +182,7 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('val choice = if (isSame && current.requestedByViewer &&', self.kt)
         self.assertIn('nativeChoice != "ON") "REQUESTED" else nativeChoice', self.kt)
         self.assertIn("sample(ctx, request, selectedIndex, nativeVlc)", self.kt)
-        self.assertIn('enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED")', self.kt)
+        self.assertIn('enqueue(ctx.applicationContext, current, "VIEWER_VIETSUB_REQUESTED", onDelivery)', self.kt)
         self.assertNotIn('P1ProductionSubtitles.setAutomaticOptIn(', self.kt)
 
     def test_source_wait_uses_only_bounded_original_p4_activation(self):
@@ -194,6 +195,29 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn("handler.removeCallbacks(p3ActivationTick)", self.patched)
         self.assertIn("p4ActivationGeneration++", self.patched)
         self.assertNotIn("startP4LanSession(", self.patched)
+
+    def test_retry_never_repeats_connecting_to_pc_toast(self):
+        # P4 activation still polls for a source; a P3 viewer request keeps
+        # the connecting toast quiet throughout the 15-second retry cycle.
+        self.assertIn(self.p.P4_CONNECTING_REPLACEMENT, self.patched)
+        self.assertEqual(self.patched.count('"Đang kết nối Vietsub AI với PC..."'), 1)
+        self.assertIn('p3ActivationTick.run()', self.patched)
+        self.assertIn('p3LastDelivery: Boolean? = null', self.patched)
+
+    def test_p3_http_receipt_or_failure_delivered_once_per_state(self):
+        publisher = self.kt.split('private fun enqueue(', 1)[1].split(
+            'private fun postOnce(', 1)[0]
+        post = self.kt.split('private fun postOnce(', 1)[1].split(
+            'private fun postStatusOnce(', 1)[0]
+        self.assertIn('delivered = postOnce(paired, selected, kind)', publisher)
+        self.assertIn('onDelivery?.invoke(delivered)', publisher)
+        self.assertIn('active === selected && selected.requestedByViewer', publisher)
+        self.assertIn('postJson(paired, "/p3/selection", body)\n        return true', post)
+        self.assertIn('if (p3LastDelivery == acknowledged)', self.patched)
+        self.assertIn('session.request !== expected', self.patched)
+        self.assertIn('"PC đã nhận tín hiệu tìm Vietsub. Đang chờ phụ đề..."', self.patched)
+        self.assertIn('"PC chưa xác nhận yêu cầu Vietsub. Sẽ tự thử lại."', self.patched)
+        self.assertIn('p3LastDelivery = null', self.patched)
 
     def test_manual_off_other_invalidates_inflight_p4_before_source_ready(self):
         self.assertIn("P1ProductionSubtitles.automaticChoice(", self.patched)
@@ -217,7 +241,7 @@ class P3TvSourceContractTests(unittest.TestCase):
                         cancel.index("sample(ctx, request"))
         status = self.kt.split("private fun enqueueStatus(", 1)[1].split(
             "private fun randomHex", 1)[0]
-        selected = self.kt.split("private fun enqueue(ctx:", 1)[1].split(
+        selected = self.kt.split("private fun enqueue(", 1)[1].split(
             "private fun postOnce", 1)[0]
         self.assertGreaterEqual(status.count("generation.get() != gen"), 2)
         self.assertGreaterEqual(selected.count("generation.get() != gen"), 2)
@@ -231,7 +255,7 @@ class P3TvSourceContractTests(unittest.TestCase):
     def test_p4_source_guards_apply_once_and_fail_closed_on_drift(self):
         with self.assertRaisesRegex(ValueError, "P3_ACTIVITY_ALREADY_APPLIED"):
             self.p.patch_activity(self.patched)
-        for old in (self.p.FIELD, self.p.CHOICE, self.p.LOAD, self.p.ITEM, self.p.CLOSE, self.p.MENU, self.p.P4_BUTTON, self.p.P4_PENDING_MESSAGE, self.p.P4_SUCCESS):
+        for old in (self.p.FIELD, self.p.CHOICE, self.p.LOAD, self.p.ITEM, self.p.CLOSE, self.p.MENU, self.p.P4_BUTTON, self.p.P4_CONNECTING_MESSAGE, self.p.P4_PENDING_MESSAGE, self.p.P4_SUCCESS):
             with self.subTest(old=old[:30]):
                 with self.assertRaises(ValueError):
                     self.p.patch_activity(fake_p4_activity().replace(old, "DRIFT", 1))
