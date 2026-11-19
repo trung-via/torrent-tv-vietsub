@@ -156,3 +156,14 @@ The task has not been run on the real PC, and the one-time entrypoint is not
 a HostOps service privilege grant. It must pass Windows source parsing and
 be explicitly invoked by the interactive Owner in a maintenance window;
 real P3/P2/P4 and Redmi subtitle acceptance remain separate gates.
+
+If the Windows Scheduler stops its PowerShell task but leaves an Owner Python
+child alive, the entrypoint may terminate only a bounded set (at most four)
+of exact-path, same-owner-SID, same-PID/creation-time Owner Python workers.
+It first rechecks that the Owner task is Disabled and that no pending P3
+event, uncertain P2 batch or active P2 lock exists. Any unverified process
+causes HOLD with no deletion, replay or file installation. The explicit
+-ApplyR2 -ResumeAfterStoppedTaskHold mode accepts an already-Disabled task
+only after the previous reported pre-apply hold, with no R2 recovery backup
+yet present; it must never silently resume a partial install. This mode
+addresses the supervised Windows HOLD of 2026-11-20, before any APPLY.

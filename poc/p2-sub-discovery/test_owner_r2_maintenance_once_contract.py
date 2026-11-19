@@ -31,7 +31,7 @@ class OwnerR2MaintenanceOnceContract(unittest.TestCase):
 
     def test_no_silent_apply_and_no_service_context(self):
         for required in (
-            "param([switch]$ApplyR2)",
+            "[switch]$ApplyR2",
             "if (-not $ApplyR2)",
             "INTERACTIVE_OWNER_REQUIRED",
             "OWNER_TASK_IDENTITY_DRIFT",
@@ -44,11 +44,60 @@ class OwnerR2MaintenanceOnceContract(unittest.TestCase):
         ):
             self.assertIn(required, self.source)
         for forbidden in (
-            "Stop-Process", "Remove-ScheduledTask", "Unregister-ScheduledTask",
+            "Remove-ScheduledTask", "Unregister-ScheduledTask",
             "Register-ScheduledTask", "adb.exe", "Gemini", "OpenSubtitles",
             "Invoke-RestMethod", "icacls.exe",
         ):
             self.assertNotIn(forbidden, self.source)
+
+    def test_disabled_resume_only_after_exact_preapply_hold(self):
+        for required in (
+            "[switch]$ResumeAfterStoppedTaskHold",
+            "RESUME_REQUIRES_APPLY_R2",
+            "RESUME_REQUIRES_DISABLED_TASK",
+            "RESUME_AMBIGUOUS_R2_BACKUP_EXISTS",
+            "OWNER_TASK_NOT_RUNNING_USE_EXPLICIT_RESUME_FOR_DISABLED_HOLD",
+            "StopOwnerForMaintenance",
+        ):
+            self.assertIn(required, self.source)
+        self.assertLess(
+            self.source.index("RESUME_AMBIGUOUS_R2_BACKUP_EXISTS"),
+            self.source.index("StopOwnerForMaintenance\nNoOpenWork"),
+        )
+
+    def test_residual_python_termination_is_owner_pinned_and_p2_idle(self):
+        section = self.source.split("function StopVerifiedResidualOwnerWorkers {", 1)[1].split(
+            "\nfunction StopOwnerForMaintenance", 1
+        )[0]
+        for required in (
+            "RESIDUAL_STOP_REQUIRES_DISABLED_TASK",
+            "NoOpenWork",
+            "RESIDUAL_WORKER_COUNT_UNEXPECTED",
+            "owner_p3_p4_entrypoint.py",
+            "owner_session_bridge.py",
+            "RESIDUAL_WORKER_PATH_OR_CREATION_UNVERIFIED",
+            "RESIDUAL_WORKER_OWNER_UNVERIFIED",
+            "RESIDUAL_TASK_STATE_CHANGED",
+            "RESIDUAL_WORKER_IDENTITY_CHANGED",
+            "RESIDUAL_WORKER_OWNER_CHANGED",
+            "Invoke-CimMethod -InputObject $live -MethodName GetOwnerSid",
+            "Stop-Process -Id ([int]$worker.ProcessId) -Force",
+            "OWNER_R2_RESIDUAL_WORKERS_STOPPED=",
+        ):
+            self.assertIn(required, section)
+        self.assertEqual(section.count("Stop-Process"), 1)
+        self.assertLess(
+            section.index("RESIDUAL_WORKER_PATH_OR_CREATION_UNVERIFIED"),
+            section.index("Stop-Process -Id"),
+        )
+        self.assertLess(
+            section.index("RESIDUAL_WORKER_OWNER_CHANGED"),
+            section.index("Stop-Process -Id"),
+        )
+        self.assertLess(
+            section.index("NoOpenWork"),
+            section.index("Stop-Process -Id"),
+        )
 
     def test_recovery_on_failed_new_owner_heartbeat(self):
         for required in (

@@ -2,7 +2,10 @@
 # requires a separate explicit Human action. Never executes in GitHub Actions,
 # NETWORK_SERVICE, a background service session, or on a TV.
 [CmdletBinding()]
-param([switch]$ApplyR2)
+param(
+    [switch]$ApplyR2,
+    [switch]$ResumeAfterStoppedTaskHold
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -44,6 +47,56 @@ function NoOpenWork {
         }
     }
 }
+function StopVerifiedResidualOwnerWorkers {
+    # Scheduler may have stopped pwsh while leaving its py.exe/python.exe child
+    # alive. Only the exact Owner-owned, installed bridge processes are eligible.
+    # Validate the entire set BEFORE terminating any process.
+    $current = Get-ScheduledTask -TaskName $taskName -TaskPath '\'
+    if ([string]$current.State -cne 'Disabled') { Hold 'RESIDUAL_STOP_REQUIRES_DISABLED_TASK' }
+    NoOpenWork
+    $workers = @(OwnerWorkers)
+    if ($workers.Count -eq 0) { return }
+    if ($workers.Count -gt 4) { Hold 'RESIDUAL_WORKER_COUNT_UNEXPECTED' }
+    $appDir = Join-Path $ownerRoot 'app\poc\p2-sub-discovery'
+    $allowed = @(
+        (Join-Path $appDir 'owner_p3_p4_entrypoint.py'),
+        (Join-Path $appDir 'owner_session_bridge.py')
+    )
+    foreach ($worker in $workers) {
+        $pathHits = @($allowed | Where-Object {
+            [string]$worker.CommandLine -and
+            $worker.CommandLine.IndexOf($_,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+        if ($pathHits.Count -ne 1 -or $null -eq $worker.CreationDate) {
+            Hold 'RESIDUAL_WORKER_PATH_OR_CREATION_UNVERIFIED'
+        }
+        $owner = Invoke-CimMethod -InputObject $worker -MethodName GetOwnerSid
+        if ($owner.ReturnValue -ne 0 -or $owner.Sid -cne $identity.User.Value) {
+            Hold 'RESIDUAL_WORKER_OWNER_UNVERIFIED'
+        }
+    }
+    $stopped = 0
+    foreach ($worker in $workers) {
+        NoOpenWork
+        $current = Get-ScheduledTask -TaskName $taskName -TaskPath '\'
+        if ([string]$current.State -cne 'Disabled') {
+            Hold 'RESIDUAL_TASK_STATE_CHANGED'
+        }
+        $live = Get-CimInstance Win32_Process -Filter ("ProcessId=" + [int]$worker.ProcessId)
+        if ($null -eq $live) { continue }
+        if ([string]$live.CommandLine -cne [string]$worker.CommandLine -or
+            $live.CreationDate -ne $worker.CreationDate) {
+            Hold 'RESIDUAL_WORKER_IDENTITY_CHANGED'
+        }
+        $owner = Invoke-CimMethod -InputObject $live -MethodName GetOwnerSid
+        if ($owner.ReturnValue -ne 0 -or $owner.Sid -cne $identity.User.Value) {
+            Hold 'RESIDUAL_WORKER_OWNER_CHANGED'
+        }
+        Stop-Process -Id ([int]$worker.ProcessId) -Force -ErrorAction Stop
+        $stopped++
+    }
+    Write-Output ('OWNER_R2_RESIDUAL_WORKERS_STOPPED=' + $stopped)
+}
 function StopOwnerForMaintenance {
     $current = Get-ScheduledTask -TaskName $taskName -TaskPath '\'
     if ([string]$current.State -ceq 'Running') {
@@ -54,7 +107,13 @@ function StopOwnerForMaintenance {
     } elseif ([string]$current.State -cne 'Disabled') {
         Hold 'UNEXPECTED_OWNER_TASK_STATE'
     }
-    for ($i=0;$i -lt 30;$i++) {
+    for ($i=0;$i -lt 5;$i++) {
+        $current = Get-ScheduledTask -TaskName $taskName -TaskPath '\'
+        if ([string]$current.State -ceq 'Disabled' -and @(OwnerWorkers).Count -eq 0) { return }
+        Start-Sleep -Seconds 1
+    }
+    StopVerifiedResidualOwnerWorkers
+    for ($i=0;$i -lt 10;$i++) {
         $current = Get-ScheduledTask -TaskName $taskName -TaskPath '\'
         if ([string]$current.State -ceq 'Disabled' -and @(OwnerWorkers).Count -eq 0) { return }
         Start-Sleep -Seconds 1
@@ -128,6 +187,9 @@ if ($taskSid -cne $identity.User.Value -or
     [string]$task.Actions[0].Arguments -notmatch '(?i)start-owner-session-agent\.ps1') {
     Hold 'OWNER_TASK_IDENTITY_DRIFT'
 }
+if ($ResumeAfterStoppedTaskHold -and -not $ApplyR2) {
+    Hold 'RESUME_REQUIRES_APPLY_R2'
+}
 $applier = Join-Path $maintenance 'owner-r2-release-offline-apply.ps1'
 $applierSHA = '2624d595277214bbdb95af104cffe972d382d2836aa5f8c38427dd4d9e1a2308'
 $temp = Join-Path $env:TEMP ('ttv-owner-r2-applier-' + [Guid]::NewGuid().ToString('N') + '.ps1')
@@ -156,7 +218,20 @@ if (-not $ApplyR2) {
     Write-Output 'OWNER_R2_MAINTENANCE=INSPECT_ONLY_OWNER_UNCHANGED'
     return
 }
-if ([string]$task.State -cne 'Running') { Hold 'OWNER_TASK_NOT_RUNNING' }
+if ($ResumeAfterStoppedTaskHold) {
+    if ([string]$task.State -cne 'Disabled') { Hold 'RESUME_REQUIRES_DISABLED_TASK' }
+    # The reported hold occurred before -ApplyOffline or any recovery copy.
+    # Do not resume an unknown or half-applied earlier release.
+    $recovery = Join-Path $ownerRoot 'recovery'
+    if (Test-Path -LiteralPath $recovery) {
+        RegularDirectory $recovery
+        if (@(Get-ChildItem -LiteralPath $recovery -Directory -Filter 'owner-r2-*').Count -ne 0) {
+            Hold 'RESUME_AMBIGUOUS_R2_BACKUP_EXISTS'
+        }
+    }
+} elseif ([string]$task.State -cne 'Running') {
+    Hold 'OWNER_TASK_NOT_RUNNING_USE_EXPLICIT_RESUME_FOR_DISABLED_HOLD'
+}
 NoOpenWork
 $oldPid = 0L
 if (Test-Path -LiteralPath $healthFile -PathType Leaf) {
