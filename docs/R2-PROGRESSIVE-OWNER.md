@@ -107,3 +107,29 @@ stopped/disabled task verification, private backup and rollback. The R2
 `STAGE_ONLY` receipt is **not** an Owner R2 activation or a real TV PASS.
 After staging/controlled apply, a physical Redmi button press and actual P3→P2→P4
 receipt remain required.
+
+## Offline R2 apply — source candidate (not enrolled or run)
+
+The new hostops/setup/owner-r2-release-offline-apply.ps1 adds a narrowly scoped
+Owner-interactive -ApplyOffline file transition; without the switch it only
+inspects the 14 staged hashes, destination types and original task identity.
+It pins the successful R2 stage commit and every staged Python SHA. It does
+not use arbitrary user-supplied paths or execute repository Python.
+
+The offline mode requires the **main** Owner Scheduled Task already disabled
+and every Owner Python process stopped, with zero private pending event,
+batch-*.inflight or active.lock. It captures actual prior bytes for all
+existing destinations into an Owner-private recovery directory, records
+missing destination paths, and verifies every backup before replacing
+anything. Existing modules use same-directory atomic replacement; new modules
+are atomically moved. Each new installed hash is verified; any failure attempts
+reverse restoration with exact original hashes while Owner stays disabled.
+It never deletes checkpoints or ambiguous no-retry markers.
+
+This is deliberately **source-only** until a separate fixed Owner-context
+maintenance task is enrolled and guarded HostOps orchestration is reviewed.
+The existing HostOps release-stage helper remains immutable and STAGE_ONLY;
+the service runner cannot apply this script using its current permissions.
+The offline script itself never stops, enables or starts Owner, invokes
+OpenSubtitles/Gemini, or touches Redmi. A verified stopped/installed Owner still
+requires a separately controlled startup and fresh heartbeat/TV proof.
