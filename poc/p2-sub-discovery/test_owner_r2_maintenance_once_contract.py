@@ -93,12 +93,33 @@ class OwnerR2MaintenanceOnceContract(unittest.TestCase):
         for phrase in (
             "EXISTING_APPLIER_DRIFT", "LEGACY_APPLIER_BACKUP_DRIFT",
             "LEGACY_APPLIER_BACKUP_FAILED", "NEW_APPLIER_REPLACEMENT_FAILED",
-            "[IO.File]::Replace($replacement,$applier,$null)",
+            "[IO.File]::Move($replacement,$applier,$true)",
             "OWNER_R2_LEGACY_APPLIER=PRIVATE_BACKUP_VERIFIED",
         ):
             self.assertIn(phrase, self.source)
         self.assertLess(self.source.index("LEGACY_APPLIER_BACKUP_FAILED"),
-                        self.source.index("[IO.File]::Replace($replacement,$applier,$null)"))
+                        self.source.index("[IO.File]::Move($replacement,$applier,$true)"))
+        self.assertNotIn("[IO.File]::Replace($replacement,$applier,$null)", self.source)
+
+    @unittest.skipUnless(sys.platform == "win32" and shutil.which("pwsh"),
+                         "Requires Windows PowerShell 7")
+    def test_windows_same_directory_atomic_overwrite_runtime(self):
+        """Catch an invalid .NET file API signature before Owner maintenance."""
+        with tempfile.TemporaryDirectory(prefix="ttv-owner-applier-safe-") as tmp:
+            root = Path(tmp)
+            source, target = root / "replacement.tmp", root / "applier.ps1"
+            source.write_bytes(b"new-reviewed-script")
+            target.write_bytes(b"old-reviewed-script")
+            def quote(value: Path) -> str:
+                return "'" + str(value).replace("'", "''") + "'"
+            result = subprocess.run(
+                ["pwsh", "-NoProfile", "-NonInteractive", "-Command",
+                 f"[IO.File]::Move({quote(source)},{quote(target)},$true)"],
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr[-400:])
+            self.assertFalse(source.exists())
+            self.assertEqual(target.read_bytes(), b"new-reviewed-script")
 
     def test_disabled_resume_only_after_exact_preapply_hold(self):
         for required in (

@@ -277,7 +277,10 @@ try {
             $replacement = Join-Path $maintenance ('.r2-applier-' + [Guid]::NewGuid().ToString('N') + '.tmp')
             try {
                 [IO.File]::Copy($temp,$replacement,$false)
-                [IO.File]::Replace($replacement,$applier,$null)
+                # File.Replace requires a nonempty backup path on this
+                # Windows/.NET runtime. We have already preserved the exact
+                # old bytes above; same-directory Move(overwrite) is atomic.
+                [IO.File]::Move($replacement,$applier,$true)
                 if ((Hash $applier) -cne $applierSHA) { Hold 'NEW_APPLIER_REPLACEMENT_FAILED' }
             } finally {
                 if (Test-Path -LiteralPath $replacement) {
