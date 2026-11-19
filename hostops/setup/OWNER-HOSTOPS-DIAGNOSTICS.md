@@ -88,6 +88,56 @@ authorized. Any failure after Task disable leaves it disabled; do not
 attempt to force a retry or silently re-enable it. Windows hosted CI only
 parses/tests source; it cannot certify the future live maintenance effect.
 
+### One-time HostOps permission enrollment (approved 2026-11-19)
+
+An Owner-interactive, **separate on-demand** Windows Scheduled Task is used
+for the existing approved `batch-0001` preservation transaction. This is not
+another resident OwnerAgent: the existing `TorrentTV-Vietsub-OwnerAgent`
+stays running with its original launcher and `IgnoreNew` policy.
+
+- One-time signed-in Owner executes the **source-pinned**
+  `hostops/setup/enroll-owner-p2-quarantine-task.ps1` from an exact reviewed
+  PR commit, with the entry script's SHA-256 verified before execution.
+  The entry script itself fetches the immutable already reviewed one-shot
+  helper from commit `50f282a484dd6ad6104587a914b753e1ed467972` and
+  verifies SHA-256
+  `a21ff672e15db0b2efca20909ae88b35957193f99a52a83a3000dfa65f3d7cb3`.
+  No repository checkout or private API key is needed.
+- Enrollment validates the **existing** Owner Task principal and original
+  action, copies the helper only into Owner-private `OwnerBridge/Maintenance`,
+  and registers **no-trigger** `TorrentTV-Vietsub-P2-Quarantine-Once` under
+  `InteractiveToken` / `Limited` for that same Owner. It is on-demand only,
+  has an execution timeout, and is permitted to run on laptop battery.
+- Windows Task Scheduler DACL grants only the dedicated `NETWORK_SERVICE`
+  identity **generic read and execute** for that single maintenance task.
+  It does not grant service admin, Owner profile, file or task-write access.
+  Owner must be signed in. If the Windows DACL grant is rejected, enrollment
+  fails; never fall back to changing the runner service account.
+- The trusted owner-comment command `/tv-hostops run <exact-SHA>
+  owner-p2-quarantine-dispatch` uses the fixed HostOps job and requires the
+  corresponding reviewed `hostops/owner-p2-quarantine-dispatch` branch to
+  equal that exact commit. The job checks both scheduled task identities,
+  that the main Owner Task is Running, the no-trigger fixed maintenance
+  action, and **no previous task execution**. It calls only
+  `Start-ScheduledTask` on the dedicated task. Its receipt is
+  `TRIGGERED_NOT_VERIFIED` until the Owner task and fresh sanitized P2
+  after-snapshot actually prove the preservation completed.
+- After a successful or failed attempt, do not automatically re-run. The
+  helper preserves the unknown-effect marker bytes as `.quarantined` and
+  disables the original OwnerAgent. No automatic Owner Task restart or
+  Antigravity/TV/provider call is authorized here. The next controlled
+  restart requires a fresh review of the Owner result and installed code.
+- To revoke unused permission, the same authenticated Owner runs
+  `enroll-owner-p2-quarantine-task.ps1 -Revoke` from exact verified source.
+  It unregisters only the dedicated maintenance task after validating its
+  original action. It does **not** delete Owner P2 state or change the
+  normal OwnerAgent task. Revoke while the maintenance task is running is
+  prohibited: wait for completion and investigate its receipt first.
+
+This is `SOURCE_IMPLEMENTED`, **not** `OWNER_ENROLLED` or `LIVE_QUARANTINED`
+until the Windows Owner enrollment and actual HostOps runner trigger both
+produce fresh evidence. Hosted Windows CI checks only parsing and fixtures.
+
 For a future reviewed HostOps read-only run, create the trusted
 `hostops/owner-diagnostic-snapshot` branch at the exact audited commit and
 submit owner-authored comment to Issue #82:
