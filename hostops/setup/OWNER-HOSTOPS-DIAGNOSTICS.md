@@ -136,6 +136,17 @@ stays running with its original launcher and `IgnoreNew` policy.
   disables the original OwnerAgent. No automatic Owner Task restart or
   Antigravity/TV/provider call is authorized here. The next controlled
   restart requires a fresh review of the Owner result and installed code.
+- 2026-11-19 actual execution receipt: trusted [HostOps #44556216328]
+  (https://github.com/trung-via/torrent-tv-vietsub/actions/runs/44556216328)
+  confirmed `OWNER_TASK_TRIGGERED_NOT_VERIFIED`. Read-only [probe #44557217955]
+  (https://github.com/trung-via/torrent-tv-vietsub/actions/runs/44557217955)
+  then confirmed the original Owner Task `DISABLED`, dedicated maintenance
+  `READY` and `PRIOR_ATTEMPT`. Read-only [snapshot #44557340702]
+  (https://github.com/trung-via/torrent-tv-vietsub/actions/runs/44557340702)
+  still saw a stale P2 capture (`NOT_OBSERVED`, ~5341s old). **Quarantine
+  completion and marker preservation are NOT VERIFIED.** The service-side
+  probe now emits Task Scheduler's last process exit code for diagnosis,
+  explicitly not as proof of the private Owner transaction. Do not retry.
 - To revoke unused permission, the same authenticated Owner runs
   `enroll-owner-p2-quarantine-task.ps1 -Revoke` from exact verified source.
   It unregisters only the dedicated maintenance task after validating its
@@ -143,9 +154,10 @@ stays running with its original launcher and `IgnoreNew` policy.
   normal OwnerAgent task. Revoke while the maintenance task is running is
   prohibited: wait for completion and investigate its receipt first.
 
-This is `SOURCE_IMPLEMENTED`, **not** `OWNER_ENROLLED` or `LIVE_QUARANTINED`
-until the Windows Owner enrollment and actual HostOps runner trigger both
-produce fresh evidence. Hosted Windows CI checks only parsing and fixtures.
+This is `SOURCE_IMPLEMENTED` and `OWNER_ENROLLED` with a single live
+dispatch attempt, but **NOT `LIVE_QUARANTINED`** until a fresh independent
+Owner-private preservation receipt proves the transaction. Hosted Windows CI
+checks only parsing and fixtures.
 
 For a future reviewed HostOps read-only run, create the trusted
 `hostops/owner-diagnostic-snapshot` branch at the exact audited commit and

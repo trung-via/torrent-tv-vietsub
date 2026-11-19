@@ -23,7 +23,7 @@ try {
     $task = Get-ScheduledTask -TaskName $maintenance -TaskPath '\' -ErrorAction Stop
 } catch {
     Write-Output 'HOSTOPS_P2_MAINTENANCE_TASK=NOT_READABLE_OR_MISSING'
-    Write-Output 'HOSTOPS_P2_MAINTENANCE_EXECUTION=NOT_RUN'
+    Write-Output 'HOSTOPS_P2_MAINTENANCE_EXECUTION=NOT_RUN_BY_PROBE'
     exit 0
 }
 Write-Output 'HOSTOPS_P2_MAINTENANCE_TASK=FOUND'
@@ -39,8 +39,19 @@ try {
     $last = Get-ScheduledTaskInfo -TaskName $maintenance -TaskPath '\' -ErrorAction Stop
     $attempt = if ($last.LastRunTime -gt [datetime]'2001-01-01') { 'PRIOR_ATTEMPT' } else { 'NEVER_RUN' }
     Write-Output "HOSTOPS_P2_MAINTENANCE_ATTEMPT=$attempt"
+    # Task Scheduler reports the Owner task's process exit code without
+    # granting the service access to Owner-private logs or P2 state.
+    # Never promote an exit code into proof that a marker was quarantined.
+    if ($attempt -ceq 'PRIOR_ATTEMPT') {
+        $exitCode = [Convert]::ToString([int]$last.LastTaskResult, 16).PadLeft(8, '0').ToUpperInvariant()
+        Write-Output "HOSTOPS_P2_MAINTENANCE_LAST_RESULT=0x$exitCode"
+        Write-Output 'HOSTOPS_P2_MAINTENANCE_LAST_RESULT_IS_QUARANTINE_PROOF=NO'
+    } else {
+        Write-Output 'HOSTOPS_P2_MAINTENANCE_LAST_RESULT=NOT_APPLICABLE'
+    }
 } catch {
     Write-Output 'HOSTOPS_P2_MAINTENANCE_ATTEMPT=NOT_READABLE'
+    Write-Output 'HOSTOPS_P2_MAINTENANCE_LAST_RESULT=NOT_READABLE'
 }
 
 try {
@@ -63,6 +74,6 @@ try {
 } catch {
     Write-Output 'HOSTOPS_P2_NETWORKSERVICE_DACL=NOT_READABLE'
 }
-Write-Output 'HOSTOPS_P2_MAINTENANCE_EXECUTION=NOT_RUN'
+Write-Output 'HOSTOPS_P2_MAINTENANCE_EXECUTION=NOT_RUN_BY_PROBE'
 Write-Output 'HOSTOPS_P2_OWNER_PRIVATE_DATA=NOT_ACCESSED'
 Write-Output 'HOSTOPS_P2_PROVIDER_AND_TV=NOT_RUN'

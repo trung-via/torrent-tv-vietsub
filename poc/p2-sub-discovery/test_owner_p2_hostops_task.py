@@ -105,7 +105,9 @@ class HostOpsOwnerTaskTests(unittest.TestCase):
         self.assertIn("HOSTOPS_P2_MAINTENANCE_TASK=FOUND", probe)
         self.assertIn("HOSTOPS_P2_NETWORKSERVICE_ACE_MASK=0x", probe)
         self.assertIn("HOSTOPS_P2_NETWORKSERVICE_ACE_COUNT=", probe)
-        self.assertIn("HOSTOPS_P2_MAINTENANCE_EXECUTION=NOT_RUN", probe)
+        self.assertIn("HOSTOPS_P2_MAINTENANCE_LAST_RESULT=0x$exitCode", probe)
+        self.assertIn("HOSTOPS_P2_MAINTENANCE_LAST_RESULT_IS_QUARANTINE_PROOF=NO", probe)
+        self.assertIn("HOSTOPS_P2_MAINTENANCE_EXECUTION=NOT_RUN_BY_PROBE", probe)
         for prohibited in (
             "Start-ScheduledTask", "Stop-ScheduledTask", "Register-ScheduledTask",
             "Unregister-ScheduledTask", "Disable-ScheduledTask", "Enable-ScheduledTask",
