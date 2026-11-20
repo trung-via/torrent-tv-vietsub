@@ -24,7 +24,9 @@ class R2StageDependencyContract(unittest.TestCase):
         # Comparing every old SHA to current HEAD made all subsequent Owner
         # fixes fail CI, although the release helper fetches historical bytes
         # from source_tree and verifies the 17 downloaded hashes independently.
-        immutable = MANIFEST.read_bytes()
+        # Windows checkout may convert Git LF to CRLF. Hash canonical Git
+        # bytes, as the historical release stage itself does.
+        immutable = MANIFEST.read_bytes().replace(b"\r\n", b"\n")
         self.assertEqual(hashlib.sha256(immutable).hexdigest(),
                          "0145b0c536b70195b17671c065c8ced071013a784a47a9f77217c16b8ead9298")
         manifest = json.loads(immutable)
