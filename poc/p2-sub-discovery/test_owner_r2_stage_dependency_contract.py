@@ -84,6 +84,22 @@ class R2StageDependencyContract(unittest.TestCase):
             with self.subTest(path=row["path"]):
                 self.assertRegex(row["sha256"], r"\A[0-9a-f]{64}\Z")
 
+    def test_owner_hotfix_offline_applier_requires_stopped_agent_and_backup(self):
+        applier = (ROOT / "hostops/setup/owner-r2-deblock-offline-apply.ps1").read_text()
+        checker = (ROOT / "hostops/jobs/owner-release-source-check.ps1").read_text()
+        self.assertIn("owner-r2-deblock-offline-apply.ps1", checker)
+        for token in (
+            "OWNER_TASK_NOT_DISABLED", "OWNER_WORKERS_NOT_STOPPED",
+            "ACTIVE_OR_UNCERTAIN_P2_JOB", "PENDING_OWNER_EVENTS",
+            "STAGE_HASH_MISMATCH", "INSTALLED_BASELINE_UNEXPECTED",
+            "BACKUP_HASH_MISMATCH", "INSTALL_FAILED_OLD_BYTES_RESTORED_OWNER_STOPPED",
+            "OWNER_DEBLOCK_OWNER_RESTART=NOT_RUN",
+        ):
+            self.assertIn(token, applier)
+        for name in ("Start-ScheduledTask", "Enable-ScheduledTask", "Stop-ScheduledTask",
+                     "Disable-ScheduledTask", "Invoke-WebRequest", "Remove-Item"):
+            self.assertNotIn(name, applier)
+
 
 if __name__ == "__main__":
     unittest.main()

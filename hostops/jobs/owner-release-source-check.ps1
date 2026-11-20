@@ -42,6 +42,7 @@ $scripts = @(
     'hostops/setup/enroll-owner-release-stage.ps1',
     'hostops/setup/owner-r2-release-offline-apply.ps1',
     'hostops/setup/owner-r2-maintenance-once.ps1',
+    'hostops/setup/owner-r2-deblock-offline-apply.ps1',
     'hostops/jobs/owner-release-stage-dispatch.ps1',
     'hostops/jobs/owner-release-source-check.ps1'
 )
