@@ -152,7 +152,8 @@ class V3CompositionTests(unittest.TestCase):
             owner_root=self.owner, processor=self.processor(),
             emit=emitted.append)
         self.assertEqual(count, 1)
-        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY"])
+        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                   "OWNER_BRIDGE_BLOCK_REASON=RESOLVER_TV_SESSION_MISMATCH"])
         self.assertEqual(self.capture.calls, [])
         self.assertFalse(list((self.owner / "inbox").glob("event-*.json")))
 
@@ -180,7 +181,8 @@ class V3CompositionTests(unittest.TestCase):
             tv_session_id=SESSION)
         processed, emitted = self._consume()
         self.assertEqual(processed, 1)
-        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY"])
+        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                   "OWNER_BRIDGE_BLOCK_REASON=V3_CURRENT_SOURCE_MISMATCH"])
         self.assertEqual(self.read_calls, ["TV"])
         self.assertEqual(self.capture.calls, [])
 
@@ -227,6 +229,31 @@ class V3CompositionTests(unittest.TestCase):
         _, _, media, source = self.capture.calls[0]
         self.assertEqual(media, Media(SERVER, HASH, 5, VIDEO))
         self.assertIsNone(source)
+
+    def test_unparseable_release_is_review_not_permanent_identity_block(self):
+        # The TV, selected TorrServer index and signed session all agree.
+        # Missing release metadata should produce a review outcome without
+        # an OpenSubtitles request or an irreversible .blocked event.
+        name = "2017.mkv"
+        self.state = replace(self.state, video_name=name)
+        self.record = replace(self.record, path="Authorized/" + name)
+        self.mapping = None
+        provider = FakeProvider()
+        flow = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic", transport=provider),
+            worker=mock.Mock(), cache_root=self.root / "cache",
+            permissions=AutoPermissions(True, True))
+        event_id = enqueue_selected_media(
+            name, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        lines = []
+        self.assertEqual(poll_private_events(
+            owner_root=self.owner, processor=self.processor(flow=flow),
+            emit=lines.append), 1)
+        self.assertEqual(lines, ["OWNER_BRIDGE_EVENT_NEEDS_REVIEW"])
+        self.assertTrue((self.owner / "inbox" / ("event-" + event_id + ".review")).exists())
+        self.assertEqual(provider.calls, [])
 
     def test_bad_episode_metadata_and_local_map_hold(self):
         self.record = replace(self.record, id=6)

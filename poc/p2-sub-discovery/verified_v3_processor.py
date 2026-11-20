@@ -164,8 +164,10 @@ class VerifiedV3Processor:
             locate_owner_pinned_files=self.locate_owner,
         )
         lookup = subtitle_lookup_identity(current, record)
-        if not lookup.title_hint:
-            raise V3IdentityError("V3_RELEASE_TITLE_UNCERTAIN")
+        # A missing parseable release title is NOT an identity mismatch.
+        # The downstream source selector already returns REVIEW_REQUIRED
+        # without provider downloads for incomplete release metadata.
+        # Do not strand an otherwise authentic user request in .blocked.
 
         # Final live-session read: reduces stale A→B race while providers are
         # still NOT called. Downstream D3/P4 must independently verify exact

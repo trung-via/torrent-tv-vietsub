@@ -49,7 +49,7 @@ class R2VerifiedV3Processor(VerifiedV3Processor):
                     or _one_basename(selected.path) != current.video_name):
                 raise ValueError("P4_ROLLING_TORRSERVER_FILE_CHANGED")
             lookup = subtitle_lookup_identity(current, selected)
-            if lookup.media.filename != video_filename or not lookup.title_hint:
+            if lookup.media.filename != video_filename:
                 raise ValueError("P4_ROLLING_SELECTED_MEDIA_CHANGED")
             self.progressive_registry.publish_worker_revision(
                 media=lookup.media, source_fingerprint=source_fingerprint,

@@ -40,6 +40,43 @@ _HEALTH_STATES = frozenset({"STARTING", "READY", "STOPPED", "BLOCKED"})
 _HEALTH_SCHEMA = "TTV-OWNER-AGENT-HEALTH-V1"
 _RETRY_SCHEMA = "TTV-OWNER-PREPROVIDER-RETRY-V1"
 _RETRY_DELAYS = (5, 15, 30)
+# Only literal, source-owned error codes may appear in the Owner console.
+# Exception text can contain a private path, subtitle or provider credential.
+_SAFE_BLOCK_REASONS = frozenset({
+    "V3_EPISODE_METADATA_CONFLICT", "V3_SESSION_AND_FINGERPRINT_REQUIRED",
+    "V3_CURRENT_SOURCE_MISMATCH", "V3_TV_SELECTION_CHANGED",
+    "RESOLVER_TRUSTED_SNAPSHOT_REQUIRED", "RESOLVER_SERVER_PATH_INVALID",
+    "RESOLVER_NOT_ACTIVE_AUTHENTICATED_PLAY", "RESOLVER_TV_SESSION_MISMATCH",
+    "RESOLVER_OWNER_OR_VIEWER_GATE_BLOCKED",
+    "RESOLVER_SELECTED_MEDIA_MISMATCH",
+    "RESOLVER_SOURCE_FINGERPRINT_MISMATCH",
+    "RESOLVER_PLAYBACK_READER_UNAVAILABLE",
+    "RESOLVER_TORRSERVER_READER_UNAVAILABLE",
+    "RESOLVER_SERVER_FILE_MISMATCH", "RESOLVER_OWNER_MAPPING_UNAVAILABLE",
+    "RESOLVER_OWNER_MAPPING_INVALID", "RESOLVER_OWNER_MEDIA_ROOT_INVALID",
+    "RESOLVER_UNTRUSTED_PRIVATE_PATH",
+    "RESOLVER_LOCAL_VIDEO_NAME_MISMATCH",
+    "RESOLVER_LOCAL_VIDEO_SIZE_MISMATCH", "RESOLVER_SIDECAR_NAME_MISMATCH",
+    "RESOLVER_SIDECAR_DIRECTORY_MISMATCH",
+    "RESOLVER_AMBIGUOUS_LOCAL_EN", "RESOLVER_SIDECAR_SYMLINK_REFUSED",
+    "P4_ROLLING_TV_SESSION_CHANGED", "P4_ROLLING_TORRSERVER_FILE_CHANGED",
+    "P4_ROLLING_SELECTED_MEDIA_CHANGED",
+    "AUTO_VIETSUB_PERMISSIONS_NOT_ENABLED", "AUTO_VIETSUB_INVALID_MEDIA_NAME",
+    "AUTO_V3_VERIFIED_MEDIA_REQUIRED", "AUTO_V3_SOURCE_FINGERPRINT_MISMATCH",
+    "AUTO_V3_LOCAL_SOURCE_IDENTITY_MISMATCH",
+    "AUTO_VIETSUB_INCOMPLETE_TRANSLATION",
+    "OWNER_BRIDGE_INVALID_RESULT", "AUTO_SOURCE_CACHE_INDEX_INVALID",
+    "AUTO_SOURCE_CACHE_DIGEST_MISMATCH", "EN_DOWNLOAD_ALREADY_ATTEMPTED",
+})
+
+
+def _safe_block_reason(error: Exception) -> str:
+    """One actionable allowlisted reason; never echo arbitrary exception text."""
+    if len(error.args) == 1 and type(error.args[0]) is str:
+        reason = error.args[0]
+        if reason in _SAFE_BLOCK_REASONS:
+            return reason
+    return "UNCLASSIFIED"
 
 
 class PreProviderTransient(RuntimeError):
@@ -291,7 +328,7 @@ def poll_private_events(
             _remove_finished_retry(retry)
             emit("OWNER_BRIDGE_EVENT_" + (
                 "COMPLETE" if suffix == ".done" else "NEEDS_REVIEW"))
-        except PreProviderTransient:
+        except PreProviderTransient as exc:
             # Only the V3 verified preflight can prove no OpenSubtitles/AGY
             # request has been attempted. It will revalidate the live TV on
             # each retry. Uncertain provider failures remain blocked below.
@@ -300,26 +337,30 @@ def poll_private_events(
                 os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
                 _remove_finished_retry(retry)
                 emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
-            elif retry_attempts >= len(_RETRY_DELAYS):
-                os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
-                _remove_finished_retry(retry)
-                emit("OWNER_BRIDGE_EVENT_PREPROVIDER_RETRIES_EXHAUSTED")
             else:
                 try:
+                    # Keep retrying *only* errors proven to be before any
+                    # provider call. A short TV/TorrServer outage is not a
+                    # reason to abandon an explicit user request forever.
+                    # Saturate the durable counter at 30s rather than
+                    # exhausting it or growing a receipt without bound.
                     _record_preprovider_retry(
-                        retry, retry_attempts + 1, int(time.time()))
+                        retry, min(retry_attempts + 1, len(_RETRY_DELAYS)),
+                        int(time.time()))
                     claim.unlink()
                 except (OSError, ValueError):
                     # Leave a claim on failure: no ambiguous automatic replay.
                     emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFER_HOLD")
                 else:
                     emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFERRED")
-        except Exception:
+                    emit("OWNER_BRIDGE_PREPROVIDER_REASON=" + exc.args[0])
+        except Exception as exc:
             # Error text may include private file paths/API material; do not
             # print it, or attempt a second quota-bearing provider request.
             os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
             _remove_finished_retry(retry)
             emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
+            emit("OWNER_BRIDGE_BLOCK_REASON=" + _safe_block_reason(exc))
     return processed
 
 
