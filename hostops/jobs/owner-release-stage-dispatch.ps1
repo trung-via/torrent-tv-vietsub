@@ -16,7 +16,7 @@ $commit = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '\A[0-9a-f]{40}\z') {
     throw 'HOSTOPS_OWNER_RELEASE_PIN_INVALID'
 }
-$manifestRel = 'hostops/releases/owner-r2-stage-v1.json'
+$manifestRel = 'hostops/releases/owner-r2-deblock-stage-v1.json'
 $manifestFile = Join-Path $env:GITHUB_WORKSPACE ($manifestRel.Replace('/', '\'))
 if (-not (Test-Path -LiteralPath $manifestFile -PathType Leaf)) {
     throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_MISSING'
@@ -49,7 +49,7 @@ if ($manifestHash -cnotmatch '\A[0-9a-f]{64}\z') {
 }
 $manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.schema -cne 'TTV-OWNER-RELEASE-STAGE-V1' -or
-    $manifest.release_id -cne 'r2-rolling-175-r2' -or
+    $manifest.release_id -cne 'r2-deblock-175' -or
     $manifest.mode -cne 'STAGE_ONLY') {
     throw 'HOSTOPS_OWNER_RELEASE_MANIFEST_SCOPE_INVALID'
 }

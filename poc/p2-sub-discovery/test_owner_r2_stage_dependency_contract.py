@@ -58,9 +58,31 @@ class R2StageDependencyContract(unittest.TestCase):
     def test_stage_dispatch_and_source_gate_same_release(self):
         dispatch = (ROOT / "hostops/jobs/owner-release-stage-dispatch.ps1").read_text()
         check = (ROOT / "hostops/jobs/owner-release-source-check.ps1").read_text()
-        self.assertIn("r2-rolling-175-r2", dispatch)
-        self.assertIn("r2-rolling-175-r2", check)
-        self.assertIn("Count -ne 17", check)
+        self.assertIn("owner-r2-deblock-stage-v1.json", dispatch)
+        self.assertIn("owner-r2-deblock-stage-v1.json", check)
+        self.assertIn("r2-deblock-175", dispatch)
+        self.assertIn("r2-deblock-175", check)
+        self.assertIn("Count -ne 3", check)
+
+    def test_new_hotfix_stages_only_three_changed_owner_modules(self):
+        manifest = json.loads((ROOT / "hostops/releases/owner-r2-deblock-stage-v1.json")
+                              .read_text(encoding="utf-8"))
+        self.assertEqual(manifest["schema"], "TTV-OWNER-RELEASE-STAGE-V1")
+        self.assertEqual(manifest["mode"], "STAGE_ONLY")
+        self.assertEqual(manifest["release_id"], "r2-deblock-175")
+        self.assertEqual(manifest["source_tree"],
+                         "99e4eee06675c9e5db2a640962ba641c0329b60c")
+        self.assertEqual({x["path"] for x in manifest["files"]}, {
+            "poc/p2-sub-discovery/owner_session_bridge.py",
+            "poc/p2-sub-discovery/verified_v3_processor.py",
+            "poc/p2-sub-discovery/owner_r2_verified_processor.py",
+        })
+        # Subsequent fixes may change HEAD. The source-check HostOps job
+        # enforces current bytes at dispatch, while a historical stage
+        # manifest remains immutable rather than blocking future source.
+        for row in manifest["files"]:
+            with self.subTest(path=row["path"]):
+                self.assertRegex(row["sha256"], r"\A[0-9a-f]{64}\Z")
 
 
 if __name__ == "__main__":

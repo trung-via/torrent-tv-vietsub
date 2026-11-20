@@ -1,4 +1,4 @@
-# Safe Windows-only source parsing and R2 manifest hash validation.
+# Safe Windows-only source parsing and active Owner hotfix stage validation.
 # Does not access Owner/ProgramData, create tasks, stage files or run provider.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -61,11 +61,11 @@ foreach ($path in $scripts) {
 }
 Write-Output 'OWNER_RELEASE_SOURCE_POWERSHELL_PARSE=PASS'
 
-$manifest = Get-Content -LiteralPath (Join-Path $root 'hostops\releases\owner-r2-stage-v1.json') `
+$manifest = Get-Content -LiteralPath (Join-Path $root 'hostops\releases\owner-r2-deblock-stage-v1.json') `
     -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.schema -cne 'TTV-OWNER-RELEASE-STAGE-V1' -or
-    $manifest.release_id -cne 'r2-rolling-175-r2' -or
-    $manifest.mode -cne 'STAGE_ONLY' -or @($manifest.files).Count -ne 17) {
+    $manifest.release_id -cne 'r2-deblock-175' -or
+    $manifest.mode -cne 'STAGE_ONLY' -or @($manifest.files).Count -ne 3) {
     throw 'OWNER_RELEASE_SOURCE_CHECK_MANIFEST_INVALID'
 }
 $seen = @{}
