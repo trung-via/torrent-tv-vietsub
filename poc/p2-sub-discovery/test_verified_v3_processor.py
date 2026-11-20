@@ -221,6 +221,31 @@ class V3CompositionTests(unittest.TestCase):
                 tv_session_id=SESSION)
         self.assertEqual(self.capture.calls, [])
 
+    def test_requested_to_on_same_tv_session_does_not_false_block(self):
+        # The Android control may settle from REQUESTED to ON during the
+        # two Owner reads; this is still the same selected TV/media session.
+        self.state = replace(self.state, viewer_choice="REQUESTED")
+        def settles():
+            self.counter += 1
+            return (self.state if self.counter == 1 else
+                    replace(self.state, viewer_choice="ON"))
+        result = self.processor(read_tv=settles).selected_media(
+            VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        self.assertEqual(result.status, "VI_READY")
+        self.assertEqual(len(self.capture.calls), 1)
+
+    def test_temporary_vi_probe_unknown_on_refresh_is_retryable(self):
+        def transient_probe():
+            self.counter += 1
+            return (self.state if self.counter == 1 else
+                    replace(self.state, local_vi_state="UNKNOWN"))
+        with self.assertRaisesRegex(PreProviderTransient, "V3_TV_REFRESH_UNAVAILABLE"):
+            self.processor(read_tv=transient_probe).selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
+
     def test_no_local_movie_falls_back_to_exact_d1_d2_identity(self):
         self.mapping = None
         processed, emitted = self.dispatch()

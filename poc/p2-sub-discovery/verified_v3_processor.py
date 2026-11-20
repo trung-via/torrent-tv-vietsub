@@ -177,8 +177,23 @@ class VerifiedV3Processor:
         except Exception:
             raise PreProviderTransient("V3_TV_REFRESH_UNAVAILABLE") from None
         if (not isinstance(latest, CurrentPlaying)
-                or latest != current):
+                or not latest.attested or not latest.active
+                or latest.kind != current.kind
+                or latest.server_id != current.server_id
+                or latest.tv_session_id != current.tv_session_id
+                or latest.torrent_hash.lower() != current.torrent_hash.lower()
+                or latest.file_index != current.file_index
+                or latest.video_name != current.video_name
+                or latest.owner_auto_enabled is not True
+                or latest.media_rights_approved is not True
+                or latest.viewer_choice not in ("ON", "REQUESTED")
+                or latest.local_vi_state == "PRESENT"):
             raise V3IdentityError("V3_TV_SELECTION_CHANGED")
+        if latest.local_vi_state != "ABSENT":
+            # A flaky ffprobe result is not evidence of a different TV item.
+            # Defer before the provider and recheck, never permanently block
+            # an otherwise unchanged and explicitly requested selection.
+            raise PreProviderTransient("V3_TV_REFRESH_UNAVAILABLE")
 
         outcome = self.flow.selected_media(
             video_filename,
