@@ -1,14 +1,14 @@
 # Owner-approved, one-device FLAT Debug APK replacement using an already built,
-# private staged APK from exact PR #172 source. No uninstall, data clear, TV
+# private staged APK from exact PR #175 source. No uninstall, data clear, TV
 # reboot, ADB pairing change, provider call, or public APK upload.
 # Execute solely through the existing SHA-pinned Torrent TV HostOps #82 inbox.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repo = 'trung-via/torrent-tv-vietsub'
-$branch = 'feature/r0-flat-integrated-source-20261117'
-$head = '6710dca6cae8e6c499c6b397f1f27b4bfd877955'
-$expectedApkSha = 'e548329835ed9a938e30f0c44270e718a623eaacb472c697fbd5665178e6536a'
+$branch = 'feature/r0-flat-hostops-owner-diagnostics-20261118'
+$head = 'a1ee6507e146737b2f053c081a0362b322360ff3'
+$expectedApkSha = 'd91960538824394d22f08bffc74af6f5765674f2fd7a319edb3669deb704f8a9'
 $expectedCert = '8bf6937801524fd7c264b55855bb35a2133c242114fb66b5fa9f1907e334fd84'
 $pkg = 'com.spacesarmat.omp.test'
 $runnerRoot = 'C:\TOOL\TorrentTV-Runner\_work'
