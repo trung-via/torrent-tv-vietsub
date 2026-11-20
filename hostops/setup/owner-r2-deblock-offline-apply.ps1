@@ -1,14 +1,21 @@
 # Exact three-module R2 Owner hotfix. Inspect is the default. -ApplyOffline
-# requires the existing OwnerAgent to be disabled/stopped separately.
+# and -RollbackOffline require the OwnerAgent to be disabled/stopped separately.
 # No LAN, TV, provider, Windows task mutation, or old P2 batch replay.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
-    [switch]$ApplyOffline
+    [switch]$ApplyOffline,
+    [switch]$RollbackOffline,
+    [ValidatePattern('^owner-deblock-[a-f0-9]{32}$')][string]$BackupId
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if (($ApplyOffline -and $RollbackOffline) -or
+    ($RollbackOffline -and [string]::IsNullOrWhiteSpace($BackupId)) -or
+    (-not $RollbackOffline -and -not [string]::IsNullOrWhiteSpace($BackupId))) {
+    throw 'OWNER_DEBLOCK_INVALID_MODE'
+}
 
 function Hold([string]$reason) {
     Write-Output ('OWNER_DEBLOCK_OFFLINE=HOLD_' + $reason)
@@ -109,6 +116,34 @@ foreach ($name in $files.Keys) {
 Write-Output 'OWNER_DEBLOCK_STAGE=3_FILES_HASH_VERIFIED'
 if (@($statuses | Select-Object -Unique).Count -ne 1) {
     Hold 'MIXED_INSTALLED_STATE'
+}
+if ($RollbackOffline) {
+    RequireStopped
+    RequireIdle
+    $backup = Join-Path (Join-Path $ownerRoot 'recovery') $BackupId
+    RequireDirectory $backup
+    foreach ($name in $files.Keys) {
+        $saved = Join-Path $backup $name
+        RequireFile $saved
+        if ((Hash $saved) -cne $files[$name][0]) { Hold 'ROLLBACK_BACKUP_HASH_MISMATCH' }
+    }
+    if ($statuses[0] -ceq 'OLD') {
+        Write-Output 'OWNER_DEBLOCK_ROLLBACK=ALREADY_OLD_OWNER_STOPPED'
+        return
+    }
+    foreach ($name in $files.Keys) {
+        RequireStopped
+        RequireIdle
+        $installed = Join-Path $installedDir $name
+        if ((Hash $installed) -cne $files[$name][1]) { Hold 'ROLLBACK_INSTALLED_HASH_CHANGED' }
+        $temp = Join-Path $installedDir ('.deblock-rollback-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+        [IO.File]::Copy((Join-Path $backup $name),$temp,$false)
+        if ((Hash $temp) -cne $files[$name][0]) { Hold 'ROLLBACK_COPY_HASH_MISMATCH' }
+        [IO.File]::Move($temp,$installed,$true)
+        if ((Hash $installed) -cne $files[$name][0]) { Hold 'ROLLBACK_INSTALLED_HASH_MISMATCH' }
+    }
+    Write-Output 'OWNER_DEBLOCK_ROLLBACK=ORIGINAL_BYTES_RESTORED_OWNER_STOPPED'
+    return
 }
 if ($statuses[0] -ceq 'NEW') {
     Write-Output 'OWNER_DEBLOCK_OFFLINE=ALREADY_INSTALLED'

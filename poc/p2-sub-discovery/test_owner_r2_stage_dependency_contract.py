@@ -100,6 +100,30 @@ class R2StageDependencyContract(unittest.TestCase):
                      "Disable-ScheduledTask", "Invoke-WebRequest", "Remove-Item"):
             self.assertNotIn(name, applier)
 
+    def test_one_shot_owner_maintenance_is_interactive_and_recoverable(self):
+        wrapper = (ROOT / "hostops/setup/owner-r2-deblock-maintenance-once.ps1").read_text()
+        applier_path = ROOT / "hostops/setup/owner-r2-deblock-offline-apply.ps1"
+        applier = applier_path.read_bytes().replace(b"\r\n", b"\n")
+        script_hash = hashlib.sha256(applier).hexdigest()
+        checker = (ROOT / "hostops/jobs/owner-release-source-check.ps1").read_text()
+        self.assertIn("owner-r2-deblock-maintenance-once.ps1", checker)
+        self.assertIn(script_hash, wrapper)
+        self.assertIn("1687fb327803c916af047c5fa13183ff9e79f92c", wrapper)
+        for token in (
+            "INTERACTIVE_OWNER_REQUIRED", "OWNER_PENDING_EVENTS",
+            "P2_UNCERTAIN_OR_ACTIVE", "RESIDUAL_WORKER_UNVERIFIED",
+            "RESIDUAL_WORKER_IDENTITY_CHANGED", "PINNED_APPLIER_HASH_MISMATCH",
+            "-ApplyOffline", "-RollbackOffline", "-BackupId",
+            "NEW_OWNER_ACTIVE_FRESH_HEARTBEAT", "NEW_OWNER_UNHEALTHY_OLD_OWNER_RECOVERED",
+        ):
+            self.assertIn(token, wrapper)
+        offline = applier.decode("utf-8")
+        for token in (
+            "OWNER_DEBLOCK_ROLLBACK=ORIGINAL_BYTES_RESTORED_OWNER_STOPPED",
+            "ROLLBACK_BACKUP_HASH_MISMATCH", "ROLLBACK_INSTALLED_HASH_MISMATCH",
+        ):
+            self.assertIn(token, offline)
+
 
 if __name__ == "__main__":
     unittest.main()
