@@ -74,10 +74,31 @@ foreach ($name in $pinned.Keys) {
     }
 }
 $backupState = 'NOT_PROVEN'
+$importIssue = 'NOT_FOUND'
 $backupRoot = Join-Path $ownerRoot 'backups'
 if (Test-Path -LiteralPath $backupRoot -PathType Container) {
     $candidates = @(Get-ChildItem -LiteralPath $backupRoot -Directory -Filter 'owner-title178-*')
     if ($candidates.Count -eq 1) {
+        $importLog = Join-Path $candidates[0].FullName 'offline-import.log'
+        if (Test-Path -LiteralPath $importLog -PathType Leaf) {
+            $importItem = Get-Item -LiteralPath $importLog -Force
+            if ($importItem.Length -gt 0 -and $importItem.Length -le 131072 -and
+                -not ($importItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $importIssue = 'OTHER_IMPORT_FAILURE'
+                $importLines = @(Get-Content -LiteralPath $importLog -Tail 50)
+                foreach ($line in $importLines) {
+                    if ($line -cmatch "ModuleNotFoundError: No module named '([A-Za-z0-9_.]{1,60})'") {
+                        $importIssue = 'MODULE_MISSING_' + $Matches[1].ToUpperInvariant().Replace('.','_')
+                        break
+                    }
+                    if ($line -cmatch "ImportError: cannot import name '([A-Za-z0-9_]{1,60})'") {
+                        $importIssue = 'SYMBOL_MISSING_' + $Matches[1].ToUpperInvariant()
+                        break
+                    }
+                    if ($line -cmatch 'SyntaxError:') { $importIssue = 'SYNTAX_ERROR'; break }
+                }
+            }
+        }
         $matched = 0
         foreach ($name in $pinned.Keys) {
             $original = Join-Path $candidates[0].FullName $name
@@ -114,9 +135,10 @@ if (Test-Path -LiteralPath $health -PathType Leaf) {
 $current = Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 if ($current.nonce -cne $request.nonce) { throw 'TITLE178_DIAG_REQUEST_CHANGED' }
 $result = Join-Path $spool 'Receipts\title178-diag.json'
-$payload = @{ schema='TTV-OWNER-TITLE178-DIAG-V2'; nonce=$request.nonce;
+$payload = @{ schema='TTV-OWNER-TITLE178-DIAG-V3'; nonce=$request.nonce;
     code=$code; primary=$primary; new_count=$newCount;
-    backup=$backupState; task=$ownerState; health=$healthState } | ConvertTo-Json -Compress
+    backup=$backupState; task=$ownerState; health=$healthState;
+    import_issue=$importIssue } | ConvertTo-Json -Compress
 if ([Text.Encoding]::UTF8.GetByteCount($payload) -gt 512) { throw 'TITLE178_DIAG_PAYLOAD_LONG' }
 $temp = $result + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
 [IO.File]::WriteAllText($temp,$payload,[Text.UTF8Encoding]::new($false))
