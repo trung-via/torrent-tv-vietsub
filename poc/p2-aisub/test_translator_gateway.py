@@ -238,12 +238,10 @@ class GatewayTests(unittest.TestCase):
             legacy = state / ("f" * 64)
             legacy.mkdir(parents=True)
             (legacy / "batch-0001.inflight").write_text("old-provider-unknown-effect")
-            with self.assertRaisesRegex(ValueError, "PRIOR_PROVIDER_INFLIGHT_HOLD"):
-                worker.run(source(121))
-            self.assertEqual(calls, [])
-            # Synthetic test cleanup only; never touch owner's live markers.
-            (legacy / "batch-0001.inflight").unlink()
+            # An uncertain batch belongs to a different film; new independent
+            # jobs proceed, while the old marker stays quarantined.
             final = worker.run(source(121))
+            self.assertTrue((legacy / "batch-0001.inflight").exists())
             self.assertEqual(final.translated_count, 121)
             self.assertEqual(list(map(len, calls)), [120, 1])
             worker.run(source(121))

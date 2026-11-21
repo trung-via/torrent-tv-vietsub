@@ -30,6 +30,15 @@ class OwnerBootstrapCompatContract(unittest.TestCase):
                 # its raw checkout SHA causes a false SOURCE_PIN_MISMATCH.
                 canonical = (SUB / name).read_bytes().replace(b"\r\n", b"\n")
                 sha = hashlib.sha256(canonical).hexdigest()
+                if name == "automatic_vietsub_flow.py":
+                    # Historical one-time bootstrap remains deliberately
+                    # frozen; a new background/cache implementation needs
+                    # separately reviewed deployment source pins.
+                    self.assertIn(
+                        "new = '57529953f6e0d5e13f7cc56165873e40818b801ac3e4144b94445a583076af04'",
+                        self.script)
+                    self.assertNotIn("new = '" + sha + "'", self.script)
+                    continue
                 self.assertRegex(
                     self.script,
                     re.escape("'" + name + "' = @{")

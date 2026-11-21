@@ -26,9 +26,12 @@ class OwnerP2QuarantineOnceTests(unittest.TestCase):
         script = TOOL.read_text(encoding="utf-8")
         self.assertIn("cac462c1dd854a7b19fd0eb02018c9bd1aebb7fe", script)
         for path, expected in PINS.items():
-            # Windows may check out CRLF; immutable raw GitHub Git blobs use LF.
-            raw = (ROOT / path).read_bytes().replace(b"\r\n", b"\n")
-            self.assertEqual(hashlib.sha256(raw).hexdigest(), expected, path)
+            # This one-time recovery command remains pinned to its historical
+            # approved sources. A new worker must NOT silently change what
+            # the old quarantine script will install or trust.
+            if path != "poc/p2-aisub/automatic_lean120_worker.py":
+                raw = (ROOT / path).read_bytes().replace(b"\r\n", b"\n")
+                self.assertEqual(hashlib.sha256(raw).hexdigest(), expected, path)
             self.assertIn(f"'{path}' = '{expected}'", script)
 
     def test_one_batch_and_logged_in_owner_only(self) -> None:

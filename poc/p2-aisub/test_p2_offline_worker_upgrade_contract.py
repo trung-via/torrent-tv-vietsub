@@ -23,7 +23,12 @@ class P2OfflineUpgradeContractTests(unittest.TestCase):
         # normalizes to canonical LF before verifying the reviewed blob.
         worker = WORKER.read_text(encoding="utf-8").replace("\r\n", "\n")
         expected = hashlib.sha256(worker.encode("utf-8")).hexdigest()
-        self.assertIn("$newSha = '" + expected + "'", content)
+        # F3 is an older one-time installer. New concurrent per-film source
+        # requires a new reviewed deployment, never a silent F3 pin rewrite.
+        self.assertIn(
+            "$newSha = 'd8744716ef9d9aa2b0518245310cb8b6235213fa7afb5423d70e521efd2b07a0'",
+            content)
+        self.assertNotIn("$newSha = '" + expected + "'", content)
         self.assertIn("P2_F3_REVIEWED_WORKER_HASH_MISMATCH", content)
         self.assertIn("P2_F3_INSTALLED_HASH_MISMATCH_BACKUP_RETAINED", content)
 

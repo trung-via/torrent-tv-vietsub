@@ -180,6 +180,23 @@ class AutoLean120WorkerTests(unittest.TestCase):
         self.assertEqual([r.translated_count for r in emit], [120, 240, 241])
         self.assertEqual(len(self.provider.calls), 3)
 
+    def test_another_film_inflight_does_not_block_independent_job(self):
+        """A uncertain batch only blocks A, not an authorized film B."""
+        from automatic_lean120_worker import _job_fingerprint
+        source_a = handoff(120, media=MEDIA)
+        source_b = handoff(121, media=OTHER)
+        worker = self.worker()
+        key_a = _job_fingerprint(source_a, PROFILE, worker.glossary)
+        a_folder = self.root / key_a
+        a_folder.mkdir(parents=True)
+        (a_folder / "batch-0001.inflight").write_text("synthetic uncertain")
+        finished_b = worker.run(source_b)
+        self.assertTrue(finished_b.complete)
+        self.assertEqual(finished_b.translated_count, 121)
+        self.assertTrue((a_folder / "batch-0001.inflight").exists())
+        with self.assertRaisesRegex(ValueError, "UNCERTAIN_BATCH_MANUAL_RECONCILE"):
+            worker.run(source_a)
+
     def test_interruption_stops_unknown_provider_effects_no_auto_retry(self):
         source = handoff(241)
         self.provider.fail_on = 2
@@ -209,19 +226,21 @@ class AutoLean120WorkerTests(unittest.TestCase):
         # then preserves the marker bytes under a non-inflight extension.
         (job / "batch-0001.abandoned.json").write_text(
             '{"result":"UNKNOWN_EFFECT_NO_RETRY"}', encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "PRIOR_PROVIDER_INFLIGHT_HOLD"):
-            self.worker().run(handoff(1, OTHER))
-        self.assertEqual(len(self.provider.calls), 1)
+        # Film B is independent: an uncertain A must never freeze B.
+        self.provider.fail_on = None
+        different = self.worker().run(handoff(1, OTHER))
+        self.assertTrue(different.complete)
+        self.assertEqual(len(self.provider.calls), 2)
         marker.rename(job / "batch-0001.quarantined")
         with self.assertRaisesRegex(ValueError, "AUTO_LEAN120_ABANDONED_JOB_HOLD"):
             self.worker().run(source)
-        self.assertEqual(len(self.provider.calls), 1)
+        self.assertEqual(len(self.provider.calls), 2)
         self.assertTrue((job / "batch-0001.quarantined").exists())
         self.assertFalse((job / "active.lock").exists())
-        # The owner can deliberately authorize a different job, but the
-        # unknown result from the original job is never retried.
+        # Reopening B reuses B's own finished checkpoints, not A's claim.
         different = self.worker().run(handoff(1, OTHER))
         self.assertTrue(different.complete)
+        self.assertEqual(len(self.provider.calls), 2)
         different_profile = self.worker(profile=ModelProfile(
             "antigravity", "gemini-4-hydrogen-low", "low")).run(source)
         self.assertTrue(different_profile.complete)

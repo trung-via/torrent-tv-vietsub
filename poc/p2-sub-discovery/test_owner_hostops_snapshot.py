@@ -128,7 +128,10 @@ class HostOpsSnapshotTests(unittest.TestCase):
         self.assertEqual(p2["marker_sha256"], hashlib.sha256(original).hexdigest())
         self.assertEqual(p2["checkpoint_present"], "NO")
         self.assertEqual(p2["active_lock_present"], "NO")
-        self.assertEqual(p2["installed_no_retry_worker_match"], "YES")
+        # The historical HostOps snapshot pins the previously deployed
+        # worker; this new per-film worker must show drift until deployment
+        # reconciles its exact approved source pin.
+        self.assertEqual(p2["installed_no_retry_worker_match"], "NO")
         self.shared.mkdir(parents=True)
         self.assertTrue(publish_owner_snapshot(
             owner_root=self.owner, shared_dir=self.shared))

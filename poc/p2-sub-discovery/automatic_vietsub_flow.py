@@ -163,10 +163,57 @@ class AutomaticVietsubFlow:
             self.emit("AUTO_VI_CACHED_REUSED=YES")
             return AutoResult("VI_READY", cue_count=item["cues"])
         asset = Asset(0, "en", "srt", raw, item["sha256"], item["cues"])
-        translated = self.after_en_cached(asset, file)
+        # The final per-source SRT is persistent. Reopening A must neither
+        # call AGY nor require the provider account to be available again.
+        translated = self._reuse_finished_translation(asset, file)
+        if translated is None:
+            translated = self.after_en_cached(asset, file)
         self.emit("AUTO_EN_CACHED_REUSED=YES")
         return AutoResult("VIETSUB_READY", cue_count=item["cues"],
                           translated_cues=translated.translated_cues)
+
+    def _reuse_finished_translation(self, asset: Asset,
+                                    file_path: Path) -> PipelineReceipt | None:
+        """Verify vi-final.srt and last LEAN120 checkpoint without a model call."""
+        from automatic_lean120_worker import AutomaticLean120Worker, _job_fingerprint
+        from cached_en_direct_handoff import prepare_local_translation_source
+        from cue_pipeline import parse_cues
+        from progressive_handoff import ProgressiveSubtitleSession
+        if not isinstance(self.worker, AutomaticLean120Worker):
+            return None
+        source = prepare_local_translation_source(
+            _receipt(file_path, asset), private_root=self.cache_root)
+        job = _job_fingerprint(source, self.worker.profile, self.worker.glossary)
+        folder = self.worker.state_root / job
+        final = folder / "vi-final.srt"
+        if not final.exists():
+            return None
+        if (folder.is_symlink() or final.is_symlink()
+                or not final.is_file()):
+            raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
+        payload = final.read_bytes()
+        if len(payload) > 256 * 1024:
+            raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
+        number = len(ProgressiveSubtitleSession(
+            source.source_bytes, source.fmt, source.media_key).windows)
+        last = folder / f"batch-{number:04d}.json"
+        try:
+            row = json.loads(last.read_bytes())
+            input_cues = parse_cues(source.source_bytes, source.fmt)
+            output_cues = parse_cues(payload, "srt")
+        except (OSError, ValueError, UnicodeError):
+            raise ValueError("AUTO_CACHED_VI_FINAL_INVALID") from None
+        if (last.is_symlink() or not isinstance(row, dict)
+                or row.get("job") != job
+                or row.get("payload_sha256") != hashlib.sha256(payload).hexdigest()
+                or len(input_cues) != len(output_cues)
+                or any((a.number, a.start_ms, a.end_ms, a.identifier, a.settings) !=
+                       (b.number, b.start_ms, b.end_ms, b.identifier, b.settings)
+                       for a, b in zip(input_cues, output_cues))):
+            raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
+        self.emit("AUTO_VI_FINAL_SRT_REUSED=YES")
+        return PipelineReceipt(source.source_sha256, source.cue_count,
+                               True, source.cue_count)
 
     def after_en_cached(self, asset: Asset, file_path: Path) -> PipelineReceipt:
         """Called immediately by D2 after a successful private cache write.

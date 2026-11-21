@@ -162,6 +162,20 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual(self.provider.calls, before)
         self.assertEqual([len(x) for x in self.gemini.calls], [120, 5])
 
+    def test_reopen_completed_film_does_not_require_ady_provider_preflight(self):
+        self.flow.selected_media(VIDEO)
+        before = len(self.gemini.calls)
+        fresh = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic-key", transport=self.provider),
+            worker=self.worker, cache_root=self.cache,
+            permissions=AutoPermissions(True, True),
+            model_preflight=lambda: (_ for _ in ()).throw(
+                RuntimeError("PROVIDER_OFFLINE_AFTER_COMPLETION")))
+        result = fresh.selected_media(VIDEO)
+        self.assertEqual((result.status, result.translated_cues),
+                         ("VIETSUB_READY", 125))
+        self.assertEqual(len(self.gemini.calls), before)
+
     def test_vi_repeat_skips_download_and_all_models(self):
         self.provider.vi = (row(8, VI, "vi"),)
         initial = self.flow.selected_media(VIDEO)

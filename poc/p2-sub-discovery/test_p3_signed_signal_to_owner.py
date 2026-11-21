@@ -59,7 +59,7 @@ class SignedIngressTests(unittest.TestCase):
     def inbox(self):
         return list((self.root / "inbox").glob("event-*.json"))
 
-    def test_signed_current_play_enqueues_one_v3_owner_event(self):
+    def test_signed_current_play_enqueues_persistent_per_film_job(self):
         result = self.adapter.on_wire(wire(), now_ms=WHEN)
         self.assertEqual(result.status, "DISPATCH")
         self.assertEqual(self.read_count, 2)
@@ -68,6 +68,11 @@ class SignedIngressTests(unittest.TestCase):
         self.assertEqual(parsed.tv_session_id, SESSION)
         self.assertEqual(parsed.selected_video_filename, NAME)
         self.assertEqual(parsed.source_fingerprint, result.local_fingerprint)
+        self.assertEqual(parsed.authorized_selection, {
+            "server_id": "owner-windows-server",
+            "torrent_hash": TORRENT,
+            "file_index": 2,
+        })
         # Signed TV packet never carries title, IP or server id. Windows
         # trusted metadata resolver supplies the exact filename on its own.
         self.assertNotIn(NAME, wire().decode())
@@ -161,7 +166,8 @@ class SignedIngressTests(unittest.TestCase):
                        sent_at_ms=WHEN + 300)
         duplicate = self.adapter.on_wire(b_again, now_ms=WHEN + 300)
         self.assertEqual(duplicate.reason, "DUPLICATE_CURRENT_PLAY_EVENT")
-        self.assertEqual(len(self.inbox()), 2)
+        # Same media, new TV session: one pending translation, two valid taps.
+        self.assertEqual(len(self.inbox()), 1)
 
     def test_new_session_new_nonce_can_enqueue_again(self):
         self.assertEqual(self.adapter.on_wire(wire(), now_ms=WHEN).status, "DISPATCH")
@@ -170,7 +176,7 @@ class SignedIngressTests(unittest.TestCase):
             wire(tv_session_id="d" * 32, sent_at_ms=WHEN + 300,
                  nonce="e" * 32), now_ms=WHEN + 300)
         self.assertEqual(result.status, "DISPATCH")
-        self.assertEqual(len(self.inbox()), 2)
+        self.assertEqual(len(self.inbox()), 1)
 
 
 if __name__ == "__main__":

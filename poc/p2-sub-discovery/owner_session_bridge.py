@@ -17,8 +17,10 @@ it does not itself pretend to discover currently playing TV media.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,6 +35,7 @@ from typing import Callable, Protocol
 _SCHEMA = "TTV-OWNER-VIDEO-EVENT-V1"
 _BOUND_SCHEMA = "TTV-OWNER-VIDEO-EVENT-V2"
 _SESSION_SCHEMA = "TTV-OWNER-VIDEO-EVENT-V3"
+_BACKGROUND_SCHEMA = "TTV-OWNER-VIDEO-EVENT-V4"
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _ID = re.compile(r"[a-f0-9]{32}\Z")
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
@@ -45,6 +48,7 @@ _RETRY_SCHEMA = "TTV-OWNER-PREPROVIDER-RETRY-V1"
 _RETRY_DELAYS = (5, 15, 30)
 _FULL_LOG = None
 _FULL_LOG_LOCK = threading.RLock()
+_ENQUEUE_LOCK = threading.RLock()
 
 
 class _OwnerLogTee:
@@ -235,6 +239,30 @@ class LocalEvent:
     selected_video_filename: str
     source_fingerprint: str | None = None
     tv_session_id: str | None = None
+    authorized_selection: dict[str, object] | None = None
+
+
+def _authorized_selection(value: object, fingerprint: str | None,
+                          session: str | None) -> dict[str, object]:
+    """Persist exact Owner-verified coordinates at the signed viewer tap.
+
+    This is an owner-private job snapshot, never a TV/P4 attestation. It
+    permits translation after the TV closes; delivery still checks live TV.
+    """
+    if not isinstance(value, dict) or set(value) != {
+            "server_id", "torrent_hash", "file_index"}:
+        raise ValueError("OWNER_BRIDGE_BACKGROUND_SELECTION_INVALID")
+    server, torrent, index = (value["server_id"], value["torrent_hash"],
+                              value["file_index"])
+    if (not isinstance(server, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", server)
+            or not isinstance(torrent, str)
+            or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", torrent)
+            or type(index) is not int or index < 0
+            or session is None or fingerprint is None or
+            hashlib.sha256("\x00".join((server, torrent, str(index)))
+                           .encode("utf-8")).hexdigest() != fingerprint):
+        raise ValueError("OWNER_BRIDGE_BACKGROUND_SELECTION_INVALID")
+    return {"server_id": server, "torrent_hash": torrent, "file_index": index}
 
 
 class _Processor(Protocol):
@@ -256,6 +284,7 @@ def enqueue_selected_media(
     video_filename: str, *, owner_root: Path,
     source_fingerprint: str | None = None,
     tv_session_id: str | None = None,
+    authorized_selection: dict[str, object] | None = None,
 ) -> str:
     """Trusted OMP-local callback. Never invoke from untrusted runner inputs."""
     if (not isinstance(video_filename, str) or not video_filename.strip()
@@ -272,31 +301,53 @@ def enqueue_selected_media(
             or not isinstance(tv_session_id, str)
             or _SESSION_ID.fullmatch(tv_session_id) is None):
         raise ValueError("OWNER_BRIDGE_V3_SESSION_INVALID")
+    if authorized_selection is not None:
+        authorized_selection = _authorized_selection(
+            authorized_selection, source_fingerprint, tv_session_id)
     inbox = _private_dir(owner_root)
-    event_id = secrets.token_hex(16)
-    payload = {
-        "schema": (_SESSION_SCHEMA if tv_session_id is not None
-                   else (_BOUND_SCHEMA if source_fingerprint is not None
-                         else _SCHEMA)),
-        "event_id": event_id,
-        "selected_video_filename": video_filename,
-    }
-    if source_fingerprint is not None:
-        payload["source_fingerprint"] = source_fingerprint
-    if tv_session_id is not None:
-        payload["tv_session_id"] = tv_session_id
-    body = json.dumps(
-        payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    if len(body) > _MAX_EVENT_BYTES:
-        raise ValueError("OWNER_BRIDGE_EVENT_TOO_LARGE")
-    # Atomic create: no queue overwrite or untrusted GitHub-provided path.
-    filepath = inbox / ("event-" + event_id + ".json")
-    fd = os.open(filepath, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as stream:
-        stream.write(body)
-        stream.flush()
-        os.fsync(stream.fileno())
-    return event_id
+    with _ENQUEUE_LOCK:
+        if source_fingerprint is not None:
+            for prior in inbox.glob("event-*.json"):
+                try:
+                    existing = _parse_event(prior)
+                except ValueError:
+                    continue
+                if (existing.source_fingerprint == source_fingerprint
+                        and existing.selected_video_filename == video_filename
+                        and (authorized_selection is None
+                             or existing.authorized_selection is not None)):
+                    # A reopened while its original provider job is pending.
+                    # Attach to the durable checkpoints through P4, not a
+                    # duplicate AGY job. A new trusted background request
+                    # must not be swallowed by a legacy V3 (TV-bound) event.
+                    # Finished A can enqueue anew later.
+                    return existing.event_id
+        event_id = secrets.token_hex(16)
+        payload = {
+            "schema": (_BACKGROUND_SCHEMA if authorized_selection is not None
+                       else _SESSION_SCHEMA if tv_session_id is not None
+                       else (_BOUND_SCHEMA if source_fingerprint is not None
+                             else _SCHEMA)),
+            "event_id": event_id,
+            "selected_video_filename": video_filename,
+        }
+        if source_fingerprint is not None:
+            payload["source_fingerprint"] = source_fingerprint
+        if tv_session_id is not None:
+            payload["tv_session_id"] = tv_session_id
+        if authorized_selection is not None:
+            payload["authorized_selection"] = authorized_selection
+        body = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if len(body) > _MAX_EVENT_BYTES:
+            raise ValueError("OWNER_BRIDGE_EVENT_TOO_LARGE")
+        filepath = inbox / ("event-" + event_id + ".json")
+        fd = os.open(filepath, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(body)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return event_id
 
 
 def _parse_event(path: Path) -> LocalEvent:
@@ -310,8 +361,10 @@ def _parse_event(path: Path) -> LocalEvent:
     if not isinstance(event, dict):
         raise ValueError("OWNER_BRIDGE_EVENT_BAD_SCHEMA")
     version = event.get("schema")
-    if version == _SESSION_SCHEMA:
+    if version in (_SESSION_SCHEMA, _BACKGROUND_SCHEMA):
         expected.update(("source_fingerprint", "tv_session_id"))
+        if version == _BACKGROUND_SCHEMA:
+            expected.add("authorized_selection")
     elif version == _BOUND_SCHEMA:
         expected.add("source_fingerprint")
     elif version != _SCHEMA:
@@ -319,11 +372,11 @@ def _parse_event(path: Path) -> LocalEvent:
     if set(event) != expected:
         raise ValueError("OWNER_BRIDGE_EVENT_BAD_SCHEMA")
     fp = event.get("source_fingerprint")
-    if version in (_BOUND_SCHEMA, _SESSION_SCHEMA) and (
+    if version in (_BOUND_SCHEMA, _SESSION_SCHEMA, _BACKGROUND_SCHEMA) and (
             not isinstance(fp, str) or _FINGERPRINT.fullmatch(fp) is None):
         raise ValueError("OWNER_BRIDGE_SOURCE_FINGERPRINT_INVALID")
     session = event.get("tv_session_id")
-    if version == _SESSION_SCHEMA and (
+    if version in (_SESSION_SCHEMA, _BACKGROUND_SCHEMA) and (
             not isinstance(session, str)
             or _SESSION_ID.fullmatch(session) is None):
         raise ValueError("OWNER_BRIDGE_V3_SESSION_INVALID")
@@ -338,12 +391,15 @@ def _parse_event(path: Path) -> LocalEvent:
             or "/" in video or "\\" in video
             or any(ord(ch) < 32 for ch in video)):
         raise ValueError("OWNER_BRIDGE_EVENT_INVALID")
-    return LocalEvent(event["event_id"], video, fp, session)
+    coordinates = (_authorized_selection(event["authorized_selection"], fp, session)
+                   if version == _BACKGROUND_SCHEMA else None)
+    return LocalEvent(event["event_id"], video, fp, session, coordinates)
 
 
 def poll_private_events(
     *, owner_root: Path, processor: _Processor, emit: Callable[[str], object] = print,
     max_events: int = _MAX_EVENTS_PER_POLL,
+    submit: Callable[[Callable[[], None]], object] | None = None,
 ) -> int:
     """Process only owner-private events, at most once automatically.
 
@@ -352,6 +408,7 @@ def poll_private_events(
     an uncertain API operation; exact owner reconciliation is required.
     """
     if (type(max_events) is not int or not 1 <= max_events <= _MAX_EVENTS_PER_POLL
+            or (submit is not None and not callable(submit))
             or not callable(getattr(processor, "selected_media", None))):
         raise ValueError("OWNER_BRIDGE_BAD_PROCESSOR")
     inbox = _private_dir(owner_root)
@@ -387,8 +444,8 @@ def poll_private_events(
         try:
             fd = os.open(claim, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
-            # Prior run (possibly interrupted) owns this work, no replay.
-            owner_full_trace("P2_EXISTING_CLAIM", event_id=event.event_id)
+            # A running background film owns this exact request. Do not
+            # resubmit it or fill the Owner log on every 2-second tick.
             continue
         with os.fdopen(fd, "wb") as stream:
             stream.write(b"CLAIMED_DO_NOT_AUTO_REPLAY\n")
@@ -397,71 +454,70 @@ def poll_private_events(
                          video=event.selected_video_filename,
                          source_fingerprint=event.source_fingerprint,
                          tv_session_id=event.tv_session_id)
-        try:
-            if event.tv_session_id is not None:
-                # V3 demands an identity-aware processor which re-reads the
-                # *current* authenticated TV selection before any quota call.
-                result = processor.selected_media(
-                    event.selected_video_filename,
-                    source_fingerprint=event.source_fingerprint,
-                    tv_session_id=event.tv_session_id)
-            elif event.source_fingerprint is not None:
-                result = processor.selected_media(
-                    event.selected_video_filename,
-                    source_fingerprint=event.source_fingerprint)
-            else:
-                # Preserve compatibility with legacy local-only D2 events.
-                result = processor.selected_media(event.selected_video_filename)
-            status = getattr(result, "status", None)
-            if status not in ("VI_READY", "VIETSUB_READY", "REVIEW_REQUIRED"):
-                raise ValueError("OWNER_BRIDGE_INVALID_RESULT")
-            suffix = ".done" if status != "REVIEW_REQUIRED" else ".review"
-            os.replace(path, inbox / ("event-" + event.event_id + suffix))
-            _remove_finished_retry(retry)
-            owner_full_trace("P2_EVENT_FINISHED", event_id=event.event_id,
-                             result=status)
-            emit("OWNER_BRIDGE_EVENT_" + (
-                "COMPLETE" if suffix == ".done" else "NEEDS_REVIEW"))
-        except PreProviderTransient as exc:
-            owner_full_trace("P2_PREPROVIDER_TRANSIENT", error=exc,
-                             event_id=event.event_id)
-            # Only the V3 verified preflight can prove no OpenSubtitles/AGY
-            # request has been attempted. It will revalidate the live TV on
-            # each retry. Uncertain provider failures remain blocked below.
-            if event.tv_session_id is None:
-                # Old V1/V2 events cannot re-attest a live TV session.
+
+        def run_claimed(event: LocalEvent = event, path: Path = path,
+                        retry: Path = retry, claim: Path = claim,
+                        retry_attempts: int = retry_attempts) -> None:
+            try:
+                if event.tv_session_id is not None:
+                    result = processor.selected_media(
+                        event.selected_video_filename,
+                        source_fingerprint=event.source_fingerprint,
+                        tv_session_id=event.tv_session_id,
+                        **({"authorized_selection": event.authorized_selection}
+                           if event.authorized_selection is not None else {}))
+                elif event.source_fingerprint is not None:
+                    result = processor.selected_media(
+                        event.selected_video_filename,
+                        source_fingerprint=event.source_fingerprint)
+                else:
+                    result = processor.selected_media(event.selected_video_filename)
+                status = getattr(result, "status", None)
+                if status not in ("VI_READY", "VIETSUB_READY", "REVIEW_REQUIRED"):
+                    raise ValueError("OWNER_BRIDGE_INVALID_RESULT")
+                suffix = ".done" if status != "REVIEW_REQUIRED" else ".review"
+                os.replace(path, inbox / ("event-" + event.event_id + suffix))
+                _remove_finished_retry(retry)
+                owner_full_trace("P2_EVENT_FINISHED", event_id=event.event_id,
+                                 result=status)
+                emit("OWNER_BRIDGE_EVENT_" + (
+                    "COMPLETE" if suffix == ".done" else "NEEDS_REVIEW"))
+            except PreProviderTransient as exc:
+                owner_full_trace("P2_PREPROVIDER_TRANSIENT", error=exc,
+                                 event_id=event.event_id)
+                # Only errors proven BEFORE a provider call are retried.
+                if event.tv_session_id is None:
+                    os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
+                    _remove_finished_retry(retry)
+                    emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
+                else:
+                    try:
+                        _record_preprovider_retry(
+                            retry, min(retry_attempts + 1, len(_RETRY_DELAYS)),
+                            int(time.time()))
+                        claim.unlink()
+                    except (OSError, ValueError):
+                        emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFER_HOLD")
+                    else:
+                        emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFERRED")
+                        emit("OWNER_BRIDGE_PREPROVIDER_REASON=" + exc.args[0])
+            except Exception as exc:
+                owner_full_trace("P2_EVENT_BLOCKED", error=exc,
+                                 event_id=event.event_id,
+                                 video=event.selected_video_filename,
+                                 source_fingerprint=event.source_fingerprint,
+                                 tv_session_id=event.tv_session_id)
+                # Unknown provider effect: preserve claim and block retries.
                 os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
                 _remove_finished_retry(retry)
                 emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
-            else:
-                try:
-                    # Keep retrying *only* errors proven to be before any
-                    # provider call. A short TV/TorrServer outage is not a
-                    # reason to abandon an explicit user request forever.
-                    # Saturate the durable counter at 30s rather than
-                    # exhausting it or growing a receipt without bound.
-                    _record_preprovider_retry(
-                        retry, min(retry_attempts + 1, len(_RETRY_DELAYS)),
-                        int(time.time()))
-                    claim.unlink()
-                except (OSError, ValueError):
-                    # Leave a claim on failure: no ambiguous automatic replay.
-                    emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFER_HOLD")
-                else:
-                    emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFERRED")
-                    emit("OWNER_BRIDGE_PREPROVIDER_REASON=" + exc.args[0])
-        except Exception as exc:
-            owner_full_trace("P2_EVENT_BLOCKED", error=exc,
-                             event_id=event.event_id,
-                             video=event.selected_video_filename,
-                             source_fingerprint=event.source_fingerprint,
-                             tv_session_id=event.tv_session_id)
-            # Error text may include private file paths/API material; do not
-            # print it, or attempt a second quota-bearing provider request.
-            os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
-            _remove_finished_retry(retry)
-            emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
-            emit("OWNER_BRIDGE_BLOCK_REASON=" + _safe_block_reason(exc))
+                emit("OWNER_BRIDGE_BLOCK_REASON=" + _safe_block_reason(exc))
+        if submit is None:
+            run_claimed()
+        else:
+            # The same Owner process retains claims, isolated P2 per-film
+            # state and the existing model adapter; only scheduling changes.
+            submit(run_claimed)
     return processed
 
 
@@ -681,11 +737,29 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
             daemon=True)
         ticker.start()
         try:
-            while True:
-                consume_inert_runner_wakes()
-                poll_private_events(owner_root=private_root,
-                                    processor=processor, emit=emit)
-                time.sleep(interval_seconds)
+            # Three simultaneous film jobs, one Owner process, no duplicate
+            # translator stack. A TV close only removes its active P4 feed.
+            with ThreadPoolExecutor(max_workers=3,
+                                    thread_name_prefix="ttv-film") as pool:
+                active: set[Future] = set()
+                while True:
+                    consume_inert_runner_wakes()
+                    finished = {future for future in active if future.done()}
+                    for future in finished:
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            # A claim already exists: never blindly rerun an
+                            # unexpected provider-effect or callback failure.
+                            owner_full_trace("P2_BACKGROUND_WORKER_FAILED", error=exc)
+                    active.difference_update(finished)
+                    available = 3 - len(active)
+                    if available:
+                        poll_private_events(
+                            owner_root=private_root, processor=processor,
+                            emit=emit, max_events=available,
+                            submit=lambda work: active.add(pool.submit(work)))
+                    time.sleep(interval_seconds)
         finally:
             ticker_stop.set()
             ticker.join(timeout=5.0)

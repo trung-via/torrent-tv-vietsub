@@ -1,8 +1,10 @@
 """Owner-session bridge offline contract tests; no real Windows keys or APIs."""
 import json
 import io
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
+from threading import Barrier, Event, Lock
 import unittest
 from unittest import mock
 
@@ -65,6 +67,74 @@ class OwnerSessionBridgeTests(unittest.TestCase):
         self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
                                       "OWNER_BRIDGE_BLOCK_REASON=UNCLASSIFIED"])
         self.assertNotIn("private API key", " ".join(self.lines))
+
+    def test_two_films_translate_concurrently_without_replaying_claims(self):
+        first = enqueue_selected_media(
+            "Synthetic.A.2017.1080p.BluRay.x265-GRP", owner_root=self.root)
+        second = enqueue_selected_media(
+            "Synthetic.B.2017.1080p.BluRay.x265-GRP", owner_root=self.root)
+        both_started = Barrier(3, timeout=3)
+        release = Event()
+        seen = []
+        lock = Lock()
+
+        class SlowProcessor:
+            def selected_media(self, name):
+                with lock:
+                    seen.append(name)
+                both_started.wait()
+                if not release.wait(3):
+                    raise RuntimeError("synthetic timeout")
+                return type("Result", (), {"status": "VIETSUB_READY"})()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = []
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=SlowProcessor(),
+                emit=self.lines.append, max_events=2,
+                submit=lambda job: futures.append(pool.submit(job))), 2)
+            both_started.wait()
+            self.assertEqual(len(seen), 2)  # A and B are running together.
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=SlowProcessor(),
+                emit=self.lines.append), 0)  # Claimed, no replay.
+            release.set()
+            for future in futures:
+                future.result(timeout=3)
+        for event_id in (first, second):
+            self.assertTrue((self.root / "inbox" /
+                             ("event-" + event_id + ".done")).exists())
+        self.assertEqual(len(seen), 2)
+
+    def test_reopening_same_film_while_pending_attaches_without_duplicate(self):
+        fp = "a" * 64
+        first = enqueue_selected_media(
+            "Synthetic.A.2017.1080p.BluRay.x265-GRP",
+            owner_root=self.root, source_fingerprint=fp,
+            tv_session_id="first-session")
+        second = enqueue_selected_media(
+            "Synthetic.A.2017.1080p.BluRay.x265-GRP",
+            owner_root=self.root, source_fingerprint=fp,
+            tv_session_id="second-session")
+        self.assertEqual(first, second)
+        self.assertEqual(len(list((self.root / "inbox").glob("event-*.json"))), 1)
+
+    def test_v4_background_request_not_swallowed_by_legacy_tv_bound_v3(self):
+        import hashlib
+        server, torrent, index = "owner-server", "a" * 40, 0
+        fp = hashlib.sha256(
+            f"{server}\x00{torrent}\x00{index}".encode()).hexdigest()
+        legacy = enqueue_selected_media(
+            "Synthetic.A.2017.mkv", owner_root=self.root,
+            source_fingerprint=fp, tv_session_id="old-session")
+        newer = enqueue_selected_media(
+            "Synthetic.A.2017.mkv", owner_root=self.root,
+            source_fingerprint=fp, tv_session_id="new-session",
+            authorized_selection={"server_id": server,
+                                  "torrent_hash": torrent,
+                                  "file_index": index})
+        self.assertNotEqual(legacy, newer)
+        self.assertEqual(len(list((self.root / "inbox").glob("event-*.json"))), 2)
 
     def test_owner_full_diagnostic_preserves_original_unclassified_exception(self):
         self.root.mkdir(parents=True)

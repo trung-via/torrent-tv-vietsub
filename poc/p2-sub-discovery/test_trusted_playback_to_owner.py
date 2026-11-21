@@ -38,7 +38,7 @@ class FakePipeline:
         self.calls = []
 
     def selected_media(self, video_filename, *, source_fingerprint=None,
-                       tv_session_id=None):
+                       tv_session_id=None, authorized_selection=None):
         self.calls.append((video_filename, source_fingerprint, tv_session_id))
         return type("Receipt", (), {"status": "VIETSUB_READY"})()
 
@@ -214,9 +214,9 @@ class TriggerToOwnerTests(unittest.TestCase):
         self.adapter.on_session_closed()
         self.assertEqual(
             self.invoke().status, "DISPATCH")
-        # Duplicate UI selection events are tolerated: private source cache and
-        # LEAN120 checkpoints prevent duplicate charged provider calls.
-        self.assertEqual(len(list((self.root / "inbox").glob("event-*.json"))), 2)
+        # Reopening the same film while its first event is queued attaches to
+        # the existing work, without a duplicate provider invocation.
+        self.assertEqual(len(list((self.root / "inbox").glob("event-*.json"))), 1)
 
 
 if __name__ == "__main__":

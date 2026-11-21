@@ -24,7 +24,9 @@ from owner_selected_file_resolver import (
     SelectedFileResolveError, resolve_selected_local_source, _fingerprint,
 )
 from local_en_direct import LocalMediaSelection
-from owner_session_bridge import PreProviderTransient
+from owner_session_bridge import (
+    PreProviderTransient, _authorized_selection, owner_full_trace,
+)
 
 
 class V3IdentityError(ValueError):
@@ -131,16 +133,35 @@ class VerifiedV3Processor:
         self, video_filename: str, *,
         source_fingerprint: str | None = None,
         tv_session_id: str | None = None,
+        authorized_selection: dict[str, object] | None = None,
     ) -> object:
         if (not isinstance(source_fingerprint, str)
                 or not isinstance(tv_session_id, str) or not tv_session_id):
             raise V3IdentityError("V3_SESSION_AND_FINGERPRINT_REQUIRED")
-        try:
-            current = self.read_current()
-        except Exception:
-            raise PreProviderTransient("V3_TV_READER_UNAVAILABLE") from None
-        if not isinstance(current, CurrentPlaying):
-            raise PreProviderTransient("V3_CURRENT_MEDIA_UNAVAILABLE")
+        if authorized_selection is not None:
+            # Exact coordinates were frozen in the private event by the
+            # already-authenticated P3 tap, while the viewer was still on A.
+            # Neither closing A nor starting B revokes that translation job.
+            coordinates = _authorized_selection(
+                authorized_selection, source_fingerprint, tv_session_id)
+            current = CurrentPlaying(
+                kind="PLAY_REQUEST_ACCEPTED", attested=True, active=True,
+                server_id=str(coordinates["server_id"]),
+                tv_session_id=tv_session_id,
+                torrent_hash=str(coordinates["torrent_hash"]),
+                file_index=int(coordinates["file_index"]),
+                video_name=video_filename, owner_auto_enabled=True,
+                viewer_choice="REQUESTED", media_rights_approved=True,
+                local_vi_state="ABSENT")
+        else:
+            # Preserve the old V3 fail-closed contract for events without
+            # a signed-tap Owner snapshot. They may not outlive their TV.
+            try:
+                current = self.read_current()
+            except Exception:
+                raise PreProviderTransient("V3_TV_READER_UNAVAILABLE") from None
+            if not isinstance(current, CurrentPlaying):
+                raise PreProviderTransient("V3_CURRENT_MEDIA_UNAVAILABLE")
         if (source_fingerprint != _fingerprint(
                 current.server_id, current.torrent_hash,
                 current.file_index)):
@@ -172,10 +193,15 @@ class VerifiedV3Processor:
         # Final live-session read: reduces stale A→B race while providers are
         # still NOT called. Downstream D3/P4 must independently verify exact
         # TV current media/session immediately before any subtitle delivery.
-        try:
-            latest = self.read_current()
-        except Exception:
-            raise PreProviderTransient("V3_TV_REFRESH_UNAVAILABLE") from None
+        if authorized_selection is None:
+            try:
+                latest = self.read_current()
+            except Exception:
+                raise PreProviderTransient("V3_TV_REFRESH_UNAVAILABLE") from None
+        else:
+            # Independent fresh TorrServer metadata was already verified;
+            # background work uses the original per-film consent snapshot.
+            latest = current
         if (not isinstance(latest, CurrentPlaying)
                 or not latest.attested or not latest.active
                 or latest.kind != current.kind
@@ -206,7 +232,12 @@ class VerifiedV3Processor:
             # Only the original source-discovery/LEAN120 result may create a
             # ready source. Registration independently revalidates the live
             # TV session, owner rights, exact file and private cache output.
-            self.on_ready(
-                media=lookup.media, source_fingerprint=source_fingerprint,
-                tv_session_id=tv_session_id, flow=self.flow, result=outcome)
+            try:
+                self.on_ready(
+                    media=lookup.media, source_fingerprint=source_fingerprint,
+                    tv_session_id=tv_session_id, flow=self.flow, result=outcome)
+            except Exception as exc:
+                # A→B/exit invalidates P4 delivery, NOT the completed A SRT.
+                # Exact reason remains in Owner-private diagnostics.
+                owner_full_trace("P4_READY_DEFERRED_TRANSLATION_SAVED", error=exc)
         return outcome

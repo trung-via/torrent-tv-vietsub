@@ -161,8 +161,10 @@ class R2RollingTests(unittest.TestCase):
         self.assertEqual(len(self.provider.calls), 2)
         self.current = replace(self.current, viewer_choice="REQUESTED",
                                tv_session_id="c" * 32)
-        with self.assertRaises(P3ReadyRejected):
-            self.activate("6" * 32)
+        resumed = self.activate("6" * 32)
+        self.assertEqual(decode_latest_test_only(resumed)["translated_count"], 240)
+        self.assertEqual(decode_latest_test_only(feed)["translated_count"], 120)
+        self.assertEqual(len(self.provider.calls), 2)
 
     def test_changed_private_source_is_not_served(self):
         self.run_worker(max_new_windows=1)

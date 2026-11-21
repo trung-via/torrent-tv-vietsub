@@ -198,7 +198,10 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         with self._lock:
             prior = self._rolling.get(media_key)
             if prior is not None and prior.tv_session != current.tv_session_id:
-                raise P3ReadyRejected("P4_ROLLING_TV_SESSION_CHANGED")
+                # A→B→A with the same native media key starts a NEW TV
+                # subscription. Discard only the stale in-memory feed;
+                # source checkpoints/final SRT belong to A and stay intact.
+                del self._rolling[media_key]
         fingerprint = _fingerprint(current.server_id, current.torrent_hash,
                                    current.file_index)
         self._current(media, current.tv_session_id, fingerprint)

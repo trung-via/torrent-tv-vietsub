@@ -26,12 +26,14 @@ class R2VerifiedV3Processor(VerifiedV3Processor):
 
     def selected_media(self, video_filename: str, *,
                        source_fingerprint: str | None = None,
-                       tv_session_id: str | None = None) -> object:
+                       tv_session_id: str | None = None,
+                       authorized_selection: dict[str, object] | None = None) -> object:
         worker = getattr(self.flow, "worker", None)
         if not isinstance(worker, R2ProgressiveWorker):
             return super().selected_media(
                 video_filename, source_fingerprint=source_fingerprint,
-                tv_session_id=tv_session_id)
+                tv_session_id=tv_session_id,
+                authorized_selection=authorized_selection)
 
         def publish_verified(handoff, revision) -> None:
             current = self.read_current()
@@ -59,4 +61,5 @@ class R2VerifiedV3Processor(VerifiedV3Processor):
         with worker.bind(publish_verified):
             return super().selected_media(
                 video_filename, source_fingerprint=source_fingerprint,
-                tv_session_id=tv_session_id)
+                tv_session_id=tv_session_id,
+                authorized_selection=authorized_selection)

@@ -123,13 +123,10 @@ class AutomaticLean120Worker:
         digest = _job_fingerprint(source, self.profile, self.glossary)
         if not _SAFE_JOB.fullmatch(digest):
             raise ValueError("AUTO_LEAN120_JOB_KEY_INVALID")
-        # Changing from the old API profile changes the job fingerprint.
-        # Never let that bypass an unknown-effect batch from the old backend.
-        if self.state_root.is_dir():
-            for marker in self.state_root.rglob("batch-*.inflight"):
-                if (marker.parent != self.state_root / digest
-                        and not marker.with_suffix(".json").is_file()):
-                    raise ValueError("AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD")
+        # Other films own independent checkpoint/lock namespaces. Their
+        # active or uncertain batches must never prevent B from starting.
+        # This EXACT job remains protected by its own active.lock and
+        # batch-XXXX.inflight checks below, so no ambiguous batch is replayed.
         self.state_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         folder = self.state_root / digest
         folder.mkdir(mode=0o700, exist_ok=True)

@@ -88,7 +88,12 @@ class TrustedPlaybackToOwner:
             enqueue_selected_media(
                 event.video_name, owner_root=self.owner_root,
                 source_fingerprint=decision.local_fingerprint,
-                tv_session_id=event.tv_session_id)
+                tv_session_id=event.tv_session_id,
+                authorized_selection={
+                    "server_id": event.server_id,
+                    "torrent_hash": event.torrent_hash.lower(),
+                    "file_index": event.file_index,
+                })
         except Exception:
             # In-memory dedup MUST NOT swallow an event if private enqueue
             # failed before the owner agent received it. Never leak paths.

@@ -30,15 +30,18 @@ class P2OfflineGatewayBundleContract(unittest.TestCase):
         for name in MODULES:
             source = (ROOT / "poc/p2-aisub" / name).read_text(encoding="utf-8")
             digest = hashlib.sha256(source.replace("\r\n", "\n").encode()).hexdigest()
-            if name == "translator_gateway.py":
+            if name in ("translator_gateway.py", "automatic_lean120_worker.py"):
                 # P2-F4 is a historical, immutable offline installer. The
-                # newer AGY text repair must ship through its own pinned
-                # Owner release, never via this older installer.
-                self.assertIn("'translator_gateway.py' = "
-                              "'b06c151cc4275a7793fdb7891d7859715e602a676a553ea89e6e242578190183'",
-                              script)
-                self.assertNotEqual(digest,
-                    "b06c151cc4275a7793fdb7891d7859715e602a676a553ea89e6e242578190183")
+                # new AGY repair and background per-film worker need a new
+                # reviewed Owner release; this script must NOT auto-upgrade.
+                frozen = {
+                    "translator_gateway.py":
+                        "b06c151cc4275a7793fdb7891d7859715e602a676a553ea89e6e242578190183",
+                    "automatic_lean120_worker.py":
+                        "d8744716ef9d9aa2b0518245310cb8b6235213fa7afb5423d70e521efd2b07a0",
+                }[name]
+                self.assertIn(f"'{name}' = '{frozen}'", script)
+                self.assertNotEqual(digest, frozen)
             else:
                 self.assertIn(f"'{name}' = '{digest}'", script)
         # A missed direct import here creates a mixed runtime on Windows.

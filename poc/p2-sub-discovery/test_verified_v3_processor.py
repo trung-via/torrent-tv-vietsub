@@ -128,6 +128,46 @@ class V3CompositionTests(unittest.TestCase):
         self.assertNotIn(HASH, event_file.read_text())
         self.assertNotIn("owner-private-media", event_file.read_text())
 
+    def test_authorized_film_keeps_processing_after_tv_switches(self):
+        """Only P4 becomes unavailable; signed A's translation job survives."""
+        self.mapping = None
+        event_id = enqueue_selected_media(
+            VIDEO, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION,
+            authorized_selection={"server_id": SERVER,
+                                  "torrent_hash": HASH, "file_index": 5})
+        published = []
+        def no_longer_watching_a():
+            raise OSError("TV now on B")
+        processor = VerifiedV3Processor(
+            flow=self.capture, private_media_root=self.media,
+            read_verified_current_playback=no_longer_watching_a,
+            read_verified_torrserver_file=self.read_file,
+            locate_owner_pinned_files=self.map_local,
+            on_vietsub_ready=lambda **_: published.append("P4") or
+                (_ for _ in ()).throw(ValueError("OLD_TV_SESSION")))
+        emitted = []
+        self.assertEqual(poll_private_events(
+            owner_root=self.owner, processor=processor,
+            emit=emitted.append), 1)
+        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_COMPLETE"])
+        self.assertEqual(len(self.capture.calls), 1)
+        self.assertEqual(published, ["P4"])
+        self.assertTrue((self.owner / "inbox" /
+                         ("event-" + event_id + ".done")).exists())
+
+    def test_untrusted_background_coordinates_never_enqueue(self):
+        with self.assertRaisesRegex(ValueError, "BACKGROUND_SELECTION_INVALID"):
+            enqueue_selected_media(
+                VIDEO, owner_root=self.owner,
+                source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION,
+                authorized_selection={"server_id": SERVER,
+                                      "torrent_hash": "b" * 40,
+                                      "file_index": 5})
+        self.assertFalse(list((self.owner / "inbox").glob("event-*.json")))
+
     def test_one_v3_event_feeds_same_verified_media_to_d1_and_local_route(self):
         processed, messages = self.dispatch()
         self.assertEqual(processed, 1)
