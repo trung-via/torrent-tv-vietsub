@@ -2,6 +2,11 @@
 # No private profile access, process stop, task start, provider or TV actions.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    & pwsh.exe -NoLogo -NoProfile -NonInteractive -File $PSCommandPath
+    exit $LASTEXITCODE
+}
+Write-Output ('HOSTOPS_CHECKPOINT_PROBE_PWSH_MAJOR=' + $PSVersionTable.PSVersion.Major)
 $installName = 'TorrentTV-Vietsub-Owner-R2-Checkpoint-Apply'
 $ownerName = 'TorrentTV-Vietsub-OwnerAgent'
 $receiptPath = Join-Path $env:ProgramData 'TorrentTVVietsub\OwnerBridge\ReleaseReceipts\checkpoint-apply.json'
@@ -35,8 +40,8 @@ if (-not (Test-Path -LiteralPath $receiptPath)) {
         (Get-Item -LiteralPath $receiptPath).Length -gt 1024) {
         Hold 'RECEIPT_NOT_REGULAR_SMALL_FILE'
     }
-    $r = Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
-    if (@($r.Keys | Sort-Object) -join ',' -cne
+    $r = Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (@($r.PSObject.Properties.Name | Sort-Object) -join ',' -cne
         'observed_utc_epoch,release_id,result,schema,stage_commit' -or
         $r.schema -cne 'TTV-OWNER-CHECKPOINT-APPLY-V1' -or
         $r.release_id -cne 'r2-checkpoint-175' -or
