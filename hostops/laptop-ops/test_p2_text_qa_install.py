@@ -7,6 +7,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 OP = ROOT / "hostops/laptop-ops/operations/owner-p2-text-qa-install-v1.ps1"
 MANIFEST = ROOT / "hostops/laptop-ops/manifests/current.json"
+STATUS = ROOT / "hostops/laptop-ops/operations/owner-p2-text-qa-status-v1.ps1"
+READER = ROOT / "hostops/jobs/owner-p2-text-qa-status-readonly.ps1"
 
 
 class OwnerTextQaInstallContract(unittest.TestCase):
@@ -29,12 +31,26 @@ class OwnerTextQaInstallContract(unittest.TestCase):
         ):
             self.assertNotIn(prohibited, source)
 
-    def test_dispatch_pins_only_owner_maintenance(self):
+    def test_dispatch_returns_to_readonly_after_one_install_attempt(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["operation"], "owner-p2-text-qa-install-v1")
-        self.assertEqual(manifest["category"], "owner-maintenance")
+        self.assertEqual(manifest["operation"], "owner-p2-text-qa-status-v1")
+        self.assertEqual(manifest["category"], "diagnostics")
         self.assertEqual(manifest["risk"], "ROUTINE")
         self.assertEqual(manifest["arguments"], [])
+
+    def test_private_status_probe_never_mutates_owner_or_calls_provider(self):
+        source = STATUS.read_text(encoding="utf-8")
+        for prohibited in (
+            "Stop-ScheduledTask", "Start-ScheduledTask", "Stop-Process",
+            "Disable-ScheduledTask", "Enable-ScheduledTask", "Move-Item",
+            "Remove-Item", "Invoke-WebRequest", "agy --model",
+        ):
+            self.assertNotIn(prohibited, source)
+        self.assertIn("full-owner-output.log", source)
+        self.assertIn("last_install_code", source)
+        reader = READER.read_text(encoding="utf-8")
+        self.assertNotIn("$env:LOCALAPPDATA", reader)
+        self.assertIn("P2_TEXT_STATUS_PRIVATE_LOG=NOT_EXPORTED", reader)
 
 
 if __name__ == "__main__":
