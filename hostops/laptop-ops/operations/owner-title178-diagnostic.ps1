@@ -36,10 +36,14 @@ $codes = @($lines | ForEach-Object {
     }
 })
 $code = 'NO_INSTALL_MARKER'
+$primary = 'NO_INSTALL_MARKER'
 if ($codes.Count -gt 0) {
     $code = [string]$codes[-1]
     $hold = @($codes | Where-Object { $_ -clike 'HOLD_*' })
-    if ($hold.Count -gt 0) { $code = [string]$hold[-1] }
+    if ($hold.Count -gt 0) {
+        $primary = [string]$hold[0]
+        $code = [string]$hold[-1]
+    }
 }
 if ($code -ceq 'NO_INSTALL_MARKER' -and
     @($lines | Where-Object { $_ -match 'ParserError|Missing.*terminator|Unexpected token' }).Count -gt 0) {
@@ -50,11 +54,70 @@ if ($code -ceq 'NO_INSTALL_MARKER' -and
     $code = 'SOURCE_DOWNLOAD_FAILED'
 }
 if ($code -cnotmatch '^[A-Z0-9_]{3,80}$') { throw 'TITLE178_DIAG_CODE_INVALID' }
+$pinned = @{
+    'automatic_vietsub_flow.py' = '0156951817811a3c72a183e23df73611119386716f8f0572e7d6203e533911c5'
+    'matcher.py' = 'f56ca2dfe004dfe0c127b19307720661e19920a44c507bceab88986c0997af3b'
+    'opensubtitles.py' = '0e5b4e3e1593cfb4e93102a1e269014178d004a3e4a9e3a4af8e4ff07a648ecb'
+    'owner_selected_file_resolver.py' = '93ab4f62eded98bfad3c3b8322536fe0547ee80ac0b206c24f735499577b4247'
+    'owner_torrserver_readonly.py' = '2add8bfec22afa5a4644d1dfb9228438736301c56968c1015c815e08c3964e07'
+    'verified_v3_processor.py' = '3e120217fe671de4b0a4ee8236edaffe4ead789326bc6ee31dba1c4958731e41'
+}
+$ownerRoot = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
+$installed = Join-Path $ownerRoot 'app\poc\p2-sub-discovery'
+$newCount = 0
+foreach ($name in $pinned.Keys) {
+    $target = Join-Path $installed $name
+    if (Test-Path -LiteralPath $target -PathType Leaf) {
+        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $pinned[$name]) {
+            $newCount++
+        }
+    }
+}
+$backupState = 'NOT_PROVEN'
+$backupRoot = Join-Path $ownerRoot 'backups'
+if (Test-Path -LiteralPath $backupRoot -PathType Container) {
+    $candidates = @(Get-ChildItem -LiteralPath $backupRoot -Directory -Filter 'owner-title178-*')
+    if ($candidates.Count -eq 1) {
+        $matched = 0
+        foreach ($name in $pinned.Keys) {
+            $original = Join-Path $candidates[0].FullName $name
+            $installedFile = Join-Path $installed $name
+            if ((Test-Path -LiteralPath $original -PathType Leaf) -and
+                (Test-Path -LiteralPath $installedFile -PathType Leaf) -and
+                (Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash -ceq
+                (Get-FileHash -LiteralPath $installedFile -Algorithm SHA256).Hash) {
+                $matched++
+            }
+        }
+        if ($matched -eq 6) { $backupState = 'ORIGINAL_SIX_MATCH' }
+        else { $backupState = 'BACKUP_DIFFERS' }
+    }
+}
+$ownerState = 'UNKNOWN'
+try {
+    $ownerTask = Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\'
+    if ([string]$ownerTask.State -ceq 'Running') { $ownerState = 'RUNNING' }
+    elseif ([string]$ownerTask.State -ceq 'Ready') { $ownerState = 'READY' }
+    else { $ownerState = 'NOT_RUNNING' }
+} catch { $ownerState = 'UNKNOWN' }
+$healthState = 'NOT_VERIFIED'
+$health = Join-Path $ownerRoot 'agent-health.json'
+if (Test-Path -LiteralPath $health -PathType Leaf) {
+    try {
+        $heartbeat = Get-Content -LiteralPath $health -Raw | ConvertFrom-Json
+        $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$heartbeat.observed_utc_epoch
+        if ($heartbeat.state -ceq 'READY' -and $age -ge 0 -and $age -le 30) {
+            $healthState = 'READY_FRESH'
+        } elseif ($heartbeat.state -ceq 'READY') { $healthState = 'READY_STALE' }
+    } catch { $healthState = 'NOT_VERIFIED' }
+}
 $current = Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 if ($current.nonce -cne $request.nonce) { throw 'TITLE178_DIAG_REQUEST_CHANGED' }
 $result = Join-Path $spool 'Receipts\title178-diag.json'
-$payload = @{ schema='TTV-OWNER-TITLE178-DIAG-V1'; nonce=$request.nonce; code=$code } | ConvertTo-Json -Compress
-if ([Text.Encoding]::UTF8.GetByteCount($payload) -gt 256) { throw 'TITLE178_DIAG_PAYLOAD_LONG' }
+$payload = @{ schema='TTV-OWNER-TITLE178-DIAG-V2'; nonce=$request.nonce;
+    code=$code; primary=$primary; new_count=$newCount;
+    backup=$backupState; task=$ownerState; health=$healthState } | ConvertTo-Json -Compress
+if ([Text.Encoding]::UTF8.GetByteCount($payload) -gt 512) { throw 'TITLE178_DIAG_PAYLOAD_LONG' }
 $temp = $result + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
 [IO.File]::WriteAllText($temp,$payload,[Text.UTF8Encoding]::new($false))
 [IO.File]::Move($temp,$result,$true)
