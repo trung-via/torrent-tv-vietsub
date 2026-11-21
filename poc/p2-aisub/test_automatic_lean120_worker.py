@@ -227,6 +227,45 @@ class AutoLean120WorkerTests(unittest.TestCase):
         self.assertTrue(different_profile.complete)
         self.assertEqual(len(self.provider.calls), 3)
 
+    def test_explicit_private_job_archive_allows_new_request_from_window_one(self):
+        """A new consented request must not reuse checkpoints from a failed job.
+
+        The Owner-only offline operation moves the *whole* job outside the
+        active state tree. This fake-provider test exercises the resulting
+        library semantics, not the Windows task/TV/provider deployment.
+        """
+        source = handoff(241)
+        self.provider.fail_on = 2
+        with self.assertRaisesRegex(ValueError, "AGY_PROCESS_FAILED_RESULT_UNKNOWN"):
+            self.worker().run(source)
+        self.assertEqual([len(x) for x in self.provider.calls], [120, 120])
+        old_job = self.folders()[0]
+        # A regular caught exception removes the lock in finally; emulate
+        # abrupt process interruption, which can leave this extra lock.
+        self.assertFalse((old_job / "active.lock").exists())
+        (old_job / "active.lock").write_bytes(b"TTV-P2-LOCK-V1\n")
+        self.assertTrue((old_job / "active.lock").exists())
+        self.assertTrue((old_job / "batch-0001.json").exists())
+        self.assertTrue((old_job / "batch-0002.inflight").exists())
+
+        private_recovery = self.root.parent / "recovery"
+        private_recovery.mkdir()
+        archived = private_recovery / "previous-unknown-effect-job"
+        old_job.rename(archived)
+        self.assertFalse(self.folders())
+        self.assertTrue((archived / "batch-0001.json").exists())
+        self.assertTrue((archived / "batch-0002.inflight").exists())
+
+        # Only a separately initiated call to run() starts a new paid job;
+        # there is no automatic retry just because the old state was moved.
+        self.provider = FakeAntigravity()
+        final = self.worker().run(source)
+        self.assertTrue(final.complete)
+        self.assertEqual([len(x) for x in self.provider.calls], [120, 120, 1])
+        self.assertEqual(len(self.folders()), 1)
+        self.assertNotEqual(self.folders()[0], archived)
+        self.assertTrue((archived / "active.lock").exists())
+
     def test_abandonment_tombstone_alone_fails_closed(self):
         source = handoff(1)
         self.worker().run(source)
