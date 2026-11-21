@@ -2,7 +2,7 @@
 # Publish only a bounded code to the HostOps receipt folder; no private log text.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$source = '1d51dc5879e06d0321d7bff008807b08b02788ee'
+$source = '9753445bb4bedd1b6662c1cc7e6656813f0f3075'
 $op = 'owner-title-alias-178-install'
 $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $history = Join-Path $spool 'History'
@@ -60,7 +60,7 @@ $pinned = @{
     'opensubtitles.py' = '0e5b4e3e1593cfb4e93102a1e269014178d004a3e4a9e3a4af8e4ff07a648ecb'
     'owner_selected_file_resolver.py' = '93ab4f62eded98bfad3c3b8322536fe0547ee80ac0b206c24f735499577b4247'
     'owner_torrserver_readonly.py' = '2add8bfec22afa5a4644d1dfb9228438736301c56968c1015c815e08c3964e07'
-    'verified_v3_processor.py' = '3e120217fe671de4b0a4ee8236edaffe4ead789326bc6ee31dba1c4958731e41'
+    'verified_v3_processor.py' = 'a1805198e62df2f3dbf5d3146bc83a33e08545e01bfe09a6609b72090b5ce42c'
 }
 $ownerRoot = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $installed = Join-Path $ownerRoot 'app\poc\p2-sub-discovery'
@@ -77,8 +77,10 @@ $backupState = 'NOT_PROVEN'
 $importIssue = 'NOT_FOUND'
 $backupRoot = Join-Path $ownerRoot 'backups'
 if (Test-Path -LiteralPath $backupRoot -PathType Container) {
-    $candidates = @(Get-ChildItem -LiteralPath $backupRoot -Directory -Filter 'owner-title178-*')
-    if ($candidates.Count -eq 1) {
+    $candidates = @(Get-ChildItem -LiteralPath $backupRoot -Directory -Filter 'owner-title178-*' |
+        Sort-Object LastWriteTimeUtc -Descending)
+    if ($candidates.Count -ge 1 -and $candidates.Count -le 4 -and
+        -not ($candidates[0].Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         $importLog = Join-Path $candidates[0].FullName 'offline-import.log'
         if (Test-Path -LiteralPath $importLog -PathType Leaf) {
             $importItem = Get-Item -LiteralPath $importLog -Force
