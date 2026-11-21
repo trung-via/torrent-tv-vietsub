@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,7 +35,14 @@ class LaptopOpsContractTests(unittest.TestCase):
         for argument in manifest["arguments"]:
             self.assertRegex(argument, r"^-[A-Za-z][A-Za-z0-9]{0,39}$")
         script = (ROOT / manifest["script_path"]).resolve(strict=True)
-        self.assertEqual(hashlib.sha256(script.read_bytes()).hexdigest(),
+        self.assertTrue(script.is_file())
+        # Windows checkout is CRLF, but the Owner downloads exact LF Git blob
+        # bytes via raw.githubusercontent.com. Hash Git, not the worktree.
+        exact_bytes = subprocess.run(
+            ["git", "show", "HEAD:" + manifest["script_path"]],
+            cwd=ROOT, check=True, capture_output=True,
+        ).stdout
+        self.assertEqual(hashlib.sha256(exact_bytes).hexdigest(),
                          manifest["script_sha256"])
 
     def test_no_arbitrary_issues_command_or_admin_task(self):
