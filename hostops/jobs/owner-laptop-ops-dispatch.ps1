@@ -201,7 +201,7 @@ for ($i=0; $i -lt 200; $i++) {
             if ($item.Length -gt 0 -and $item.Length -le 512 -and
                 -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
-                if ($summary.schema -ceq 'TTV-OWNER-TITLE178-DIAG-V3' -and
+                if ($summary.schema -ceq 'TTV-OWNER-TITLE178-DIAG-V4' -and
                     $summary.nonce -ceq $nonce -and
                     $summary.code -cmatch '^[A-Z0-9_]{3,80}$' -and
                     $summary.primary -cmatch '^[A-Z0-9_]{3,80}$' -and
@@ -209,7 +209,9 @@ for ($i=0; $i -lt 200; $i++) {
                     $summary.backup -cin @('NOT_PROVEN','ORIGINAL_SIX_MATCH','BACKUP_DIFFERS') -and
                     $summary.task -cin @('UNKNOWN','RUNNING','READY','NOT_RUNNING') -and
                     $summary.health -cin @('NOT_VERIFIED','READY_FRESH','READY_STALE') -and
-                    $summary.import_issue -cmatch '^[A-Z0-9_]{3,90}$') {
+                    $summary.import_issue -cmatch '^[A-Z0-9_]{3,90}$' -and
+                    $summary.health_identity -cin @('NOT_VERIFIED','PID_NOT_FOUND',
+                        'CMDLINE_MISMATCH','PID_SID_MATCH','PID_SID_MISMATCH')) {
                     Write-Output ('HOSTOPS_OWNER_TITLE178_DIAG=' + $summary.code)
                     Write-Output ('HOSTOPS_OWNER_TITLE178_PRIMARY=' + $summary.primary)
                     Write-Output ('HOSTOPS_OWNER_TITLE178_NEW_MODULES=' + [int]$summary.new_count + '/6')
@@ -217,6 +219,7 @@ for ($i=0; $i -lt 200; $i++) {
                     Write-Output ('HOSTOPS_OWNER_TITLE178_TASK=' + $summary.task)
                     Write-Output ('HOSTOPS_OWNER_TITLE178_HEALTH=' + $summary.health)
                     Write-Output ('HOSTOPS_OWNER_TITLE178_IMPORT_ISSUE=' + $summary.import_issue)
+                    Write-Output ('HOSTOPS_OWNER_TITLE178_HEALTH_IDENTITY=' + $summary.health_identity)
                 }
             }
         }

@@ -4,6 +4,6 @@
   "risk": "ROUTINE",
   "category": "diagnostics",
   "script_path": "hostops/laptop-ops/operations/owner-title178-diagnostic.ps1",
-  "script_sha256": "70a9e657841e4a9281862b7aba22e0c0da75e54089e5a2eeef18f299ebd8c244",
+  "script_sha256": "bba03cd2b2daa0ef5254f145541214933ef2798097eacc91e9216f10d079062c",
   "arguments": []
 }

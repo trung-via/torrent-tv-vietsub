@@ -124,6 +124,7 @@ try {
     else { $ownerState = 'NOT_RUNNING' }
 } catch { $ownerState = 'UNKNOWN' }
 $healthState = 'NOT_VERIFIED'
+$healthIdentity = 'NOT_VERIFIED'
 $health = Join-Path $ownerRoot 'agent-health.json'
 if (Test-Path -LiteralPath $health -PathType Leaf) {
     try {
@@ -131,16 +132,27 @@ if (Test-Path -LiteralPath $health -PathType Leaf) {
         $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$heartbeat.observed_utc_epoch
         if ($heartbeat.state -ceq 'READY' -and $age -ge 0 -and $age -le 30) {
             $healthState = 'READY_FRESH'
+            $live = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$heartbeat.pid)
+            if ($null -eq $live) { $healthIdentity = 'PID_NOT_FOUND' }
+            elseif ([string]$live.CommandLine -notmatch 'owner_p3_p4_entrypoint\.py') {
+                $healthIdentity = 'CMDLINE_MISMATCH'
+            } else {
+                $ownerIdentity = Invoke-CimMethod -InputObject $live -MethodName GetOwnerSid
+                $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+                if ($ownerIdentity.ReturnValue -eq 0 -and $ownerIdentity.Sid -ceq $sid) {
+                    $healthIdentity = 'PID_SID_MATCH'
+                } else { $healthIdentity = 'PID_SID_MISMATCH' }
+            }
         } elseif ($heartbeat.state -ceq 'READY') { $healthState = 'READY_STALE' }
     } catch { $healthState = 'NOT_VERIFIED' }
 }
 $current = Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 if ($current.nonce -cne $request.nonce) { throw 'TITLE178_DIAG_REQUEST_CHANGED' }
 $result = Join-Path $spool 'Receipts\title178-diag.json'
-$payload = @{ schema='TTV-OWNER-TITLE178-DIAG-V3'; nonce=$request.nonce;
+$payload = @{ schema='TTV-OWNER-TITLE178-DIAG-V4'; nonce=$request.nonce;
     code=$code; primary=$primary; new_count=$newCount;
     backup=$backupState; task=$ownerState; health=$healthState;
-    import_issue=$importIssue } | ConvertTo-Json -Compress
+    import_issue=$importIssue; health_identity=$healthIdentity } | ConvertTo-Json -Compress
 if ([Text.Encoding]::UTF8.GetByteCount($payload) -gt 512) { throw 'TITLE178_DIAG_PAYLOAD_LONG' }
 $temp = $result + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
 [IO.File]::WriteAllText($temp,$payload,[Text.UTF8Encoding]::new($false))
