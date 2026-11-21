@@ -1,8 +1,7 @@
-"""LOCAL_EN_DIRECT offline tests. Fake tracks, fake extractor, fake provider/model."""
+"""LOCAL_EN_DIRECT offline tests: sidecars only, never MKV track extraction."""
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -140,89 +139,21 @@ class LocalDirectTests(unittest.TestCase):
         self.assertEqual(commands[0][0], "ffmpeg")
         self.assertNotIn("http", ",".join(commands[0]))
 
-    def test_embedded_text_track_from_complete_local_movie(self):
+    def test_no_embedded_probe_for_any_complete_or_incomplete_video(self):
         self.video.write_bytes(b"synthetic local video placeholder")
-        calls = []
-        def fake(args, sec, cap):
-            calls.append(args)
-            if args[0] == "ffprobe":
-                return json.dumps({"streams": [
-                    {"index": 2, "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle",
-                     "tags": {"language": "eng"}},
-                    {"index": 4, "codec_type": "subtitle", "codec_name": "subrip",
-                     "tags": {"language": "eng", "title": "English"}},
-                ]}).encode()
-            return srt(3)
-        found = find_local_english(
-            self.selected(en_sidecar_path=None, video_path=self.video,
-                          video_file_complete=True),
-            cache_root=self.cache, runner=fake)
-        self.assertEqual(found.source_kind, "EMBEDDED_TEXT")
-        self.assertEqual(found.asset.cues, 3)
-        self.assertEqual(len(calls), 2)
-        self.assertIn("0:4", calls[1])
-        self.assertIn("-protocol_whitelist", calls[1])
-
-    def test_image_only_subtitle_returns_fallback_not_ocr(self):
-        self.video.write_bytes(b"synthetic local video")
-        calls = []
-        def fake(args, _, __):
-            calls.append(args)
-            return json.dumps({"streams": [
-                {"index": 4, "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle",
-                 "tags": {"language": "en"}}]}).encode()
-        found = find_local_english(
-            self.selected(en_sidecar_path=None, video_path=self.video,
-                          video_file_complete=True),
-            cache_root=self.cache, runner=fake)
-        self.assertIsNone(found)
-        self.assertEqual(len(calls), 1)
-
-    def test_incomplete_movie_does_not_run_ffprobe_or_ffmpeg(self):
-        self.video.write_bytes(b"still downloading")
         def forbidden(*_):
-            raise AssertionError("NO_PROBE_FOR_INCOMPLETE_MOVIE")
-        result = find_local_english(
-            self.selected(en_sidecar_path=None, video_path=self.video,
-                          video_file_complete=False),
-            cache_root=self.cache, runner=forbidden)
-        self.assertIsNone(result)
+            raise AssertionError("NO_MKV_FFPROBE_OR_FFMPEG")
+        for complete in (True, False):
+            with self.subTest(video_file_complete=complete):
+                self.assertIsNone(find_local_english(
+                    self.selected(en_sidecar_path=None, video_path=self.video,
+                                  video_file_complete=complete),
+                    cache_root=self.cache, runner=forbidden))
+        self.assertFalse(self.cache.exists())
 
-    def test_multiple_english_tracks_are_held_for_review(self):
-        self.video.write_bytes(b"synthetic")
-        def fake(args, *_):
-            if args[0] == "ffprobe":
-                return json.dumps({"streams": [
-                    {"index": 1, "codec_type": "subtitle", "codec_name": "ass",
-                     "tags": {"language": "eng"}},
-                    {"index": 2, "codec_type": "subtitle", "codec_name": "subrip",
-                     "tags": {"language": "eng"}},
-                ]}).encode()
-            raise AssertionError("NO_EXTRACT")
-        with self.assertRaisesRegex(LocalSourceError, "MULTIPLE_TEXT_TRACKS"):
-            find_local_english(
-                self.selected(en_sidecar_path=None, video_path=self.video,
-                              video_file_complete=True),
-                cache_root=self.cache, runner=fake)
-
-    def test_fail_to_extract_never_returns_partial_subtitles(self):
-        self.video.write_bytes(b"synthetic")
-        def fake(args, *_):
-            if args[0] == "ffprobe":
-                return json.dumps({"streams": [
-                    {"index": 0, "codec_type": "subtitle", "codec_name": "ass",
-                     "tags": {"language": "eng"}}]}).encode()
-            raise LocalSourceError("LOCAL_SUBTITLE_TOOL_UNAVAILABLE_OR_TIMEOUT")
-        with self.assertRaisesRegex(LocalSourceError, "TOOL_UNAVAILABLE"):
-            find_local_english(
-                self.selected(en_sidecar_path=None, video_path=self.video,
-                              video_file_complete=True),
-                cache_root=self.cache, runner=fake)
-
-    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
-                         "FFmpeg/FFprobe not available")
-    def test_real_ffmpeg_embedded_english_mkv_from_generated_tiny_fixture(self):
-        """Exercise actual offline tool syntax; generate fictional 64x64 media."""
+    @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg not available")
+    def test_real_mkv_with_embedded_english_is_not_read(self):
+        """A complete MKV really contains EN, but only a sidecar is eligible."""
         self.sidecar.write_bytes(srt(2))
         cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-v", "error",
                "-f", "lavfi", "-i", "color=c=black:s=64x64:r=1:d=4",
@@ -232,17 +163,16 @@ class LocalDirectTests(unittest.TestCase):
                "-y", str(self.video)]
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                        check=True, timeout=30)
+        def forbidden(*_):
+            raise AssertionError("NO_MKV_FFPROBE_OR_FFMPEG")
         out = find_local_english(
             self.selected(en_sidecar_path=None, video_path=self.video,
                           video_file_complete=True),
-            cache_root=self.cache)
-        self.assertEqual(out.source_kind, "EMBEDDED_TEXT")
-        self.assertEqual(out.asset.cues, 2)
-        self.assertEqual(out.asset.language, "en")
-        self.assertTrue(out.private_cache_file.exists())
+            cache_root=self.cache, runner=forbidden)
+        self.assertIsNone(out)
+        self.assertFalse(self.cache.exists())
 
-    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
-                         "FFmpeg/FFprobe not available")
+    @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg not available")
     def test_real_ffmpeg_vtt_to_srt_from_generated_fixture(self):
         """A real local VTT can flow to existing SRT-only LEAN120 receipt."""
         vtt = self.media / SIDECAR.replace(".srt", ".vtt")

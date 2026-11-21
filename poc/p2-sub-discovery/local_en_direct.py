@@ -2,10 +2,10 @@
 
 Source-only adapter: no TorrServer requests, no OMP hooks, no Gemini or
 OpenSubtitles calls, no networking, no P4 delivery. A trusted event adapter
-must attest the current server/hash/fileIndex and supply a complete LOCAL
-media file or exact English sidecar. No torrent streaming URLs are accepted.
+must attest the current server/hash/fileIndex and supply an exact English
+sidecar. MKV-embedded subtitle extraction is intentionally unsupported.
 
-Successful extraction writes a validated SRT to the existing D2 private cache,
+Successful sidecar admission writes a validated SRT to the existing D2 private cache,
 returning its existing Asset + Path for #140.after_en_cached(). Never use a
 filename or source-attested boolean as a P4/D3 authenticated identity.
 """
@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import json
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -25,10 +23,7 @@ from opensubtitles import Asset, MAX_SUBTITLE_BYTES, SubtitleApiError, validate_
 
 _HASH = re.compile(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})\Z")
 _TAG = re.compile(r"[a-zA-Z0-9_-]{1,128}\Z")
-_EN_CODECS = frozenset({"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"})
 _VIDEOS = frozenset({".mkv", ".mp4", ".m4v", ".webm"})
-_SIDECAR_LANG = frozenset({"en", "eng", "english"})
-_MAX_PROBE = 64 * 1024
 
 
 class LocalSourceError(ValueError):
@@ -51,7 +46,7 @@ class LocalMediaSelection:
     private_media_root: Path
     video_path: Path | None = None
     en_sidecar_path: Path | None = None
-    # Only for embedded extraction: server/owner must confirm video complete.
+    # Retained for the caller's pinned-file contract; not used to extract EN.
     video_file_complete: bool = False
 
 
@@ -59,7 +54,7 @@ class LocalMediaSelection:
 class LocalEnglishResult:
     asset: Asset
     private_cache_file: Path
-    source_kind: str  # SIDECAR_SRT | SIDECAR_VTT | EMBEDDED_TEXT
+    source_kind: str  # SIDECAR_SRT | SIDECAR_VTT
 
 
 Executor = Callable[[list[str], int, int], bytes]
@@ -135,58 +130,23 @@ def _exact_en_sidecar(m: LocalMediaSelection, path: Path) -> str:
     return found.group(2).lower()
 
 
-def _run_ffmpeg_local(source: Path, *, stream: int | None, runner: Executor) -> bytes:
+def _run_ffmpeg_local(source: Path, *, runner: Executor) -> bytes:
+    # Only convert a sidecar VTT file to SRT; never open the video container.
     # File/pipe only: no http, https, tcp, concat, crypto, ssh, network input.
     args = ["ffmpeg", "-nostdin", "-hide_banner", "-v", "error",
-            "-protocol_whitelist", "file,pipe", "-i", str(source)]
-    if stream is not None:
-        args += ["-map", "0:" + str(stream)]
-    else:
-        args += ["-map", "0:0"]
+            "-protocol_whitelist", "file,pipe", "-i", str(source),
+            "-map", "0:0"]
     args += ["-vn", "-an", "-c:s", "srt", "-f", "srt",
              "-fs", str(MAX_SUBTITLE_BYTES), "pipe:1"]
     return runner(args, 45, MAX_SUBTITLE_BYTES)
-
-
-def _text_english_stream(path: Path, runner: Executor) -> int | None:
-    args = ["ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe",
-            "-select_streams", "s",
-            "-show_entries", "stream=index,codec_type,codec_name:stream_tags=language,title",
-            "-of", "json", str(path)]
-    response = runner(args, 20, _MAX_PROBE)
-    try:
-        rows = json.loads(response.decode("utf-8"))["streams"]
-    except (UnicodeError, ValueError, KeyError, TypeError):
-        raise LocalSourceError("LOCAL_MEDIA_PROBE_UNTRUSTED") from None
-    if not isinstance(rows, list) or len(rows) > 64:
-        raise LocalSourceError("LOCAL_MEDIA_PROBE_UNTRUSTED")
-    selected = []
-    for s in rows:
-        if not isinstance(s, dict) or s.get("codec_type") != "subtitle":
-            continue
-        tags = s.get("tags") or {}
-        if not isinstance(tags, dict):
-            raise LocalSourceError("LOCAL_MEDIA_PROBE_UNTRUSTED")
-        language = str(tags.get("language", "")).casefold()
-        codec = s.get("codec_name")
-        ix = s.get("index")
-        if language in _SIDECAR_LANG and codec in _EN_CODECS:
-            if type(ix) is not int or not 0 <= ix <= 255:
-                raise LocalSourceError("LOCAL_MEDIA_PROBE_UNTRUSTED")
-            label = str(tags.get("title", "")).casefold()
-            if "sdh" not in label and "hearing impaired" not in label:
-                selected.append(ix)
-    if len(selected) > 1:
-        raise LocalSourceError("LOCAL_EN_MULTIPLE_TEXT_TRACKS_AMBIGUOUS")
-    return selected[0] if selected else None
 
 
 def find_local_english(m: LocalMediaSelection, *, cache_root: Path,
                        runner: Executor = _execute_local) -> LocalEnglishResult | None:
     """Return eligible EN as private validated SRT, or None to use D2 VI_FAST.
 
-    Invalid local sources/ambiguous tracks raise LocalSourceError instead of
-    silently falling through to a quota-bearing remote search or upload.
+    Only same-film SRT/VTT sidecars are eligible. MKV embedded subtitles
+    are never probed or extracted, including for complete pinned videos.
     """
     media = _identity(m)
     if not isinstance(cache_root, Path) or not cache_root.is_absolute() or cache_root.is_symlink():
@@ -196,39 +156,24 @@ def find_local_english(m: LocalMediaSelection, *, cache_root: Path,
     if not callable(runner):
         raise LocalSourceError("LOCAL_RUNNER_REQUIRED")
 
+    if m.en_sidecar_path is None:
+        return None
+
+    side = _inside_private_root(m.en_sidecar_path, m.private_media_root)
+    fmt = _exact_en_sidecar(m, side)
     if m.video_path is not None:
         video = _inside_private_root(m.video_path, m.private_media_root)
         if video.name != m.video_name or video.suffix.casefold() not in _VIDEOS:
             raise LocalSourceError("LOCAL_VIDEO_IDENTITY_MISMATCH")
-    else:
-        video = None
-
-    if m.en_sidecar_path is not None:
-        side = _inside_private_root(m.en_sidecar_path, m.private_media_root)
-        fmt = _exact_en_sidecar(m, side)
-        if video is not None and side.parent != video.parent:
+        if side.parent != video.parent:
             raise LocalSourceError("LOCAL_SIDECAR_VIDEO_DIRECTORY_MISMATCH")
-        if side.stat().st_size > MAX_SUBTITLE_BYTES:
-            raise LocalSourceError("LOCAL_SUBTITLE_TOO_LARGE")
-        try:
-            contents = side.read_bytes() if fmt == "srt" else _run_ffmpeg_local(side, stream=None, runner=runner)
-        except OSError:
-            raise LocalSourceError("LOCAL_SUBTITLE_READ_FAILED") from None
-        kind = "SIDECAR_SRT" if fmt == "srt" else "SIDECAR_VTT"
-    elif video is not None and m.video_file_complete is True:
-        stream = _text_english_stream(video, runner)
-        if stream is None:
-            return None
-        before = video.stat()
-        contents = _run_ffmpeg_local(video, stream=stream, runner=runner)
-        after = video.stat()
-        if (before.st_size != after.st_size or before.st_mtime_ns != after.st_mtime_ns):
-            raise LocalSourceError("LOCAL_VIDEO_CHANGED_DURING_EXTRACTION")
-        kind = "EMBEDDED_TEXT"
-    else:
-        # A TorrServer stream URL, remote TV UI track label, or incomplete
-        # movie cannot be interpreted as a readable owner-private local file.
-        return None
+    if side.stat().st_size > MAX_SUBTITLE_BYTES:
+        raise LocalSourceError("LOCAL_SUBTITLE_TOO_LARGE")
+    try:
+        contents = side.read_bytes() if fmt == "srt" else _run_ffmpeg_local(side, runner=runner)
+    except OSError:
+        raise LocalSourceError("LOCAL_SUBTITLE_READ_FAILED") from None
+    kind = "SIDECAR_SRT" if fmt == "srt" else "SIDECAR_VTT"
 
     if (not isinstance(contents, bytes) or
             not 0 < len(contents) < MAX_SUBTITLE_BYTES):
