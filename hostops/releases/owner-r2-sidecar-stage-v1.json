@@ -1,0 +1,36 @@
+{
+  "schema": "TTV-OWNER-RELEASE-STAGE-V1",
+  "release_id": "r2-sidecar-178",
+  "source_tree": "87667faa20cf0ebbd2442f8e9f36a13ffa127d19",
+  "mode": "STAGE_ONLY",
+  "files": [
+    {
+      "path": "poc/p2-sub-discovery/automatic_vietsub_flow.py",
+      "sha256": "caba20a16c98b041b10fd24fac33645a967b34f00186280b39a5d0c5a611336c"
+    },
+    {
+      "path": "poc/p2-sub-discovery/local_en_direct.py",
+      "sha256": "35443c58d3d9fa25ff22fdf9840f41e7607eae84ad6dae9f715395c7d091d153"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_torrserver_readonly.py",
+      "sha256": "3bba864e99d2d42a4908e78217931c83060216eda1c3c372c0dc14b2d4662f87"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_torrserver_subs.py",
+      "sha256": "553525523f7a020233e0e62dd6499e0f46c593dc29f4f57a87c59708a565f5a0"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_owner_state_wiring.py",
+      "sha256": "2d869c3826574f7ec56aeaafd73d2543c727f97dac5ab0d4fb9a6c42107540c1"
+    },
+    {
+      "path": "poc/p2-sub-discovery/vi_en_fallback.py",
+      "sha256": "438e855437ccbea86872cc02aec0933690eda4c806767383a4e782b8c58e7e22"
+    },
+    {
+      "path": "poc/p2-sub-discovery/matcher.py",
+      "sha256": "cf77148a39ea87e7e958b7a2a00b32a75d6e4703a038fef09aa92b93562f86af"
+    }
+  ]
+}

@@ -25,6 +25,8 @@ for _part in ("p2-aisub", "p3-vietsub-trigger"):
 from paired_activation import PairedActivation
 from owner_selected_file_resolver import OwnerPinnedFiles
 from owner_torrserver_readonly import OwnerTorrServerReader
+from owner_torrserver_subs import OwnerTorrServerSubtitleReader
+from automatic_vietsub_flow import AutomaticVietsubFlow
 from verified_v3_processor import VerifiedV3Processor
 from p3_redmi_current_state import SignedRedmiStateCache
 from p3_owner_replay_journal import OwnerReplayJournal
@@ -57,6 +59,11 @@ class OwnerP3StatusComposition:
         The existing worker still rechecks the current signed status before
         D1/D2/LOCAL_EN/LEAN120. A vanished TV or OFF yields HOLD.
         """
+        if isinstance(existing_flow, AutomaticVietsubFlow):
+            # A single Owner process shares its already-configured localhost
+            # TorrServer profile. No TV-supplied URL, new job or MKV demux.
+            existing_flow.set_torrent_sidecars(
+                OwnerTorrServerSubtitleReader(self.current._ts.config))
         return VerifiedV3Processor(
             flow=existing_flow,
             private_media_root=self.private_media_root,

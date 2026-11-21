@@ -108,6 +108,11 @@ class OwnerTorrServerReader:
         """Owner-pinned profile, not a value from the TV packet."""
         return self._config.profile_id
 
+    @property
+    def config(self) -> OwnerLocalTorrServer:
+        """Expose the same immutable owner-local endpoint for /subs reads."""
+        return self._config
+
 
     def __call__(self, server_id: str, torrent_hash: str,
                  file_index: int) -> TorrServerSelectedFile:

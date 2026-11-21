@@ -16,9 +16,12 @@ from pathlib import Path
 import re
 from typing import Callable
 
-from matcher import Media, _release_stem_and_accessibility, parse_release
+from matcher import Media, parse_release
 from local_en_direct import LocalMediaSelection, find_local_english
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
+from owner_torrserver_subs import (
+    OwnerTorrServerSubtitleReader, SidecarInventory, TorrServerSubsUnavailable,
+)
 from owner_en_single_trial import _claim_one_post, _preflight_cache
 from owner_vietsub_pipeline import (
     PipelineReceipt, _receipt, translate_existing_en,
@@ -69,6 +72,13 @@ class AutomaticVietsubFlow:
         self.emit = emit or (lambda _: None)
         self._model_preflight = model_preflight
         self._model_ready = False
+        self.torrent_sidecars: OwnerTorrServerSubtitleReader | None = None
+
+    def set_torrent_sidecars(self, reader: OwnerTorrServerSubtitleReader) -> None:
+        """Install one Owner-pinned localhost source, never from TV JSON."""
+        if not isinstance(reader, OwnerTorrServerSubtitleReader):
+            raise ValueError("AUTO_TORRENT_SIDECAR_READER_INVALID")
+        self.torrent_sidecars = reader
 
     def _ensure_en_model_ready(self) -> None:
         # Only a source that actually needs EN->VI invokes this no-content
@@ -163,10 +173,57 @@ class AutomaticVietsubFlow:
             self.emit("AUTO_VI_CACHED_REUSED=YES")
             return AutoResult("VI_READY", cue_count=item["cues"])
         asset = Asset(0, "en", "srt", raw, item["sha256"], item["cues"])
-        translated = self.after_en_cached(asset, file)
+        # The final per-source SRT is persistent. Reopening A must neither
+        # call AGY nor require the provider account to be available again.
+        translated = self._reuse_finished_translation(asset, file)
+        if translated is None:
+            translated = self.after_en_cached(asset, file)
         self.emit("AUTO_EN_CACHED_REUSED=YES")
         return AutoResult("VIETSUB_READY", cue_count=item["cues"],
                           translated_cues=translated.translated_cues)
+
+    def _reuse_finished_translation(self, asset: Asset,
+                                    file_path: Path) -> PipelineReceipt | None:
+        """Verify vi-final.srt and last LEAN120 checkpoint without a model call."""
+        from automatic_lean120_worker import AutomaticLean120Worker, _job_fingerprint
+        from cached_en_direct_handoff import prepare_local_translation_source
+        from cue_pipeline import parse_cues
+        from progressive_handoff import ProgressiveSubtitleSession
+        if not isinstance(self.worker, AutomaticLean120Worker):
+            return None
+        source = prepare_local_translation_source(
+            _receipt(file_path, asset), private_root=self.cache_root)
+        job = _job_fingerprint(source, self.worker.profile, self.worker.glossary)
+        folder = self.worker.state_root / job
+        final = folder / "vi-final.srt"
+        if not final.exists():
+            return None
+        if (folder.is_symlink() or final.is_symlink()
+                or not final.is_file()):
+            raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
+        payload = final.read_bytes()
+        if len(payload) > 256 * 1024:
+            raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
+        number = len(ProgressiveSubtitleSession(
+            source.source_bytes, source.fmt, source.media_key).windows)
+        last = folder / f"batch-{number:04d}.json"
+        try:
+            row = json.loads(last.read_bytes())
+            input_cues = parse_cues(source.source_bytes, source.fmt)
+            output_cues = parse_cues(payload, "srt")
+        except (OSError, ValueError, UnicodeError):
+            raise ValueError("AUTO_CACHED_VI_FINAL_INVALID") from None
+        if (last.is_symlink() or not isinstance(row, dict)
+                or row.get("job") != job
+                or row.get("payload_sha256") != hashlib.sha256(payload).hexdigest()
+                or len(input_cues) != len(output_cues)
+                or any((a.number, a.start_ms, a.end_ms, a.identifier, a.settings) !=
+                       (b.number, b.start_ms, b.end_ms, b.identifier, b.settings)
+                       for a, b in zip(input_cues, output_cues))):
+            raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
+        self.emit("AUTO_VI_FINAL_SRT_REUSED=YES")
+        return PipelineReceipt(source.source_sha256, source.cue_count,
+                               True, source.cue_count)
 
     def after_en_cached(self, asset: Asset, file_path: Path) -> PipelineReceipt:
         """Called immediately by D2 after a successful private cache write.
@@ -203,9 +260,6 @@ class AutomaticVietsubFlow:
                 or len(video_name) > 255 or "/" in video_name or "\\" in video_name
                 or any(ord(c) < 32 for c in video_name)):
             raise ValueError("AUTO_VIETSUB_INVALID_MEDIA_NAME")
-        parsed = parse_release(video_name)
-        if not parsed.title or parsed.year is None or not parsed.group:
-            return AutoResult("REVIEW_REQUIRED")
         # Validate prior to any search/download or source cache access.
         if source_fingerprint is not None and (
                 not isinstance(source_fingerprint, str) or
@@ -269,7 +323,75 @@ class AutomaticVietsubFlow:
         media_key = source_fingerprint or hashlib.sha256(
             video_name.casefold().encode("utf-8")).hexdigest()
         media = verified_media or Media("owner-auto-unverified", media_key, 0, video_name)
-        route = select_vi_then_en(self.client, media, policy="VI_FAST")
+        inventory: SidecarInventory | None = None
+        if verified_media is not None and self.torrent_sidecars is not None:
+            try:
+                inventory = self.torrent_sidecars.list_for_media(verified_media)
+            except TorrServerSubsUnavailable:
+                self.emit("AUTO_TORRENT_SIDECARS=UNAVAILABLE_FALLBACK")
+            if inventory is not None and inventory.vi is not None:
+                try:
+                    vi_asset = self.torrent_sidecars.download(inventory, inventory.vi)
+                except TorrServerSubsUnavailable:
+                    self.emit("AUTO_TORRENT_VI=UNAVAILABLE_FALLBACK")
+                else:
+                    vi_path = write_private_cache(self.cache_root, media, vi_asset)
+                    self._remember_source(
+                        video_name, vi_path, vi_asset,
+                        source_fingerprint=source_fingerprint)
+                    self.emit("AUTO_VI_SOURCE=TORRENT_SIDECAR")
+                    self.emit("AUTO_AI_TRANSLATION_REQUESTS=0")
+                    return AutoResult("VI_READY", cue_count=vi_asset.cues)
+
+        # A signed TorrentServer file and its cached /subs companions do not
+        # depend on scene-release metadata. Parse the filename ONLY if we
+        # actually need an external title search. In particular, ordinary
+        # torrent filenames without a year, group or codec are valid inputs.
+        if not parse_release(video_name).title:
+            if inventory is None or inventory.en is None:
+                self.emit("AUTO_PROVIDER_SEARCH=NO_TITLE")
+                return AutoResult("REVIEW_REQUIRED")
+            # An exact-torrent English companion remains usable even when a
+            # title search is impossible. No provider GET/POST is made.
+            try:
+                en_asset = self.torrent_sidecars.download(inventory, inventory.en)
+            except TorrServerSubsUnavailable:
+                self.emit("AUTO_TORRENT_EN=UNAVAILABLE_FALLBACK")
+                return AutoResult("REVIEW_REQUIRED")
+            en_path = write_private_cache(self.cache_root, media, en_asset)
+            self._remember_source(
+                video_name, en_path, en_asset,
+                source_fingerprint=source_fingerprint)
+            translated = self.after_en_cached(en_asset, en_path)
+            if not translated.translation_complete:
+                raise ValueError("AUTO_TORRENT_EN_INCOMPLETE_TRANSLATION")
+            self.emit("AUTO_EN_SOURCE=TORRENT_SIDECAR")
+            return AutoResult("VIETSUB_READY", cue_count=en_asset.cues,
+                              translated_cues=translated.translated_cues)
+
+        route = select_vi_then_en(
+            self.client, media, policy="VI_FAST",
+            external_en_available=(inventory is not None and inventory.en is not None))
+        if route.status == "EXTERNAL_EN":
+            try:
+                en_asset = self.torrent_sidecars.download(inventory, inventory.en)
+            except TorrServerSubsUnavailable:
+                self.emit("AUTO_TORRENT_EN=UNAVAILABLE_FALLBACK")
+                # VI was already checked; do not pay for another VI GET.
+                route = select_vi_then_en(self.client, media, policy="EN_DIRECT")
+            else:
+                en_path = write_private_cache(self.cache_root, media, en_asset)
+                self._remember_source(
+                    video_name, en_path, en_asset,
+                    source_fingerprint=source_fingerprint)
+                translated = self.after_en_cached(en_asset, en_path)
+                if not translated.translation_complete:
+                    raise ValueError("AUTO_TORRENT_EN_INCOMPLETE_TRANSLATION")
+                self.emit("AUTO_EN_SOURCE=TORRENT_SIDECAR")
+                return AutoResult(
+                    "VIETSUB_READY", cue_count=en_asset.cues,
+                    translated_cues=translated.translated_cues,
+                    get_requests=route.get_requests)
         self.emit(f"AUTO_SOURCE_ROUTE={route.status}")
         if route.status not in ("VI_READY", "EN_TRANSLATE"):
             return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
@@ -282,12 +404,13 @@ class AutomaticVietsubFlow:
         if len(matches) != 1:
             return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
         release = matches[0].subtitle.release_name
-        proposed = parse_release(release)
-        _, is_sdh = _release_stem_and_accessibility(release)
-        if (proposed.group != parsed.group or is_sdh
-                or discovery.decision.winner is None
-                or any(part not in discovery.decision.winner.evidence
-                       for part in ("title", "year", "source", "group", "resolution", "codec"))):
+        # D1 already required a unique, sufficiently matched candidate. A
+        # second six-field scene-name gate used to discard its own winner
+        # (and even SDH-only tracks), leaving P4 with EN_INDEX_NOT_READY.
+        # Never add a paid-provider POST if the chosen winner changed.
+        if (discovery.decision.winner is None
+                or discovery.decision.winner.subtitle_id != str(route.selected_file_id)
+                or not discovery.decision.winner.confident):
             return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
         # If only EN is available, check the configured model BEFORE
         # spending the OpenSubtitles download POST quota. This check sends

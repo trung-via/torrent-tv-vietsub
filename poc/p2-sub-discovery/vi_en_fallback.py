@@ -82,7 +82,8 @@ def _discover_complete(client: OpenSubtitles, media: Media, *,
 
 def select_vi_then_en(client: OpenSubtitles, media: Media, *,
                       imdb_id: str | None = None, policy: str = "VI_FAST",
-                      vi_timeout_seconds: float = VI_FAST_SOCKET_TIMEOUT_SECONDS) -> Route:
+                      vi_timeout_seconds: float = VI_FAST_SOCKET_TIMEOUT_SECONDS,
+                      external_en_available: bool = False) -> Route:
     """VI_FAST limits VI to one GET; EN_DIRECT skips it; VI_FULL is legacy.
 
     No mode ever treats title/year/1080p alone as sync evidence. A single
@@ -92,6 +93,8 @@ def select_vi_then_en(client: OpenSubtitles, media: Media, *,
     """
     if policy not in SEARCH_POLICIES:
         raise SubtitleApiError("UNSUPPORTED_SEARCH_POLICY")
+    if type(external_en_available) is not bool:
+        raise SubtitleApiError("EXTERNAL_EN_AVAILABILITY_INVALID")
     if type(vi_timeout_seconds) not in (float, int) or not 1 <= vi_timeout_seconds <= 15:
         raise SubtitleApiError("INVALID_SEARCH_TIMEOUT")
 
@@ -125,6 +128,15 @@ def select_vi_then_en(client: OpenSubtitles, media: Media, *,
                          int(vi.decision.winner.subtitle_id), vi, None, vi_gets,
                          search_policy=policy, vi_probe_status=vi_probe,
                          vi_elapsed_ms=vi_ms)
+
+    # The caller verified exactly one English *sidecar file in the torrent*.
+    # Preserve the OpenSubtitles VI-first probe but save the EN provider GET.
+    # The caller fetches and validates sidecar bytes; failed fetches may
+    # fall back through an EN_DIRECT lookup without repeating the VI GET.
+    if external_en_available:
+        return Route("EXTERNAL_EN", "TORRENT_SIDECAR_EN", "en", None,
+                     vi, None, vi_gets, search_policy=policy,
+                     vi_probe_status=vi_probe, vi_elapsed_ms=vi_ms)
 
     start_en = monotonic()
     en, en_complete, en_gets = _discover_complete(
