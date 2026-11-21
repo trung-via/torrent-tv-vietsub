@@ -80,6 +80,42 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertIn("[IO.File]::Replace($next, $target, $atomicBackup)", installer)
         self.assertIn("[IO.File]::Replace($restore, $target, $failedReplacementBackup)", installer)
 
+    def test_title_alias_installer_preflight_and_crash_recovery(self):
+        installer = (ROOT / "hostops/laptop-ops/operations/owner-title-alias-178-install.ps1").read_text()
+        self.assertIn("TestStagedImports\n    if ($PreflightOnly)", installer)
+        self.assertLess(installer.index("    TestStagedImports\n"),
+                        installer.index("        StopOwner\n"))
+        self.assertLess(installer.index("Ledger 'BACKUP_VERIFIED'"),
+                        installer.index("        StopOwner\n"))
+        self.assertIn("-I -B -c $python $stage", installer)
+        self.assertIn("STAGED_IMPORT_FAILED_OWNER_UNCHANGED", installer)
+        self.assertIn("param([switch]$PreflightOnly)", installer)
+        self.assertIn("OWNER_TITLE178=PREFLIGHT_PASS_NO_OWNER_STOP", installer)
+        self.assertLess(installer.index("    if ($PreflightOnly) {"),
+                        installer.index("        StopOwner\n"))
+        self.assertIn("Ledger 'SWAP_INTENT' $name", installer)
+        self.assertLess(installer.index("Ledger 'SWAP_INTENT' $name"),
+                        installer.index("[IO.File]::Replace($next,$target"))
+        self.assertIn("'TTV-OWNER-TITLE178-RECOVERY-V2'", installer)
+        self.assertIn("NoInFlightWork", installer)
+        self.assertIn("function QuiesceForRollback", installer)
+        rollback = installer.split("function QuiesceForRollback", 1)[1].split(
+            "\n$identity =", 1)[0]
+        self.assertNotIn("StopOwner", rollback)
+        self.assertNotIn("NoOpenWork", rollback)
+        self.assertIn("ROLLBACK_NEW_OWNER_WORKER_UNCERTAIN", installer)
+        self.assertIn("ROLLBACK_TASK_RUNNING_OR_UNCERTAIN", installer)
+        self.assertIn("HEALTH_REASON_", installer)
+        self.assertIn("LOADED_MODULE_PROVENANCE_NOT_INSTRUMENTED", installer)
+        self.assertNotIn("Remove-Item -LiteralPath $backup", installer)
+
+    def test_maintenance_timeout_covers_bounded_rollback(self):
+        dispatcher = (ROOT / "hostops/jobs/owner-laptop-ops-dispatch.ps1").read_text()
+        self.assertIn("$manifest.category -ceq 'owner-maintenance'", dispatcher)
+        self.assertIn("{ 600 } else { 200 }", dispatcher)
+        self.assertIn("-lt $waitSeconds", dispatcher)
+        self.assertIn("HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY", dispatcher)
+
 
 if __name__ == "__main__":
     unittest.main()

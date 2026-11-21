@@ -174,7 +174,10 @@ $temp = Join-Path $inbox ('request-' + $nonce + '.tmp')
 [IO.File]::Move($temp, $requestFile)
 Start-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction Stop
 Write-Output 'HOSTOPS_OWNER_OPS=OWNER_TASK_TRIGGERED'
-for ($i=0; $i -lt 200; $i++) {
+# Maintenance can include staged import, fresh health and rollback.
+# Keep diagnostics short; timeout is UNKNOWN_EFFECT, never retry.
+$waitSeconds = if ($manifest.category -ceq 'owner-maintenance') { 600 } else { 200 }
+for ($i=0; $i -lt $waitSeconds; $i++) {
     Start-Sleep -Seconds 1
     if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) { continue }
     $item = Get-Item -LiteralPath $receiptFile -Force
