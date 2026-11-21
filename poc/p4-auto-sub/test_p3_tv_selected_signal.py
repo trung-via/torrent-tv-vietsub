@@ -214,6 +214,17 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn("p4ActivationGeneration++", self.patched)
         self.assertNotIn("startP4LanSession(", self.patched)
 
+    def test_exact_pr178_build_only_ci_gate_without_adb_side_effect(self):
+        repo = HERE.parents[1]
+        workflow = (repo / '.github/workflows/tv-flat-integration-android-ci.yml').read_text('utf-8')
+        builder = (HERE / 'build-p3-p4-cross-lane-on-runner.ps1').read_text('utf-8')
+        self.assertEqual(workflow.count('github.event.pull_request.number == 178'), 2)
+        self.assertEqual(workflow.count("'fix/full-flow-p2-p4-telemetry-20261121'"), 2)
+        self.assertIn('$requestedPr -eq 178', builder)
+        self.assertIn("$env:GITHUB_HEAD_REF -ceq 'fix/full-flow-p2-p4-telemetry-20261121'", builder)
+        self.assertIn("if ($source.Contains('adb install'))", workflow)
+        self.assertNotIn('adb -s ', workflow)
+
     def test_retry_never_repeats_connecting_to_pc_toast(self):
         # P4 activation still polls for a source; a P3 viewer request keeps
         # the connecting toast quiet throughout the 15-second retry cycle.

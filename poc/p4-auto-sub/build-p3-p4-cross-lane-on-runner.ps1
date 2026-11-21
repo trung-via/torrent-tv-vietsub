@@ -16,7 +16,9 @@ if ($env:GITHUB_REF -cmatch '^refs/pull/([1-9][0-9]*)/merge$') {
     $requestedPr = [int]$Matches[1]
 }
 $flat = ($requestedPr -ne $null -and
-    $env:GITHUB_HEAD_REF -cmatch '^feature/r0-flat-[a-z0-9-]+$' -and
+    ($env:GITHUB_HEAD_REF -cmatch '^feature/r0-flat-[a-z0-9-]+$' -or
+     ($requestedPr -eq 178 -and
+      $env:GITHUB_HEAD_REF -ceq 'fix/full-flow-p2-p4-telemetry-20261121')) -and
     $env:GITHUB_BASE_REF -ceq 'main')
 if (@(@($pr162,$pr168,$flat) | Where-Object { $_ }).Count -ne 1) {
     throw 'STOP: expected exactly one approved build-only PR identity'

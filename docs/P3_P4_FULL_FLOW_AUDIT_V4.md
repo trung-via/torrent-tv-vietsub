@@ -65,7 +65,9 @@ of a newly installed APK, live provider completion or on-screen subtitles.
 ## Rollout order (no interruption of a paid film)
 
 1. Publish and pass exact-head source/Windows PowerShell 7/Android composed
-   debug CI. **Source tests are not deployment receipts.**
+   debug CI. The existing FLAT build-only CI is explicitly enabled for
+   owner-controlled PR #178; it has **no ADB install**. Source tests are not
+   deployment receipts.
 2. Upgrade the read-only trusted HostOps V4 consumer on its exact pinned
    branch/commit **before** any Owner writer begins sending schema V4.
 3. Verify Owner task identity/hash and that `pending_events=0` and
