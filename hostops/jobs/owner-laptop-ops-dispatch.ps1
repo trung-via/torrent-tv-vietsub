@@ -120,8 +120,75 @@ if (Test-Path -LiteralPath $requestFile) {
     }
     $oldRequestArchive = Join-Path $history ('request-' + $oldRequest.nonce + '.json')
     $oldReceiptArchive = Join-Path $history ('receipt-' + $oldRequest.nonce + '.json')
+    # The runner only has READ on Owner-written Receipts. Copy to History,
+    # never rename/delete Owner's file; the Owner helper replaces it later.
+    if (Test-Path -LiteralPath $oldReceiptArchive) {
+        throw 'HOSTOPS_OWNER_OPS_HISTORY_RECEIPT_COLLISION'
+    }
+    Copy-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
+    if ((Get-FileHash -LiteralPath $receiptFile -Algorithm SHA256).Hash -cne
+        (Get-FileHash -LiteralPath $oldReceiptArchive -Algorithm SHA256).Hash) {
+        throw 'HOSTOPS_OWNER_OPS_HISTORY_RECEIPT_HASH_MISMATCH'
+    }
     Move-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
-    Move-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
+} elseif (Test-Path -LiteralPath $receiptFile -PathType Leaf) {
+    # Recover a prior partial archive: request already moved, Owner receipt
+    # remains read-only. A terminal receipt is never an executable request.
+    $oldReceipt = Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
+    if ($oldReceipt.result -cnotin @('SUCCESS','FAILED_NO_RETRY') -or
+        $oldReceipt.nonce -cnotmatch '^[0-9a-f]{32} [Guid]::NewGuid().ToString('N')
+$request = [ordered]@{
+    schema = 'TTV-LAPTOP-HOSTOPS-REQUEST-V1'
+    nonce = $nonce
+    source_commit = $commit
+    manifest_path = $manifestRel
+    manifest_sha256 = $hash
+    requested_utc_epoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+}
+$bytes = [Text.UTF8Encoding]::new($false).GetBytes(($request | ConvertTo-Json -Compress))
+if ($bytes.Length -gt 1024) { throw 'HOSTOPS_OWNER_OPS_REQUEST_TOO_LARGE' }
+$temp = Join-Path $inbox ('request-' + $nonce + '.tmp')
+[IO.File]::WriteAllBytes($temp, $bytes)
+[IO.File]::Move($temp, $requestFile)
+Start-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction Stop
+Write-Output 'HOSTOPS_OWNER_OPS=OWNER_TASK_TRIGGERED'
+for ($i=0; $i -lt 200; $i++) {
+    Start-Sleep -Seconds 1
+    if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) { continue }
+    $item = Get-Item -LiteralPath $receiptFile -Force
+    if ($item.Length -gt 512 -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+    $receipt = Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
+    if ($receipt.schema -cne 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -or
+        $receipt.nonce -cne $nonce -or
+        $receipt.source_commit -cne $commit) { continue }
+    if ($receipt.result -cne 'SUCCESS') {
+        Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
+        if ($receipt.diagnostic -cmatch '^OWNER_FULL_DIAG_FAILURE_PHASE=(REPLACE_FILES|OFFLINE_IMPORT|FRESH_OWNER_START|FULL_LOG_VERIFY)$') {
+            Write-Output $receipt.diagnostic
+        }
+        throw 'HOSTOPS_OWNER_OPS_OWNER_TASK_FAILED'
+    }
+    Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
+    Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    return
+}
+throw 'HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY'
+) {
+        throw 'HOSTOPS_OWNER_OPS_ORPHAN_RECEIPT_NOT_TERMINAL'
+    }
+    $history = Join-Path $spool 'History'
+    if (-not (Test-Path -LiteralPath $history -PathType Container)) {
+        throw 'HOSTOPS_OWNER_OPS_HISTORY_MISSING'
+    }
+    $oldReceiptArchive = Join-Path $history ('receipt-' + $oldReceipt.nonce + '.json')
+    if (-not (Test-Path -LiteralPath $oldReceiptArchive -PathType Leaf)) {
+        Copy-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
+    }
+    if ((Get-FileHash -LiteralPath $receiptFile -Algorithm SHA256).Hash -cne
+        (Get-FileHash -LiteralPath $oldReceiptArchive -Algorithm SHA256).Hash) {
+        throw 'HOSTOPS_OWNER_OPS_ORPHAN_RECEIPT_HISTORY_MISMATCH'
+    }
 }
 $nonce = [Guid]::NewGuid().ToString('N')
 $request = [ordered]@{
