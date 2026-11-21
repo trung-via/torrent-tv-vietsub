@@ -95,3 +95,29 @@ An offline Owner cannot refresh the independent snapshot, so the last
 state; a Running Owner still requires a fresh (≤30s) OFF snapshot. V2/V3
 snapshot schemas are both recognized. Restart follows successful archive;
 there is no API translation or TV install in this transaction.
+
+### V3 claim-safe recovery after V2 preflight HOLD
+
+HostOps `44885513062` triggered the V2 Owner one-shot successfully and
+received a deterministic **pre-mutation** receipt:
+`PREFLIGHT_HOLD_PRIVATE_EVENT_PENDING_CLAIMED`. Thus the V2 task is consumed;
+it MUST NOT be triggered again and did not stop Owner or move P2 state.
+
+`owner_session_bridge.py` creates each private `claim-<event_id>` file
+**before** invoking any potentially paid provider operation; it keeps this
+claim after an uncertain failure to prohibit automatic replay. The exact
+marker is `CLAIMED_DO_NOT_AUTO_REPLAY` with one LF terminator. The V2 receipt
+proves a claim exists, but neither that a provider request succeeded nor that
+its external effect was absent.
+
+V3 uses a new, separately enrolled Owner-interactive one-shot task. Before
+mutating it requires the exact V2 HOLD receipt, unchanged P2 batch15 marker
+and single V3 pending event, matching claim filename, regular-file bytes and
+hash, original Owner task identity, and no surviving worker if Owner was
+stopped. After Owner is disabled and all inputs revalidated, it moves the
+claim, event, optional retry and whole P2 job to private recovery folders,
+checks archive hashes and pending absence, then restarts Owner. Old blocked
+events and unrelated claim records remain untouched. It neither replays the
+uncertain paid call nor starts a fresh one. A **new explicit TV request** is
+still required for a from-scratch translation. Source/PowerShell tests are
+not real P2, provider or Redmi acceptance.
