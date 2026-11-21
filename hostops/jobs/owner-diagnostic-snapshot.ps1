@@ -87,7 +87,7 @@ if ($isV2 -or $isV3 -or $isV4) { $fields += 'p2' }
 if ($isV3 -or $isV4) { $p2Fields += @('blocked_events','review_events','deferred_events') }
 if ($isV4) {
     $fields += 'p4'
-    $p2Fields += @('committed_prefix','inflight_age_seconds','final_present')
+    $p2Fields += @('committed_prefix','inflight_age_seconds','final_present','outcome')
 }
 $ingressFields = @('state_accepted','state_rejected','selection_dispatched',
     'selection_skipped','selection_rejected','selection_rejected_bad_wire',
@@ -171,6 +171,9 @@ if ($isV2 -or $isV3 -or $isV4) {
              $report.p2.inflight_age_seconds -isnot [long]) -or
             $report.p2.inflight_age_seconds -lt -1 -or
             $report.p2.inflight_age_seconds -gt 86400 -or
+            $report.p2.outcome -cnotin @('NOT_OBSERVED','CLAIMED','VI_READY',
+                'VIETSUB_READY','REVIEW_REQUIRED','FINISHED_UNCLASSIFIED',
+                'BLOCKED','PREPROVIDER_DEFERRED') -or
             $report.p2.final_present -cnotin @('YES','NO','NOT_OBSERVED')) {
             throw 'HOSTOPS_OWNER_P2_V4_INVALID'
         }
@@ -281,6 +284,7 @@ if (($isV2 -or $isV3 -or $isV4) -and $p2CaptureRecent) {
         Write-Output "HOSTOPS_OWNER_P2_COMMITTED_PREFIX=$($report.p2.committed_prefix)"
         Write-Output "HOSTOPS_OWNER_P2_INFLIGHT_AGE_SECONDS=$($report.p2.inflight_age_seconds)"
         Write-Output "HOSTOPS_OWNER_P2_FINAL_PRESENT=$($report.p2.final_present)"
+        Write-Output "HOSTOPS_OWNER_P2_OUTCOME=$($report.p2.outcome)"
     }
 } else {
     Write-Output 'HOSTOPS_OWNER_P2_RECEIPT_AGE_SECONDS=-1'

@@ -38,6 +38,7 @@ class FullFlowSnapshotV4Tests(unittest.TestCase):
             "OWNER_FULL_DIAGNOSTICS_STARTED pid=1234 epoch=1784700000",
             "OWNER_FULL_TRACE 'P3_SELECTION_ACCEPTED' {'status': 'DISPATCH', 'reason': 'SEARCH_VI_FAST_THEN_EN'}",
             "OWNER_FULL_TRACE 'P2_EVENT_CLAIMED' {'video': 'PRIVATE_MOVIE_TITLE'}",
+            "OWNER_FULL_TRACE 'P2_EVENT_FINISHED' {'event_id': 'secret', 'result': 'VIETSUB_READY'}",
             "OWNER_FULL_TRACE 'P4_DELIVERY_STATUS' {'code': 'P4_ACTIVATE_REJECTED_P3_READY_NO_CURRENT_ACCEPTED_SOURCE'}",
             "OWNER_FULL_TRACE 'P4_ROLLING_STATUS' {'code': 'MEDIA_KEY_MISMATCH'}",
             "OWNER_FULL_TRACE 'P4_DELIVERY_STATUS' {'code': 'P4_ACTIVATE_HTTP_200'}",
@@ -50,8 +51,19 @@ class FullFlowSnapshotV4Tests(unittest.TestCase):
         self.assertEqual(result["activate_ok"], 1)
         self.assertEqual(result["revision_ready"], 1)
         self.assertEqual(result["rolling_status"], "MEDIA_KEY_MISMATCH")
+        self.assertEqual(result["p2_outcome"], "VIETSUB_READY")
         self.assertEqual(result["last_delivery"], "REVISION_READY")
         self.assertNotIn("PRIVATE_MOVIE_TITLE", json.dumps(result))
+
+    def test_p2_blocked_or_new_claim_never_reuses_earlier_completed_outcome(self):
+        self.write_log(
+            "OWNER_FULL_DIAGNOSTICS_STARTED pid=1234 epoch=1784700000",
+            "OWNER_FULL_TRACE 'P3_SELECTION_ACCEPTED' {'status': 'DISPATCH'}",
+            "OWNER_FULL_TRACE 'P2_EVENT_FINISHED' {'result': 'VIETSUB_READY'}",
+            "OWNER_FULL_TRACE 'P2_EVENT_CLAIMED' {'event_id': 'private'}",
+            "OWNER_FULL_TRACE 'P2_EVENT_BLOCKED' {'event_id': 'private'}",
+        )
+        self.assertEqual(_p4_from_private_log(self.owner)["p2_outcome"], "BLOCKED")
 
     def test_old_process_log_is_never_reported_as_new_request(self):
         self.write_log(

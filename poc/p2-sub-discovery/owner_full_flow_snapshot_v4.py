@@ -94,6 +94,7 @@ def _p2_commits(owner_root: Path, now: int) -> dict[str, int | str]:
 def _p4_from_private_log(owner_root: Path) -> dict[str, int | str]:
     result: dict[str, int | str] = {
         "status": "NOT_OBSERVED", "dispatches": 0,
+        "p2_outcome": "NOT_OBSERVED",
         "activate_ok": 0, "activate_rejected": 0,
         "revision_ready": 0, "revision_empty": 0,
         "revision_hold": 0, "source_not_accepted": 0,
@@ -147,6 +148,18 @@ def _p4_from_private_log(owner_root: Path) -> dict[str, int | str]:
         for raw_line in current[last_request + 1:]:
             # Lines are used ONLY for exact literal matching. Never export text.
             line = raw_line.decode("utf-8", "replace")
+            if "OWNER_FULL_TRACE 'P2_EVENT_CLAIMED' " in line:
+                result["p2_outcome"] = "CLAIMED"
+            elif "OWNER_FULL_TRACE 'P2_EVENT_FINISHED' " in line:
+                valid_outcomes = ("VI_READY", "VIETSUB_READY", "REVIEW_REQUIRED")
+                result["p2_outcome"] = next(
+                    (status for status in valid_outcomes
+                     if "'result': '" + status + "'" in line),
+                    "FINISHED_UNCLASSIFIED")
+            elif "OWNER_FULL_TRACE 'P2_EVENT_BLOCKED' " in line:
+                result["p2_outcome"] = "BLOCKED"
+            elif "OWNER_FULL_TRACE 'P2_PREPROVIDER_TRANSIENT' " in line:
+                result["p2_outcome"] = "PREPROVIDER_DEFERRED"
             p4 = _P4_LINE.search(line)
             if p4:
                 code = p4.group(1)
@@ -180,7 +193,9 @@ def build_snapshot_v4(*, owner_root: Path, now: int | None = None) -> dict:
     doc = build_snapshot_v3(owner_root=owner_root, now=tick)
     doc["schema"] = SCHEMA
     doc["p2"].update(_p2_commits(owner_root, tick))
-    doc["p4"] = _p4_from_private_log(owner_root)
+    p4 = _p4_from_private_log(owner_root)
+    doc["p2"]["outcome"] = p4.pop("p2_outcome")
+    doc["p4"] = p4
     return doc
 
 

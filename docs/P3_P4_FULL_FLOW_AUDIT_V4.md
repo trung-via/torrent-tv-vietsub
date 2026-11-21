@@ -13,7 +13,7 @@ of a newly installed APK, live provider completion or on-screen subtitles.
 | One viewer request | `Bật Vietsub AI` signs REQUESTED; OFF/OTHER cancels | `P3_SELECTION_ACCEPTED DISPATCH`, not duplicate SKIP | TV identity and real button observation |
 | Owner/TorrServer current file | V3 checks current session and selected-file metadata; returns distinct P3 reject classes | `p3_state`, P3 ingress counters | Real localhost selected-file identity, not TCP alone |
 | VI-first and local/EN source | Existing D1/D2 and owner-local cache; at most one authorized selected download | Owner-private cache index; `EN_INDEX_NOT_READY` if absent | VI/EN receipt verified, actual rights/provider facts |
-| P2 paid LEAN120 | Existing single checkpointed worker, no replay of uncertain batch; R2 per-session callback | `p2.batch`, `committed_prefix`, marker age, final flag | Whole-film final and paid model receipt; no assumed success from STARTED |
+| P2 paid LEAN120 | Existing single checkpointed worker, no replay of uncertain batch; R2 per-session callback | `p2.batch`, `committed_prefix`, marker age, `outcome` (`VIETSUB_READY`/`BLOCKED`/etc.) | Whole-film final and paid model receipt; no assumed success from STARTED |
 | Rolling P4 source | Rehydrate only validated contiguous checkpoints, even if callback missed; do not run worker in GET/activate | `P4_ROLLING_STATUS`: flow/index/key/pending/ready | Exact live TV↔Owner `mediaKey` and earliest 120-cue checkpoint |
 | P4 `/p4/activate` | Existing private TLS/HMAC and current media gate | activate OK/rejected, source-not-accepted counts | Authenticated session established on TV |
 | P4 `/p4/revision` | Existing signed feed 200/204 / source HOLD | revision-ready, empty, hold counts | First 120→240→final actual frame sequence |
@@ -38,6 +38,10 @@ of a newly installed APK, live provider completion or on-screen subtitles.
    checkpoint count and active in-flight age independently of the historical
    conservative `UNKNOWN_EFFECT_HOLD` state. A marker for batch N while the
    Owner advances is *in-progress*, not evidence to clear/replay/delete it.
+   V4 also reports the Owner's already durable `P2_EVENT_FINISHED` result
+   (`VIETSUB_READY`, `VI_READY`, `REVIEW_REQUIRED`) or an explicit blocked
+   state for the current request, which makes `P2 CLEAR` interpretable without
+   inspecting private subtitles or assuming a finished translation.
 4. **No end-to-end receipt:** an Owner-only bounded tail of the existing full
    diagnostic log is reduced to P3 dispatch, P4 activation, signed revision,
    hold and source rejection counters. The 4 KiB ProgramData receipt goes to
@@ -83,8 +87,8 @@ of a newly installed APK, live provider completion or on-screen subtitles.
 
 ## Test matrix
 
-- `poc/p2-sub-discovery`: 513 unit tests, one skipped, offline PASS.
-- `poc/p4-auto-sub`: 24 Python patcher/source contract tests PASS.
+- `poc/p2-sub-discovery`: 515 unit tests, one skipped, offline PASS.
+- `poc/p4-auto-sub`: 25 Python patcher/source contract tests PASS.
 - Windows PowerShell 7 parser, Gradle/Android assemble, true HostOps V4 read,
   Android `adb logcat`, actual P4 LAN/Redmi render: **not established by these
   local tests**. Each requires separate exact-head/live evidence.
