@@ -125,17 +125,16 @@ class TrialTests(unittest.TestCase):
             self.assertEqual([x[0] for x in fake.calls], ["GET"])
             self.assertIn("DOWNLOAD_POST_ATTEMPTS=0", lines)
 
-    def test_weak_en_review_shortlist_does_not_download(self):
-        weak_but_plausible = "Example.Film.2017.1080p.BluRay.x265"
-        fake = Fake(en=[row(70, "en", weak_but_plausible)])
+    def test_unique_en_without_group_can_download_after_consent(self):
+        no_group_but_matching_release = "Example.Film.2017.1080p.BluRay.x265"
+        fake = Fake(en=[row(70, "en", no_group_but_matching_release)])
         with tempfile.TemporaryDirectory() as root:
             code, lines = run(fake, "DOWNLOAD ONE", Path(root))
             self.assertEqual(code, 0)
-            self.assertIn("ROUTE=REVIEW_REQUIRED", lines)
-            self.assertIn("REVIEW_EN_COUNT=1", lines)
-            self.assertIn("REVIEW_EN_TOP1_EVIDENCE=title,year,source,resolution,codec", lines)
-            self.assertIn("DOWNLOAD_POST_ATTEMPTS=0", lines)
-            self.assertEqual([x[0] for x in fake.calls], ["GET", "GET"])
+            self.assertIn("ROUTE=EN_TRANSLATE", lines)
+            self.assertIn("DOWNLOAD_SRT_QA=PASS", lines)
+            self.assertEqual([x[0] for x in fake.calls],
+                             ["GET", "GET", "POST", "GET_BINARY"])
 
     def test_invalid_filename_stops_before_network(self):
         for value in ("", "../foo", "C:\\test\\file", "a\nb"):

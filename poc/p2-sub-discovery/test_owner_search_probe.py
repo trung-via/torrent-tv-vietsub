@@ -126,12 +126,14 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("PARSED_CODEC=x265", status)
         self.assertIn("VIDEO_RELEASE_GROUP=grp", status)
         self.assertIn("VIDEO_RESOLUTION=1080p", status)
-        self.assertIn("ROUTE=EN_TRANSLATE", status)
-        self.assertEqual(transport.calls, [("GET", "vi", 1), ("GET", "en", 1)])
+        # A unique VI release with matching title/year/source now wins before
+        # EN, even if its release group is omitted.
+        self.assertIn("ROUTE=VI_READY", status)
+        self.assertEqual(transport.calls, [("GET", "vi", 1)])
         self.assertEqual([x["query"] for x in transport.urls],
-                         [["example film"], ["example film"]])
+                         [["example film"]])
         self.assertEqual([x["year"] for x in transport.urls],
-                         [["2017"], ["2017"]])
+                         [["2017"]])
         self.assertTrue(all("imdb_id" not in x for x in transport.urls))
         self.assertTrue(all("GRP" not in str(x) and "x265" not in str(x)
                             for x in transport.urls))

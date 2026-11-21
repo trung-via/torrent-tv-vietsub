@@ -21,10 +21,12 @@ class HeuristicTests(unittest.TestCase):
         self.assertIn("group", d.winner.evidence)
         self.assertIn("resolution", d.winner.evidence)
 
-    def test_1080p_and_codec_without_group_stay_review_only(self):
+    def test_unique_title_year_source_without_group_is_eligible(self):
         d = self.decide(Subtitle("1", "Example.Film.2017.1080p.BluRay.x265.srt", "en"))
-        self.assertEqual(d.status, "REVIEW_REQUIRED")
-        self.assertFalse(d.ranked[0].confident)
+        # Current R0 policy no longer requires a release-group token when
+        # year, source and title match one unique candidate.
+        self.assertEqual(d.status, "EN_TRANSLATE")
+        self.assertTrue(d.ranked[0].confident)
         self.assertIn("resolution", d.ranked[0].evidence)
         self.assertNotIn("group", d.ranked[0].evidence)
 

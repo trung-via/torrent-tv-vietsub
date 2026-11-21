@@ -259,7 +259,10 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
         reference.year is not None and reference.year == proposed.year
         and reference.source is not None and reference.source == proposed.source
         and not group_conflict and not source_conflict
-        and not resolution_conflict
+        # The same scene group may encode the same cut at 720p and 1080p;
+        # no known group means 2160p vs 1080p is only an uncertain release.
+        and (not resolution_conflict or (
+            reference.group is not None and reference.group == proposed.group))
     )
     confident = not hash_conflict and (exact_hash or same_release)
     return Ranked(candidate.subtitle_id, lang, score, confident, tuple(evidence))
