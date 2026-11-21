@@ -192,10 +192,18 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
         evidence.append("moviehash")
     if hash_conflict:
         evidence.append("different_moviehash")
+    # Release groups and codecs are optional, not required for every torrent.
+    # Preserve explicit conflict checks for provider results, but allow a
+    # unique candidate with matching title, year and source even if either
+    # filename omits its group. Exact torrent /subs tracks bypass D1 entirely.
+    group_conflict = (reference.group is not None and proposed.group is not None
+                      and reference.group != proposed.group)
+    source_conflict = (reference.source is not None and proposed.source is not None
+                       and reference.source != proposed.source)
     same_release = (
         reference.year is not None and reference.year == proposed.year
         and reference.source is not None and reference.source == proposed.source
-        and reference.group is not None and reference.group == proposed.group
+        and not group_conflict and not source_conflict
     )
     confident = not hash_conflict and (exact_hash or same_release)
     return Ranked(candidate.subtitle_id, lang, score, confident, tuple(evidence))

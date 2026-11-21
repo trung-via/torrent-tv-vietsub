@@ -1,12 +1,12 @@
 {
   "schema": "TTV-OWNER-RELEASE-STAGE-V1",
   "release_id": "r2-sidecar-178",
-  "source_tree": "64f0273348c092730d8ff99228a06d8745bc905c",
+  "source_tree": "87667faa20cf0ebbd2442f8e9f36a13ffa127d19",
   "mode": "STAGE_ONLY",
   "files": [
     {
       "path": "poc/p2-sub-discovery/automatic_vietsub_flow.py",
-      "sha256": "40b02b0981772f8907daa73e42122878b1bcca445d8e2c94abc8c0a6f58b0c0c"
+      "sha256": "caba20a16c98b041b10fd24fac33645a967b34f00186280b39a5d0c5a611336c"
     },
     {
       "path": "poc/p2-sub-discovery/local_en_direct.py",
@@ -27,6 +27,10 @@
     {
       "path": "poc/p2-sub-discovery/vi_en_fallback.py",
       "sha256": "438e855437ccbea86872cc02aec0933690eda4c806767383a4e782b8c58e7e22"
+    },
+    {
+      "path": "poc/p2-sub-discovery/matcher.py",
+      "sha256": "cf77148a39ea87e7e958b7a2a00b32a75d6e4703a038fef09aa92b93562f86af"
     }
   ]
 }
