@@ -27,6 +27,9 @@ deployment or release is implied by these files or their offline tests.
    reconstructs the latest contiguous committed revision from the original
    P2 `batch-*.json` receipts, checking source, cue IDs, timing and digests.
    A currently in-flight newer window is **never** retried by P4.
+   An existing authenticated P4 GET also refreshes the latest committed
+   checkpoint, so a missed callback does not leave that TV session stuck on
+   old 120-cue data. GET fails closed on OFF/OTHER or changed playback.
 
 The P2 internal `media.<digest>` is deliberately different from the P4
 exact-file media key. The R2 registry independently verifies the source and

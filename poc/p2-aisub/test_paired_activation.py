@@ -10,7 +10,8 @@ from unittest import mock
 
 from assumed_source_handoff import AssumedEnglishSubtitle
 from paired_activation import (
-    PairedActivation,activation_request_mac,activation_response_mac,
+    AuthenticatedProgressiveSource,PairedActivation,
+    activation_request_mac,activation_response_mac,
     create_paired_server,derive_session_secret,make_paired_handler,
 )
 from lan_revision_feed import SessionRevisionFeed
@@ -233,6 +234,46 @@ class PCActivationTests(unittest.TestCase):
         handler.do_POST()
         self.assertEqual(responses,[403])
         self.assertEqual(events,["P4_ACTIVATE_REJECTED_P4_ACTIVATE_AUTH_INVALID"])
+
+    def test_signed_progressive_get_rechecks_live_consent(self):
+        from io import BytesIO
+        allowed=[True]
+        def refresh():
+            if not allowed[0]:
+                raise ValueError("TV_OFF")
+        gateway=PairedActivation(
+            device_secret=MASTER,supplied={},
+            authenticated_progressive_factory=lambda _media:
+                AuthenticatedProgressiveSource(
+                    MEDIA,self.handoff.source_sha256,lambda _feed:None,
+                    refresh=refresh))
+        reply=gateway.activate(self.request())
+        events=[]
+        cls=make_paired_handler(gateway,on_event=events.append)
+        handler=object.__new__(cls)
+        replies=[]
+        handler.send_response=lambda code:replies.append(code)
+        handler.send_error=lambda code:replies.append(code)
+        handler.send_header=lambda *_:None
+        handler.end_headers=lambda:None
+        handler.wfile=BytesIO()
+        handler.path="/p4/revision/"+reply["session_id"]
+        secret=derive_session_secret(
+            MASTER,reply["session_id"],MEDIA,self.handoff.source_sha256)
+        def headers(nonce):
+            return {"X-P4-Nonce":nonce,
+                    "X-P4-Authorization":hmac.new(
+                        secret,("TTV-P4-LAN-READ-V1\n"+reply["session_id"]+
+                                "\n"+nonce).encode("ascii"),hashlib.sha256).hexdigest()}
+        handler.headers=headers("a"*32)
+        handler.do_GET()
+        self.assertEqual(replies[-1],204)
+        allowed[0]=False
+        handler.headers=headers("b"*32)
+        handler.do_GET()
+        self.assertEqual(replies[-1],403)
+        self.assertEqual(events,["P4_REVISION_HTTP_204",
+                                 "P4_REVISION_CURRENT_SOURCE_HOLD"])
 
 
 if __name__=="__main__":unittest.main()

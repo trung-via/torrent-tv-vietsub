@@ -202,9 +202,21 @@ class R2RollingTests(unittest.TestCase):
             self.worker.run(self.handoff)
         self.assertEqual(len(self.provider.calls), 2)
         self.assertEqual(decode_latest_test_only(first_feed)["version"], 1)
+        # The already paired TV keeps polling the SAME P4 session, not a
+        # second activation; its read replays the verified batch from disk.
+        self.assertTrue(self.p4.refresh_for(first_feed.session_id))
+        self.assertEqual(decode_latest_test_only(first_feed)["version"], 2)
         reconnected = self.activate("e" * 32)
         self.assertEqual(decode_latest_test_only(reconnected)["version"], 2)
         self.assertEqual(len(self.provider.calls), 2)
+
+    def test_p4_read_refuses_off_after_previous_successful_activation(self):
+        self.run_worker(max_new_windows=1)
+        feed = self.activate("f" * 32)
+        self.assertTrue(self.p4.refresh_for(feed.session_id))
+        self.current = replace(self.current, viewer_choice="OFF")
+        self.assertFalse(self.p4.refresh_for(feed.session_id))
+        self.assertEqual(len(self.provider.calls), 1)
 
     def test_restored_checkpoint_obeys_off_and_source_integrity(self):
         self.run_worker(max_new_windows=1)
@@ -231,6 +243,7 @@ class R2RollingTests(unittest.TestCase):
             auth=activation_request_mac(KEY, MEDIA_KEY, nonce)))
         feed = gateway.feed_for(reply["session_id"])
         self.assertIsNone(feed.latest())
+        self.assertTrue(gateway.refresh_for(reply["session_id"]))
         self.assertEqual(len(self.provider.calls), 0)
         # Only the existing worker starts through the original Owner event.
         with self.worker.bind(lambda handoff, revision:
