@@ -16,7 +16,7 @@ from pathlib import Path
 import re
 from typing import Callable
 
-from matcher import Media, _release_stem_and_accessibility, parse_release
+from matcher import Media, parse_release
 from local_en_direct import LocalMediaSelection, find_local_english
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
 from owner_torrserver_subs import (
@@ -260,9 +260,6 @@ class AutomaticVietsubFlow:
                 or len(video_name) > 255 or "/" in video_name or "\\" in video_name
                 or any(ord(c) < 32 for c in video_name)):
             raise ValueError("AUTO_VIETSUB_INVALID_MEDIA_NAME")
-        parsed = parse_release(video_name)
-        if not parsed.title or parsed.year is None or not parsed.group:
-            return AutoResult("REVIEW_REQUIRED")
         # Validate prior to any search/download or source cache access.
         if source_fingerprint is not None and (
                 not isinstance(source_fingerprint, str) or
@@ -346,6 +343,32 @@ class AutomaticVietsubFlow:
                     self.emit("AUTO_AI_TRANSLATION_REQUESTS=0")
                     return AutoResult("VI_READY", cue_count=vi_asset.cues)
 
+        # A signed TorrentServer file and its cached /subs companions do not
+        # depend on scene-release metadata. Parse the filename ONLY if we
+        # actually need an external title search. In particular, ordinary
+        # torrent filenames without a year, group or codec are valid inputs.
+        if not parse_release(video_name).title:
+            if inventory is None or inventory.en is None:
+                self.emit("AUTO_PROVIDER_SEARCH=NO_TITLE")
+                return AutoResult("REVIEW_REQUIRED")
+            # An exact-torrent English companion remains usable even when a
+            # title search is impossible. No provider GET/POST is made.
+            try:
+                en_asset = self.torrent_sidecars.download(inventory, inventory.en)
+            except TorrServerSubsUnavailable:
+                self.emit("AUTO_TORRENT_EN=UNAVAILABLE_FALLBACK")
+                return AutoResult("REVIEW_REQUIRED")
+            en_path = write_private_cache(self.cache_root, media, en_asset)
+            self._remember_source(
+                video_name, en_path, en_asset,
+                source_fingerprint=source_fingerprint)
+            translated = self.after_en_cached(en_asset, en_path)
+            if not translated.translation_complete:
+                raise ValueError("AUTO_TORRENT_EN_INCOMPLETE_TRANSLATION")
+            self.emit("AUTO_EN_SOURCE=TORRENT_SIDECAR")
+            return AutoResult("VIETSUB_READY", cue_count=en_asset.cues,
+                              translated_cues=translated.translated_cues)
+
         route = select_vi_then_en(
             self.client, media, policy="VI_FAST",
             external_en_available=(inventory is not None and inventory.en is not None))
@@ -381,12 +404,13 @@ class AutomaticVietsubFlow:
         if len(matches) != 1:
             return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
         release = matches[0].subtitle.release_name
-        proposed = parse_release(release)
-        _, is_sdh = _release_stem_and_accessibility(release)
-        if (proposed.group != parsed.group or is_sdh
-                or discovery.decision.winner is None
-                or any(part not in discovery.decision.winner.evidence
-                       for part in ("title", "year", "source", "group", "resolution", "codec"))):
+        # D1 already required a unique, sufficiently matched candidate. A
+        # second six-field scene-name gate used to discard its own winner
+        # (and even SDH-only tracks), leaving P4 with EN_INDEX_NOT_READY.
+        # Never add a paid-provider POST if the chosen winner changed.
+        if (discovery.decision.winner is None
+                or discovery.decision.winner.subtitle_id != str(route.selected_file_id)
+                or not discovery.decision.winner.confident):
             return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
         # If only EN is available, check the configured model BEFORE
         # spending the OpenSubtitles download POST quota. This check sends

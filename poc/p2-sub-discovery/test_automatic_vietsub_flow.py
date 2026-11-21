@@ -61,6 +61,7 @@ class FakeProvider:
                 raise SubtitleApiError("API_NETWORK_ERROR")
             request = json.loads(body)
             assert request in (
+                {"file_id": 9, "sub_format": "srt"},
                 {"file_id": 10, "sub_format": "srt"},
                 {"file_id": 8, "sub_format": "srt"},
             ), request
@@ -244,12 +245,23 @@ class AutomaticFlowTests(unittest.TestCase):
             self.flow.after_en_cached(asset, path)
         self.assertEqual(self.gemini.calls, [])
 
-    def test_sdh_only_never_consumes_download_or_cloud(self):
+    def test_only_sdh_source_is_usable_when_it_is_unambiguous(self):
         self.provider.en = (row(9, SDH, "en"),)
         result = self.flow.selected_media(VIDEO)
-        self.assertEqual(result.status, "REVIEW_REQUIRED")
-        self.assertEqual([x[0] for x in self.provider.calls], ["GET", "GET"])
-        self.assertEqual(self.gemini.calls, [])
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertEqual([x[0] for x in self.provider.calls],
+                         ["GET", "GET", "POST", "GET_BINARY"])
+        self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
+
+    def test_provider_en_without_release_group_or_codec_can_translate(self):
+        name = "Another.New.Film.2024.1080p.WEB-DL.mkv"
+        self.provider.en = (row(10, "Another.New.Film.2024.1080p.WEB-DL_eng", "en"),)
+        result = self.flow.selected_media(name)
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertEqual(result.download_posts, 1)
+        self.assertEqual([x[0] for x in self.provider.calls],
+                         ["GET", "GET", "POST", "GET_BINARY"])
+        self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
 
     def test_owner_bootstrap_loads_keys_and_profile_once_no_questions(self):
         preflights = []

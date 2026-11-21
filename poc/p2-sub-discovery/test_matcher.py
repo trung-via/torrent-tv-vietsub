@@ -67,6 +67,21 @@ class MatcherTests(unittest.TestCase):
         r = parse_release("Sample.Film.2017.1080p.WEB-DL.srt")
         self.assertEqual((r.title, r.year, r.source, r.group), ("sample film", 2017, "web", None))
 
+    def test_unique_same_title_year_source_with_missing_group_and_codec(self):
+        media = Media("home", "torrent", 0, "Sample.Film.2017.1080p.WEB-DL.mkv")
+        match = Subtitle("en10", "Sample.Film.2017.1080p.WEB-DL_eng.srt", "en")
+        selected = choose(media, batch(media, match))
+        self.assertEqual(selected.status, "EN_TRANSLATE")
+        self.assertEqual(selected.winner.subtitle_id, "en10")
+        self.assertNotIn("group", selected.winner.evidence)
+        self.assertNotIn("codec", selected.winner.evidence)
+
+    def test_missing_group_does_not_override_known_source_conflict(self):
+        media = Media("home", "torrent", 0, "Sample.Film.2017.1080p.WEB-DL.mkv")
+        different = Subtitle("en20", "Sample.Film.2017.1080p.BluRay_eng.srt", "en")
+        self.assertEqual(choose(media, batch(media, different)).status,
+                         "REVIEW_REQUIRED")
+
     def test_same_release_vi_wins(self):
         media = film()
         vi = Subtitle("vi1", "Sample.Film.2017.1080p.BluRay.x265-TEAM.srt", "vi")

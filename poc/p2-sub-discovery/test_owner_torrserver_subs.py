@@ -96,6 +96,35 @@ class SidecarTests(unittest.TestCase):
         self.assertEqual(again.status, "VI_READY")
         self.assertEqual(len(self.requests), 2)  # Cache reuses the first result.
 
+    def test_exact_torrent_vi_works_without_year_group_or_codec(self):
+        self.media = Media("owner-ts", "a" * 40, 3, "Uncatalogued.Film.mkv")
+        self.entries = [{"index": 5, "name": "Uncatalogued.Film.vi.srt",
+                         "format": "srt", "lang": "vi"}]
+        flow, provider, gemini = self.build_flow()
+        found = flow.selected_media(self.media.filename, verified_media=self.media,
+                                    source_fingerprint=self.fingerprint())
+        self.assertEqual((found.status, found.cue_count), ("VI_READY", 2))
+        self.assertEqual(provider.calls, [])
+        self.assertEqual(gemini.calls, [])
+        self.assertIn("/subs/" + self.media.torrent_hash + "/3", self.requests[0][0])
+
+    def test_exact_torrent_en_translates_and_reopens_without_year_or_group(self):
+        self.media = Media("owner-ts", "a" * 40, 3, "Uncatalogued.Film.mkv")
+        self.entries = [{"index": 4, "name": "Uncatalogued.Film.en.srt",
+                         "format": "srt", "lang": "en"}]
+        flow, provider, gemini = self.build_flow()
+        first = flow.selected_media(self.media.filename, verified_media=self.media,
+                                    source_fingerprint=self.fingerprint())
+        again = flow.selected_media(self.media.filename, verified_media=self.media,
+                                    source_fingerprint=self.fingerprint())
+        self.assertEqual((first.status, again.status),
+                         ("VIETSUB_READY", "VIETSUB_READY"))
+        self.assertEqual([method for method, _ in provider.calls], ["GET"])
+        self.assertEqual([len(c) for c in gemini.calls], [120, 5])
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(again.download_posts, 0)
+        self.assertEqual(again.get_requests, 0)
+
     def test_flow_prefers_os_vi_then_torrent_en_and_translates_once(self):
         flow, provider, gemini = self.build_flow()
         found = flow.selected_media(VIDEO, verified_media=self.media,
