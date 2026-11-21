@@ -2,6 +2,8 @@
 
 > **Superseded interpretation (Human 2026-10-28):** [ADR-0007](ADR-0007-independent-project-and-selective-reuse.md) thay thế toàn bộ giả định AIOS có thể là canonical admission/dispatch/runner bridge. **Torrent TV độc lập AIOS**, chỉ dùng GitHub Actions/runner/workspace/PR riêng; AIOS chỉ là nguồn tham khảo/copy mã hoặc mẫu workflow sau audit. Nội dung AIOS bên dưới là **lịch sử, không còn hiệu lực triển khai**. Quyết định runner/workspace riêng vẫn được giữ.
 
+> **Current override (#170, 2026-11-17):** Repo hiện PUBLIC. Chữ `PRIVATE` trong quyết định/sơ đồ cũ là lịch sử, không phải điều kiện build/CI/merge. Đường triển khai hiện tại là một Windows Owner và FLAT #172.
+
 
 **Decision:** ACCEPTED — reaffirmed directly by Human on 2026-10-25 in this project conversation.  
 **Implementation:** UNVERIFIED — repository exists; runner registration/online, workspace and dispatch bridge have not been independently proven.  

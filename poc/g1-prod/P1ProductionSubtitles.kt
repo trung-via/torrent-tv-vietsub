@@ -20,7 +20,7 @@ internal object P1ProductionSubtitles {
     private const val LABEL = "Vietsub rời (đã lưu)"
     private const val WARNING = "Phụ đề rời đã lưu không khả dụng. Kiểm tra file SRT/VTT."
     private val profileRx = Regex("[A-Za-z0-9_-]{1,80}")
-    private val hashRx = Regex("[0-9a-fA-F]{40}")
+    private val hashRx = Regex("(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
     private val digestRx = Regex("[0-9a-f]{64}")
     private val srtRx = Regex("""(?m)^\d{1,6}\r?\n\d{2}:\d{2}:\d{2},\d{3}[ \t]*-->[ \t]*\d{2}:\d{2}:\d{2},\d{3}""")
     private val vttRx = Regex("""(?m)^(?:\d{2}:)?\d{2}:\d{2}\.\d{3}[ \t]*-->[ \t]*(?:\d{2}:)?\d{2}:\d{2}\.\d{3}""")

@@ -2,6 +2,8 @@
 
 > **Tái xác nhận 2026-10-28 (Human):** **OMP là codebase chính thức để tiếp tục phát triển Torrent TV Vietsub. Không xây lại ứng dụng Android TV mới bằng Kotlin + Jetpack Compose + Media3.** Kotlin/2160 Player/Media3/VLC chỉ là các native components đã có **bên trong OMP**. ADR-0007 xác định dự án độc lập hoàn toàn AIOS; phần AIOS (nếu có) chỉ là bối cảnh lịch sử.
 
+> **Current override (#170, 2026-11-17):** Repo hiện PUBLIC; ghi chú `PRIVATE` và `chưa có APK` bên dưới là snapshot năm 2026-10, không dùng để chặn CI hoặc phủ nhận Android Debug build #172. Real-TV Vietsub tự động vẫn chưa nghiệm thu.
+
 
 **Ngày:** 2026-10-25  
 **Status:** ACCEPTED — Human-approved product direction; technical feasibility UNVERIFIED  

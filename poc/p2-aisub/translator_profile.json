@@ -1,0 +1,5 @@
+{
+  "provider": "gemini",
+  "model": "gemini-4-hydrogen",
+  "thinking_level": "high"
+}
