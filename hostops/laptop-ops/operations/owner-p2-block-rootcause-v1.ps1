@@ -16,6 +16,8 @@ $report = [ordered]@{
     batch2_file = 'UNKNOWN'
     log_block_seen = 'UNKNOWN'
     last_block_code = 'UNKNOWN'
+    first_actionable_code = 'UNKNOWN'
+    block_event_count = -1
 }
 
 try {
@@ -81,42 +83,64 @@ try {
         ($logItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         throw 'P2_ROOTCAUSE_LOG_UNTRUSTED'
     }
-    $tailLines = @(Get-Content -LiteralPath $ownerLog -Tail 320 -Encoding UTF8 -ErrorAction Stop)
-    if (($tailLines -join "`n").Length -gt 150000) {
+    # A later retry can only report the protective UNCERTAIN_BATCH hold.
+    # Search prior blocked tracebacks for the actual initiating exception.
+    $tailLines = @(Get-Content -LiteralPath $ownerLog -Tail 2400 -Encoding UTF8 -ErrorAction Stop)
+    if (($tailLines -join "`n").Length -gt 1000000) {
         throw 'P2_ROOTCAUSE_LOG_TAIL_TOO_LARGE'
     }
-    $lastBlockLine = -1
+    $blockLines = @()
     for ($index=0; $index -lt $tailLines.Count; $index++) {
         if ($tailLines[$index] -match "^OWNER_FULL_TRACE 'P2_EVENT_BLOCKED' ") {
-            $lastBlockLine = $index
+            $blockLines += $index
         }
     }
-    $report.log_block_seen = if ($lastBlockLine -ge 0) {'YES'} else {'NO'}
-    if ($lastBlockLine -ge 0) {
-        # The next OWNER_FULL_TRACE denotes a separate event. Never mix its
-        # exception into the last blocked P2 event's cause classification.
-        $candidate = 'UNKNOWN'
-        for ($index=$lastBlockLine+1; $index -lt $tailLines.Count; $index++) {
-            if ($tailLines[$index] -match '^OWNER_FULL_TRACE ') { break }
-            if ($tailLines[$index] -cmatch '^ValueError: ([A-Z][A-Z0-9_]{4,79})\s*$') {
-                $candidate = $Matches[1]
-            }
-        }
-        $known = @(
+    $report.block_event_count = $blockLines.Count
+    $report.log_block_seen = if ($blockLines.Count -gt 0) {'YES'} else {'NO'}
+    $known = @(
             'AGY_TIMEOUT_RESULT_UNKNOWN','AGY_PROCESS_FAILED_RESULT_UNKNOWN',
             'AGY_PROCESS_START_FAILED','AGY_NO_SUCCESSFUL_RESULT',
             'AGY_EVENT_INVALID','AGY_UNEXPECTED_TOOL_USAGE',
             'AGY_MULTIPLE_RESULTS','AGY_RESPONSE_TOO_LARGE',
             'AGY_STRUCTURED_OUTPUT_REQUIRED','AGY_TRANSLATION_ENVELOPE_INVALID',
             'AGY_TRANSLATION_COUNT_INVALID','AGY_TRANSLATION_ID_OR_TEXT_INVALID',
+            'AGY_ACCOUNT_SETTINGS_UNREADABLE','AGY_ACCOUNT_SETTINGS_INVALID',
+            'AGY_ACCOUNT_REQUIRED_API_KEY_MODE_REFUSED',
+            'AGY_PERSONAL_ACCOUNT_MODE_REQUIRED','AGY_APP_ACCOUNT_SETTINGS_UNREADABLE',
+            'AGY_APP_ACCOUNT_SETTINGS_INVALID','AGY_ACCOUNT_REQUIRED_ADC_MODE_REFUSED',
+            'AGY_LIVE_PROVIDER_FORBIDDEN_IN_CI','AGY_OWNER_HOME_UNAVAILABLE',
+            'AGY_CLI_NOT_INSTALLED_FOR_OWNER','AGY_MODEL_SLUG_INVALID',
+            'AGY_MODEL_THINKING_LEVEL_MISMATCH',
             'AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE',
             'AUTO_LEAN120_CHECKPOINT_INVALID','AUTO_LEAN120_CHECKPOINT_DIGEST_MISMATCH',
+            'AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD',
+            'AUTO_LEAN120_ABANDONED_JOB_HOLD',
             'LEAN120_WINDOW_INVALID','LEAN120_GLOSSARY_INVALID',
             'P4_ROLLING_TV_SESSION_CHANGED','P4_ROLLING_TORRSERVER_FILE_CHANGED',
             'P4_ROLLING_SELECTED_MEDIA_CHANGED'
-        )
-        if ($candidate -cin $known) { $report.last_block_code = $candidate }
-        else { $report.last_block_code = 'UNCLASSIFIED' }
+    )
+    foreach ($line in $blockLines) {
+        # A subsequent OWNER_FULL_TRACE belongs to a different event. The
+        # traceback remains Owner-private; only source-owned codes escape.
+        $candidate = 'UNCLASSIFIED'
+        for ($index=$line+1; $index -lt $tailLines.Count; $index++) {
+            if ($tailLines[$index] -match '^OWNER_FULL_TRACE ') { break }
+            if ($tailLines[$index] -cmatch '^(?:ValueError|RuntimeError): ([A-Z][A-Z0-9_]{4,79})\s*$' -and
+                $Matches[1] -cin $known) {
+                $candidate = $Matches[1]
+            }
+        }
+        $report.last_block_code = $candidate
+        if ($report.first_actionable_code -ceq 'UNKNOWN' -and
+            $candidate -cnotin @('UNCLASSIFIED',
+                'AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE',
+                'AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD',
+                'AUTO_LEAN120_ABANDONED_JOB_HOLD')) {
+            $report.first_actionable_code = $candidate
+        }
+    }
+    if ($blockLines.Count -gt 0 -and $report.first_actionable_code -ceq 'UNKNOWN') {
+        $report.first_actionable_code = 'UNCLASSIFIED'
     }
     $report.status = 'OBSERVED'
     $report.phase = 'COMPLETE'

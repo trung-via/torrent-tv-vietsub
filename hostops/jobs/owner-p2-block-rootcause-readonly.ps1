@@ -16,7 +16,7 @@ if ($item.Length -le 0 -or $item.Length -gt 512 -or
 }
 $report = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
 if (@($report.PSObject.Properties.Name | Sort-Object) -join ',' -cne
-        'batch1_file,batch2_file,last_block_code,log_block_seen,marker_batch,marker_count,phase,schema,status,task_state,utc_epoch' -or
+        'batch1_file,batch2_file,block_event_count,first_actionable_code,last_block_code,log_block_seen,marker_batch,marker_count,phase,schema,status,task_state,utc_epoch' -or
     $report.schema -cne 'TTV-P2-BLOCK-ROOTCAUSE-V1' -or
     $report.status -cnotin @('OBSERVED','HOLD') -or
     $report.phase -cnotin @('IDENTITY','TASK','MARKER','LOG','COMPLETE') -or
@@ -26,6 +26,9 @@ if (@($report.PSObject.Properties.Name | Sort-Object) -join ',' -cne
     $report.batch2_file -cnotin @('UNKNOWN','YES','NO') -or
     $report.log_block_seen -cnotin @('UNKNOWN','YES','NO') -or
     $report.last_block_code -cnotmatch '^(UNKNOWN|UNCLASSIFIED|AGY_[A-Z0-9_]+|AUTO_LEAN120_[A-Z0-9_]+|LEAN120_[A-Z0-9_]+|P4_ROLLING_[A-Z0-9_]+)$' -or
+    $report.first_actionable_code -cnotmatch '^(UNKNOWN|UNCLASSIFIED|AGY_[A-Z0-9_]+|AUTO_LEAN120_[A-Z0-9_]+|LEAN120_[A-Z0-9_]+|P4_ROLLING_[A-Z0-9_]+)$' -or
+    $report.block_event_count -isnot [ValueType] -or
+    $report.block_event_count -lt -1 -or $report.block_event_count -gt 2400 -or
     $report.marker_count -isnot [ValueType] -or
     $report.marker_count -lt -1 -or $report.marker_count -gt 10000) {
     throw 'P2_ROOTCAUSE_READER_INVALID_SCHEMA'
@@ -40,5 +43,7 @@ Write-Output ('P2_ROOTCAUSE_MARKER_BATCH=' + $report.marker_batch)
 Write-Output ('P2_ROOTCAUSE_BATCH1_FILE=' + $report.batch1_file)
 Write-Output ('P2_ROOTCAUSE_BATCH2_FILE=' + $report.batch2_file)
 Write-Output ('P2_ROOTCAUSE_LOG_BLOCK_SEEN=' + $report.log_block_seen)
+Write-Output ('P2_ROOTCAUSE_BLOCK_EVENT_COUNT=' + $report.block_event_count)
 Write-Output ('P2_ROOTCAUSE_LAST_BLOCK_CODE=' + $report.last_block_code)
+Write-Output ('P2_ROOTCAUSE_FIRST_ACTIONABLE_CODE=' + $report.first_actionable_code)
 Write-Output 'P2_ROOTCAUSE_PRIVATE_DATA=NOT_READ_BY_RUNNER'

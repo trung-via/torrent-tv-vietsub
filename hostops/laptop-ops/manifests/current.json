@@ -4,6 +4,6 @@
   "risk": "ROUTINE",
   "category": "diagnostics",
   "script_path": "hostops/laptop-ops/operations/owner-p2-block-rootcause-v1.ps1",
-  "script_sha256": "68035063d904bf930a0a620ac9b21abbc5727ebe6409b6ed73edd72b2b6f97f8",
+  "script_sha256": "943f3875c545ec05e58f02e2302d979785aa7b5a9aad2aa958ed1e0170ae39ce",
   "arguments": []
 }
