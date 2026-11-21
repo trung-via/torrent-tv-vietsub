@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -13,14 +14,18 @@ MANIFEST = ROOT / "hostops/laptop-ops/manifests/current.json"
 
 
 class FreshInspectV2Contract(unittest.TestCase):
-    def test_manifest_pins_exact_diagnostic_source(self):
+    def test_recovery_manifest_pins_exact_clear_source(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["operation"], "owner-p2-fresh-inspect-v2")
+        self.assertEqual(manifest["operation"], "owner-p2-fresh-start")
         self.assertEqual(manifest["risk"], "ROUTINE")
-        self.assertEqual(manifest["category"], "diagnostics")
-        self.assertEqual(manifest["arguments"], [])
+        self.assertEqual(manifest["category"], "owner-maintenance")
+        self.assertEqual(manifest["arguments"], ["-ApplyClear"])
+        checked_in_bytes = subprocess.run(
+            ["git", "show", "HEAD:hostops/laptop-ops/operations/owner-p2-fresh-start.ps1"],
+            cwd=ROOT, capture_output=True, check=True,
+        ).stdout
         self.assertEqual(
-            manifest["script_sha256"], hashlib.sha256(OP.read_bytes()).hexdigest()
+            manifest["script_sha256"], hashlib.sha256(checked_in_bytes).hexdigest()
         )
 
     def test_operation_is_bounded_read_only(self):
@@ -43,6 +48,15 @@ class FreshInspectV2Contract(unittest.TestCase):
         self.assertIn("'OBSERVED','HOLD'", source)
         self.assertNotIn("$env:LOCALAPPDATA", source)
         self.assertNotIn("Set-Content", source)
+
+    def test_clear_selects_one_marker_not_all_jobs(self):
+        source = (ROOT / "hostops/laptop-ops/operations/owner-p2-fresh-start.ps1").read_text()
+        self.assertIn("'Running','Ready'", source)
+        self.assertIn("$targetCandidates.Count -ne 1", source)
+        self.assertIn("$candidateDoc.marker_sha256 -ceq $expectedOriginalMarkerSha", source)
+        self.assertIn("if ($wasRunning)", source)
+        self.assertIn("$result", OP.read_text())
+        self.assertIn("$uninspectable.Count -eq 0", source)
 
 
 if __name__ == "__main__":

@@ -22,12 +22,23 @@ if ([string]::IsNullOrWhiteSpace($logged) -or
 $taskName = 'TorrentTV-Vietsub-OwnerAgent'
 $task = Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
 $actions = @($task.Actions)
-if ([string]$task.State -cne 'Running' -or
+if ([string]$task.State -cnotin @('Running','Ready') -or
     [string]$task.Principal.LogonType -ine 'Interactive' -or
     $actions.Count -ne 1 -or
     [IO.Path]::GetFileName([string]$actions[0].Execute) -ine 'pwsh.exe' -or
     [string]$actions[0].Arguments -notmatch '(?i)start-owner-session-agent\.ps1') {
     throw 'P2_FRESH_START_OWNER_TASK_CONTRACT_HOLD'
+}
+$wasRunning = [string]$task.State -ceq 'Running'
+# A previously stopped Owner is a valid recovery state. Before touching P2,
+# independently verify that no detached Owner process or opaque Python worker
+# can race this one-shot operation. The Owner token can inspect its own jobs.
+if (-not $wasRunning) {
+    $pythonBefore = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe' OR Name='py.exe'" -ErrorAction Stop)
+    if (@($pythonBefore | Where-Object {
+        [string]$_.CommandLine -match '(?i)owner_p3_p4_entrypoint\.py|owner_session_bridge\.py' -or
+        [string]::IsNullOrWhiteSpace([string]$_.CommandLine)
+    }).Count -ne 0) { throw 'P2_FRESH_START_DETACHED_OWNER_OR_OPAQUE_PYTHON_HOLD' }
 }
 $ownerRoot = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $stateRoot = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\P2\auto-lean120-state'
@@ -57,11 +68,23 @@ if ($inflight.Count -ne 0 -or $locks.Count -ne 0 -or $pending.Count -ne 0) {
 }
 
 $ledgers = @(Get-ChildItem -LiteralPath $stateRoot -File -Filter 'batch-*.abandoned.json' -Recurse -ErrorAction Stop)
-if ($ledgers.Count -ne 1 -or $ledgers[0].Name -cne 'batch-0001.abandoned.json' -or
-    $ledgers[0].Directory.Name -cnotmatch '^[0-9a-f]{64}$') {
-    throw 'P2_FRESH_START_EXACTLY_ONE_QUARANTINED_JOB_REQUIRED'
+$targetCandidates = @()
+foreach ($candidate in $ledgers) {
+    AssertPlain $candidate.FullName $false
+    if ($candidate.Name -cne 'batch-0001.abandoned.json' -or
+        $candidate.Directory.Name -cnotmatch '^[0-9a-f]{64}$' -or
+        -not $candidate.Directory.Parent.FullName.Equals(
+            $stateRoot, [StringComparison]::OrdinalIgnoreCase)) { continue }
+    $candidateDoc = Get-Content -LiteralPath $candidate.FullName -Raw -Encoding UTF8 |
+        ConvertFrom-Json -AsHashtable
+    if ($candidateDoc.marker_sha256 -ceq $expectedOriginalMarkerSha) {
+        $targetCandidates += $candidate
+    }
 }
-$ledger = $ledgers[0]
+if ($targetCandidates.Count -ne 1) {
+    throw 'P2_FRESH_START_EXACT_QUARANTINED_TARGET_NOT_UNIQUE'
+}
+$ledger = $targetCandidates[0]
 $folder = $ledger.Directory.FullName
 if (-not $ledger.Directory.Parent.FullName.Equals(
         $stateRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -99,7 +122,9 @@ $disabled = $false
 try {
     Disable-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop | Out-Null
     $disabled = $true
-    Stop-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
+    if ($wasRunning) {
+        Stop-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
+    }
     $stopped = $false
     for ($attempt = 0; $attempt -lt 12; $attempt++) {
         Start-Sleep -Seconds 1
