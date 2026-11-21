@@ -21,6 +21,13 @@ if (@($task.Actions).Count -eq 1) {
     Write-Output ('OWNER_PREFLIGHT_ORIGINAL_LAUNCHER=' + $(if (
         [string]$action.Arguments -match '(?i)start-owner-session-agent\.ps1') { 'YES' } else { 'NO' }))
 }
+foreach ($name in @('TorrentTV-Vietsub-Laptop-HostOps',
+                   'TorrentTV-Vietsub-Owner-Release-Stage')) {
+    $bridge = Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
+    $key = $(if ($name -like '*Laptop*') { 'LAPTOP_OPS' } else { 'RELEASE_STAGE' })
+    $value = $(if ($null -eq $bridge) { 'NOT_ENROLLED' } else { [string]$bridge.State })
+    Write-Output ('OWNER_PREFLIGHT_' + $key + '=' + $value)
+}
 
 $file = Join-Path $env:ProgramData 'TorrentTVVietsub\OwnerBridge\Diagnostics\owner-snapshot.json'
 if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
