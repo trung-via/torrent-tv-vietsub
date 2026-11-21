@@ -25,9 +25,14 @@ if ($data.schema -cne 'TTV-OWNER-RELEASE-STAGE-V1' -or
     @($data.files).Count -ne 5) { throw 'SOURCE_CHECK_RELEASE_MANIFEST_DRIFT' }
 foreach ($entry in $data.files) {
     $source = Join-Path $root ([string]$entry.path).Replace('/','\')
-    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -cne
-        [string]$entry.sha256) { throw 'SOURCE_CHECK_STAGE_SOURCE_HASH_DRIFT' }
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or
+        [string]$entry.sha256 -cnotmatch '\A[0-9a-f]{64}\z') {
+        throw 'SOURCE_CHECK_STAGE_PATH_OR_SHA_INVALID'
+    }
 }
+# Windows git checkout may CRLF-normalize source files, so their working-tree
+# SHA256 is not the exact raw-Git SHA256. The Owner-side STAGE_ONLY receipt
+# already verified each downloaded raw source byte against this manifest.
 $installer = Get-Content -LiteralPath (Join-Path $root $files[0]) -Raw
 if ($installer -notmatch [regex]::Escape('STARTED_OWNER_STOP_P2_STATE_PRESERVED') -or
     $installer -notmatch [regex]::Escape('INSTALLED_OWNER_FRESH_P2_STATE_PRESERVED') -or
@@ -36,6 +41,6 @@ if ($installer -notmatch [regex]::Escape('STARTED_OWNER_STOP_P2_STATE_PRESERVED'
     $installer -match '(?i)Invoke-RestMethod[^\r\n]*(gemini|antigravity)') {
     throw 'SOURCE_CHECK_OWNER_STATE_CONTRACT_DRIFT'
 }
-Write-Output 'HOSTOPS_OWNER_CHECKPOINT_SOURCE=PS_PARSE_3_STAGE_HASH_5_PASS'
+Write-Output 'HOSTOPS_OWNER_CHECKPOINT_SOURCE=PS_PARSE_3_RELEASE_MANIFEST_VALID_PASS'
 Write-Output 'HOSTOPS_OWNER_CHECKPOINT_SOURCE_OWNER=UNTOUCHED'
 Write-Output 'HOSTOPS_OWNER_CHECKPOINT_SOURCE_PROVIDER_TV=NOT_RUN'
