@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-p2-fresh-inspect",
+  "operation": "owner-p2-fresh-inspect-v2",
   "risk": "ROUTINE",
   "category": "diagnostics",
-  "script_path": "hostops/laptop-ops/operations/owner-p2-fresh-inspect.ps1",
-  "script_sha256": "6e258ce5f71089baa2393e89a2b627ff4614ecf7a53dfb85adfc7c4bec663f22",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-fresh-inspect-v2.ps1",
+  "script_sha256": "29ea81f2648a851e420f8abc5618b40289f045eeb48e94ebdce971e7500eff69",
   "arguments": []
 }
