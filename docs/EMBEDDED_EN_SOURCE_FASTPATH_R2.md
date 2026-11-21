@@ -1,7 +1,7 @@
 # Torrent sidecar English fast path — R2 decision and latency audit
 
-Date: 2026-11-21. Status: **MKV EN extraction removed in PR #178;
-torrent `/subs` sidecar fast path DESIGN_ONLY, NOT IMPLEMENTED OR DEPLOYED**.
+Date: 2026-11-21. Status: **SOURCE_IMPLEMENTED in PR #178 candidate;
+not installed on Owner, real TorrServer/Redmi unverified**.
 Target: one signed Redmi `Bật Vietsub AI` request -> existing Owner P2
 LEAN120 job -> existing authenticated P4 receiver. Keep the parallel film
 jobs and durable A→B→A SRT cache in PR #178.
@@ -26,8 +26,9 @@ avoidance; that is not extracting English subtitle bytes.
    on the Owner. The previous `ffprobe`+`ffmpeg` complete-local-MKV EN
    extraction branch is removed. FFmpeg remains only to normalize a `.vtt`
    **sidecar file** into SRT.
-4. Without a valid local source, current owner flow uses OpenSubtitles
-   `VI_FAST`, then confidence-gated English -> existing P2 translator.
+4. Without a valid local source, the candidate Owner flow lists external
+   VI/EN file companions using `/subs`; falls back to OpenSubtitles `VI_FAST`
+   and the existing P2 translator. The installed Owner is unverified.
 
 ## Upstream interface distinction (do not confuse the two)
 
@@ -45,7 +46,7 @@ avoidance; that is not extracting English subtitle bytes.
   blocks can be interleaved with video: source read time is unbounded by
   the subtitle file size. [RFC 9559](https://www.rfc-editor.org/rfc/rfc9559.html).
 
-## Proposed source-admission sequence
+## Implemented source-admission sequence in candidate code
 
 1. **One trusted media identity:** use the exact signed TV session, Owner
    profile, TorrServer infohash, and selected-file index. Never infer a new
@@ -54,10 +55,11 @@ avoidance; that is not extracting English subtitle bytes.
 2. **Inspect existing cache first:** reuse completed VI immediately, or
    rehydrate P2's saved latest revisions. Check actual local/embedded VI and
    an exact in-torrent VI sidecar before invoking any translator.
-3. **Run a short candidate race:** in parallel, query `/subs` for external
-   VI/EN sidecar **files** in the torrent and perform existing confidence-gated
-   OpenSubtitles VI discovery. `/ffp` remains for VI presence only. Choose
-   a validated VI if available before committing a translation job.
+3. **List exact-file companions:** list VI/EN sidecar **files** in the torrent
+   through Owner-only `/subs`. Download a unique, validated VI immediately.
+   Otherwise probe OpenSubtitles VI (one bounded request); if no confident VI,
+   fetch the unique in-torrent EN candidate. This implementation is sequential,
+   not a parallel race. `/ffp` remains for VI presence only.
 4. **Prefer English supplied with the film over remote English:** a matched
    English `.srt/.ass/.ssa/.vtt` in the torrent via `/subs`, or a validated
    pinned local English `.srt/.vtt` sidecar, is handed to the existing P2 worker
@@ -65,11 +67,11 @@ avoidance; that is not extracting English subtitle bytes.
 5. **Never extract subtitle bytes from MKV:** ignore its English text/image
    tracks as P2 source candidates, irrespective of file completion or
    installed TorrServer binary. Do not probe GStreamer or Range/index paths.
-6. **Fallback and commitment:** when no in-torrent/local sidecar text source
-   completes within the short budget, use the current OpenSubtitles
-   VI-first/EN fallback. Freeze one selected source and its SHA before the
-   first paid P2 batch; a later local result may not cause a duplicate job.
-   Store source kind, track index and validation receipt privately per film.
+6. **Fallback and commitment:** unavailable/malformed `/subs` listing, no
+   unambiguous track, or invalid fetched VTT resumes OpenSubtitles without
+   repeating its VI request. The selected asset is SHA-checked and cached
+   under the verified film identity before existing P2 batches. Per-film
+   reuse prevents a later source from invoking a duplicate translation.
 
 ## Time and traffic audit
 
@@ -78,24 +80,28 @@ avoidance; that is not extracting English subtitle bytes.
 | Removed complete-MKV EN extraction | Previous configured `ffprobe` + `ffmpeg` timeouts `20s + 45s` | **Now eliminated**; up to 65s timeout budget no longer occurs in this EN source route |
 | Historical synthetic local MKV measurement | `ffprobe` 0.09s; `ffmpeg` 0.08s on a 650,054-byte synthetic file | Historical evidence only; **not** justification to reinstate extraction |
 | Current Owner `/ffp` | Source HTTP timeout 3s | Only determines VI track state; may time out on missing peers |
-| Proposed torrent `.srt` via `/subs` | Upstream supports companion files up to 2 MiB | Target 2s list + 8s fetch maximum, not an observed SLA |
+| Candidate torrent sidecar via `/subs` | Owner client limits list to 64 KiB / 2s; selected VTT to 256 KiB / 8s | Source timeout cap per request, **not a measured installed-server SLA**; large tracks fall back |
 | Embedded MKV English extraction | **Excluded by Human decision** | No probe, transcode, transfer or translation-source candidate |
 
 The above extraction times **exclude** P2 model latency and P4 publication.
-The proposed fast path has a 10-second source admission ceiling for
-**external subtitle files in the torrent**, with OpenSubtitles in parallel.
+The implemented `/subs` path has a 2s list and 8s per selected-track request
+cap; VI-first OpenSubtitles discovery happens **after** the list and before
+English sidecar fetch when an English candidate exists. No parallel race is
+claimed. The per-track cap is not a whole-flow 10-second guarantee.
 There is no embedded MKV extraction SLA because that feature is removed.
 
-## Smallest implementation and acceptance
+## Source implementation and pending live acceptance
 
-- Keep `owner_torrserver_ffp_tracks.py` unchanged for VI presence. Add an Owner-only `/subs`
-  list/selected-file client to `owner_torrserver_readonly.py` (or adjacent
-  module), strictly bound to the selected file. Map returned `lang`, `index`,
-  `format`, never trust a returned absolute URL.
-- Add a source-selector boundary in `automatic_vietsub_flow.py`: valid VI,
-  exact in-torrent/local English, then OpenSubtitles fallback. Reuse
-  `local_en_direct.py` conversion/QA and P2 per-film caches. Track source
-  choice and elapsed times, no extra translation worker or new TV toggle.
+- `owner_torrserver_subs.py`: a bounded localhost-only `/subs` reader bound to
+  the verified profile/hash/file index. Handles TorrServer's `lang=und` for
+  Vietnamese via explicit filename tokens; never follows advertised track URLs.
+  Validates WebVTT and normalizes to UTF-8 SRT using existing cue code.
+- `p3_owner_state_wiring.py` attaches the reader to the existing
+  `AutomaticVietsubFlow`, which preserves VI-first OpenSubtitles discovery,
+  EN sidecar priority, per-film cache and P2/P4 handoff. No new worker,
+  provider, user toggle or MKV extraction.
+- Offline synthetic tests prove fallback for 404/malformed cue, duplicate EN,
+  VI sidecar, EN sidecar, cached reopening and no duplicate provider call.
 - A read-only Torrent TV HostOps probe on the *installed* Owner should
   report TorrServer version, `/subs` availability, `/ffp` VI state,
   time-to-list, time-to-first-validated-sidecar-EN and bytes transferred.
@@ -107,6 +113,6 @@ There is no embedded MKV extraction SLA because that feature is removed.
   and no duplicate A after switching A→B→A. Measure median, p95 and input
   bytes; unavailable `/subs` must fall back promptly, never freeze playback.
 
-Evidence status: SOURCE_AUDIT + LOCAL_SYNTHETIC_BENCH only. No Windows
-HostOps endpoint, real TorrServer media probe, provider call, APK or Redmi
-acceptance was executed for this design.
+Evidence status: SOURCE_ONLY + OFFLINE_TESTS only. No Windows HostOps
+endpoint, installed TorrServer `/subs` probe, real subtitle download,
+Gemini call, APK or Redmi acceptance has run for this candidate.

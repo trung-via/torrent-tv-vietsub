@@ -19,6 +19,9 @@ from typing import Callable
 from matcher import Media, _release_stem_and_accessibility, parse_release
 from local_en_direct import LocalMediaSelection, find_local_english
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
+from owner_torrserver_subs import (
+    OwnerTorrServerSubtitleReader, SidecarInventory, TorrServerSubsUnavailable,
+)
 from owner_en_single_trial import _claim_one_post, _preflight_cache
 from owner_vietsub_pipeline import (
     PipelineReceipt, _receipt, translate_existing_en,
@@ -69,6 +72,13 @@ class AutomaticVietsubFlow:
         self.emit = emit or (lambda _: None)
         self._model_preflight = model_preflight
         self._model_ready = False
+        self.torrent_sidecars: OwnerTorrServerSubtitleReader | None = None
+
+    def set_torrent_sidecars(self, reader: OwnerTorrServerSubtitleReader) -> None:
+        """Install one Owner-pinned localhost source, never from TV JSON."""
+        if not isinstance(reader, OwnerTorrServerSubtitleReader):
+            raise ValueError("AUTO_TORRENT_SIDECAR_READER_INVALID")
+        self.torrent_sidecars = reader
 
     def _ensure_en_model_ready(self) -> None:
         # Only a source that actually needs EN->VI invokes this no-content
@@ -316,7 +326,49 @@ class AutomaticVietsubFlow:
         media_key = source_fingerprint or hashlib.sha256(
             video_name.casefold().encode("utf-8")).hexdigest()
         media = verified_media or Media("owner-auto-unverified", media_key, 0, video_name)
-        route = select_vi_then_en(self.client, media, policy="VI_FAST")
+        inventory: SidecarInventory | None = None
+        if verified_media is not None and self.torrent_sidecars is not None:
+            try:
+                inventory = self.torrent_sidecars.list_for_media(verified_media)
+            except TorrServerSubsUnavailable:
+                self.emit("AUTO_TORRENT_SIDECARS=UNAVAILABLE_FALLBACK")
+            if inventory is not None and inventory.vi is not None:
+                try:
+                    vi_asset = self.torrent_sidecars.download(inventory, inventory.vi)
+                except TorrServerSubsUnavailable:
+                    self.emit("AUTO_TORRENT_VI=UNAVAILABLE_FALLBACK")
+                else:
+                    vi_path = write_private_cache(self.cache_root, media, vi_asset)
+                    self._remember_source(
+                        video_name, vi_path, vi_asset,
+                        source_fingerprint=source_fingerprint)
+                    self.emit("AUTO_VI_SOURCE=TORRENT_SIDECAR")
+                    self.emit("AUTO_AI_TRANSLATION_REQUESTS=0")
+                    return AutoResult("VI_READY", cue_count=vi_asset.cues)
+
+        route = select_vi_then_en(
+            self.client, media, policy="VI_FAST",
+            external_en_available=(inventory is not None and inventory.en is not None))
+        if route.status == "EXTERNAL_EN":
+            try:
+                en_asset = self.torrent_sidecars.download(inventory, inventory.en)
+            except TorrServerSubsUnavailable:
+                self.emit("AUTO_TORRENT_EN=UNAVAILABLE_FALLBACK")
+                # VI was already checked; do not pay for another VI GET.
+                route = select_vi_then_en(self.client, media, policy="EN_DIRECT")
+            else:
+                en_path = write_private_cache(self.cache_root, media, en_asset)
+                self._remember_source(
+                    video_name, en_path, en_asset,
+                    source_fingerprint=source_fingerprint)
+                translated = self.after_en_cached(en_asset, en_path)
+                if not translated.translation_complete:
+                    raise ValueError("AUTO_TORRENT_EN_INCOMPLETE_TRANSLATION")
+                self.emit("AUTO_EN_SOURCE=TORRENT_SIDECAR")
+                return AutoResult(
+                    "VIETSUB_READY", cue_count=en_asset.cues,
+                    translated_cues=translated.translated_cues,
+                    get_requests=route.get_requests)
         self.emit(f"AUTO_SOURCE_ROUTE={route.status}")
         if route.status not in ("VI_READY", "EN_TRANSLATE"):
             return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
