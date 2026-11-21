@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-title-alias-178-preflight",
+  "operation": "owner-title-alias-178-install",
   "risk": "ROUTINE",
-  "category": "diagnostics",
+  "category": "owner-maintenance",
   "script_path": "hostops/laptop-ops/operations/owner-title-alias-178-install.ps1",
   "script_sha256": "6e4bdf07736f540bb56daaeceb23b521a667784f7581256da81ced3529c8a105",
-  "arguments": ["-PreflightOnly"]
+  "arguments": []
 }
