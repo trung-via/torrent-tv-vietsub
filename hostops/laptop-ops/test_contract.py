@@ -61,8 +61,8 @@ class LaptopOpsContractTests(unittest.TestCase):
 
     def test_first_operation_installer_pin(self):
         operation = (ROOT / "hostops/laptop-ops/operations/owner-full-diagnostics-install.ps1").read_text()
-        self.assertIn("5bb0dfc114e0f8702ce86cb768a387a521e94fee", operation)
-        self.assertIn("430317baf5574d9dda186684cad4ebd95cfcf3d5e839cc6799af1c3ac50e3361", operation)
+        self.assertIn("b92926714199fa986c29b48202460d903a518025", operation)
+        self.assertIn("d1877e7a3f25c026252f9bcdfb9b308a27d4008e319d431145750b8207484e08", operation)
         self.assertRegex(operation, re.compile(r"(?m)^\s*& pwsh .* -Apply$"))
 
     def test_full_diagnostic_atomic_replace_has_explicit_backup(self):

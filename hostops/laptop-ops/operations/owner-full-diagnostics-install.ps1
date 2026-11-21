@@ -3,8 +3,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$commit = '5bb0dfc114e0f8702ce86cb768a387a521e94fee'
-$expected = '430317baf5574d9dda186684cad4ebd95cfcf3d5e839cc6799af1c3ac50e3361'
+$commit = 'b92926714199fa986c29b48202460d903a518025'
+$expected = 'd1877e7a3f25c026252f9bcdfb9b308a27d4008e319d431145750b8207484e08'
 $temp = Join-Path $env:TEMP ('ttv-owner-full-diag-ops-' + [Guid]::NewGuid().ToString('N') + '.ps1')
 try {
     $uri = 'https://raw.githubusercontent.com/trung-via/torrent-tv-vietsub/' +
