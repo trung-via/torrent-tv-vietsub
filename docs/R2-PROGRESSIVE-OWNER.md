@@ -18,11 +18,15 @@ deployment or release is implied by these files or their offline tests.
    changing the pinned F6 source. **After** each committed 120-cue batch,
    Owner rechecks current media/session and cached EN source, verifies the
    cumulative VI cue/timeline/hash, and publishes to the **same** P4 signer.
-5. P4 `/p4/activate` may succeed after the first verified batch, not after
-   `vi-final.srt`. It creates the existing signed `SessionRevisionFeed` and
-   gives the TV its existing source digest/session key. Subsequent 240/360…
-   revisions update that feed. A later activation can subscribe to the latest
-   already committed cumulative revision without invoking P2 again.
+5. P4 `/p4/activate` may now succeed as soon as an exact, verified EN cache
+   receipt exists, **before** the first paid window finishes: the existing
+   signed `SessionRevisionFeed` answers authenticated GET with `204` until a
+   verified cumulative 120-cue revision arrives. Subsequent 240/360…
+   revisions update the same feed without another activation or provider call.
+   A later activation (including after Owner restart or a failed callback)
+   reconstructs the latest contiguous committed revision from the original
+   P2 `batch-*.json` receipts, checking source, cue IDs, timing and digests.
+   A currently in-flight newer window is **never** retried by P4.
 
 The P2 internal `media.<digest>` is deliberately different from the P4
 exact-file media key. The R2 registry independently verifies the source and
@@ -35,11 +39,19 @@ to the actual P4 key derived from the authenticated TorrServer identity.
   owner-private EN cache: **no new P4 publication**.
 - P4 delivery error after a P2 checkpoint: preserve completed P2 work and
   **never retry a quota-bearing model call just to deliver subtitles**.
+  P4 now offers the most recent checkpoint after callback loss/restart rather
+  than depending on the lost Owner in-memory rolling pointer.
 - A provider failure or uncertain `*.inflight`: retain the original P2
   `NO_RETRY`/manual-reconciliation behavior; no clearing or automatic replay.
 - V2 SHA-pinned Owner route/policy/wiring and F6 worker/helper remain
   unmodified. R2 selects additive modules through the next Owner entrypoint.
 - No new endpoint, HTTP listener, TV picker, translator or provider.
+- Owner health and its existing bounded diagnostic snapshot tick independently
+  while the single Owner event thread waits on long P2 provider windows;
+  a fresh heartbeat is not proof that any cue rendered on the TV.
+- P4 emits only safe, fixed private activation rejection categories and
+  successful activate/revision-GET statuses. HTTP 200 proves transmission of
+  a signed offer, **not** native OMP subtitle acceptance or visual rendering.
 
 ## Source checks and physical rollout
 

@@ -81,6 +81,7 @@ class R2RollingTests(unittest.TestCase):
             runner=self.provider))
         self.flow = type("Flow", (), {"cache_root": self.cache,
                                        "worker": self.worker})()
+        self.registry.bind_existing_flow(self.flow)
 
     def activate(self, nonce: str):
         request = dict(schema="TTV-P4-ACTIVATE-V1", media_key=MEDIA_KEY,
@@ -98,11 +99,12 @@ class R2RollingTests(unittest.TestCase):
                 self.handoff, max_new_windows=max_new_windows)
 
     def test_first_120_available_before_full_240_with_one_p2_job(self):
-        with self.assertRaises(P3ReadyRejected):
-            self.activate("1" * 32)
+        pending = self.activate("1" * 32)
+        self.assertIsNone(pending.latest())  # P4 GET 204 before first batch.
         first = self.run_worker(max_new_windows=1)
         self.assertEqual((first.translated_count, first.complete), (120, False))
         self.assertFalse(list(self.state.rglob("vi-final.srt")))
+        self.assertEqual(decode_latest_test_only(pending)["translated_count"], 120)
         first_feed = self.activate("2" * 32)
         wire = decode_latest_test_only(first_feed)
         self.assertEqual((wire["version"], wire["translated_count"],
@@ -113,7 +115,7 @@ class R2RollingTests(unittest.TestCase):
         finished = self.run_worker()
         self.assertTrue(finished.complete)
         self.assertEqual(len(self.provider.calls), 2)
-        for feed in (first_feed, second_feed):
+        for feed in (pending, first_feed, second_feed):
             wire = decode_latest_test_only(feed)
             self.assertEqual((wire["version"], wire["translated_count"]), (2, 240))
             self.assertEqual(wire["source_sha256"], self.handoff.source_sha256)
@@ -150,6 +152,94 @@ class R2RollingTests(unittest.TestCase):
         self.assertFalse(list(self.state.rglob("batch-*.inflight")))
         self.run_worker()
         self.assertEqual(len(self.provider.calls), 2)
+
+    def test_failed_callback_can_recover_latest_without_provider(self):
+        with self.worker.bind(lambda _h, _r: (_ for _ in ()).throw(
+                ValueError("TV_UNAVAILABLE"))):
+            self.worker.run(self.handoff, max_new_windows=1)
+        self.assertEqual(len(self.provider.calls), 1)
+        # Simulates the old in-memory registry being lost at Owner restart.
+        fresh = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=lambda: self.current)
+        fresh.bind_existing_flow(self.flow)
+        gateway = PairedActivation(
+            device_secret=KEY, supplied={},
+            authenticated_vietsub_factory=fresh.resolve,
+            authenticated_progressive_factory=fresh.resolve_progressive)
+        nonce = "8" * 32
+        reply = gateway.activate(dict(
+            schema="TTV-P4-ACTIVATE-V1", media_key=MEDIA_KEY, nonce=nonce,
+            auth=activation_request_mac(KEY, MEDIA_KEY, nonce)))
+        self.assertEqual(decode_latest_test_only(
+            gateway.feed_for(reply["session_id"]))["translated_count"], 120)
+        self.assertEqual(len(self.provider.calls), 1)
+
+    def test_inflight_next_batch_does_not_hide_last_verified_checkpoint(self):
+        self.run_worker(max_new_windows=1)
+        job, = [x for x in self.state.iterdir() if x.is_dir()]
+        (job / "batch-0002.inflight").write_text("unresolved")
+        fresh = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=lambda: self.current)
+        fresh.bind_existing_flow(self.flow)
+        gateway = PairedActivation(
+            device_secret=KEY, supplied={},
+            authenticated_progressive_factory=fresh.resolve_progressive)
+        nonce = "9" * 32
+        reply = gateway.activate(dict(
+            schema="TTV-P4-ACTIVATE-V1", media_key=MEDIA_KEY, nonce=nonce,
+            auth=activation_request_mac(KEY, MEDIA_KEY, nonce)))
+        self.assertEqual(decode_latest_test_only(
+            gateway.feed_for(reply["session_id"]))["translated_count"], 120)
+        self.assertEqual(len(self.provider.calls), 1)
+        self.assertTrue((job / "batch-0002.inflight").is_file())
+
+    def test_later_failed_callback_is_replayed_on_next_p4_activation(self):
+        self.run_worker(max_new_windows=1)
+        first_feed = self.activate("d" * 32)
+        self.assertEqual(decode_latest_test_only(first_feed)["version"], 1)
+        with self.worker.bind(lambda _h, _r: (_ for _ in ()).throw(
+                RuntimeError("TV_LOST_WHILE_PROVIDER_CONTINUED"))):
+            self.worker.run(self.handoff)
+        self.assertEqual(len(self.provider.calls), 2)
+        self.assertEqual(decode_latest_test_only(first_feed)["version"], 1)
+        reconnected = self.activate("e" * 32)
+        self.assertEqual(decode_latest_test_only(reconnected)["version"], 2)
+        self.assertEqual(len(self.provider.calls), 2)
+
+    def test_restored_checkpoint_obeys_off_and_source_integrity(self):
+        self.run_worker(max_new_windows=1)
+        self.registry._rolling.clear()  # Loss of in-memory delivery pointers.
+        self.current = replace(self.current, viewer_choice="OFF")
+        with self.assertRaises(P3ReadyRejected):
+            self.activate("a" * 32)
+        self.current = replace(self.current, viewer_choice="REQUESTED")
+        self.source.write_bytes(b"tampered")
+        with self.assertRaises(P3ReadyRejected):
+            self.activate("b" * 32)
+        self.assertEqual(len(self.provider.calls), 1)
+
+    def test_pending_feed_on_fresh_owner_does_not_start_translation(self):
+        fresh = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=lambda: self.current)
+        fresh.bind_existing_flow(self.flow)
+        gateway = PairedActivation(
+            device_secret=KEY, supplied={},
+            authenticated_progressive_factory=fresh.resolve_progressive)
+        nonce = "c" * 32
+        reply = gateway.activate(dict(
+            schema="TTV-P4-ACTIVATE-V1", media_key=MEDIA_KEY, nonce=nonce,
+            auth=activation_request_mac(KEY, MEDIA_KEY, nonce)))
+        feed = gateway.feed_for(reply["session_id"])
+        self.assertIsNone(feed.latest())
+        self.assertEqual(len(self.provider.calls), 0)
+        # Only the existing worker starts through the original Owner event.
+        with self.worker.bind(lambda handoff, revision:
+                fresh.publish_worker_revision(
+                    media=MEDIA, source_fingerprint=FP, tv_session_id=SESSION,
+                    flow=self.flow, handoff=handoff, revision=revision)):
+            self.worker.run(self.handoff, max_new_windows=1)
+        self.assertEqual(decode_latest_test_only(feed)["translated_count"], 120)
+        self.assertEqual(len(self.provider.calls), 1)
 
 
 if __name__ == "__main__":

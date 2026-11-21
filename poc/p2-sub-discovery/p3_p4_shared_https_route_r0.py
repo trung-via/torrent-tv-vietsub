@@ -32,7 +32,9 @@ def make_p3_p4_handler_r0(
             or (ingress is not None
                 and not isinstance(ingress, P3IngressTelemetry))):
         raise ValueError("P3_R0_VERIFIED_COMPOSITION_REQUIRED")
-    P4Handler = make_paired_handler(controller)
+    P4Handler = make_paired_handler(
+        controller,
+        on_event=lambda code: owner_full_trace("P4_DELIVERY_STATUS", code=code))
     # ThreadingHTTPServer must not weaken the old single-threaded replay and
     # enqueue contract. Serialize selections separately from signed status:
     # a slow TorrServer probe may hold selection, but never TV heartbeats.

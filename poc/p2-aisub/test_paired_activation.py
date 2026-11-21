@@ -177,7 +177,8 @@ class PCActivationTests(unittest.TestCase):
         self.assertFalse(self.queued)
 
     def test_activation_http_contract_and_signed_reader(self):
-        cls=make_paired_handler(self.controller)
+        events=[]
+        cls=make_paired_handler(self.controller,on_event=events.append)
         handler=object.__new__(cls)
         from io import BytesIO
         responses=[];headers=[];outputs=[]
@@ -212,6 +213,26 @@ class PCActivationTests(unittest.TestCase):
         self.assertEqual(responses[-1],204)
         handler.do_GET()
         self.assertEqual(responses[-1],401)
+        self.assertEqual(events,["P4_ACTIVATE_HTTP_200",
+                                 "P4_REVISION_HTTP_204"])
+
+    def test_activation_403_emits_only_fixed_private_reason(self):
+        from io import BytesIO
+        events=[]
+        cls=make_paired_handler(self.controller,on_event=events.append)
+        handler=object.__new__(cls)
+        responses=[]
+        handler.send_error=lambda n:responses.append(n)
+        bad=self.request()
+        bad["auth"]="0"*64
+        body=json.dumps(bad).encode("ascii")
+        handler.path="/p4/activate"
+        handler.headers={"Content-Type":"application/json",
+                         "Content-Length":str(len(body))}
+        handler.rfile=BytesIO(body)
+        handler.do_POST()
+        self.assertEqual(responses,[403])
+        self.assertEqual(events,["P4_ACTIVATE_REJECTED_P4_ACTIVATE_AUTH_INVALID"])
 
 
 if __name__=="__main__":unittest.main()

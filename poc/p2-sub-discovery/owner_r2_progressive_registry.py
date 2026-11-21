@@ -24,7 +24,9 @@ from cached_en_direct_handoff import CachedEnReceipt, prepare_local_translation_
 from cue_pipeline import parse_cues
 from lan_revision_feed import SessionRevisionFeed
 from paired_activation import AuthenticatedProgressiveSource
-from progressive_handoff import SubtitleRevision
+from progressive_handoff import ProgressiveSubtitleSession, SubtitleRevision
+from automatic_lean120_worker import AutomaticLean120Worker, _job_fingerprint
+from owner_selected_file_resolver import CurrentPlaying, _fingerprint
 from matcher import Media
 from p3_p4_media_key import p4_media_key
 from p3_p4_ready_registry import P3OwnerReadyRegistry, P3ReadyRejected
@@ -41,7 +43,7 @@ class _RollingReceipt:
     source_sha256: str
     source_cues: int
     worker_media_key: str
-    latest: SubtitleRevision
+    latest: SubtitleRevision | None
     feeds: list[SessionRevisionFeed] = field(default_factory=list)
 
 
@@ -50,6 +52,170 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         super().__init__(
             read_verified_current_playback=read_verified_current_playback)
         self._rolling: dict[str, _RollingReceipt] = {}
+        self._flow: object | None = None
+
+    def bind_existing_flow(self, flow: object) -> None:
+        """Bind the ONE already-running P2 worker for read-only checkpoint reuse.
+
+        P4 activation may be served on a different HTTPS thread while P2 is
+        doing a paid window. Never call worker.run() from this path.
+        """
+        if (not isinstance(getattr(flow, "worker", None), AutomaticLean120Worker)
+                or not isinstance(getattr(flow, "cache_root", None), Path)):
+            raise P3ReadyRejected("P4_ROLLING_EXISTING_P2_REQUIRED")
+        with self._lock:
+            if self._flow is not None and self._flow is not flow:
+                raise P3ReadyRejected("P4_ROLLING_FLOW_CHANGED")
+            self._flow = flow
+
+    @classmethod
+    def _recover_handoff(cls, flow: object, fingerprint: str
+                         ) -> AssumedEnglishSubtitle | None:
+        """Trust only the existing private source receipt and its EN bytes."""
+        root = cls._root(getattr(flow, "cache_root", None))
+        index = root / (".auto-source-" + fingerprint + ".json")
+        if not index.is_file():
+            return None  # A first P2 checkpoint has not been prepared yet.
+        try:
+            if index.is_symlink() or index.stat().st_size > 512:
+                raise P3ReadyRejected("P4_ROLLING_SOURCE_INDEX_INVALID")
+            row = json.loads(index.read_text(encoding="utf-8"))
+            if (not isinstance(row, dict)
+                    or set(row) != {"schema", "file", "language", "sha256", "cues"}
+                    or row["schema"] != "TTV-LOCAL-AUTO-SOURCE-V1"
+                    or row["language"] != "en"
+                    or not isinstance(row["file"], str)
+                    or re.fullmatch(r"[0-9a-f]{64}\.srt", row["file"]) is None
+                    or not isinstance(row["sha256"], str)
+                    or re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) is None
+                    or type(row["cues"]) is not int or row["cues"] < 1):
+                raise P3ReadyRejected("P4_ROLLING_SOURCE_RECEIPT_INVALID")
+            handoff = prepare_local_translation_source(
+                CachedEnReceipt(root / row["file"], row["sha256"], row["cues"]),
+                private_root=root)
+            cls._cached_en(flow, fingerprint, handoff)
+            return handoff
+        except P3ReadyRejected:
+            raise
+        except Exception:
+            raise P3ReadyRejected("P4_ROLLING_SOURCE_NOT_VERIFIED") from None
+
+    @staticmethod
+    def _committed_revision(worker: AutomaticLean120Worker,
+                            handoff: AssumedEnglishSubtitle
+                            ) -> SubtitleRevision | None:
+        """Reconstruct contiguous, hash-verified P2 checkpoints, never run P2.
+
+        A currently in-flight paid window is intentionally ignored: the prior
+        committed cumulative prefix can be delivered without waiting for it.
+        """
+        state = worker.state_root
+        if state.is_symlink() or not state.is_dir():
+            return None
+        job = _job_fingerprint(handoff, worker.profile, worker.glossary)
+        folder = state / job
+        if folder.is_symlink() or not folder.is_dir():
+            return None
+        if any(folder.glob("batch-*.abandoned.json")):
+            raise P3ReadyRejected("P4_ROLLING_ABANDONED_JOB_HOLD")
+        session = ProgressiveSubtitleSession(
+            handoff.source_bytes, handoff.fmt, handoff.media_key)
+        latest = None
+        try:
+            for window in session.windows:
+                checkpoint = folder / f"batch-{window.number:04d}.json"
+                if not checkpoint.exists():
+                    break
+                if (checkpoint.is_symlink() or not checkpoint.is_file()
+                        or not 0 < checkpoint.stat().st_size <= 256 * 1024):
+                    raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_INVALID")
+                row = json.loads(checkpoint.read_bytes())
+                if (not isinstance(row, dict)
+                        or set(row) != {"schema", "job", "version",
+                                            "translations", "payload_sha256"}
+                        or row["schema"] != "TTV-P2-LEAN120-CHECKPOINT-V1"
+                        or row["job"] != job
+                        or type(row["version"]) is not int
+                        or row["version"] != window.number
+                        or not isinstance(row["translations"], list)
+                        or len(row["translations"]) != len(window.ids)):
+                    raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_INVALID")
+                translations = {}
+                for item, expected in zip(row["translations"], window.ids):
+                    if (not isinstance(item, dict) or set(item) != {"id", "vi"}
+                            or type(item["id"]) is not int or item["id"] != expected
+                            or not isinstance(item["vi"], str)):
+                        raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_INVALID")
+                    translations[expected] = item["vi"]
+                latest = session.commit(
+                    window, translations, expected_version=window.number - 1,
+                    source_sha256=handoff.source_sha256,
+                    media_key=handoff.media_key)
+                if latest.sha256 != row["payload_sha256"]:
+                    raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_HASH_CHANGED")
+            # Fail closed on a gap: do not conceal an inconsistent P2 job.
+            if latest is not None and any(
+                    path.name > f"batch-{latest.version:04d}.json"
+                    for path in folder.glob("batch-*.json")):
+                raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_GAP")
+            return latest
+        except P3ReadyRejected:
+            raise
+        except Exception:
+            raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_NOT_VERIFIED") from None
+
+    def _restore_current_checkpoint(self, media_key: str) -> None:
+        with self._lock:
+            flow = self._flow
+        if flow is None:
+            return
+        # Even a live registry can lag after a failed P4 callback. Reconcile
+        # the newest durable batch on EVERY new authenticated activation.
+        try:
+            current = self._read()
+        except Exception:
+            raise P3ReadyRejected("P4_ROLLING_CURRENT_TV_UNAVAILABLE") from None
+        if not isinstance(current, CurrentPlaying):
+            raise P3ReadyRejected("P4_ROLLING_CURRENT_TV_UNAVAILABLE")
+        media = Media(current.server_id, current.torrent_hash,
+                      current.file_index, current.video_name)
+        if p4_media_key(media, vlc_selected=True) != media_key:
+            return
+        with self._lock:
+            prior = self._rolling.get(media_key)
+            if prior is not None and prior.tv_session != current.tv_session_id:
+                raise P3ReadyRejected("P4_ROLLING_TV_SESSION_CHANGED")
+        fingerprint = _fingerprint(current.server_id, current.torrent_hash,
+                                   current.file_index)
+        self._current(media, current.tv_session_id, fingerprint)
+        handoff = self._recover_handoff(flow, fingerprint)
+        if handoff is None:
+            return
+        revision = self._committed_revision(flow.worker, handoff)
+        if revision is None:
+            # The TV may activate BEFORE the first paid window has committed.
+            # Establish an empty authenticated feed now (GET returns 204),
+            # then the original worker callback fills it with 120 cues.
+            root, file, _ = self._cached_en(flow, fingerprint, handoff)
+            self._current(media, current.tv_session_id, fingerprint)
+            with self._lock:
+                if media_key not in self._rolling:
+                    if len(self._rolling) >= 16:
+                        raise P3ReadyRejected("P4_ROLLING_REGISTRY_FULL")
+                    self._rolling[media_key] = _RollingReceipt(
+                        media, current.tv_session_id, fingerprint, media_key,
+                        file, root, handoff.source_sha256, handoff.cue_count,
+                        handoff.media_key, None)
+            return
+        try:
+            self.publish_worker_revision(
+                media=media, source_fingerprint=fingerprint,
+                tv_session_id=current.tv_session_id, flow=flow,
+                handoff=handoff, revision=revision)
+        except P3ReadyRejected as exc:
+            # A live producer may have published a newer batch concurrently.
+            if exc.args != ("P4_ROLLING_OLDER_REVISION",):
+                raise
 
     @classmethod
     def _cached_en(cls, flow: object, fingerprint: str,
@@ -143,9 +309,10 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                         or receipt.source_sha256 != handoff.source_sha256
                         or receipt.worker_media_key != handoff.media_key):
                     raise P3ReadyRejected("P4_ROLLING_SOURCE_CHANGED")
-                if mapped.version < receipt.latest.version:
+                if receipt.latest is not None and mapped.version < receipt.latest.version:
                     raise P3ReadyRejected("P4_ROLLING_OLDER_REVISION")
-                if (mapped.version == receipt.latest.version
+                if (receipt.latest is not None and
+                        mapped.version == receipt.latest.version
                         and mapped.sha256 != receipt.latest.sha256):
                     raise P3ReadyRejected("P4_ROLLING_REVISION_COLLISION")
                 receipt.latest = mapped
@@ -161,6 +328,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
 
     def resolve_progressive(self, media_key: str
                             ) -> AuthenticatedProgressiveSource | None:
+        self._restore_current_checkpoint(media_key)
         with self._lock:
             receipt = self._rolling.get(media_key)
         if receipt is None or receipt.media_key != media_key:
@@ -179,7 +347,8 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                 live = self._rolling.get(media_key)
                 if live is not receipt or len(live.feeds) >= 8:
                     raise P3ReadyRejected("P4_ROLLING_SUBSCRIBER_CHANGED")
-                feed.publish(live.latest)
+                if live.latest is not None:
+                    feed.publish(live.latest)
                 live.feeds.append(feed)
 
         return AuthenticatedProgressiveSource(

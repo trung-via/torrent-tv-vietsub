@@ -40,6 +40,7 @@ _MAX_EVENT_BYTES = 768
 _MAX_EVENTS_PER_POLL = 3
 _HEALTH_STATES = frozenset({"STARTING", "READY", "STOPPED", "BLOCKED"})
 _HEALTH_SCHEMA = "TTV-OWNER-AGENT-HEALTH-V1"
+_HEALTH_TICK_SECONDS = 3.0
 _RETRY_SCHEMA = "TTV-OWNER-PREPROVIDER-RETRY-V1"
 _RETRY_DELAYS = (5, 15, 30)
 _FULL_LOG = None
@@ -659,19 +660,35 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
             if not callable(getattr(processor, "selected_media", None)):
                 raise ValueError("OWNER_BRIDGE_TRUSTED_V3_PROCESSOR_INVALID")
         emit("OWNER_BRIDGE_STARTED")
-        last_health = 0.0
-        try:
-            while True:
-                if time.monotonic() - last_health > 10.0:
+        # A whole-film LEAN120 call occupies the event-consumer thread for
+        # minutes. Keep Owner/P3/P4 health and the fixed HostOps snapshot fresh
+        # independently; this ticker never polls events or calls a provider.
+        ticker_stop = threading.Event()
+
+        def owner_health_ticker() -> None:
+            while not ticker_stop.is_set():
+                try:
                     write_owner_agent_health(owner_root=private_root,
                                              state="READY")
-                    last_health = time.monotonic()
-                safe_diagnostic_tick("READY")
+                    safe_diagnostic_tick("READY")
+                except Exception as exc:
+                    owner_full_trace("OWNER_HEALTH_TICK_FAILED", error=exc)
+                if ticker_stop.wait(_HEALTH_TICK_SECONDS):
+                    return
+
+        ticker = threading.Thread(
+            target=owner_health_ticker, name="torrent-tv-owner-health",
+            daemon=True)
+        ticker.start()
+        try:
+            while True:
                 consume_inert_runner_wakes()
                 poll_private_events(owner_root=private_root,
                                     processor=processor, emit=emit)
                 time.sleep(interval_seconds)
         finally:
+            ticker_stop.set()
+            ticker.join(timeout=5.0)
             write_owner_agent_health(owner_root=private_root,
                                      state="STOPPED")
             safe_diagnostic_tick("STOPPED")

@@ -32,6 +32,27 @@ MAC_RX = re.compile(r"[0-9a-f]{64}\Z")
 SESSION_RX = re.compile(r"[A-Za-z0-9_-]{16,80}\Z")
 ACTIVATE_ROUTE = "/p4/activate"
 MAX_ACTIVATE_BYTES = 800
+_SAFE_ACTIVATION_REASONS = frozenset({
+    "P4_ACTIVATE_SCHEMA_INVALID", "P4_ACTIVATE_AUTH_INVALID",
+    "P4_ACTIVATE_REPLAY", "P4_TOO_MANY_SESSIONS",
+    "P4_ASSUMED_SOURCE_MISSING", "P4_PROGRESSIVE_FEED_BIND_FAILED",
+    "P4_READY_FEED_PUBLISH_FAILED", "P4_TRANSLATION_START_FAILED",
+    "P3_READY_NO_CURRENT_ACCEPTED_SOURCE",
+    "P3_READY_CURRENT_MEDIA_OR_CONSENT_CHANGED",
+    "P3_READY_PRIVATE_SOURCE_NOT_READY",
+    "P4_ROLLING_CURRENT_TV_UNAVAILABLE",
+    "P4_ROLLING_TV_SESSION_CHANGED",
+    "P4_ROLLING_CHECKPOINT_INVALID",
+    "P4_ROLLING_CHECKPOINT_NOT_VERIFIED",
+    "P4_ROLLING_CHECKPOINT_HASH_CHANGED",
+    "P4_ROLLING_CHECKPOINT_GAP",
+    "P4_ROLLING_SOURCE_NOT_VERIFIED",
+    "P4_ROLLING_SOURCE_RECEIPT_INVALID",
+    "P4_ROLLING_SOURCE_INDEX_INVALID",
+    "P4_ROLLING_ABANDONED_JOB_HOLD",
+    "P4_ROLLING_SOURCE_CHANGED",
+    "P4_ROLLING_REVISION_IDENTITY_INVALID",
+})
 
 
 @dataclass(frozen=True)
@@ -241,7 +262,21 @@ class PairedActivation:
         with self.__lock:return self.__feeds.get(session_id)
 
 
-def make_paired_handler(controller: PairedActivation) -> Type[BaseHTTPRequestHandler]:
+def make_paired_handler(
+        controller: PairedActivation, *,
+        on_event: Callable[[str], object] | None = None
+        ) -> Type[BaseHTTPRequestHandler]:
+    """Optional owner-private fixed-code telemetry; never echo errors to TV."""
+    if on_event is not None and not callable(on_event):
+        raise ValueError("P4_EVENT_CALLBACK_INVALID")
+
+    def report(code: str) -> None:
+        if on_event is not None:
+            try:
+                on_event(code)
+            except Exception:
+                pass
+
     class PairedHandler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
             # Never log device key, subtitle bytes, opaque film identifiers.
@@ -262,7 +297,13 @@ def make_paired_handler(controller: PairedActivation) -> Type[BaseHTTPRequestHan
                 body=json.loads(raw)
                 result=controller.activate(body)
                 data=json.dumps(result,sort_keys=True,separators=(",",":")).encode("ascii")
-            except Exception:
+            except Exception as exc:
+                reason = (exc.args[0] if isinstance(exc, ValueError)
+                          and len(exc.args) == 1
+                          and type(exc.args[0]) is str
+                          and exc.args[0] in _SAFE_ACTIVATION_REASONS
+                          else "UNCLASSIFIED")
+                report("P4_ACTIVATE_REJECTED_" + reason)
                 self.send_error(403);return
             self.send_response(200)
             self.send_header("Content-Type","application/json")
@@ -270,6 +311,7 @@ def make_paired_handler(controller: PairedActivation) -> Type[BaseHTTPRequestHan
             self.send_header("Content-Length",str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+            report("P4_ACTIVATE_HTTP_200")
 
         def do_GET(self) -> None:
             prefix="/p4/revision/"
@@ -289,6 +331,7 @@ def make_paired_handler(controller: PairedActivation) -> Type[BaseHTTPRequestHan
                 self.send_response(204)
                 self.send_header("Cache-Control","no-store")
                 self.end_headers()
+                report("P4_REVISION_HTTP_204")
                 return
             self.send_response(200)
             self.send_header("Content-Type","application/json")
@@ -297,6 +340,7 @@ def make_paired_handler(controller: PairedActivation) -> Type[BaseHTTPRequestHan
             self.send_header("Content-Length",str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            report("P4_REVISION_HTTP_200")
 
     return PairedHandler
 
