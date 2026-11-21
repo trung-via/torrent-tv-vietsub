@@ -15,7 +15,8 @@ foreach ($relative in @(
     'hostops/laptop-ops/operations/owner-p2-fresh-inspect-v2.ps1',
     'hostops/jobs/owner-p2-fresh-inspect-v2-readonly.ps1',
     'hostops/laptop-ops/operations/owner-p2-block-rootcause-v1.ps1',
-    'hostops/jobs/owner-p2-block-rootcause-readonly.ps1'
+    'hostops/jobs/owner-p2-block-rootcause-readonly.ps1',
+    'hostops/laptop-ops/operations/owner-p2-text-qa-install-v1.ps1'
 )) {
     $file = Join-Path $env:GITHUB_WORKSPACE $relative
     $tokens = $null

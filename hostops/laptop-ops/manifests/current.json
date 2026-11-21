@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-p2-block-rootcause-v1",
+  "operation": "owner-p2-text-qa-install-v1",
   "risk": "ROUTINE",
-  "category": "diagnostics",
-  "script_path": "hostops/laptop-ops/operations/owner-p2-block-rootcause-v1.ps1",
-  "script_sha256": "a471d51c1db12795e5a847213a51efeef13d45a84afe7d128b697fb3447fd10e",
+  "category": "owner-maintenance",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-text-qa-install-v1.ps1",
+  "script_sha256": "e0da176ddc0a58544fb3117e3190c0d3d4bd3f1e1b4f07ca874ada71b568ec89",
   "arguments": []
 }
