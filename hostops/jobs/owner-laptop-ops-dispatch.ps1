@@ -121,7 +121,10 @@ if (Test-Path -LiteralPath $requestFile) {
     $oldRequestArchive = Join-Path $history ('request-' + $oldRequest.nonce + '.json')
     $oldReceiptArchive = Join-Path $history ('receipt-' + $oldRequest.nonce + '.json')
     Move-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
-    Move-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
+    # The receipt belongs to the interactive Owner, not NETWORK_SERVICE.
+    # Copy its terminal evidence; Owner will atomically overwrite the original
+    # with the new nonce. Moving that Owner-owned file may be ACL-denied.
+    Copy-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
 }
 $nonce = [Guid]::NewGuid().ToString('N')
 $request = [ordered]@{
