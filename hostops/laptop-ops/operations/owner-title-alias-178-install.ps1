@@ -4,14 +4,14 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$sourceCommit = 'dfcd5624ab0d86ac37f2f175392809ec47497c1d'
+$sourceCommit = '44ebc36c7b6086a1b7c846d3068c01c791202428'
 $pinned = [ordered]@{
     'automatic_vietsub_flow.py' = '0156951817811a3c72a183e23df73611119386716f8f0572e7d6203e533911c5'
     'matcher.py' = 'f56ca2dfe004dfe0c127b19307720661e19920a44c507bceab88986c0997af3b'
     'opensubtitles.py' = '0e5b4e3e1593cfb4e93102a1e269014178d004a3e4a9e3a4af8e4ff07a648ecb'
     'owner_selected_file_resolver.py' = '93ab4f62eded98bfad3c3b8322536fe0547ee80ac0b206c24f735499577b4247'
     'owner_torrserver_readonly.py' = '2add8bfec22afa5a4644d1dfb9228438736301c56968c1015c815e08c3964e07'
-    'verified_v3_processor.py' = '3e120217fe671de4b0a4ee8236edaffe4ead789326bc6ee31dba1c4958731e41'
+    'verified_v3_processor.py' = 'a1805198e62df2f3dbf5d3146bc83a33e08545e01bfe09a6609b72090b5ce42c'
 }
 $taskName = 'TorrentTV-Vietsub-OwnerAgent'
 $root = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
@@ -126,7 +126,9 @@ function StartAndVerify([long]$priorPid) {
     $since = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     Enable-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop | Out-Null
     Start-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
-    for ($i=0; $i -lt 40; $i++) {
+    # The Owner task may take longer than one health-tick interval to boot.
+    # Observe a fresh PID and live Owner SID, never just a task state.
+    for ($i=0; $i -lt 90; $i++) {
         Start-Sleep -Seconds 1
         if ([string](Task).State -ne 'Running' -or
             -not (Test-Path -LiteralPath $health -PathType Leaf)) { continue }
