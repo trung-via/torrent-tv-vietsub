@@ -17,6 +17,7 @@ from p3_ingress_telemetry import P3IngressTelemetry
 from p3_p4_shared_https_route import (
     P3_POST_ROUTE, P3_STATE_ROUTE, _selection_reason_bucket,
 )
+from owner_session_bridge import owner_full_trace
 
 
 def make_p3_p4_handler_r0(
@@ -39,12 +40,26 @@ def make_p3_p4_handler_r0(
     state_lock = Lock()
 
     class R0PairedHandler(P4Handler):
+        def send_error(self, code, message=None, explain=None):
+            # Record errors on the shared P3/P4 listener, including responses
+            # handled internally by the pre-existing P4 paired endpoint.
+            owner_full_trace("P3_P4_HTTP_ERROR", status=code,
+                             path=self.path, message=message,
+                             explain=explain)
+            return super().send_error(code, message, explain)
+
         def do_POST(self) -> None:
             if self.path not in (P3_POST_ROUTE, P3_STATE_ROUTE):
                 return super().do_POST()
             is_state = self.path == P3_STATE_ROUTE
+            if not is_state:
+                owner_full_trace("P3_SELECTION_RECEIVED", path=self.path,
+                                 length=self.headers.get("Content-Length"))
 
             def rejected(code: int, category: str = "format") -> None:
+                if not is_state:
+                    owner_full_trace("P3_SELECTION_REJECTED", status=code,
+                                     category=category)
                 if ingress is not None:
                     ingress.record("state_rejected" if is_state
                                    else "selection_rejected")
@@ -97,6 +112,7 @@ def make_p3_p4_handler_r0(
                     status = decision.status
                     reason = decision.reason
             except RedmiStateRejected as exc:
+                owner_full_trace("P3_SIGNED_STATE_REJECTED", error=exc)
                 code = exc.args[0] if exc.args else None
                 category = ("auth" if code == "P3_STATE_AUTH_FAILED"
                             else "clock" if code == "P3_STATE_CLOCK_SKEW"
@@ -108,12 +124,16 @@ def make_p3_p4_handler_r0(
                 rejected(403, category)
                 return
             except ValueError as exc:
+                owner_full_trace("P3_PROCESSING_REJECTED", error=exc,
+                                 is_state=is_state)
                 category = ("other" if is_state else (
                     "enqueue" if exc.args == (
                         "OWNER_PLAYBACK_PRIVATE_ENQUEUE_FAILED",) else "unknown"))
                 rejected(403, category)
                 return
-            except Exception:
+            except Exception as exc:
+                owner_full_trace("P3_PROCESSING_FAILED", error=exc,
+                                 is_state=is_state)
                 rejected(403, "other" if is_state else "unknown")
                 return
 
@@ -130,6 +150,9 @@ def make_p3_p4_handler_r0(
                 ingress.record("state_accepted" if is_state else (
                     "selection_dispatched" if status == "DISPATCH"
                     else "selection_skipped"))
+            if not is_state:
+                owner_full_trace("P3_SELECTION_ACCEPTED", status=status,
+                                 reason=reason)
             # A successful queue write remains successful even when the TV
             # has disconnected before receipt delivery.
             try:

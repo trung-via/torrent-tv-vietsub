@@ -1,5 +1,6 @@
 """Owner-session bridge offline contract tests; no real Windows keys or APIs."""
 import json
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from owner_session_bridge import (
     _owner_process_lock,
     write_owner_agent_health, read_owner_agent_health,
     PreProviderTransient,
+    install_owner_full_diagnostics,
 )
 
 
@@ -63,6 +65,33 @@ class OwnerSessionBridgeTests(unittest.TestCase):
         self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
                                       "OWNER_BRIDGE_BLOCK_REASON=UNCLASSIFIED"])
         self.assertNotIn("private API key", " ".join(self.lines))
+
+    def test_owner_full_diagnostic_preserves_original_unclassified_exception(self):
+        self.root.mkdir(parents=True)
+        console = io.StringIO()
+        errors = io.StringIO()
+        with (mock.patch("owner_session_bridge._FULL_LOG", None),
+              mock.patch("sys.stdout", console),
+              mock.patch("sys.stderr", errors)):
+            path = install_owner_full_diagnostics(self.root)
+            try:
+                event_id = enqueue_selected_media(
+                    "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+                    owner_root=self.root)
+                poll_private_events(owner_root=self.root,
+                                    processor=FakeProcessor(fail=True),
+                                    emit=self.lines.append)
+                raw = path.read_text(encoding="utf-8")
+                self.assertIn("OWNER_FULL_TRACE 'P2_EVENT_BLOCKED'", raw)
+                self.assertIn("RuntimeError: private API key: NEVER PRINT", raw)
+                self.assertIn("Traceback (most recent call last)", raw)
+                self.assertIn(event_id, raw)
+                self.assertIn("private API key: NEVER PRINT", errors.getvalue())
+                self.assertEqual(self.lines[-1],
+                                 "OWNER_BRIDGE_BLOCK_REASON=UNCLASSIFIED")
+            finally:
+                import owner_session_bridge
+                owner_session_bridge._FULL_LOG.close()
 
     def test_preprovider_transient_bounded_retry_then_success(self):
         event_id = enqueue_selected_media(

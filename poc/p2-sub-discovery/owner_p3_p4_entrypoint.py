@@ -39,6 +39,9 @@ from owner_p3_p4_runtime import (
 )
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader
 from owner_torrserver_ffp_tracks import TorrServerFfpTrackReader
+from owner_session_bridge import (
+    install_owner_full_diagnostics, owner_full_trace,
+)
 from p3_owner_state_wiring_r2 import compose_owner_redmi_status
 from lan_revision_feed import private_lan_ip
 
@@ -169,6 +172,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         owner = Path(args.owner_root).resolve(strict=True)
+        if args.start_lan:
+            # One complete private Owner diagnostic file for P3, P2 and P4.
+            # The Owner session retains every exception and original console
+            # line. Nothing in this path is copied to public CI/HostOps logs.
+            install_owner_full_diagnostics(owner)
         cache = Path(args.cache_root).resolve(strict=False)
         state = Path(args.state_root).resolve(strict=False)
         policy_path = owner / "p3-p4-policy.json"
@@ -218,7 +226,8 @@ def main(argv: list[str] | None = None) -> int:
             state_root=state, host=host, port=port,
             tls_cert=cert, tls_key=pem, explicit_start_lan=True)
     except (ValueError, OSError, RuntimeError, TypeError, KeyError,
-            json.JSONDecodeError):
+            json.JSONDecodeError) as exc:
+        owner_full_trace("OWNER_P3_P4_STARTUP_FAILED", error=exc)
         # Never print original private path, hostname, media, key or provider.
         print("P3_P4_OWNER_STARTUP_HOLD_PRIVATE_REVIEW")
         return 1
