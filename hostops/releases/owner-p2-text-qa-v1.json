@@ -1,0 +1,10 @@
+{
+  "schema": "TTV-OWNER-RELEASE-STAGE-V1",
+  "release_id": "p2-text-qa-v1",
+  "source_tree": "5fa75cfe2ea713d48884757fcc9c8ff3e34c02be",
+  "mode": "STAGE_ONLY",
+  "files": [
+    {"path": "poc/p2-aisub/translator_gateway.py", "sha256": "d63c468a6417fab87d6c9e56e6dd319ddc28289f7c95eb064eaf9684d5774fc3"},
+    {"path": "poc/p2-sub-discovery/owner_session_bridge.py", "sha256": "85f8ca9e75d83e357becf7c9191734ce0f41b664b83cf8ea684a3bff1e1dc4b7"}
+  ]
+}

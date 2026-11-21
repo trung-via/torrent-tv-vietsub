@@ -25,7 +25,9 @@ from pathlib import Path
 import re
 import secrets
 import sys
+import threading
 import time
+import traceback
 from typing import Callable, Protocol
 
 _SCHEMA = "TTV-OWNER-VIDEO-EVENT-V1"
@@ -40,6 +42,76 @@ _HEALTH_STATES = frozenset({"STARTING", "READY", "STOPPED", "BLOCKED"})
 _HEALTH_SCHEMA = "TTV-OWNER-AGENT-HEALTH-V1"
 _RETRY_SCHEMA = "TTV-OWNER-PREPROVIDER-RETRY-V1"
 _RETRY_DELAYS = (5, 15, 30)
+_FULL_LOG = None
+_FULL_LOG_LOCK = threading.RLock()
+
+
+class _OwnerLogTee:
+    """Preserve the Owner console while appending its *unmodified* text."""
+
+    def __init__(self, original, log):
+        self.original = original
+        self.log = log
+
+    def write(self, data):
+        with _FULL_LOG_LOCK:
+            result = self.original.write(data)
+            self.log.write(data)
+            self.log.flush()
+            return result
+
+    def flush(self):
+        with _FULL_LOG_LOCK:
+            self.original.flush()
+            self.log.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.original, name)
+
+
+def install_owner_full_diagnostics(owner_root: Path) -> Path:
+    """Owner-local full stdout/stderr/traceback, with no redaction or upload.
+
+    This is run ONCE in the interactive Owner process, never by HostOps CI.
+    The same file captures P3 HTTPS server output, P2 stages and P4 errors.
+    """
+    global _FULL_LOG
+    if (not isinstance(owner_root, Path) or not owner_root.is_absolute()
+            or owner_root.is_symlink() or not owner_root.is_dir()):
+        raise ValueError("OWNER_FULL_DIAGNOSTICS_OWNER_ROOT_REQUIRED")
+    directory = owner_root / "diagnostics"
+    if directory.is_symlink():
+        raise ValueError("OWNER_FULL_DIAGNOSTICS_SYMLINK")
+    directory.mkdir(mode=0o700, exist_ok=True)
+    path = directory / "owner-full.log"
+    if path.is_symlink():
+        raise ValueError("OWNER_FULL_DIAGNOSTICS_SYMLINK")
+    with _FULL_LOG_LOCK:
+        if _FULL_LOG is not None:
+            if Path(_FULL_LOG.name) != path:
+                raise ValueError("OWNER_FULL_DIAGNOSTICS_ALREADY_ACTIVE")
+            return path
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        stream = os.fdopen(fd, "a", encoding="utf-8", buffering=1)
+        _FULL_LOG = stream
+        sys.stdout = _OwnerLogTee(sys.stdout, stream)
+        sys.stderr = _OwnerLogTee(sys.stderr, stream)
+        stream.write("\nOWNER_FULL_DIAGNOSTICS_STARTED pid=" + str(os.getpid())
+                     + " epoch=" + str(int(time.time())) + "\n")
+        stream.flush()
+    return path
+
+
+def owner_full_trace(stage: str, *, error: BaseException | None = None,
+                     **context: object) -> None:
+    """Unfiltered Owner-only stage/context and complete traceback (if any)."""
+    if _FULL_LOG is None:
+        return
+    with _FULL_LOG_LOCK:
+        print("OWNER_FULL_TRACE", repr(stage), repr(context), file=sys.stderr)
+        if error is not None:
+            traceback.print_exception(type(error), error, error.__traceback__,
+                                      file=sys.stderr)
 # Only literal, source-owned error codes may appear in the Owner console.
 # Exception text can contain a private path, subtitle or provider credential.
 _SAFE_BLOCK_REASONS = frozenset({
@@ -67,6 +139,16 @@ _SAFE_BLOCK_REASONS = frozenset({
     "AUTO_VIETSUB_INCOMPLETE_TRANSLATION",
     "OWNER_BRIDGE_INVALID_RESULT", "AUTO_SOURCE_CACHE_INDEX_INVALID",
     "AUTO_SOURCE_CACHE_DIGEST_MISMATCH", "EN_DOWNLOAD_ALREADY_ATTEMPTED",
+    "AGY_TRANSLATION_TEXT_EMPTY", "AGY_TRANSLATION_TEXT_TOO_LONG",
+    "AGY_TRANSLATION_TEXT_NUL", "AGY_TRANSLATION_TEXT_UTF8_INVALID",
+    "AGY_TRANSLATION_TEXT_MARKUP_UNSUPPORTED",
+    "PLAIN_UTF8_TRANSLATION_REQUIRED",
+    # These are explicit P2 no-replay gates, not an unidentified exception.
+    # In particular, an acknowledged unknown-effect batch must remain
+    # quarantined; exposing the fixed reason never authorizes a retry.
+    "AUTO_LEAN120_ABANDONED_JOB_HOLD",
+    "AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD",
+    "AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE",
 })
 
 
@@ -282,13 +364,17 @@ def poll_private_events(
             continue
         try:
             event = _parse_event(path)
-        except ValueError:
+        except ValueError as exc:
+            owner_full_trace("P2_EVENT_INVALID", error=exc,
+                             event_path=str(path))
             emit("OWNER_BRIDGE_EVENT_REJECTED")
             continue
         retry = _retry_file(inbox, event.event_id)
         try:
             retry_attempts, retry_at = _retry_state(retry)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            owner_full_trace("P2_RETRY_RECEIPT_INVALID", error=exc,
+                             event_id=event.event_id)
             # An untrusted/inconsistent retry receipt must NEVER trigger a
             # new provider operation. Preserve the event for Owner review.
             os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
@@ -301,10 +387,15 @@ def poll_private_events(
             fd = os.open(claim, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
             # Prior run (possibly interrupted) owns this work, no replay.
+            owner_full_trace("P2_EXISTING_CLAIM", event_id=event.event_id)
             continue
         with os.fdopen(fd, "wb") as stream:
             stream.write(b"CLAIMED_DO_NOT_AUTO_REPLAY\n")
         processed += 1
+        owner_full_trace("P2_EVENT_CLAIMED", event_id=event.event_id,
+                         video=event.selected_video_filename,
+                         source_fingerprint=event.source_fingerprint,
+                         tv_session_id=event.tv_session_id)
         try:
             if event.tv_session_id is not None:
                 # V3 demands an identity-aware processor which re-reads the
@@ -326,9 +417,13 @@ def poll_private_events(
             suffix = ".done" if status != "REVIEW_REQUIRED" else ".review"
             os.replace(path, inbox / ("event-" + event.event_id + suffix))
             _remove_finished_retry(retry)
+            owner_full_trace("P2_EVENT_FINISHED", event_id=event.event_id,
+                             result=status)
             emit("OWNER_BRIDGE_EVENT_" + (
                 "COMPLETE" if suffix == ".done" else "NEEDS_REVIEW"))
         except PreProviderTransient as exc:
+            owner_full_trace("P2_PREPROVIDER_TRANSIENT", error=exc,
+                             event_id=event.event_id)
             # Only the V3 verified preflight can prove no OpenSubtitles/AGY
             # request has been attempted. It will revalidate the live TV on
             # each retry. Uncertain provider failures remain blocked below.
@@ -355,6 +450,11 @@ def poll_private_events(
                     emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFERRED")
                     emit("OWNER_BRIDGE_PREPROVIDER_REASON=" + exc.args[0])
         except Exception as exc:
+            owner_full_trace("P2_EVENT_BLOCKED", error=exc,
+                             event_id=event.event_id,
+                             video=event.selected_video_filename,
+                             source_fingerprint=event.source_fingerprint,
+                             tv_session_id=event.tv_session_id)
             # Error text may include private file paths/API material; do not
             # print it, or attempt a second quota-bearing provider request.
             os.replace(path, inbox / ("event-" + event.event_id + ".blocked"))
@@ -524,7 +624,8 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
         if diagnostic_tick is not None:
             try:
                 diagnostic_tick(state)
-            except Exception:
+            except Exception as exc:
+                owner_full_trace("OWNER_DIAGNOSTIC_TICK_FAILED", error=exc)
                 # A diagnostic failure must never stop playback or provoke a
                 # second potentially billable provider operation.
                 pass
@@ -539,9 +640,13 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
             # Never call Gemini at startup: VI-only work remains usable.
             flow = build_owner_auto_flow(
                 enabled=True, cache_root=cache_root, state_root=state_root)
-        except Exception:
+        except Exception as exc:
+            owner_full_trace("OWNER_PROVIDER_BOOTSTRAP_FAILED", error=exc)
             write_owner_agent_health(owner_root=private_root, state="BLOCKED")
             raise
+        # The F6 provider source remains SHA-pinned. Observe its existing
+        # stages from this single Owner entrypoint instead of modifying F6.
+        flow.emit = emit
         # Native OMP/TorrServer authenticated readers are NOT installed by
         # this CLI. An owner-controlled host may supply a V3 processor factory
         # only after establishing the live trust boundary. Without one, V3
