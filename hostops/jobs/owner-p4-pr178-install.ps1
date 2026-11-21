@@ -7,8 +7,8 @@ param([switch]$PreflightOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$expectedCommit = '2fe92888364ec212c341f756da92a7c47e6c06f1'
-$expectedApkSha = '478bfaf344cd55540576d8c951bc08e9db400965e8e0030237d5c2ca8b7663ce'
+$expectedCommit = 'f406bdcb1ee13b62f646083debc69ed6a6c23dcf'
+$expectedApkSha = 'c63cbedd59c4227fa03a214886cb5e3c07797d757faa14220e5dee0ee8ef72db'
 $expectedSigner = '8bf6937801524fd7c264b55855bb35a2133c242114fb66b5fa9f1907e334fd84'
 $pkg = 'com.spacesarmat.omp.test'
 $adb = 'C:\TOOL\Android-SDK\platform-tools\adb.exe'
@@ -53,9 +53,9 @@ function Assert-ViewerOffAndOwnerIdle {
     }
     $r = Get-Content -LiteralPath $spool -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
     $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$r.snapshot_utc_epoch
-    if ($r.schema -cnotin @('TTV-HOSTOPS-OWNER-SNAPSHOT-V2',
-                            'TTV-HOSTOPS-OWNER-SNAPSHOT-V3',
-                            'TTV-HOSTOPS-OWNER-SNAPSHOT-V4') -or
+    # The TV emits signed P3 V2 only after the compatible Owner V4 receiver
+    # has been deployed. An earlier V2/V3 snapshot is NOT sufficient.
+    if ($r.schema -cne 'TTV-HOSTOPS-OWNER-SNAPSHOT-V4' -or
         $r.status -cne 'READY_FRESH' -or
         $r.mode -cne 'INTEGRATED_P3_P4' -or
         $r.p3_state -cne 'FRESH_OFF' -or
@@ -100,7 +100,7 @@ foreach ($required in @(
         throw 'P4_PR178_INSTALL_STAGE_RECEIPT_DRIFT'
     }
 }
-Assert-ViewerOffAndOwnerIdle
+if (-not $PreflightOnly) { Assert-ViewerOffAndOwnerIdle }
 
 $buildTools = @(Get-ChildItem -LiteralPath 'C:\TOOL\Android-SDK\build-tools' -Directory |
     Where-Object {
