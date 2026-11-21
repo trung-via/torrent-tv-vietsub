@@ -133,13 +133,14 @@ class P3ToOwnerToP4SocketTests(unittest.TestCase):
         return self.http("POST", route, raw,
                          {"Content-Type": "application/json"})
 
-    def state(self, choice, seq):
+    def state(self, choice, seq, *, media_key=None):
         return sign_synthetic_state(
             KEY, boot_id="c" * 32, sequence=seq,
             kind="PLAY_REQUEST_ACCEPTED", tv_session_id=SESSION,
             torrent_hash=TORRENT, file_index=2,
             active=True, subtitle_choice=choice,
-            sent_at_ms=int(time.time() * 1000), nonce=f"{seq:032x}")
+            sent_at_ms=int(time.time() * 1000), nonce=f"{seq:032x}",
+            media_key=media_key)
 
     def event(self, kind, nonce):
         return sign_synthetic_event(
@@ -147,11 +148,11 @@ class P3ToOwnerToP4SocketTests(unittest.TestCase):
             torrent_hash=TORRENT, file_index=2,
             sent_at_ms=int(time.time() * 1000), nonce=nonce)
 
-    def activate(self, nonce):
+    def activate(self, nonce, *, media_key=MEDIA_KEY):
         message = {
-            "schema": "TTV-P4-ACTIVATE-V1", "media_key": MEDIA_KEY,
+            "schema": "TTV-P4-ACTIVATE-V1", "media_key": media_key,
             "nonce": nonce,
-            "auth": activation_request_mac(KEY, MEDIA_KEY, nonce),
+            "auth": activation_request_mac(KEY, media_key, nonce),
         }
         return self.post("/p4/activate",
                          json.dumps(message, separators=(",", ":")).encode("ascii"))
@@ -213,6 +214,29 @@ class P3ToOwnerToP4SocketTests(unittest.TestCase):
         self.assertEqual(self.activate("4" * 32)[0], 403)
         self.assertEqual(self.flow.calls, 1)
         self.assertGreaterEqual(self.reads, 6)
+
+    def test_v2_native_tv_key_binds_completed_vi_across_profile_alias(self):
+        # The PC's configured localhost TorrServer alias differs from OMP's
+        # native serverProfileId. The signed TV key, not the PC alias, must
+        # own both P4 activation and the delivered revision.
+        native_key = p4_media_key(Media("tv-native-profile", TORRENT, 2, VIDEO),
+                                  vlc_selected=True)
+        self.assertNotEqual(native_key, MEDIA_KEY)
+        self.assertEqual(self.post(
+            "/p3/state", self.state("REQUESTED", 1,
+                                      media_key=native_key))[0], 204)
+        self.assertEqual(self.post(
+            "/p3/selection", self.event("VIEWER_VIETSUB_REQUESTED",
+                                         "f" * 32))[0], 204)
+        self.assertEqual(poll_private_events(
+            owner_root=self.owner,
+            processor=self.wiring.trusted_v3_factory(self.flow),
+            emit=lambda *_: None), 1)
+        self.assertEqual(self.flow.calls, 1)
+        code, body = self.activate("9" * 32, media_key=native_key)
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)["media_key"], native_key)
+        self.assertEqual(self.activate("8" * 32)[0], 403)
 
 
 class StreamOnlyP3ToOwnerToP4SocketTests(P3ToOwnerToP4SocketTests):

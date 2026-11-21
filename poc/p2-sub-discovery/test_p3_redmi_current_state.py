@@ -43,6 +43,24 @@ def selected(**change):
 
 
 class StateTests(unittest.TestCase):
+    def test_signed_native_media_key_v2_survives_owner_profile_alias(self):
+        native = "media." + "5" * 64
+        signed = packet(media_key=native)
+        obj = json.loads(signed)
+        self.assertEqual(obj["schema"], "TTV-P3-TV-STATE-V2")
+        self.assertIn(("\n" + native + "\n").encode("ascii"), mac_body(obj))
+        cache = SignedRedmiStateCache(KEY)
+        actual = cache.receive(signed, now_ms=WHEN, monotonic_s=10)
+        self.assertEqual(actual.native_p4_media_key, native)
+        tampered = dict(obj, media_key="media." + "6" * 64)
+        with self.assertRaisesRegex(RedmiStateRejected, "AUTH_FAILED"):
+            SignedRedmiStateCache(KEY).receive(
+                json.dumps(tampered).encode(), now_ms=WHEN, monotonic_s=10)
+        malformed = dict(obj, media_key="bad")
+        with self.assertRaisesRegex(RedmiStateRejected, "VALUE_INVALID"):
+            SignedRedmiStateCache(KEY).receive(
+                json.dumps(malformed).encode(), now_ms=WHEN, monotonic_s=10)
+
     def test_cross_language_hmac_fixed_vector(self):
         obj=json.loads(packet())
         self.assertEqual(mac_body(obj),(
@@ -205,6 +223,20 @@ class OwnerBridgeTests(unittest.TestCase):
         self.assertEqual(v3.video_name,playback.video_name)
         self.assertEqual((v3.viewer_choice,v3.attested),("ON",True))
         self.assertEqual(self.reads[0][1],{"action":"get","hash":HASH})
+
+    def test_v2_native_key_is_preserved_independent_of_owner_profile(self):
+        native = "media." + "f" * 64
+        self.cache.receive(packet(media_key=native), now_ms=WHEN,
+                           monotonic_s=10)
+        import p3_redmi_current_state as mod
+        previous = mod.time.monotonic
+        mod.time.monotonic = lambda: 11.0
+        try:
+            current = self.reader.read_v3()
+        finally:
+            mod.time.monotonic = previous
+        self.assertEqual(current.native_p4_media_key, native)
+        self.assertEqual(current.server_id, PROFILE)
 
     def test_unauthorized_on_off_or_unknown_vi_blocks(self):
         self.cache.receive(packet(),now_ms=WHEN,monotonic_s=10)

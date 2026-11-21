@@ -24,7 +24,7 @@ for _sibling in ("p2-aisub", "p3-vietsub-trigger"):
 
 from automatic_vietsub_flow import AutoResult
 from owner_selected_file_resolver import CurrentPlaying, _fingerprint
-from p3_p4_media_key import p4_media_key
+from p3_p4_media_key import p4_key_from_verified_current
 from matcher import Media
 from verified_vietsub_ready import VerifiedVietsubReady
 from automatic_lean120_worker import AutomaticLean120Worker, _job_fingerprint
@@ -215,8 +215,8 @@ class P3OwnerReadyRegistry:
                 or not _SHA.fullmatch(source_fingerprint)
                 or type(tv_session_id) is not str or not tv_session_id):
             raise P3ReadyRejected("P3_READY_V3_MEDIA_ID_REQUIRED")
-        media_key = p4_media_key(media, vlc_selected=True)
-        self._current(media, tv_session_id, source_fingerprint)
+        current = self._current(media, tv_session_id, source_fingerprint)
+        media_key = p4_key_from_verified_current(media, current)
         source_file, origin, source_sha, cues, source = self._source(
             flow=flow, fingerprint=source_fingerprint, result=result)
         if origin == "vi":
@@ -227,7 +227,9 @@ class P3OwnerReadyRegistry:
                 source_cues=cues, source=source)
         # Re-evaluate TV after potentially long private I/O. A→B after the
         # original AI call must NOT register a ready artifact for old A.
-        self._current(media, tv_session_id, source_fingerprint)
+        latest = self._current(media, tv_session_id, source_fingerprint)
+        if p4_key_from_verified_current(media, latest) != media_key:
+            raise P3ReadyRejected("P3_READY_NATIVE_MEDIA_KEY_CHANGED")
         receipt = _Receipt(
             media=media, tv_session=tv_session_id,
             fingerprint=source_fingerprint, media_key=media_key,
@@ -255,7 +257,9 @@ class P3OwnerReadyRegistry:
             receipt = self._ready.get(media_key)
         if receipt is None or receipt.media_key != media_key:
             raise P3ReadyRejected("P3_READY_NO_CURRENT_ACCEPTED_SOURCE")
-        self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+        current = self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+        if p4_key_from_verified_current(receipt.media, current) != media_key:
+            raise P3ReadyRejected("P3_READY_NATIVE_MEDIA_KEY_CHANGED")
         source = self._file(receipt.cache_root, receipt.source_file,
                             sha=receipt.source_sha256, cues=receipt.total_cues)
         # The LEAN120 output is inside an owner-private P2 fingerprint

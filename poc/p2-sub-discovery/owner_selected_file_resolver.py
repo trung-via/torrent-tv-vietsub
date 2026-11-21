@@ -48,6 +48,9 @@ class CurrentPlaying:
     viewer_choice: str
     media_rights_approved: bool
     local_vi_state: str
+    # Native P4 media identity from authenticated signed P3 V2 heartbeat.
+    # None is the original V1 fallback for older OMP versions.
+    native_p4_media_key: str | None = None
 
 
 @dataclass(frozen=True)

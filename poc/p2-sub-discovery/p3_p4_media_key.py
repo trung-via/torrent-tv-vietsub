@@ -16,6 +16,7 @@ import hashlib
 import re
 
 from matcher import Media
+from owner_selected_file_resolver import CurrentPlaying
 
 _PROFILE = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 _HASH_40_OR_64 = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
@@ -23,6 +24,25 @@ _HASH_40_OR_64 = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 
 class P4MediaKeyError(ValueError):
     """Safe identity gate, without real media name/hash in error."""
+
+
+def p4_key_from_verified_current(media: Media,
+                                 current: CurrentPlaying) -> str:
+    """Use the authenticated native OMP key instead of guessing a TV profile.
+
+    The Owner's profile_id is a local TorrServer lookup alias and can differ
+    from the TV's serverProfileId. The V2 heartbeat signs the *actual* native
+    G1/P4 key; V1 continues to use the historical derived key unchanged.
+    Callers MUST independently verify current film/session/consent first.
+    """
+    if not isinstance(current, CurrentPlaying) or not isinstance(media, Media):
+        raise P4MediaKeyError("P4_VERIFIED_CURRENT_REQUIRED")
+    native = current.native_p4_media_key
+    if native is None:
+        return p4_media_key(media, vlc_selected=True)
+    if type(native) is not str or re.fullmatch(r"media\.[0-9a-f]{64}", native) is None:
+        raise P4MediaKeyError("P4_NATIVE_MEDIA_KEY_INVALID")
+    return native
 
 
 def p4_media_key(media: Media, *, vlc_selected: bool) -> str:

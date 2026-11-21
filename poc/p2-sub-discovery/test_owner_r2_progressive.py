@@ -122,6 +122,34 @@ class R2RollingTests(unittest.TestCase):
         self.assertEqual(len(list(self.state.rglob("vi-final.srt"))), 1)
         self.assertFalse(list(self.state.rglob("batch-*.inflight")))
 
+    def test_signed_tv_native_key_overrides_different_owner_profile(self):
+        """A P3 request can translate yet P4 fail when aliases differ."""
+        tv_media = Media("tv-profile-alias", MEDIA.torrent_hash,
+                         MEDIA.file_index, MEDIA.filename)
+        tv_key = p4_media_key(tv_media, vlc_selected=True)
+        self.assertNotEqual(tv_key, MEDIA_KEY)
+        self.current = replace(self.current, native_p4_media_key=tv_key)
+        native_gateway = PairedActivation(
+            device_secret=KEY, supplied={},
+            authenticated_vietsub_factory=self.registry.resolve,
+            authenticated_progressive_factory=self.registry.resolve_progressive)
+        def activate(key, nonce):
+            return native_gateway.activate(dict(
+                schema="TTV-P4-ACTIVATE-V1", media_key=key, nonce=nonce,
+                auth=activation_request_mac(KEY, key, nonce)))
+        with self.assertRaises(P3ReadyRejected):
+            activate(MEDIA_KEY, "1" * 32)
+        accepted = activate(tv_key, "2" * 32)
+        feed = native_gateway.feed_for(accepted["session_id"])
+        self.assertIsNone(feed.latest())
+        self.run_worker(max_new_windows=1)
+        first = decode_latest_test_only(feed)
+        self.assertEqual((first["media_key"], first["translated_count"]),
+                         (tv_key, 120))
+        self.run_worker()
+        self.assertEqual(decode_latest_test_only(feed)["translated_count"], 240)
+        self.assertEqual(len(self.provider.calls), 2)
+
     def test_off_or_changed_session_cannot_receive_next_revision(self):
         self.run_worker(max_new_windows=1)
         feed = self.activate("4" * 32)

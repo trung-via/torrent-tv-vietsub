@@ -26,9 +26,10 @@ internal object P3SelectedMediaPublisher {
     private const val PREFS = "p3-owner-selected-media-v1"
     private const val ENABLED = "owner_enabled"
     private const val SCHEMA = "TTV-P3-TV-SELECTION-V1"
-    private const val STATUS_SCHEMA = "TTV-P3-TV-STATE-V1"
+    private const val STATUS_SCHEMA = "TTV-P3-TV-STATE-V2"
     private const val STATUS_TIMEOUT_MS = 2_000L
     private val HASH_RX = Regex("(?:[a-f0-9]{40}|[a-f0-9]{64})")
+    private val MEDIA_RX = Regex("media\\.[a-f0-9]{64}")
     private val SESSION_RX = Regex("[a-f0-9]{32}")
     private val KINDS = setOf(
         "PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED",
@@ -44,6 +45,7 @@ internal object P3SelectedMediaPublisher {
 
     private data class Current(
         val session: String, val hash: String, val fileIndex: Int,
+        val mediaKey: String,
         val kind: String,
     ) {
         @Volatile var requestedByViewer: Boolean = false
@@ -79,8 +81,10 @@ internal object P3SelectedMediaPublisher {
         val item = request?.queue?.getOrNull(itemIndex) ?: return
         val hash = item.hash?.lowercase() ?: return
         val fileIndex = item.fileIndex ?: return
-        if (!HASH_RX.matches(hash) || fileIndex !in 0..65535) return
-        val selected = Current(randomHex(), hash, fileIndex, kind)
+        val mediaKey = P1ProductionSubtitles.mediaKey(request, itemIndex) ?: return
+        if (!HASH_RX.matches(hash) || fileIndex !in 0..65535 ||
+            !MEDIA_RX.matches(mediaKey)) return
+        val selected = Current(randomHex(), hash, fileIndex, mediaKey, kind)
         active = selected
         generation.incrementAndGet()
         // Same single executor: independently sampled ACTUAL PlayerSession
@@ -102,7 +106,9 @@ internal object P3SelectedMediaPublisher {
         val item = request?.queue?.getOrNull(selectedIndex) ?: return false
         return enabled(ctx) && nativeVlc && request.engine == EngineMode.VLC &&
             item.hash?.lowercase() == selected.hash &&
-            item.fileIndex == selected.fileIndex && selected.requestedByViewer
+            item.fileIndex == selected.fileIndex &&
+            P1ProductionSubtitles.mediaKey(request, selectedIndex) == selected.mediaKey &&
+            selected.requestedByViewer
     }
 
     /** Called ONLY by the direct on-TV Vietsub AI button. */
@@ -116,12 +122,13 @@ internal object P3SelectedMediaPublisher {
         val item = request.queue.getOrNull(selectedIndex) ?: return false
         val hash = item.hash?.lowercase() ?: return false
         val index = item.fileIndex ?: return false
+        val mediaKey = P1ProductionSubtitles.mediaKey(request, selectedIndex) ?: return false
         if (!HASH_RX.matches(hash) || index !in 0..65535 ||
-            P1ProductionSubtitles.mediaKey(request, selectedIndex) == null) return false
+            !MEDIA_RX.matches(mediaKey)) return false
         val previous = active
         val current = if (previous != null && previous.hash == hash &&
-            previous.fileIndex == index) previous
-            else Current(randomHex(), hash, index, "PLAY_REQUEST_ACCEPTED")
+            previous.fileIndex == index && previous.mediaKey == mediaKey) previous
+            else Current(randomHex(), hash, index, mediaKey, "PLAY_REQUEST_ACCEPTED")
         if (previous !== current) {
             // User enabled metadata sharing in the middle of playback; do not
             // forge a native PlayRequest event. A viewer tap is distinct.
@@ -189,7 +196,8 @@ internal object P3SelectedMediaPublisher {
         val item = request?.queue?.getOrNull(selectedIndex)
         val isSame = nativeVlc && request?.engine == EngineMode.VLC &&
             item?.hash?.lowercase() == current.hash &&
-            item?.fileIndex == current.fileIndex
+            item?.fileIndex == current.fileIndex &&
+            P1ProductionSubtitles.mediaKey(request, selectedIndex) == current.mediaKey
         // Real per-media P4 ON/OFF/OTHER, NEVER infer ON from global consent.
         val nativeChoice = if (isSame) P1ProductionSubtitles.automaticChoice(
             ctx, request, selectedIndex) else "OTHER"
@@ -311,6 +319,7 @@ internal object P3SelectedMediaPublisher {
         if (!SESSION_RX.matches(bootId) || sequence < 1L ||
             !SESSION_RX.matches(current.session) ||
             !HASH_RX.matches(current.hash) ||
+            !MEDIA_RX.matches(current.mediaKey) ||
             current.fileIndex !in 0..65535 ||
             choice !in setOf("ON", "REQUESTED", "OFF", "OTHER") ||
             current.kind !in setOf("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED") ||
@@ -321,7 +330,7 @@ internal object P3SelectedMediaPublisher {
         val flag = if (isActive) "1" else "0"
         val canonical = "$STATUS_SCHEMA\n$bootId\n$sequence\n" +
             "${current.kind}\n${current.session}\n${current.hash}\n" +
-            "${current.fileIndex}\n$flag\n$choice\n$sent\n$nonce"
+            "${current.fileIndex}\n${current.mediaKey}\n$flag\n$choice\n$sent\n$nonce"
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(paired.deviceSecret, "HmacSHA256"))
         val signature = mac.doFinal(canonical.toByteArray(Charsets.US_ASCII))
@@ -334,6 +343,7 @@ internal object P3SelectedMediaPublisher {
             .put("tv_session_id", current.session)
             .put("torrent_hash", current.hash)
             .put("file_index", current.fileIndex)
+            .put("media_key", current.mediaKey)
             .put("active", isActive)
             .put("subtitle_choice", choice)
             .put("sent_at_ms", sent)

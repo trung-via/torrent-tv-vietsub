@@ -22,11 +22,13 @@ import time
 from p3_owner_replay_journal import OwnerReplayJournal, ReplayJournalRejected
 
 SCHEMA = "TTV-P3-TV-STATE-V1"
+SCHEMA_NATIVE_KEY = "TTV-P3-TV-STATE-V2"
 KIND = frozenset(("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED"))
 CHOICES = frozenset(("ON", "OFF", "OTHER", "REQUESTED"))
 HEX32 = re.compile(r"[0-9a-f]{32}\Z")
 HEX40_OR_64 = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+MEDIA_KEY = re.compile(r"media\.[0-9a-f]{64}\Z")
 WIRE_MAX = 1024
 MAX_CLOCK_SKEW_MS = 15_000
 FRESH_SECONDS = 8.0
@@ -34,6 +36,7 @@ FIELDS = frozenset(("schema", "boot_id", "sequence", "kind",
                     "tv_session_id", "torrent_hash", "file_index",
                     "active", "subtitle_choice", "sent_at_ms", "nonce",
                     "signature"))
+NATIVE_KEY_FIELDS = FIELDS | {"media_key"}
 
 
 class RedmiStateRejected(ValueError):
@@ -52,14 +55,19 @@ class RedmiNow:
     subtitle_choice: str
     sent_at_ms: int
     received_monotonic: float
+    # Signed native OMP P4 identity; v1 senders have no such value.
+    native_p4_media_key: str | None = None
 
 
 def mac_body(obj: dict[str, object]) -> bytes:
     """Canonical ASCII wire shared verbatim with the native Kotlin sender."""
-    parts = (SCHEMA, obj["boot_id"], str(obj["sequence"]), obj["kind"],
-             obj["tv_session_id"], obj["torrent_hash"], str(obj["file_index"]),
-             "1" if obj["active"] is True else "0", obj["subtitle_choice"],
-             str(obj["sent_at_ms"]), obj["nonce"])
+    schema = obj["schema"]
+    parts = [schema, obj["boot_id"], str(obj["sequence"]), obj["kind"],
+             obj["tv_session_id"], obj["torrent_hash"], str(obj["file_index"])]
+    if schema == SCHEMA_NATIVE_KEY:
+        parts.append(obj["media_key"])
+    parts.extend(("1" if obj["active"] is True else "0",
+                  obj["subtitle_choice"], str(obj["sent_at_ms"]), obj["nonce"]))
     return "\n".join(parts).encode("ascii")
 
 
@@ -100,7 +108,11 @@ class SignedRedmiStateCache:
                            object_pairs_hook=_unique)
         except (ValueError, UnicodeError, TypeError, RecursionError):
             raise RedmiStateRejected("P3_STATE_JSON_INVALID") from None
-        if not isinstance(v, dict) or set(v) != FIELDS or v["schema"] != SCHEMA:
+        if (not isinstance(v, dict) or
+                (v.get("schema") == SCHEMA and set(v) != FIELDS) or
+                (v.get("schema") == SCHEMA_NATIVE_KEY and
+                 set(v) != NATIVE_KEY_FIELDS) or
+                v.get("schema") not in (SCHEMA, SCHEMA_NATIVE_KEY)):
             raise RedmiStateRejected("P3_STATE_FIELDS_INVALID")
         if (type(v["boot_id"]) is not str or not HEX32.fullmatch(v["boot_id"])
                 or type(v["sequence"]) is not int
@@ -120,7 +132,10 @@ class SignedRedmiStateCache:
                 or type(v["nonce"]) is not str
                 or not HEX32.fullmatch(v["nonce"])
                 or type(v["signature"]) is not str
-                or not HEX64.fullmatch(v["signature"])):
+                or not HEX64.fullmatch(v["signature"]) or
+                (v["schema"] == SCHEMA_NATIVE_KEY and
+                 (type(v["media_key"]) is not str or
+                  not MEDIA_KEY.fullmatch(v["media_key"])))):
             raise RedmiStateRejected("P3_STATE_VALUE_INVALID")
         now = int(time.time()*1000) if now_ms is None else now_ms
         local = time.monotonic() if monotonic_s is None else monotonic_s
@@ -158,7 +173,8 @@ class SignedRedmiStateCache:
         self._current = RedmiNow(
             v["boot_id"], v["sequence"], v["kind"], v["tv_session_id"],
             v["torrent_hash"], v["file_index"], v["active"],
-            v["subtitle_choice"], v["sent_at_ms"], float(local))
+            v["subtitle_choice"], v["sent_at_ms"], float(local),
+            v.get("media_key"))
         return self._current
 
     def diagnostic_freshness(self, *, monotonic_s: float | None = None
@@ -196,11 +212,15 @@ class SignedRedmiStateCache:
 def sign_synthetic_state(key: bytes, *, boot_id: str, sequence: int,
                          kind: str, tv_session_id: str, torrent_hash: str,
                          file_index: int, active: bool, subtitle_choice: str,
-                         sent_at_ms: int, nonce: str) -> bytes:
+                         sent_at_ms: int, nonce: str,
+                         media_key: str | None = None) -> bytes:
     """Synthetic fixed-vector producer; never used for real TV identity."""
     v = dict(schema=SCHEMA, boot_id=boot_id, sequence=sequence, kind=kind,
              tv_session_id=tv_session_id, torrent_hash=torrent_hash,
              file_index=file_index, active=active,
              subtitle_choice=subtitle_choice, sent_at_ms=sent_at_ms, nonce=nonce)
+    if media_key is not None:
+        v["schema"] = SCHEMA_NATIVE_KEY
+        v["media_key"] = media_key
     v["signature"] = hmac.new(key, mac_body(v), hashlib.sha256).hexdigest()
     return json.dumps(v, separators=(",", ":"), sort_keys=True).encode("ascii")

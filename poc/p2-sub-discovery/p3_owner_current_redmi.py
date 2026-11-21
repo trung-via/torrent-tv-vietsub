@@ -109,4 +109,5 @@ class OwnerCurrentRedmiReader:
             torrent_hash=state.torrent_hash, file_index=state.file_index,
             video_name=name, owner_auto_enabled=allowed,
             viewer_choice=state.subtitle_choice,
-            media_rights_approved=rights, local_vi_state=vi)
+            media_rights_approved=rights, local_vi_state=vi,
+            native_p4_media_key=state.native_p4_media_key)

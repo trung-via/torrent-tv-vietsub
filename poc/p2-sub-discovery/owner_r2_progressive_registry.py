@@ -28,7 +28,7 @@ from progressive_handoff import ProgressiveSubtitleSession, SubtitleRevision
 from automatic_lean120_worker import AutomaticLean120Worker, _job_fingerprint
 from owner_selected_file_resolver import CurrentPlaying, _fingerprint
 from matcher import Media
-from p3_p4_media_key import p4_media_key
+from p3_p4_media_key import p4_key_from_verified_current
 from p3_p4_ready_registry import P3OwnerReadyRegistry, P3ReadyRejected
 
 
@@ -192,7 +192,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             raise P3ReadyRejected("P4_ROLLING_CURRENT_TV_UNAVAILABLE")
         media = Media(current.server_id, current.torrent_hash,
                       current.file_index, current.video_name)
-        if p4_media_key(media, vlc_selected=True) != media_key:
+        if p4_key_from_verified_current(media, current) != media_key:
             self._status("MEDIA_KEY_MISMATCH")
             return "MEDIA_KEY_MISMATCH"
         with self._lock:
@@ -307,12 +307,14 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                                 revision: SubtitleRevision) -> None:
         if not isinstance(media, Media) or not isinstance(handoff, AssumedEnglishSubtitle):
             raise P3ReadyRejected("P4_ROLLING_VERIFIED_MEDIA_REQUIRED")
-        key = p4_media_key(media, vlc_selected=True)
-        self._current(media, tv_session_id, source_fingerprint)
+        current = self._current(media, tv_session_id, source_fingerprint)
+        key = p4_key_from_verified_current(media, current)
         root, file, _ = self._cached_en(flow, source_fingerprint, handoff)
         mapped = self._verified_revision(handoff, revision, key)
         # Do not register an old film after a long P2 provider call or I/O.
-        self._current(media, tv_session_id, source_fingerprint)
+        latest = self._current(media, tv_session_id, source_fingerprint)
+        if p4_key_from_verified_current(media, latest) != key:
+            raise P3ReadyRejected("P4_ROLLING_NATIVE_MEDIA_KEY_CHANGED")
         with self._lock:
             receipt = self._rolling.get(key)
             if (receipt is None or receipt.tv_session != tv_session_id):
@@ -357,7 +359,9 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                               "EN_INDEX_NOT_READY"):
                 self._status("ROLLING_FEED_MISSING")
             return None
-        self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+        current = self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+        if p4_key_from_verified_current(receipt.media, current) != media_key:
+            raise P3ReadyRejected("P4_ROLLING_NATIVE_MEDIA_KEY_CHANGED")
         self._file(receipt.source_root, receipt.source_file,
                    sha=receipt.source_sha256, cues=receipt.source_cues)
 
@@ -366,7 +370,9 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                     or feed.media_key != media_key
                     or feed.source_sha256 != receipt.source_sha256):
                 raise P3ReadyRejected("P4_ROLLING_FEED_IDENTITY_INVALID")
-            self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+            current = self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+            if p4_key_from_verified_current(receipt.media, current) != media_key:
+                raise P3ReadyRejected("P4_ROLLING_NATIVE_MEDIA_KEY_CHANGED")
             with self._lock:
                 live = self._rolling.get(media_key)
                 if live is not receipt or len(live.feeds) >= 8:
@@ -379,11 +385,16 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             # This runs only for an authenticated P4 GET. Revalidate current
             # film/consent and feed only pre-existing P2 checkpoints; a
             # missing callback must never strand the TV on an older revision.
-            self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+            current = self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+            if p4_key_from_verified_current(receipt.media, current) != media_key:
+                raise P3ReadyRejected("P4_ROLLING_NATIVE_MEDIA_KEY_CHANGED")
             self._file(receipt.source_root, receipt.source_file,
                        sha=receipt.source_sha256, cues=receipt.source_cues)
             self._restore_current_checkpoint(media_key)
-            self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+            latest = self._current(receipt.media, receipt.tv_session,
+                                   receipt.fingerprint)
+            if p4_key_from_verified_current(receipt.media, latest) != media_key:
+                raise P3ReadyRejected("P4_ROLLING_NATIVE_MEDIA_KEY_CHANGED")
 
         return AuthenticatedProgressiveSource(
             media_key=media_key, source_sha256=receipt.source_sha256,
