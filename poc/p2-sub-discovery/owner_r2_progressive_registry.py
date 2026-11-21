@@ -351,6 +351,16 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                     feed.publish(live.latest)
                 live.feeds.append(feed)
 
+        def refresh() -> None:
+            # This runs only for an authenticated P4 GET. Revalidate current
+            # film/consent and feed only pre-existing P2 checkpoints; a
+            # missing callback must never strand the TV on an older revision.
+            self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+            self._file(receipt.source_root, receipt.source_file,
+                       sha=receipt.source_sha256, cues=receipt.source_cues)
+            self._restore_current_checkpoint(media_key)
+            self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
+
         return AuthenticatedProgressiveSource(
             media_key=media_key, source_sha256=receipt.source_sha256,
-            subscribe=subscribe)
+            subscribe=subscribe, refresh=refresh)

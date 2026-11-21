@@ -65,6 +65,7 @@ class AuthenticatedProgressiveSource:
     media_key: str
     source_sha256: str
     subscribe: Callable[[SessionRevisionFeed], None]
+    refresh: Callable[[], None] | None = None
 
 
 def derive_session_secret(device_secret: bytes, session_id: str,
@@ -149,6 +150,7 @@ class PairedActivation:
         self.__sources = dict(supplied)
         self.__on_activate = on_activate
         self.__feeds: dict[str, SessionRevisionFeed] = {}
+        self.__refreshers: dict[str, Callable[[], None]] = {}
         self.__seen: dict[str,float] = {}
         self.__lock = Lock()
 
@@ -204,7 +206,9 @@ class PairedActivation:
                             or candidate.media_key != media
                             or not re.fullmatch(r"[0-9a-f]{64}",
                                                 candidate.source_sha256)
-                            or not callable(candidate.subscribe)):
+                            or not callable(candidate.subscribe)
+                            or (candidate.refresh is not None
+                                and not callable(candidate.refresh))):
                         raise ValueError("P4_PROGRESSIVE_SOURCE_MISMATCH")
                     progressive = candidate
             ready = None
@@ -246,6 +250,9 @@ class PairedActivation:
             except Exception:
                 with self.__lock: self.__feeds.pop(sid,None)
                 raise ValueError("P4_PROGRESSIVE_FEED_BIND_FAILED") from None
+            if progressive.refresh is not None:
+                with self.__lock:
+                    self.__refreshers[sid] = progressive.refresh
         if source is not None and self.__on_activate is not None:
             try: self.__on_activate(feed,source)
             except Exception:
@@ -260,6 +267,24 @@ class PairedActivation:
 
     def feed_for(self, session_id: str) -> SessionRevisionFeed | None:
         with self.__lock:return self.__feeds.get(session_id)
+
+    def refresh_for(self, session_id: str) -> bool:
+        """Replay already committed checkpoints only; no worker/provider call.
+
+        A progressive GET must also be denied when the live TV has switched
+        to OFF, another session, or another TorrServer file.
+        """
+        with self.__lock:
+            if session_id not in self.__feeds:
+                return False
+            refresh = self.__refreshers.get(session_id)
+        if refresh is None:
+            return True
+        try:
+            refresh()
+            return True
+        except Exception:
+            return False
 
 
 def make_paired_handler(
@@ -326,6 +351,9 @@ def make_paired_handler(
             if not feed.authorize_read(
                 self.headers.get("X-P4-Nonce"),self.headers.get("X-P4-Authorization")):
                 self.send_error(401);return
+            if not controller.refresh_for(sid):
+                report("P4_REVISION_CURRENT_SOURCE_HOLD")
+                self.send_error(403);return
             body=feed.latest()
             if body is None:
                 self.send_response(204)
