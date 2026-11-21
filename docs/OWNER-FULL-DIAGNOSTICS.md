@@ -47,6 +47,13 @@ the original failure to the Owner-private backup folder as
 are separate from the unified P3/P2/P4 runtime log, which exists only after
 the new Python entrypoint starts. No raw log is sent to GitHub/HostOps.
 
+The subsequent actual Owner receipt identified the original failure as
+`REPLACE_FILES` / `.NET File.Replace` / `The path is empty`. Both forward
+replacement and rollback previously passed a null third (backup) argument.
+The repaired revision provides explicit owner-private backup paths for both
+operations, preserving the same atomic replacement and rollback design.
+This is source correction, not proof of a successful live upgrade.
+
 The exact pinned one-time script is
 `hostops/setup/owner-full-diagnostics-maintenance-once.ps1`:
 inspect with no flags and install with `-Apply` in the logged-in Windows Owner

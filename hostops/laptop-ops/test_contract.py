@@ -65,6 +65,14 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertIn("430317baf5574d9dda186684cad4ebd95cfcf3d5e839cc6799af1c3ac50e3361", operation)
         self.assertRegex(operation, re.compile(r"(?m)^\s*& pwsh .* -Apply$"))
 
+    def test_full_diagnostic_atomic_replace_has_explicit_backup(self):
+        installer = (ROOT / "hostops/setup/owner-full-diagnostics-maintenance-once.ps1").read_text()
+        self.assertEqual(installer.count("[IO.File]::Replace("), 2)
+        self.assertNotIn("[IO.File]::Replace($next, $target, $null)", installer)
+        self.assertNotIn("[IO.File]::Replace($restore, $target, $null)", installer)
+        self.assertIn("[IO.File]::Replace($next, $target, $atomicBackup)", installer)
+        self.assertIn("[IO.File]::Replace($restore, $target, $failedReplacementBackup)", installer)
+
 
 if __name__ == "__main__":
     unittest.main()

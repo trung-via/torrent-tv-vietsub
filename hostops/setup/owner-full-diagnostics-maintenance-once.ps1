@@ -208,7 +208,10 @@ try {
             Copy-Item -LiteralPath $target -Destination (Join-Path $backups $name) -ErrorAction Stop
             $next = Join-Path $installed ('.full-diag-' + [Guid]::NewGuid().ToString('N') + '.tmp')
             Copy-Item -LiteralPath (Join-Path $stage $name) -Destination $next -ErrorAction Stop
-            [IO.File]::Replace($next, $target, $null)
+            # .NET on the Owner's PowerShell 7 runtime rejects a null backup
+            # path with "The path is empty". Use an explicit same-volume path.
+            $atomicBackup = Join-Path $backups ('atomic-before-' + $name)
+            [IO.File]::Replace($next, $target, $atomicBackup)
             $changed.Add($name)
             if ((Hash $target) -cne $pinned[$name]) { throw 'INSTALLED_HASH_MISMATCH' }
         }
@@ -276,7 +279,8 @@ try {
             $target = Join-Path $installed $name
             $restore = Join-Path $installed ('.full-diag-rollback-' + [Guid]::NewGuid().ToString('N') + '.tmp')
             Copy-Item -LiteralPath (Join-Path $backups $name) -Destination $restore -ErrorAction Stop
-            [IO.File]::Replace($restore, $target, $null)
+            $failedReplacementBackup = Join-Path $backups ('failed-installed-' + $name)
+            [IO.File]::Replace($restore, $target, $failedReplacementBackup)
         }
         if (-not (StartAndVerify $oldPid)) { Hold 'ROLLBACK_OWNER_NOT_RECOVERED' }
         Hold 'NEW_OWNER_FAILED_OLD_OWNER_RECOVERED'
