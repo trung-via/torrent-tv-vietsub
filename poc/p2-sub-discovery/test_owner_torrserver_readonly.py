@@ -54,6 +54,21 @@ class ReaderTests(unittest.TestCase):
         self.assertNotIn(b"rem", body)
         self.assertNotIn(b"stream", body)
 
+    def test_torrent_title_alias_from_same_verified_metadata_response(self):
+        title = "Пример / Example Film (2017) BDRip-HEVC 1080p | P | Voice"
+        reader = OwnerTorrServerReader(
+            OwnerLocalTorrServer(PROFILE, 8090),
+            transport=lambda *_: torrent(title=title))
+        record = reader(PROFILE, HASH, 0)
+        self.assertEqual(record.torrent_title, title)
+        self.assertEqual(record.path, "Feature/" + NAME)
+        self.assertEqual(record.id, 0)
+        for invalid in ("bad\nmetadata", "x" * 513, 45):
+            reader = OwnerTorrServerReader(
+                OwnerLocalTorrServer(PROFILE, 8090),
+                transport=lambda *_, value=invalid: torrent(title=value))
+            self.assertIsNone(reader(PROFILE, HASH, 0).torrent_title)
+
     def test_fallback_to_torrserver_embedded_files_compatible_with_omp(self):
         fallback = torrent(file_stats=[], data=json.dumps({
             "TorrServer": {"Files": [

@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from matcher import Media
+from matcher import Media, preferred_media_release
 from owner_selected_file_resolver import (
     CurrentPlaying, TorrServerSelectedFile, OwnerPinnedFiles, _fingerprint,
 )
@@ -52,6 +52,20 @@ class CapturingFlow:
 
 
 class V3CompositionTests(unittest.TestCase):
+    def test_verified_torrent_title_reaches_provider_without_changing_media_identity(self):
+        label = "Пример / Example Film (2017) BDRip-HEVC 1080p | P | Voice"
+        self.record = replace(self.record, torrent_title=label)
+        self.processor().selected_media(
+            VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        self.assertEqual(len(self.capture.calls), 1)
+        _, _, media, _ = self.capture.calls[0]
+        self.assertEqual(media.filename, VIDEO)
+        self.assertEqual(media.key, (SERVER, HASH, 5))
+        self.assertEqual(media.torrent_title, label)
+        # The chosen torrent label changes discovery hints, not the TV file.
+        self.assertEqual(preferred_media_release(media).title, "example film")
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

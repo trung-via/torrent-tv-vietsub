@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from typing import Callable
 
-from matcher import Decision, Media, SearchResults, Subtitle, choose, parse_release
+from matcher import Decision, Media, SearchResults, Subtitle, choose, preferred_media_release
 
 
 BASE_URL = "https://api.opensubtitles.com/api/v1"
@@ -349,7 +349,7 @@ class OpenSubtitles:
         filename = re.split(r"[/\\]", media.filename)[-1]
         if len(filename) > 255 or any(ord(c) < 32 for c in filename):
             raise SubtitleApiError("BAD_MEDIA_FILENAME")
-        release = parse_release(filename)
+        release = preferred_media_release(media)
         if query_mode == "imdb":
             # The ID must be independently verified for the selected film.
             # Search by ID without restrictive year/query filters.

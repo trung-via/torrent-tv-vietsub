@@ -72,6 +72,29 @@ class FakeProvider:
 
 
 class AutomaticFlowTests(unittest.TestCase):
+    def test_cyrillic_video_uses_verified_torrent_title_and_reuses_cache(self):
+        name = "Пример.2017.BDRip-HEVC.1080p.mkv"
+        media = Media("owner-server", "a" * 40, 2, name,
+                      torrent_title="Пример / Example Film (2017) BDRip-HEVC 1080p | P | Voice")
+        fingerprint = hashlib.sha256(
+            "\x00".join((media.server_profile_id, media.torrent_hash,
+                         str(media.file_index))).encode()).hexdigest()
+        self.provider.en = (row(10, "Example.Film.2017.1080p.BluRay.HEVC_eng", "en"),)
+        result = self.flow.selected_media(
+            name, source_fingerprint=fingerprint, verified_media=media)
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertEqual(result.get_requests, 2)
+        self.assertEqual(result.download_posts, 1)
+        self.assertIn("AUTO_PROVIDER_TITLE_SOURCE=TORRENT_ALIAS", self.events)
+        query_urls = [url for method, url in self.provider.calls if method == "GET"]
+        self.assertEqual(len(query_urls), 2)
+        self.assertTrue(all(parse_qs(urlsplit(url).query)["query"] == ["example film"]
+                            for url in query_urls))
+        self.assertEqual(self.flow.selected_media(
+            name, source_fingerprint=fingerprint, verified_media=media).status,
+                         "VIETSUB_READY")
+        self.assertEqual(len(self.provider.calls), 4)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

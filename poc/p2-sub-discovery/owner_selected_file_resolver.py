@@ -60,6 +60,9 @@ class TorrServerSelectedFile:
     id: int
     path: str
     length: int
+    # Optional display metadata from the SAME verified torrent response.
+    # Never participates in selected-file identity or local path resolution.
+    torrent_title: str | None = None
 
 
 @dataclass(frozen=True)

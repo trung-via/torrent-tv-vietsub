@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from typing import Callable
 
-from matcher import Media, Release, parse_release
+from matcher import Media, Release, preferred_media_release
 from owner_selected_file_resolver import (
     CurrentPlaying, TorrServerSelectedFile, OwnerPinnedFiles,
     SelectedFileResolveError, resolve_selected_local_source, _fingerprint,
@@ -72,8 +72,9 @@ def subtitle_lookup_identity(
     """
     movie = Media(
         state.server_id, state.torrent_hash.lower(),
-        state.file_index, state.video_name)
-    release: Release = parse_release(record.path.split("/")[-1])
+        state.file_index, state.video_name,
+        torrent_title=record.torrent_title)
+    release: Release = preferred_media_release(movie)
     by_filename = _episode_token(state.video_name)
     by_server_path = _episode_token(record.path)
     if by_filename is not None and by_server_path is not None and by_filename != by_server_path:

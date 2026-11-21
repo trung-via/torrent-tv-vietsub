@@ -1,7 +1,7 @@
 """Synthetic-only unit tests: no network, media content, tokens or download."""
 import unittest
 
-from matcher import Media, SearchResults, Subtitle, choose, parse_release
+from matcher import Media, SearchResults, Subtitle, choose, parse_release, preferred_media_release
 
 
 def film(movie_hash=None, file_index=0):
@@ -13,6 +13,34 @@ def batch(media, *subtitles):
 
 
 class MatcherTests(unittest.TestCase):
+    def test_cyrillic_filename_uses_international_torrent_alias(self):
+        name = "Пример. (2017). BDRip-HEVC 1080p.x265.mkv"
+        label = "Пример / Example Film (2017) BDRip-HEVC 1080p | P | Voice"
+        self.assertEqual(parse_release(name).title, "пример")
+        media = Media("home", "torrent", 4, name, torrent_title=label)
+        selected = preferred_media_release(media)
+        self.assertEqual((selected.title, selected.year, selected.source,
+                          selected.resolution, selected.codec),
+                         ("example film", 2017, "bluray", "1080p", "hevc"))
+        winner = Subtitle("vi", "Example.Film.2017.1080p.BluRay.HEVC.vi.srt", "vi")
+        self.assertEqual(choose(media, batch(media, winner)).status, "VI_MATCH")
+        self.assertEqual(media.key, ("home", "torrent", 4))
+        self.assertEqual(media.filename, name)
+
+    def test_torrent_alias_must_not_override_conflicting_media_year(self):
+        media = Media("home", "torrent", 0, "Пример.2017.BDRip.1080p.mkv",
+                      torrent_title="Пример / Other Film (2018) BDRip 1080p")
+        self.assertEqual(preferred_media_release(media).title, "пример")
+        mismatch = Subtitle("vi", "Other.Film.2018.BDRip.1080p.srt", "vi")
+        self.assertEqual(choose(media, batch(media, mismatch)).status, "NO_MATCH")
+
+    def test_different_resolution_without_real_moviehash_needs_review(self):
+        media = Media("home", "torrent", 0, "Example.Film.2017.1080p.BDRip.mkv")
+        remux = Subtitle("vi", "Example.Film.2017.2160p.Blu-ray.srt", "vi")
+        self.assertEqual(parse_release(remux.release_name).source, "bluray")
+        self.assertEqual(choose(media, batch(media, remux)).status,
+                         "REVIEW_REQUIRED")
+
     def test_parse_release(self):
         r = parse_release(r"X:\Videos\Sample.Film.2017.1080p.BluRay.x265-TEAM.mkv")
         self.assertEqual((r.title, r.year, r.resolution, r.source, r.codec, r.group),

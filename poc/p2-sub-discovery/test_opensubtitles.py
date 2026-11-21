@@ -56,6 +56,20 @@ class FakeTransport:
 
 
 class D2Tests(unittest.TestCase):
+    def test_title_search_uses_torrent_international_alias_not_cyrillic_basename(self):
+        m = Media("owner", "a" * 40, 2,
+                  "Пример.2017.BDRip-HEVC.1080p.mkv",
+                  torrent_title="Пример / Example Film (2017) BDRip-HEVC 1080p | P | Voice")
+        fake = FakeTransport(search=response(row(
+            81, release="Example.Film.2017.1080p.BluRay.HEVC")))
+        found = OpenSubtitles(api_key="synthetic", transport=fake).search(
+            m, language="vi", query_mode="title")
+        params = parse_qs(urlsplit(fake.calls[0][1]).query)
+        self.assertEqual(params["query"], ["example film"])
+        self.assertEqual(params["year"], ["2017"])
+        self.assertEqual(found.decision.status, "VI_MATCH")
+        self.assertEqual(found.media_key, m.key)
+
     def test_free_first_query_and_headers(self):
         mock = FakeTransport()
         disc = OpenSubtitles(api_key="synthetic-key", transport=mock).search(media(), language="vi")

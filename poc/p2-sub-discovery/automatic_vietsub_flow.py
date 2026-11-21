@@ -16,7 +16,7 @@ from pathlib import Path
 import re
 from typing import Callable
 
-from matcher import Media, parse_release
+from matcher import Media, parse_release, preferred_media_release
 from local_en_direct import LocalMediaSelection, find_local_english
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
 from owner_torrserver_subs import (
@@ -347,7 +347,7 @@ class AutomaticVietsubFlow:
         # depend on scene-release metadata. Parse the filename ONLY if we
         # actually need an external title search. In particular, ordinary
         # torrent filenames without a year, group or codec are valid inputs.
-        if not parse_release(video_name).title:
+        if not preferred_media_release(media).title:
             if inventory is None or inventory.en is None:
                 self.emit("AUTO_PROVIDER_SEARCH=NO_TITLE")
                 return AutoResult("REVIEW_REQUIRED")
@@ -369,6 +369,11 @@ class AutomaticVietsubFlow:
             return AutoResult("VIETSUB_READY", cue_count=en_asset.cues,
                               translated_cues=translated.translated_cues)
 
+        # Privacy-safe runtime proof that the Owner used the bilingual
+        # torrent label, rather than the non-Latin MKV basename, for D2.
+        title_origin = ("TORRENT_ALIAS" if preferred_media_release(media).title
+                        != parse_release(video_name).title else "VIDEO_FILENAME")
+        self.emit("AUTO_PROVIDER_TITLE_SOURCE=" + title_origin)
         route = select_vi_then_en(
             self.client, media, policy="VI_FAST",
             external_en_available=(inventory is not None and inventory.en is not None))

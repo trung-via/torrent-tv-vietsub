@@ -22,7 +22,7 @@ _SUBTITLE_TRAILING_TAG = re.compile(
 )
 _RESOLUTION = re.compile(r"(?<!\w)(720p|1080p|2160p|4k)(?!\w)", re.I)
 _CODEC = re.compile(r"(?<!\w)(x264|x265|h264|h265|hevc|av1)(?!\w)", re.I)
-_SOURCE = re.compile(r"(?<!\w)(bluray|blu ray|bdrip|brrip|web[- ]?dl|webrip|hdtv)(?!\w)", re.I)
+_SOURCE = re.compile(r"(?<!\w)(blu[- ]?ray|bdrip|brrip|web[- ]?dl|webrip|hdtv)(?!\w)", re.I)
 _LANG = {"vi": "vi", "vie": "vi", "vietnamese": "vi", "en": "en", "eng": "en", "english": "en"}
 
 
@@ -35,7 +35,9 @@ def _hash(value: str | None) -> str | None:
 
 
 def _clean(value: str) -> str:
-    return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
+    # Unicode words retain Cyrillic and other scripts for provider fallback.
+    # The original ASCII expression silently turned Russian film names empty.
+    return " ".join(re.findall(r"[^\W_]+", value.casefold()))
 
 
 @dataclass(frozen=True)
@@ -45,11 +47,19 @@ class Media:
     file_index: int
     filename: str
     movie_hash: str | None = None
+    torrent_title: str | None = None
 
     def __post_init__(self) -> None:
         if not self.server_profile_id or not self.torrent_hash or self.file_index < 0 or not self.filename:
             raise ValueError("incomplete media identity")
         _hash(self.movie_hash)
+        if self.torrent_title is not None and (
+                not isinstance(self.torrent_title, str)
+                or not self.torrent_title.strip()
+                or len(self.torrent_title) > 512
+                or any(ord(c) < 32 or ord(c) == 127
+                       for c in self.torrent_title)):
+            raise ValueError("invalid torrent display title")
 
     @property
     def key(self) -> tuple[str, str, int]:
@@ -105,7 +115,7 @@ def parse_release(filename: str) -> Release:
     """Filename hint parser, not authoritative metadata or content verification."""
     stem, _ = _release_stem_and_accessibility(filename)
     group_match = _GROUP.search(stem)
-    if group_match and (group_match.group(1).casefold() in {"dl", "rip", "x264", "x265", "h264", "h265", "720p", "1080p", "2160p"}
+    if group_match and (group_match.group(1).casefold() in {"dl", "rip", "ray", "x264", "x265", "h264", "h265", "720p", "1080p", "2160p"}
                         or _YEAR.fullmatch(group_match.group(1))):
         group_match = None
     group = group_match.group(1).casefold() if group_match else None
@@ -132,6 +142,48 @@ def parse_release(filename: str) -> Release:
     )
 
 
+def preferred_media_release(media: Media) -> Release:
+    """Rank/search using an international alias from the verified torrent.
+
+    The exact video filename and media.key remain untouched. A bilingual
+    Russian/English torrent label is search metadata, not proof that a
+    subtitle is synchronized with the selected video. Only the Latin title
+    from its explicit alias is used; release facts still come from the file.
+    """
+    actual = parse_release(media.filename)
+    if not media.torrent_title:
+        return actual
+    parts = re.split(r"\s+/\s+", media.torrent_title, maxsplit=4)
+    # Do not override an already-readable filename using an unrelated
+    # single-language torrent/folder name (multi-file collections exist).
+    if len(parts) == 1 and re.search(r"[a-z]", actual.title):
+        return actual
+    candidates = parts[1:] if len(parts) > 1 else parts
+    for text in candidates:
+        # "| P | Jaskier" is an audio/voice-over label, not an EN scene group.
+        proposed = parse_release(text.split("|", 1)[0].strip())
+        if not proposed.title or not re.search(r"[a-z]", proposed.title):
+            continue
+        if (actual.year is not None and proposed.year is not None
+                and actual.year != proposed.year):
+            continue
+        if (actual.source is not None and proposed.source is not None
+                and actual.source != proposed.source):
+            continue
+        if (actual.resolution is not None and proposed.resolution is not None
+                and actual.resolution != proposed.resolution):
+            continue
+        return Release(
+            title=proposed.title,
+            year=actual.year if actual.year is not None else proposed.year,
+            source=actual.source or proposed.source,
+            resolution=actual.resolution or proposed.resolution,
+            codec=actual.codec or proposed.codec,
+            group=actual.group,
+        )
+    return actual
+
+
 @dataclass(frozen=True)
 class Ranked:
     subtitle_id: str
@@ -154,7 +206,7 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
     # Rank the release; the D2 download gate must request/verify SRT before use.
     if lang is None or candidate.fmt.lower() not in {"srt", "vtt", "provider"}:
         return None
-    reference = parse_release(media.filename)
+    reference = preferred_media_release(media)
     proposed = parse_release(candidate.release_name)
     if not reference.title or not proposed.title or reference.title != proposed.title:
         return None
@@ -200,10 +252,14 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
                       and reference.group != proposed.group)
     source_conflict = (reference.source is not None and proposed.source is not None
                        and reference.source != proposed.source)
+    resolution_conflict = (reference.resolution is not None
+                           and proposed.resolution is not None
+                           and reference.resolution != proposed.resolution)
     same_release = (
         reference.year is not None and reference.year == proposed.year
         and reference.source is not None and reference.source == proposed.source
         and not group_conflict and not source_conflict
+        and not resolution_conflict
     )
     confident = not hash_conflict and (exact_hash or same_release)
     return Ranked(candidate.subtitle_id, lang, score, confident, tuple(evidence))

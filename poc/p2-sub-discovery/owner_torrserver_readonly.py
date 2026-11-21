@@ -162,5 +162,14 @@ class OwnerTorrServerReader:
                 or type(found.get("length")) is not int
                 or found["length"] < 1):
             raise OwnerTorrServerReadError("TS_SELECTED_FILE_FIELDS_INVALID")
+        # TorrServer keeps the original torrent/magnet display title separately
+        # from its selected file path. Russian torrents often include an
+        # international film title here even when the .mkv basename is Cyrillic.
+        title = torrent.get("title")
+        if (not isinstance(title, str) or not title.strip()
+                or len(title) > 512
+                or any(ord(c) < 32 or ord(c) == 127 for c in title)):
+            title = None
         return TorrServerSelectedFile(
-            id=file_index, path=found["path"], length=found["length"])
+            id=file_index, path=found["path"], length=found["length"],
+            torrent_title=title)
