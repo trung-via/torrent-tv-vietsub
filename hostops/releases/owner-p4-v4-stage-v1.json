@@ -1,0 +1,31 @@
+{
+  "schema": "TTV-OWNER-RELEASE-STAGE-V1",
+  "release_id": "p4-native-178-v4",
+  "source_tree": "e5f01545cb415720dea4a5e36825212546828639",
+  "mode": "STAGE_ONLY",
+  "files": [
+    {"path":"poc/p2-aisub/paired_activation.py","sha256":"fbba82a269848fa74b24da37e9dfdd14ccdaf539851e916ba2026f59117b7ff2"},
+    {"path":"poc/p2-aisub/translator_gateway.py","sha256":"d63c468a6417fab87d6c9e56e6dd319ddc28289f7c95eb064eaf9684d5774fc3"},
+    {"path":"poc/p2-sub-discovery/owner_full_flow_snapshot_v4.py","sha256":"c08127a43657a83966307ee7901ea333cd81aac71625f35a539a70375a275fdc"},
+    {"path":"poc/p2-sub-discovery/owner_hostops_snapshot.py","sha256":"91e1c3400cfdca347c0cd15c5da9ee942d2a189a095e4ab7cb583a1d7664eb4f"},
+    {"path":"poc/p2-sub-discovery/owner_hostops_snapshot_v3.py","sha256":"2d3c3b3417f11b3e426c5060ab6a97ec22f907be352b7b74ae18d3a0c215d0a9"},
+    {"path":"poc/p2-sub-discovery/owner_p3_p4_entrypoint.py","sha256":"3febeac9f8ee5f3c0719894e1fb9ba67c91af4439970adbafdcbc8df28d9f953"},
+    {"path":"poc/p2-sub-discovery/owner_p3_p4_policy_r0.py","sha256":"f52e5ce0fd41fd6bbd593d9dd11265aaf0f8334d85dd99f0ebb075238d918121"},
+    {"path":"poc/p2-sub-discovery/owner_p3_p4_private_policy.py","sha256":"3804a2afa1b66889488a8a515472609b0b4b476f85876f9456a73e2e1bf842c5"},
+    {"path":"poc/p2-sub-discovery/owner_p3_p4_runtime.py","sha256":"e0f2f4011b0dfabc31855cc351214224128b8a852345d687a9a227b8e28c3116"},
+    {"path":"poc/p2-sub-discovery/owner_r2_progressive_registry.py","sha256":"ec514c8a0fe5afe503cede91c713124d8287e1ef0219e730c2c1cf83517377d0"},
+    {"path":"poc/p2-sub-discovery/owner_r2_progressive_worker.py","sha256":"f024ac97d6989876975a2c32bffdf3d0dccf51bbbc964b4e0bd29e4e4e3e8457"},
+    {"path":"poc/p2-sub-discovery/owner_r2_verified_processor.py","sha256":"8eb8579d82a710aff28380cf5cae146393a69fecb4fa2ecbd3d11e1ff4b466ae"},
+    {"path":"poc/p2-sub-discovery/owner_selected_file_resolver.py","sha256":"4d67056efa80bd7e61071a8d44fa33ef1a3e363a5ea324382f0fc1be0c28bc34"},
+    {"path":"poc/p2-sub-discovery/owner_session_bridge.py","sha256":"2ee9061743852092e3543245e7b711656774b2f615fabcff39a13cb92b4c695e"},
+    {"path":"poc/p2-sub-discovery/owner_torrserver_ffp_tracks.py","sha256":"0ebcea4ad6a1d08da12539f06fd7db5a3a4f654ca7697277f868e8ea124a437a"},
+    {"path":"poc/p2-sub-discovery/p3_owner_current_redmi.py","sha256":"69f4da5b2cdc94781b672c9858d4adf2b03837580d78045becf768ec42fb96a0"},
+    {"path":"poc/p2-sub-discovery/p3_owner_state_wiring_r0.py","sha256":"149a914127d3aff5636ecb23d7d5ae1128e28a5b219c868098663bc0510d734b"},
+    {"path":"poc/p2-sub-discovery/p3_owner_state_wiring_r2.py","sha256":"3a4e50f22c977ab5edcb7837ce9050f9bbb8bb7ee8a27b322ed8f1bc37ab4508"},
+    {"path":"poc/p2-sub-discovery/p3_p4_media_key.py","sha256":"7d1367b055934b4e6e0f7e40e5383ff57f2e44528c7f3d1ec66e630814ee92e4"},
+    {"path":"poc/p2-sub-discovery/p3_p4_ready_registry.py","sha256":"0a14bae3c44ef66b962657697b3978e2f718be6216704f312a693ebde44f5c76"},
+    {"path":"poc/p2-sub-discovery/p3_p4_shared_https_route_r0.py","sha256":"7358cfafa901fa0a74743450302d99cb7ee370561c28fa336a73535498a7dadf"},
+    {"path":"poc/p2-sub-discovery/p3_redmi_current_state.py","sha256":"e62de5235486d2a604b37122a93b1de56adbf124530cbe8b37531cd0f3da0ac2"},
+    {"path":"poc/p2-sub-discovery/verified_v3_processor.py","sha256":"e3fc95986247f928cdc651fdc6afc94bbdcaca49cb62f0b7a6382da2fbb32d43"}
+  ]
+}
