@@ -139,6 +139,12 @@ _SAFE_BLOCK_REASONS = frozenset({
     "AUTO_VIETSUB_INCOMPLETE_TRANSLATION",
     "OWNER_BRIDGE_INVALID_RESULT", "AUTO_SOURCE_CACHE_INDEX_INVALID",
     "AUTO_SOURCE_CACHE_DIGEST_MISMATCH", "EN_DOWNLOAD_ALREADY_ATTEMPTED",
+    # These are explicit P2 no-replay gates, not an unidentified exception.
+    # In particular, an acknowledged unknown-effect batch must remain
+    # quarantined; exposing the fixed reason never authorizes a retry.
+    "AUTO_LEAN120_ABANDONED_JOB_HOLD",
+    "AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD",
+    "AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE",
 })
 
 
