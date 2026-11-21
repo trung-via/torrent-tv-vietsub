@@ -16,12 +16,12 @@ MANIFEST = ROOT / "hostops/laptop-ops/manifests/current.json"
 class FreshInspectV2Contract(unittest.TestCase):
     def test_safe_manifest_pins_exact_inspection_source(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["operation"], "owner-p2-fresh-inspect-v2")
+        self.assertEqual(manifest["operation"], "owner-p2-block-rootcause-v1")
         self.assertEqual(manifest["risk"], "ROUTINE")
         self.assertEqual(manifest["category"], "diagnostics")
         self.assertEqual(manifest["arguments"], [])
         checked_in_bytes = subprocess.run(
-            ["git", "show", "HEAD:hostops/laptop-ops/operations/owner-p2-fresh-inspect-v2.ps1"],
+            ["git", "show", "HEAD:hostops/laptop-ops/operations/owner-p2-block-rootcause-v1.ps1"],
             cwd=ROOT, capture_output=True, check=True,
         ).stdout
         self.assertEqual(
