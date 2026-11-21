@@ -14,6 +14,7 @@ credentials, timer, disk crawler or actual device installation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import re
 from pathlib import Path
 from typing import Callable
@@ -24,9 +25,32 @@ from owner_selected_file_resolver import (
     SelectedFileResolveError, resolve_selected_local_source, _fingerprint,
 )
 from local_en_direct import LocalMediaSelection
-from owner_session_bridge import (
-    PreProviderTransient, _authorized_selection, owner_full_trace,
-)
+from owner_session_bridge import PreProviderTransient, owner_full_trace
+
+try:
+    # Newer Owner bridges supply the shared validator. The installed V2-R0
+    # bridge predates that export; keep the six-file discovery upgrade
+    # compatible without replacing a live session/queue implementation.
+    from owner_session_bridge import _authorized_selection
+except ImportError:
+    def _authorized_selection(value: object, fingerprint: str | None,
+                              session: str | None) -> dict[str, object]:
+        """Same fail-closed coordinates check as the newer Owner bridge."""
+        if not isinstance(value, dict) or set(value) != {
+                "server_id", "torrent_hash", "file_index"}:
+            raise ValueError("OWNER_BRIDGE_BACKGROUND_SELECTION_INVALID")
+        server, torrent, index = (value["server_id"], value["torrent_hash"],
+                                  value["file_index"])
+        if (not isinstance(server, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", server)
+                or not isinstance(torrent, str)
+                or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", torrent)
+                or type(index) is not int or index < 0
+                or session is None or fingerprint is None
+                or hashlib.sha256("\x00".join((server, torrent, str(index)))
+                                  .encode("utf-8")).hexdigest() != fingerprint):
+            raise ValueError("OWNER_BRIDGE_BACKGROUND_SELECTION_INVALID")
+        return {"server_id": server, "torrent_hash": torrent, "file_index": index}
 
 
 class V3IdentityError(ValueError):

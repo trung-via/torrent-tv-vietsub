@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -49,6 +51,32 @@ class CapturingFlow:
         self.calls.append((name, source_fingerprint,
                            verified_media, local_source))
         return AutoResult("VI_READY")
+
+
+class LegacyOwnerBridgeCompatibilityTests(unittest.TestCase):
+    def test_v3_import_and_exact_identity_when_old_bridge_lacks_validator(self):
+        # A separate interpreter models the installed V2-R0 bridge without
+        # mutating the test runner's imported Owner module.
+        probe = """
+import owner_session_bridge as bridge
+if hasattr(bridge, '_authorized_selection'):
+    del bridge._authorized_selection
+import verified_v3_processor as v3
+from owner_selected_file_resolver import _fingerprint
+record = {'server_id':'srv','torrent_hash':'a'*40,'file_index':1}
+valid = _fingerprint('srv','a'*40,1)
+assert v3._authorized_selection(record, valid, 'tv-session') == record
+try:
+    v3._authorized_selection(record, 'b'*64, 'tv-session')
+except ValueError:
+    pass
+else:
+    raise AssertionError('foreign fingerprint accepted')
+"""
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", probe], cwd=Path(__file__).parent,
+            capture_output=True, text=True, timeout=12, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class V3CompositionTests(unittest.TestCase):
