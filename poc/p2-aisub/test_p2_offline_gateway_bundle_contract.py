@@ -30,7 +30,17 @@ class P2OfflineGatewayBundleContract(unittest.TestCase):
         for name in MODULES:
             source = (ROOT / "poc/p2-aisub" / name).read_text(encoding="utf-8")
             digest = hashlib.sha256(source.replace("\r\n", "\n").encode()).hexdigest()
-            self.assertIn(f"'{name}' = '{digest}'", script)
+            if name == "translator_gateway.py":
+                # P2-F4 is a historical, immutable offline installer. The
+                # newer AGY text repair must ship through its own pinned
+                # Owner release, never via this older installer.
+                self.assertIn("'translator_gateway.py' = "
+                              "'b06c151cc4275a7793fdb7891d7859715e602a676a553ea89e6e242578190183'",
+                              script)
+                self.assertNotEqual(digest,
+                    "b06c151cc4275a7793fdb7891d7859715e602a676a553ea89e6e242578190183")
+            else:
+                self.assertIn(f"'{name}' = '{digest}'", script)
         # A missed direct import here creates a mixed runtime on Windows.
         for filename in MODULES:
             if not filename.endswith(".py"):

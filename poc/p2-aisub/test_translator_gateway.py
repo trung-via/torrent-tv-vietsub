@@ -105,6 +105,83 @@ class GatewayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "AGY_TRANSLATION_ID_OR_TEXT_INVALID"):
             _parse_response(json.dumps(payload), self.window)
 
+    def test_owner_failure_formatting_is_normalized_before_cue_validation(self):
+        def reply(text):
+            return json.dumps({"event": "result", "result": {"status": "SUCCESS",
+                "structured_output": {"translations": [{"id": 1, "vi": text}]}}})
+
+        self.assertEqual(_parse_response(reply("<i>Xin</i>\r\n<b>chào</b> 2 < 3"),
+                                         self.window), {1: "Xin\nchào 2 ‹ 3"})
+        self.assertEqual(_parse_response(reply("Bình thường"), self.window),
+                         {1: "Bình thường"})
+        for value, code in ((" \r\n ", "AGY_TRANSLATION_TEXT_EMPTY"),
+                            ("<script>alert(1)</script>",
+                             "AGY_TRANSLATION_TEXT_MARKUP_UNSUPPORTED"),
+                            ("a" * 2001, "AGY_TRANSLATION_TEXT_TOO_LONG"),
+                            ("Chào\x00", "AGY_TRANSLATION_TEXT_NUL"),
+                            ("\ud800", "AGY_TRANSLATION_TEXT_UTF8_INVALID")):
+            with self.subTest(code=code), self.assertRaisesRegex(ValueError, code):
+                _parse_response(reply(value), self.window)
+
+    def test_normalized_window_checkpoints_without_repeat_provider_call(self):
+        source = AssumedEnglishSubtitle.from_supplied(
+            media_key="media." + "d" * 64, fmt="srt",
+            source_bytes=b"1\n00:00:00,000 --> 00:00:01,000\nHello world\n\n")
+        calls = []
+        def fake(cmd, **kwargs):
+            calls.append(1)
+            response = {"event": "result", "result": {"status": "SUCCESS",
+                        "structured_output": {"translations": [
+                            {"id": 1, "vi": "<i>Xin chào</i>\r\n<b>bạn</b>"}]}}}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(response), "")
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            worker = AutomaticLean120Worker(state_root=state, profile=self.profile,
+                                            glossary={}, runner=fake)
+            first = worker.run(source)
+            second = worker.run(source)
+            self.assertEqual(first.payload, second.payload)
+            self.assertIn("Xin chào\nbạn", first.payload.decode("utf-8"))
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(len(list(state.rglob("batch-0001.json"))), 1)
+            self.assertEqual(list(state.rglob("*.inflight")), [])
+
+    def test_batch_two_markup_and_crlf_commit_after_batch_one(self):
+        cues = []
+        for i in range(1, 122):
+            minute, second = divmod(i - 1, 60)
+            cues.append(f"{i}\n00:{minute:02d}:{second:02d},000 --> "
+                        f"00:{minute:02d}:{second:02d},900\nEnglish {i}\n")
+        source = AssumedEnglishSubtitle.from_supplied(
+            media_key="media." + "e" * 64, fmt="srt",
+            source_bytes=("\n".join(cues) + "\n").encode())
+        batches = []
+        def fake(cmd, **kwargs):
+            prompt = json.loads(kwargs["input"])["message"]["content"]
+            data = json.loads(prompt.split("\n", 1)[1])
+            ids = [item["id"] for item in data["target"]]
+            batches.append(ids)
+            response = {"event": "result", "result": {"status": "SUCCESS",
+                "structured_output": {"translations": [
+                    {"id": i, "vi": "<i>Xin chào</i>\r\n<b>bạn</b>" if i == 121
+                     else f"Tiếng Việt {i}"} for i in ids]}}}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(response), "")
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            worker = AutomaticLean120Worker(state_root=state, profile=self.profile,
+                                            glossary={}, runner=fake)
+            result = worker.run(source)
+            self.assertEqual(result.translated_count, 121)
+            self.assertIn("Xin chào\nbạn", result.payload.decode("utf-8"))
+            self.assertEqual(list(map(len, batches)), [120, 1])
+            self.assertEqual(len(list(state.rglob("batch-0001.json"))), 1)
+            self.assertEqual(len(list(state.rglob("batch-0002.json"))), 1)
+            self.assertEqual(list(state.rglob("*.inflight")), [])
+            worker.run(source)
+            self.assertEqual(len(batches), 2)
+
     def test_no_api_key_or_cloud_account_mode_in_preflight(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

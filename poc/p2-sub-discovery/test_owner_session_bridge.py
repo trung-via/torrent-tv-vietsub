@@ -219,6 +219,25 @@ class OwnerSessionBridgeTests(unittest.TestCase):
                     self.assertTrue((root / "inbox" /
                                      ("event-" + event_id + ".blocked")).is_file())
 
+    def test_p2_text_validation_failure_reports_only_fixed_error_code(self):
+        for reason in ("AGY_TRANSLATION_TEXT_EMPTY",
+                       "AGY_TRANSLATION_TEXT_TOO_LONG",
+                       "AGY_TRANSLATION_TEXT_NUL",
+                       "AGY_TRANSLATION_TEXT_UTF8_INVALID",
+                       "AGY_TRANSLATION_TEXT_MARKUP_UNSUPPORTED"):
+            with self.subTest(reason=reason):
+                lines = []
+                with tempfile.TemporaryDirectory() as private:
+                    root = Path(private).resolve()
+                    enqueue_selected_media("Synthetic.Film.2017.mkv", owner_root=root)
+                    class RejectedP2:
+                        def selected_media(self, name):
+                            raise ValueError(reason)
+                    self.assertEqual(poll_private_events(
+                        owner_root=root, processor=RejectedP2(), emit=lines.append), 1)
+                    self.assertEqual(lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                             "OWNER_BRIDGE_BLOCK_REASON=" + reason])
+
     def test_legacy_event_preprovider_error_must_not_replay(self):
         event_id = enqueue_selected_media(
             "Synthetic.Film.2017.mkv", owner_root=self.root)

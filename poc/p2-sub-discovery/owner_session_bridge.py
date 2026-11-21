@@ -139,6 +139,10 @@ _SAFE_BLOCK_REASONS = frozenset({
     "AUTO_VIETSUB_INCOMPLETE_TRANSLATION",
     "OWNER_BRIDGE_INVALID_RESULT", "AUTO_SOURCE_CACHE_INDEX_INVALID",
     "AUTO_SOURCE_CACHE_DIGEST_MISMATCH", "EN_DOWNLOAD_ALREADY_ATTEMPTED",
+    "AGY_TRANSLATION_TEXT_EMPTY", "AGY_TRANSLATION_TEXT_TOO_LONG",
+    "AGY_TRANSLATION_TEXT_NUL", "AGY_TRANSLATION_TEXT_UTF8_INVALID",
+    "AGY_TRANSLATION_TEXT_MARKUP_UNSUPPORTED",
+    "PLAIN_UTF8_TRANSLATION_REQUIRED",
     # These are explicit P2 no-replay gates, not an unidentified exception.
     # In particular, an acknowledged unknown-effect batch must remain
     # quarantined; exposing the fixed reason never authorizes a retry.

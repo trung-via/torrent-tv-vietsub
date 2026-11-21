@@ -32,6 +32,32 @@ _SCHEMA = {
     }, "required": ["translations"], "additionalProperties": False,
 }
 
+# AGY sometimes returns SRT styling or Windows-style newlines inside a valid
+# structured `vi` string. These are representational details, not a reason to
+# discard an otherwise complete (and already generated) translation window.
+_SRT_STYLE_TAG = re.compile(r"</?(?:i|b|u)\s*>", re.IGNORECASE)
+_UNKNOWN_MARKUP = re.compile(r"<\s*/?\s*[a-z][^>]*>", re.IGNORECASE)
+
+
+def _plain_vi_text(value: str) -> str:
+    """Normalize benign AGY formatting, then retain the strict cue QA gate."""
+    text = _SRT_STYLE_TAG.sub("", value.replace("\r\n", "\n").replace("\r", "\n"))
+    if _UNKNOWN_MARKUP.search(text):
+        raise ValueError("AGY_TRANSLATION_TEXT_MARKUP_UNSUPPORTED")
+    # Unknown angle-marked captions remain visible, without becoming markup.
+    text = text.replace("<", "‹").replace(">", "›").strip()
+    if not text:
+        raise ValueError("AGY_TRANSLATION_TEXT_EMPTY")
+    if len(text) > 2000:
+        raise ValueError("AGY_TRANSLATION_TEXT_TOO_LONG")
+    if "\x00" in text:
+        raise ValueError("AGY_TRANSLATION_TEXT_NUL")
+    try:
+        text.encode("utf-8", errors="strict")
+    except UnicodeError:
+        raise ValueError("AGY_TRANSLATION_TEXT_UTF8_INVALID") from None
+    return text
+
 
 def _check_owner_account_settings(home: Path) -> None:
     """Reject key-backed/Cloud billing mode, without reading or logging tokens."""
@@ -103,6 +129,8 @@ def _prompt(window: TranslationWindow, glossary: Mapping[str, str]) -> str:
         "boundaries, questions, negation, names, humor and pronouns. "
         "Only translate target IDs, in order, exactly once. Context is read-only. "
         "No omissions, added text, timing changes or merged cues. "
+        "Each vi value must be nonempty plain UTF-8 subtitle text: no HTML "
+        "tags, angle-bracket markup, NUL or carriage returns. "
         "Return only an object with translations: [{id, vi}], plain Vietnamese, "
         "without commentary or markdown.\n" +
         json.dumps(data, ensure_ascii=False, separators=(",", ":"))
@@ -144,7 +172,7 @@ def _parse_response(raw: str, window: TranslationWindow) -> dict[int, str]:
                 or type(row["id"]) is not int or row["id"] != expected
                 or not isinstance(row["vi"], str)):
             raise ValueError("AGY_TRANSLATION_ID_OR_TEXT_INVALID")
-        translated[expected] = row["vi"]
+        translated[expected] = _plain_vi_text(row["vi"])
     apply_translations(window.target, {str(k): v for k, v in translated.items()})
     return translated
 
