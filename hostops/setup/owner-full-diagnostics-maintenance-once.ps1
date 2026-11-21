@@ -71,11 +71,50 @@ function StopOwner {
             Stop-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
         }
     } elseif ([string]$task.State -ne 'Disabled') { Hold 'TASK_STATE_UNEXPECTED' }
-    for ($i=0; $i -lt 12; $i++) {
+    for ($i=0; $i -lt 4; $i++) {
         if (@(OwnerWorkers).Count -eq 0) { return }
         Start-Sleep -Seconds 1
     }
-    Hold 'OWNER_WORKER_NOT_STOPPED_TASK_DISABLED'
+    # Stopping the Task can terminate the PowerShell parent while leaving
+    # Python children alive. Verify exact installed entrypoint, Owner SID,
+    # PID, command and creation time before stopping only those children.
+    NoOpenWork
+    $workers = @(OwnerWorkers)
+    if ($workers.Count -gt 4) { Hold 'RESIDUAL_OWNER_WORKER_COUNT_UNEXPECTED' }
+    $allowed = @((Join-Path $installed 'owner_p3_p4_entrypoint.py'),
+                 (Join-Path $installed 'owner_session_bridge.py'))
+    foreach ($worker in $workers) {
+        $matches = @($allowed | Where-Object {
+            [string]$worker.CommandLine -and
+            $worker.CommandLine.IndexOf($_,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+        $identity = Invoke-CimMethod -InputObject $worker -MethodName GetOwnerSid
+        if ($matches.Count -ne 1 -or $null -eq $worker.CreationDate -or
+            $identity.ReturnValue -ne 0 -or $identity.Sid -cne $ownerSid) {
+            Hold 'RESIDUAL_OWNER_WORKER_IDENTITY_UNVERIFIED'
+        }
+    }
+    foreach ($worker in $workers) {
+        NoOpenWork
+        if ([string](CheckTask).State -cne 'Disabled') { Hold 'OWNER_TASK_REENABLED_DURING_STOP' }
+        $live = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$worker.ProcessId)
+        if ($null -eq $live) { continue }
+        $identity = Invoke-CimMethod -InputObject $live -MethodName GetOwnerSid
+        if ($live.CommandLine -cne $worker.CommandLine -or
+            $live.CreationDate -ne $worker.CreationDate -or
+            $identity.ReturnValue -ne 0 -or $identity.Sid -cne $ownerSid) {
+            Hold 'RESIDUAL_OWNER_WORKER_IDENTITY_CHANGED'
+        }
+        Stop-Process -Id ([int]$worker.ProcessId) -Force -ErrorAction Stop
+    }
+    for ($i=0; $i -lt 10; $i++) {
+        if (@(OwnerWorkers).Count -eq 0) {
+            Write-Output ('OWNER_FULL_DIAG_RESIDUAL_WORKERS_STOPPED=' + $workers.Count)
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+    Hold 'OWNER_WORKERS_STILL_RUNNING_TASK_DISABLED'
 }
 function StartAndVerify([long]$oldPid) {
     $since = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
