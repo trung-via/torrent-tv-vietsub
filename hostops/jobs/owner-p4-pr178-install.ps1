@@ -37,7 +37,7 @@ if (-not (Test-Path -LiteralPath $adb -PathType Leaf)) {
     throw 'P4_PR178_INSTALL_ADB_MISSING'
 }
 
-function Assert-ViewerOffAndOwnerIdle {
+function Assert-ViewerOffAndOwnerIdle([string]$serial) {
     $task = Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\' -ErrorAction Stop
     if ([string]$task.State -cne 'Running') {
         throw 'P4_PR178_INSTALL_OWNER_NOT_RUNNING'
@@ -58,12 +58,23 @@ function Assert-ViewerOffAndOwnerIdle {
     if ($r.schema -cne 'TTV-HOSTOPS-OWNER-SNAPSHOT-V4' -or
         $r.status -cne 'READY_FRESH' -or
         $r.mode -cne 'INTEGRATED_P3_P4' -or
-        $r.p3_state -cne 'FRESH_OFF' -or
+        $r.p3_state -cnotin @('FRESH_OFF','STALE') -or
         [string]$r.p2.status -cne 'CLEAR' -or
         [long]$r.p2.pending_events -ne 0 -or
         [long]$r.p2.inflight_count -ne 0 -or
         $age -lt 0 -or $age -gt 10) {
         throw 'P4_PR178_INSTALL_TV_OFF_OWNER_IDLE_NOT_PROVEN'
+    }
+    # After the Owner-side HostOps operation force-stopped this exact OMP
+    # package, the TV may not emit a new signed P3 OFF status. STALE alone
+    # never proves viewer-off: require live ADB evidence that no OMP process
+    # exists on the single verified target TV, again immediately pre-write.
+    if ($r.p3_state -ceq 'STALE') {
+        $running = @(& $adb -s $serial shell pidof $pkg 2>$null)
+        if ($LASTEXITCODE -ne 1 -or $running.Count -ne 0) {
+            throw 'P4_PR178_INSTALL_STALE_TV_OMP_PROCESS_NOT_PROVEN_OFF'
+        }
+        Write-Output 'P4_PR178_INSTALL_OFF=STALE_WITH_VERIFIED_NO_OMP_PROCESS'
     }
 }
 
@@ -100,7 +111,6 @@ foreach ($required in @(
         throw 'P4_PR178_INSTALL_STAGE_RECEIPT_DRIFT'
     }
 }
-if (-not $PreflightOnly) { Assert-ViewerOffAndOwnerIdle }
 
 $buildTools = @(Get-ChildItem -LiteralPath 'C:\TOOL\Android-SDK\build-tools' -Directory |
     Where-Object {
@@ -138,6 +148,7 @@ if ($LASTEXITCODE -ne 0) { throw 'P4_PR178_INSTALL_EXISTING_PACKAGE_UNAVAILABLE'
 $base = @($paths | Where-Object { $_ -match '^package:/[^\s]+/base\.apk$' })
 if ($base.Count -ne 1) { throw 'P4_PR178_INSTALL_INSTALLED_BASE_NOT_UNIQUE' }
 $remoteBase = $base[0].Trim().Substring(8)
+if (-not $PreflightOnly) { Assert-ViewerOffAndOwnerIdle $serial }
 $certParser = Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\cert-parser.ps1'
 if (-not (Test-Path -LiteralPath $certParser -PathType Leaf)) {
     throw 'P4_PR178_INSTALL_CERT_PARSER_MISSING'
@@ -212,7 +223,7 @@ try {
     }
     # Snapshot freshness and OFF can change during a slow ADB pull: recheck
     # immediately before the sole device write. This is NEVER a provider retry.
-    Assert-ViewerOffAndOwnerIdle
+    Assert-ViewerOffAndOwnerIdle $serial
     $install = Invoke-QuietAdb @('install', '-r', $apk)
     if ($install.code -ne 0 -or
         @($install.lines | Where-Object { ([string]$_).Trim() -ceq 'Success' }).Count -ne 1) {
