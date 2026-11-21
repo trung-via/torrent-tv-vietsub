@@ -216,28 +216,45 @@ try {
         @($task.Actions).Count -ne 1 -or
         -not [IO.Path]::GetFileName([string]$task.Actions[0].Execute).Equals(
             'pwsh.exe',[StringComparison]::OrdinalIgnoreCase) -or
-        [string]$task.Actions[0].Arguments -notmatch '(?i)start-owner-session-agent\.ps1' -or
-        [string]$task.State -cne 'Running') { Hold 'ORIGINAL_TASK_DRIFT' }
+        [string]$task.Actions[0].Arguments -notmatch '(?i)start-owner-session-agent\.ps1') {
+        Hold 'ORIGINAL_TASK_DRIFT'
+    }
+    $originalState = [string]$task.State
+    if ($originalState -notin @('Running','Ready','Disabled')) {
+        Hold 'ORIGINAL_TASK_UNSUPPORTED_STATE'
+    }
     $stage = 'SNAPSHOT'
     CheckFile $snapshot
     if ((Get-Item -LiteralPath $snapshot).Length -gt 4096) { Hold 'SNAPSHOT_SIZE_INVALID' }
     $s = Get-Content -LiteralPath $snapshot -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
     $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$s.snapshot_utc_epoch
-    if ($s.schema -cne 'TTV-HOSTOPS-OWNER-SNAPSHOT-V2' -or
+    if ($s.schema -notin @('TTV-HOSTOPS-OWNER-SNAPSHOT-V2',
+            'TTV-HOSTOPS-OWNER-SNAPSHOT-V3') -or
         $s.status -cne 'READY_FRESH' -or $s.p3_state -cne 'FRESH_OFF' -or
-        $age -lt 0 -or $age -gt 30 -or
+        $age -lt 0 -or
         $s.p2.status -cne 'UNKNOWN_EFFECT_HOLD' -or
         $s.p2.pending_events -ne 1 -or $s.p2.inflight_count -ne 1 -or
         $s.p2.batch -cne $batch -or $s.p2.marker_sha256 -cne $markerSHA -or
         $s.p2.checkpoint_present -cne 'NO' -or
         $s.p2.active_lock_present -cne 'YES' -or
         $s.p2.installed_no_retry_worker_match -cne 'YES') { Hold 'OBSERVED_P2_DRIFT' }
+    # A deliberately stopped Owner cannot refresh this snapshot. For Ready or
+    # Disabled, the old FRESH_OFF observation is historical evidence only;
+    # private marker/event identity and ZERO live workers are rechecked below.
+    # A running Owner still requires a recent, current-TV-OFF observation.
+    if ($originalState -ceq 'Running' -and $age -gt 30) {
+        Hold 'RUNNING_OWNER_SNAPSHOT_STALE'
+    }
     $stage = 'PRIVATE_JOB'
     $oldJob = StateJob
     $stage = 'PRIVATE_EVENT'
     $oldEvent = PendingEvent
     $stage = 'WORKERS'
-    CheckWorkers @(Workers)
+    $observedWorkers = @(Workers)
+    CheckWorkers $observedWorkers
+    if ($originalState -cne 'Running' -and $observedWorkers.Count -ne 0) {
+        Hold 'STOPPED_OWNER_WITH_LIVE_WORKER'
+    }
     $oldPID = 0L
     if (Test-Path -LiteralPath $health -PathType Leaf) {
         try { $h = Get-Content -LiteralPath $health -Raw | ConvertFrom-Json -AsHashtable

@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $taskName = 'TorrentTV-Vietsub-Owner-P2-B15-FreshStartV2'
 $description = 'TTV_OWNER_P2_B15_FRESH_START_V2_ONCE_20261121'
-$helperSHA = 'b888a6de741e7e80c3f3e73d25c8aefd96859de7b714e093540f11025d726b93'
+$helperSHA = '2eb78a5c4ca7c2bcfcd54193438b5072407640696d0d11f3ec00659ec95e34af'
 $root = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $maintenance = Join-Path $root 'Maintenance'
 $helper = Join-Path $maintenance 'owner-p2-b15-fresh-start-v2-once.ps1'
@@ -41,11 +41,13 @@ if ($sid -notmatch '^S-\d+(?:-\d+){2,}$') {
 }
 if ($sid -cne $identity.User.Value -or
     [string]$original.Principal.LogonType -ine 'Interactive' -or
-    [string]$original.State -cne 'Running' -or
     @($original.Actions).Count -ne 1 -or
     [IO.Path]::GetFileName([string]$original.Actions[0].Execute) -ine 'pwsh.exe' -or
     [string]$original.Actions[0].Arguments -notmatch '(?i)start-owner-session-agent\.ps1') {
     throw 'OWNER_P2_B15_V2_ENROLL_OWNER_TASK_DRIFT'
+}
+if ([string]$original.State -notin @('Running','Ready','Disabled')) {
+    throw 'OWNER_P2_B15_V2_ENROLL_OWNER_TASK_UNSUPPORTED_STATE'
 }
 if (Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction SilentlyContinue) {
     throw 'OWNER_P2_B15_V2_ENROLL_ALREADY_REGISTERED_NO_REPLACEMENT'

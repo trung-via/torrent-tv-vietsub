@@ -21,7 +21,7 @@ function Sid($task) {
     }
     return $id
 }
-if ([string]$original.State -cne 'Running' -or
+if ([string]$original.State -notin @('Running','Ready','Disabled') -or
     (Sid $original) -cne (Sid $task) -or
     [string]$task.State -cne 'Ready' -or
     [string]$task.Description -cne 'TTV_OWNER_P2_B15_FRESH_START_V2_ONCE_20261121' -or

@@ -29,6 +29,17 @@ $enroll = [IO.File]::ReadAllText((Join-Path $root $paths[1]))
 if (-not $enroll.Contains(("`$helperSHA = '" + $hash + "'"))) {
     throw 'P2_B15_V2_SOURCE_CHECK_HELPER_PIN_MISMATCH'
 }
+$dispatch = [IO.File]::ReadAllText((Join-Path $root $paths[2]))
+foreach ($source in @($helper,$enroll,$dispatch)) {
+    if (-not $source.Contains("@('Running','Ready','Disabled')")) {
+        throw 'P2_B15_V2_SOURCE_CHECK_STOPPED_OWNER_NOT_SUPPORTED'
+    }
+}
+if (-not $helper.Contains('TTV-HOSTOPS-OWNER-SNAPSHOT-V3') -or
+    -not $helper.Contains('STOPPED_OWNER_WITH_LIVE_WORKER') -or
+    -not $helper.Contains('RUNNING_OWNER_SNAPSHOT_STALE')) {
+    throw 'P2_B15_V2_SOURCE_CHECK_STOPPED_OWNER_SAFETY_MISSING'
+}
 Write-Output 'HOSTOPS_P2_B15_V2_SOURCE_CHECK=PASS_PWSH7_SYNTAX_HELPER_SHA'
 Write-Output 'HOSTOPS_P2_B15_V2_SOURCE_CHECK_PRIVATE=NOT_ACCESSED'
 Write-Output 'HOSTOPS_P2_B15_V2_SOURCE_CHECK_TASK=NOT_TRIGGERED'

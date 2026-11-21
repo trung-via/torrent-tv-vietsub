@@ -76,3 +76,22 @@ V2 artifacts: `owner-p2-b15-fresh-start-v2-once.ps1`,
 `owner-p2-b15-v2-source-check.ps1`. A new signed-in Owner enrollment is
 unavoidable: the V1 scheduled task has already been consumed, and the
 NETWORK_SERVICE HostOps runner has no permission to replace its fixed helper.
+
+### V2 stopped-Owner correction
+
+Read-only HostOps `44884762005` proved that the original Owner task matches
+the logged-in principal, PowerShell 7 executable and fixed launcher, but is
+**not Running**. The Human confirmed they intentionally stopped it; the first
+V2 enrollment therefore correctly made no changes, but its preflight had an
+unnecessarily rigid `Running` assumption.
+
+The corrected enrollment and one-shot helper accept original task states
+`Running`, `Ready`, or `Disabled` with the same verified Owner identity. An
+already stopped Owner MUST have **zero** surviving Owner worker processes, and
+the observed old P2 marker/job and sole pending V3 event are revalidated
+directly before the transaction disables the original task and archives them.
+An offline Owner cannot refresh the independent snapshot, so the last
+`FRESH_OFF` receipt is historical corroboration, not a claim of current TV
+state; a Running Owner still requires a fresh (≤30s) OFF snapshot. V2/V3
+snapshot schemas are both recognized. Restart follows successful archive;
+there is no API translation or TV install in this transaction.
