@@ -21,6 +21,10 @@ on:
       - 'hostops/setup/owner-p2-snapshot-once.ps1'
       - 'hostops/setup/owner-p2-quarantine-once.ps1'
       - 'hostops/setup/owner-full-diagnostics-maintenance-once.ps1'
+      - 'hostops/setup/owner-laptop-ops-helper.ps1'
+      - 'hostops/setup/enroll-owner-laptop-ops.ps1'
+      - 'hostops/jobs/owner-laptop-ops-dispatch.ps1'
+      - 'hostops/laptop-ops/**'
       - '.github/workflows/tv-owner-hostops-diagnostic-ci.yml'
   workflow_dispatch:
 
@@ -55,6 +59,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_CAPTURE_TASK_SOURCE_REGRESSION' }
           python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_session_bridge.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_FULL_DIAGNOSTICS_SOURCE_REGRESSION' }
+          python -m unittest discover -s hostops/laptop-ops -p 'test_contract.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_LAPTOP_HOSTOPS_CONTRACT_FAILED' }
           Push-Location 'poc/p2-sub-discovery'
           try {
             python -B -c 'import owner_p3_p4_entrypoint; print("OWNER_FULL_DIAG_OFFLINE_IMPORT_PASS")'
@@ -69,6 +75,10 @@ jobs:
             'hostops/setup/owner-p2-snapshot-once.ps1',
             'hostops/setup/owner-p2-quarantine-once.ps1',
             'hostops/setup/owner-full-diagnostics-maintenance-once.ps1',
+            'hostops/setup/owner-laptop-ops-helper.ps1',
+            'hostops/setup/enroll-owner-laptop-ops.ps1',
+            'hostops/jobs/owner-laptop-ops-dispatch.ps1',
+            'hostops/laptop-ops/operations/owner-full-diagnostics-install.ps1',
             'hostops/setup/enroll-owner-p2-quarantine-task.ps1',
             'hostops/jobs/owner-p2-quarantine-dispatch.ps1',
             'hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1',

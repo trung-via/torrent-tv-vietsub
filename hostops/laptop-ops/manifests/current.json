@@ -1,0 +1,9 @@
+{
+  "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
+  "operation": "owner-full-diagnostics-install",
+  "risk": "ROUTINE",
+  "category": "owner-maintenance",
+  "script_path": "hostops/laptop-ops/operations/owner-full-diagnostics-install.ps1",
+  "script_sha256": "a0d089869eca1f3db8f2c9289681f4a19e99fa2ece9b56daf45ee45d4f9af30e",
+  "arguments": []
+}
