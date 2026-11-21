@@ -54,3 +54,25 @@ manual recovery. Do not re-trigger the old `R2-Checkpoint-Apply` task.
 Rollback is **recoverable archive + manual Owner assessment**, not automatic
 provider replay. The Windows HostOps service must never read Owner-private
 job files, and this code must never be run under NETWORK_SERVICE.
+
+## V2 correction after first one-shot preflight failure
+
+First Owner enrollment succeeded, but HostOps run `44882704668` timed out
+waiting for a receipt; postmortem `44883501213` proved original one-shot Task
+LastTaskResult `1`, Task Ready, **no receipt**, and original Owner Running.
+Fresh snapshot `44882954798` proved the batch15 marker and pending queue were
+unchanged. **Do not replay the V1 task**.
+
+V2 is an independent, new one-shot Owner task. It writes `PREFLIGHT_STARTED`
+before inspecting private state, so both a denied preflight and a successful
+archive return bounded sanitized receipts to HostOps. It also treats the
+single currently pending, unclaimed V3 queue event as a recoverable old
+request to archive, without requiring a separate blocked-event witness. The
+Owner remains untouched on any preflight HOLD. Only the exact previously
+observed marker SHA and a fresh TV OFF state can authorize the archive.
+
+V2 artifacts: `owner-p2-b15-fresh-start-v2-once.ps1`,
+`enroll-owner-p2-b15-v2.ps1`, `owner-p2-b15-v2-dispatch.ps1`, and
+`owner-p2-b15-v2-source-check.ps1`. A new signed-in Owner enrollment is
+unavoidable: the V1 scheduled task has already been consumed, and the
+NETWORK_SERVICE HostOps runner has no permission to replace its fixed helper.
