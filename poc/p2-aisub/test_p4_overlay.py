@@ -1,0 +1,227 @@
+"""P4 G1+G2 import-bytes overlay guards, synthetic source only."""
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+import tempfile
+import unittest
+
+HERE = Path(__file__).resolve().parents[1] / "p4-auto-sub"
+spec = importlib.util.spec_from_file_location("p4_auto_apply", HERE / "apply.py")
+assert spec is not None and spec.loader is not None
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+def fake_g1() -> str:
+    return (
+        "// Synthetic, not real OMP source\n"
+        "class P1ProductionSubtitles {\n"
+        + module.OLD_HEAD + "\n"
+        + "        val dir = folder(ctx)\n"
+        + "        val target = file(ctx, k, v)\n"
+        + "        var created = false\n"
+        + module.OLD_COMMIT + "\n"
+        + "            if (created) target.delete()\n"
+        + "            return false\n"
+        + "        }\n"
+        + "        return true\n"
+        + "    }\n"
+        + "    fun noteTrackChoice(ctx: Context, r: PlayRequest?, i: Int, choice: TrackChoice) {\n"
+        + "        // Synthetic user's OFF/OTHER choice\n"
+        + '        p.edit().putString("selection.$k", value).apply()' + "\n"
+        + "    }\n"
+        + "    fun hasSaved(ctx: Context, r: PlayRequest?, i: Int): Boolean { return false }\n"
+        + "}\n"
+    )
+
+
+def fake_g2_activity() -> str:
+    # Source shape emitted by exact G2 patch of pinned OMP, with no real TV runtime.
+    return """class PlayerActivity {
+    private var g2Recovery: G2RefreshRecovery? = null
+    private fun clearG2Recovery() {
+        handler.removeCallbacks(g2RecoveryTimeout)
+        g2Recovery = null
+    }
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+    }
+    override fun onFirstFrameShown() {
+        if (g2Recovery?.matchesCurrent(session.request, index()) == true) {
+            clearG2Recovery()
+        }
+    }
+    private fun load(r: PlayRequest, choose: Boolean = true) {
+        clearG2Recovery()
+    }
+    private fun playItem(i: Int) {
+        if (q == null || i !in q.indices || i == session.index) return
+        clearG2Recovery()
+    }
+    private fun openMenu() {
+        add(I18n.s("player.subsRow", "v" to sSel.label), "AD01.3") { openSubsList() }
+    }
+    val updated = G2RefreshInPlace.prepare(ctx,r,idx)
+}
+"""
+
+
+class P4SourcePatchTest(unittest.TestCase):
+    def test_bounded_helper_preserves_human_picker_and_rechecks_off_other(self):
+        source = fake_g1()
+        result = module.patch_g1(source)
+        self.assertIn("fun importSelected(ctx: Context, uri: Uri", result)
+        self.assertIn("val bytes = readDocument(ctx, uri)", result)
+        self.assertIn("fun importAutomaticBytes(", result)
+        self.assertIn("fun snapshotAutomaticBefore(", result)
+        self.assertIn("fun rollbackAutomatic(", result)
+        self.assertIn("key != expectedMediaKey", result)
+        self.assertIn('!p.getBoolean("ai.$key", false)', result)
+        self.assertIn('p.getString("selection.$key", null) != "on"', result)
+        self.assertIn('if (automatic && (!p.getBoolean("ai.$k", false)', result)
+        self.assertIn("fun setAutomaticOptIn(", result)
+        self.assertIn('if (value != "on") edit.remove("ai.$k")', result)
+        self.assertIn('editor.putBoolean("ai.$k", true).putString("selection.$k", "on")', result)
+        self.assertIn('editor.remove("ai.$k").putString("selection.$k", "off")', result)
+        self.assertIn('if (value != "on") edit.remove("ai.$k")', result)
+        self.assertIn("@Synchronized fun noteTrackChoice", result)
+        self.assertIn("fun automaticChoice(", result)
+        self.assertIn('return "OTHER"', result)
+        self.assertIn('if (p.getBoolean("ai.$key", false)) "ON" else "OTHER"', result)
+        self.assertEqual(result.count("fun importAutomaticBytes("), 1)
+        self.assertEqual(result.count("fun importSelected("), 1)
+        self.assertNotIn("http://",result)
+
+    def test_exact_repository_g1_helper_accepts_patch_without_omitting_original_methods(self):
+        # Use actual G1 source pinned by G1's own source/Gradle overlay.
+        real = HERE.parent / "g1-prod" / "P1ProductionSubtitles.kt"
+        original = real.read_text(encoding="utf-8")
+        patched = module.patch_g1(original)
+        self.assertEqual(patched.count("fun importSelected("), 1)
+        self.assertEqual(patched.count("fun importAutomaticBytes("), 1)
+        self.assertIn("fun forItem(", patched)
+        self.assertIn("fun prepare(", patched)
+        self.assertIn("fun noteTrackChoice(", patched)
+        self.assertIn("fun detectedExtension(", patched)
+        self.assertEqual(original.count("fun detectedExtension("),
+                         patched.count("fun detectedExtension("))
+        self.assertEqual(original.count("fun removeSaved("),
+                         patched.count("fun removeSaved("))
+
+    def test_fails_closed_if_anchors_drift_or_overlay_reapplied(self):
+        original=fake_g1()
+        with self.assertRaisesRegex(ValueError, "P4_ALREADY_APPLIED"):
+            module.patch_g1(module.patch_g1(original))
+        for bad in [
+            original.replace("fun importSelected", "fun importSelectedNew"),
+            original.replace("val oldExt =", "val OLD_EXT ="),
+            original.replace("fun noteTrackChoice", "fun changedTrackChoice"),
+        ]:
+            with self.subTest(kind=bad[-65:]),self.assertRaises(ValueError):
+                module.patch_g1(bad)
+
+    def _setup(self, root: Path):
+        pkg = root / module.PKG
+        pkg.mkdir(parents=True)
+        (pkg / module.SOURCE_FILE).write_text(fake_g1(),encoding="utf-8")
+        (pkg / "G2RefreshInPlace.kt").write_text("object G2RefreshInPlace {}")
+        (pkg / "G2RefreshRecovery.kt").write_text("object G2RefreshRecovery {}")
+        (pkg / "PlayerActivity.kt").write_text(fake_g2_activity())
+        return pkg
+
+    def test_dry_run_no_changes_then_apply_only_disposable_source(self):
+        with tempfile.TemporaryDirectory(prefix="p1-g1-prod-") as temp:
+            root=Path(temp)
+            pkg=self._setup(root)
+            original=(pkg/module.SOURCE_FILE).read_bytes()
+            module.run(root,apply=False)
+            self.assertEqual((pkg/module.SOURCE_FILE).read_bytes(),original)
+            self.assertFalse((pkg/module.RECEIVER_FILE).exists())
+            module.run(root,apply=True)
+            text=(pkg/module.SOURCE_FILE).read_text(encoding="utf-8")
+            self.assertIn("fun importAutomaticBytes",text)
+            self.assertIn("@Synchronized fun noteTrackChoice",text)
+            self.assertTrue((pkg/module.RECEIVER_FILE).is_file())
+            self.assertTrue((pkg/module.LAN_CLIENT_FILE).is_file())
+            self.assertTrue((pkg/module.LEDGER_FILE).is_file())
+            self.assertTrue((pkg/module.ACTIVATION_CLIENT_FILE).is_file())
+            self.assertTrue((pkg/module.PAIRING_STORE_FILE).is_file())
+            self.assertTrue((pkg/module.OWNER_BOOTSTRAP_FILE).is_file())
+            bootstrap=(pkg/module.OWNER_BOOTSTRAP_FILE).read_text(encoding="utf-8")
+            self.assertIn("internal object P4OwnerBootstrap",bootstrap)
+            self.assertIn("P4PairingStore(ctx)",bootstrap)
+            self.assertIn("store.load() != null",bootstrap)
+            self.assertIn("file.delete()",bootstrap)
+            self.assertNotIn("BroadcastReceiver",bootstrap)
+            self.assertNotIn("ServerSocket",bootstrap)
+            lan = (pkg/module.LAN_CLIENT_FILE).read_text(encoding="utf-8")
+            self.assertIn("P4_LAN_MAIN_THREAD_FORBIDDEN", lan)
+            self.assertIn("internal fun isPrivateIPv4(", lan)
+            self.assertIn("connection.instanceFollowRedirects = false", lan)
+            self.assertNotIn("ServerSocket", lan)
+            activity = (pkg/"PlayerActivity.kt").read_text(encoding="utf-8")
+            self.assertIn("internal fun receiveP4Revision(", activity)
+            self.assertIn("internal fun startP4LanSession(", activity)
+            self.assertNotIn("private fun openP4PairingDialog()", activity)
+            self.assertNotIn("64 hex key",activity)
+            self.assertIn("P4OwnerBootstrap.consume(applicationContext)",activity)
+            self.assertIn("private fun beginP4Activation()", activity)
+            self.assertNotIn('add("Ghép đôi PC Vietsub AI", "AD01.11")', activity)
+            self.assertIn('add("Hủy ghép đôi PC Vietsub AI", "AD01.12")', activity)
+            self.assertIn("P4ActivationClient.activate(", activity)
+            self.assertIn("P4PairingStore(applicationContext).load()", activity)
+            self.assertIn("internal fun stopP4LanSession()", activity)
+            self.assertIn("P4LanClient.pollOnce(", activity)
+            self.assertIn("P4AppliedLedger(applicationContext, sessionId, mediaKey, sourceSha256)", activity)
+            self.assertIn("P1ProductionSubtitles.setAutomaticOptIn(applicationContext, r, index(), true)", activity)
+            self.assertIn("P1ProductionSubtitles.automaticChoice(", activity)
+            self.assertIn("handler.removeCallbacks(p4LanPoll)", activity)
+            self.assertIn("acknowledgeP4FirstFrame()", activity)
+            self.assertIn("P1ProductionSubtitles.importAutomaticBytes(", activity)
+            self.assertIn("snapshot.arm(newRequest, previous, paused)", activity)
+            self.assertIn("p4ExpectedRefresh = newRequest", activity)
+            self.assertIn("current !== p4ExpectedRefresh", activity)
+            self.assertIn("unbindP4Session()\\n        handler.removeCallbacksAndMessages(null)".replace("\\n", "\n"), activity)
+            self.assertIn("abortP4Pending()\\n    }".replace("\\n", "\n"), activity)
+            self.assertIn("session.load(newRequest)", activity)
+            self.assertIn("handler.postDelayed(g2RecoveryTimeout", activity)
+            with self.assertRaises(ValueError):
+                module.run(root,apply=True)
+
+    def test_p4_activity_anchor_drift_blocks_after_g2(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("p4_activity_patch", HERE / "activity_patch.py")
+        assert spec is not None and spec.loader is not None
+        sub = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sub)
+        good = fake_g2_activity()
+        patched = sub.patch_activity(good)
+        self.assertEqual(patched.count("internal fun receiveP4Revision("), 1)
+        with self.assertRaisesRegex(ValueError, "P4_ACTIVITY_ALREADY_APPLIED"):
+            sub.patch_activity(patched)
+        for old in (sub.CLEAR_ANCHOR, sub.FRAME_ANCHOR, sub.DESTROY_ANCHOR,
+                    sub.LOAD_ANCHOR, sub.ITEM_ANCHOR, sub.FIELD_ANCHOR, sub.MENU_ANCHOR):
+            with self.subTest(anchor=old[:24]), self.assertRaisesRegex(ValueError,"P4_ACTIVITY_ANCHOR_"):
+                sub.patch_activity(good.replace(old,"// drifted",1))
+
+    def test_wrong_directory_missing_g2_and_wrong_native_hook_blocked(self):
+        with tempfile.TemporaryDirectory(prefix="not-g1-") as temp:
+            with self.assertRaisesRegex(ValueError,"P4_DISPOSABLE_G1_CHECKOUT_REQUIRED"):
+                module.run(Path(temp),apply=True)
+        with tempfile.TemporaryDirectory(prefix="p1-g1-prod-") as temp:
+            root=Path(temp)
+            pkg=self._setup(root)
+            (pkg/"G2RefreshRecovery.kt").unlink()
+            with self.assertRaisesRegex(ValueError,"P4_G1_G2_COMPOSITE_SOURCE_REQUIRED"):
+                module.run(root,apply=True)
+        with tempfile.TemporaryDirectory(prefix="p1-g1-prod-") as temp:
+            root=Path(temp)
+            pkg=self._setup(root)
+            (pkg/"PlayerActivity.kt").write_text("G2 removed")
+            with self.assertRaisesRegex(ValueError,"P4_LIVE_G2_ACTIVITY_HOOK_NOT_PRESENT"):
+                module.run(root,apply=True)
+
+
+if __name__=="__main__":
+    unittest.main()
