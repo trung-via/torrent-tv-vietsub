@@ -24,6 +24,8 @@ class P2RootCauseSafety(unittest.TestCase):
         self.assertIn("first_actionable_code", source)
         self.assertIn("'AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE'", source)
         self.assertIn("$blockLines", source)
+        self.assertIn("first_error_stage", source)
+        self.assertIn("'PLAIN_UTF8_TRANSLATION_REQUIRED'", source)
 
     def test_reader_never_opens_owner_private_data(self):
         source = READER.read_text(encoding="utf-8")
@@ -32,6 +34,8 @@ class P2RootCauseSafety(unittest.TestCase):
         self.assertIn("P2_ROOTCAUSE_PRIVATE_DATA=NOT_READ_BY_RUNNER", source)
         self.assertIn("P2_ROOTCAUSE_FIRST_ACTIONABLE_CODE=", source)
         self.assertIn("P2_ROOTCAUSE_BLOCK_EVENT_COUNT=", source)
+        self.assertIn("P2_ROOTCAUSE_FIRST_ERROR_TYPE=", source)
+        self.assertIn("P2_ROOTCAUSE_FIRST_ERROR_STAGE=", source)
         self.assertIn("S-1-5-20", source)
 
 

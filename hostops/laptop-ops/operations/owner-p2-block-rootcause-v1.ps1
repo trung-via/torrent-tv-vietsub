@@ -18,6 +18,8 @@ $report = [ordered]@{
     last_block_code = 'UNKNOWN'
     first_actionable_code = 'UNKNOWN'
     block_event_count = -1
+    first_error_type = 'UNKNOWN'
+    first_error_stage = 'UNKNOWN'
 }
 
 try {
@@ -115,6 +117,19 @@ try {
             'AUTO_LEAN120_CHECKPOINT_INVALID','AUTO_LEAN120_CHECKPOINT_DIGEST_MISMATCH',
             'AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD',
             'AUTO_LEAN120_ABANDONED_JOB_HOLD',
+            'AUTO_LEAN120_INCOMPLETE','AUTO_LEAN120_FINAL_FILE_COLLISION',
+            'AUTO_LEAN120_FINAL_TIMELINE_INVALID','AUTO_LEAN120_SOURCE_CHANGED',
+            'AUTO_LEAN120_JOB_KEY_INVALID','AUTO_LEAN120_PROVIDER_NOT_ENABLED',
+            'AUTO_LEAN120_AUTHORIZED_EN_HANDOFF_REQUIRED',
+            'TRANSLATION_MAP_REQUIRED','TRANSLATION_ID_OR_ORDER_MISMATCH',
+            'MISSING_OR_EXTRA_TRANSLATED_CUE','PLAIN_UTF8_TRANSLATION_REQUIRED',
+            'TV_SUBTITLE_SIZE_LIMIT','CUMULATIVE_TIMELINE_MISMATCH',
+            'WINDOW_IDENTITY_MISMATCH','SOURCE_OR_MEDIA_IDENTITY_MISMATCH',
+            'SESSION_ALREADY_COMPLETE','STALE_REVISION',
+            'INVALID_CUE_DURATION_OR_ORDER','EMPTY_CUE_TEXT',
+            'UTF8_REQUIRED','SRT_SEQUENCE_REQUIRED',
+            'SOURCE_CUE_EXCEEDS_BATCH_BUDGET','BATCH_CHAR_LIMIT_INVALID',
+            'BATCH_CUE_LIMIT_INVALID','SOURCE_BYTES_REQUIRED',
             'LEAN120_WINDOW_INVALID','LEAN120_GLOSSARY_INVALID',
             'P4_ROLLING_TV_SESSION_CHANGED','P4_ROLLING_TORRSERVER_FILE_CHANGED',
             'P4_ROLLING_SELECTED_MEDIA_CHANGED'
@@ -123,12 +138,30 @@ try {
         # A subsequent OWNER_FULL_TRACE belongs to a different event. The
         # traceback remains Owner-private; only source-owned codes escape.
         $candidate = 'UNCLASSIFIED'
+        $errorType = 'UNCLASSIFIED'
+        $errorStage = 'OTHER'
         for ($index=$line+1; $index -lt $tailLines.Count; $index++) {
             if ($tailLines[$index] -match '^OWNER_FULL_TRACE ') { break }
+            if ($tailLines[$index] -cmatch 'File ".+[\\/](translator_gateway|cue_pipeline|progressive_handoff|automatic_lean120_worker)\.py", line [0-9]+, in ') {
+                $errorStage = switch ($Matches[1]) {
+                    'translator_gateway' {'PROVIDER'}
+                    'cue_pipeline' {'CUE_VALIDATION'}
+                    'progressive_handoff' {'CUE_COMMIT'}
+                    'automatic_lean120_worker' {'CHECKPOINT_WORKER'}
+                }
+            }
+            if ($tailLines[$index] -cmatch '^(ValueError|RuntimeError|OSError|PermissionError|FileNotFoundError|UnicodeDecodeError|TimeoutExpired|TypeError|KeyError|AttributeError|JSONDecodeError|AssertionError): ') {
+                $errorType = $Matches[1].ToUpperInvariant()
+            }
             if ($tailLines[$index] -cmatch '^(?:ValueError|RuntimeError): ([A-Z][A-Z0-9_]{4,79})\s*$' -and
                 $Matches[1] -cin $known) {
                 $candidate = $Matches[1]
             }
+        }
+        if ($report.first_error_type -ceq 'UNKNOWN' -and
+            $candidate -cne 'AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE') {
+            $report.first_error_type = $errorType
+            $report.first_error_stage = $errorStage
         }
         $report.last_block_code = $candidate
         if ($report.first_actionable_code -ceq 'UNKNOWN' -and
