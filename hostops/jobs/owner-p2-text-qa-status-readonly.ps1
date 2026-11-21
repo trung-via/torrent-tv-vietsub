@@ -16,13 +16,14 @@ if ($item.Length -le 0 -or $item.Length -gt 512 -or
 }
 $record = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
 if (@($record.PSObject.Properties.Name | Sort-Object) -join ',' -cne
-        'active_locks,bridge,gateway,last_install_code,marker_count,owner_health,pending_events,phase,schema,status,task,utc_epoch' -or
+        'active_locks,bridge,bridge_sha16,gateway,last_install_code,marker_count,owner_health,pending_events,phase,schema,status,task,utc_epoch' -or
     $record.schema -cne 'TTV-P2-TEXT-QA-STATUS-V1' -or
     $record.status -cnotin @('OBSERVED','HOLD') -or
     $record.phase -cnotin @('IDENTITY','TASK','FILES','WORK','LAST_INSTALL','COMPLETE') -or
     $record.task -cnotin @('UNKNOWN','Running','Ready','Disabled') -or
     $record.gateway -cnotin @('UNKNOWN','NEW','OLD','OTHER') -or
     $record.bridge -cnotin @('UNKNOWN','NEW','OLD','OTHER') -or
+    $record.bridge_sha16 -cnotmatch '^(UNKNOWN|[0-9a-f]{16})$' -or
     $record.owner_health -cnotin @('UNKNOWN','READY_FRESH','STALE','MISSING') -or
     $record.last_install_code -cnotmatch '^(UNKNOWN|[A-Z][A-Z0-9_]{4,79})$' -or
     $record.active_locks -isnot [ValueType] -or $record.active_locks -lt -1 -or
@@ -39,6 +40,7 @@ Write-Output ('P2_TEXT_STATUS_PHASE=' + $record.phase)
 Write-Output ('P2_TEXT_STATUS_TASK=' + $record.task)
 Write-Output ('P2_TEXT_STATUS_GATEWAY=' + $record.gateway)
 Write-Output ('P2_TEXT_STATUS_BRIDGE=' + $record.bridge)
+Write-Output ('P2_TEXT_STATUS_BRIDGE_SHA16=' + $record.bridge_sha16)
 Write-Output ('P2_TEXT_STATUS_OWNER_HEALTH=' + $record.owner_health)
 Write-Output ('P2_TEXT_STATUS_ACTIVE_LOCKS=' + $record.active_locks)
 Write-Output ('P2_TEXT_STATUS_PENDING_EVENTS=' + $record.pending_events)

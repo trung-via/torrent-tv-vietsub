@@ -1,5 +1,6 @@
-# Owner-interactive, exact two-file P2 text-QA hotfix. No provider, TV, queue,
-# P2 marker, or checkpoint operation. Roll back installed bytes if restart fails.
+# Owner-interactive, exact one-file P2 translator text-QA hotfix. Preserve the
+# unknown installed Owner bridge byte-for-byte. No provider, TV, queue, P2
+# marker, or checkpoint operation. Roll back if restart fails.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -15,16 +16,12 @@ $files = [ordered]@{
         new = 'd63c468a6417fab87d6c9e56e6dd319ddc28289f7c95eb064eaf9684d5774fc3'
         previous = @('b06c151cc4275a7793fdb7891d7859715e602a676a553ea89e6e242578190183')
     }
-    'poc/p2-sub-discovery/owner_session_bridge.py' = @{
-        new = '85f8ca9e75d83e357becf7c9191734ce0f41b664b83cf8ea684a3bff1e1dc4b7'
-        previous = @('5727ac9f71a5b736c198ce5697714d6a66fcf5b20feb4331a2db905ce1e8b997',
-                     '6a8af62e4ff33806b7fd3c2deb66df08283302d3441c51edd65da02d1633ce31',
-                     '1b3154846966879aa05ee1e15f4da0603b7ff75b9dbc0e69d3aaebd5036f1121')
-    }
 }
 $backup = $null
 $stopped = $false
 $oldPid = 0L
+$bridgePath = Join-Path $app 'poc\p2-sub-discovery\owner_session_bridge.py'
+$bridgeShaBefore = ''
 
 function Hold([string]$reason) {
     Write-Output ('P2_TEXT_QA_OWNER=HOLD_' + $reason)
@@ -158,7 +155,7 @@ function ReplacePinned([string]$source,[string]$destination,[string]$digest) {
     File $source
     File $destination
     $temp = Join-Path (Split-Path -Parent $destination) (
-        '.p2-text-qa-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+        '.p2-gateway-' + [Guid]::NewGuid().ToString('N') + '.tmp')
     [IO.File]::Copy($source,$temp,$false)
     try {
         if ((Hash $temp) -cne $digest) { Hold 'STAGED_TEMP_HASH_DRIFT' }
@@ -179,6 +176,7 @@ if ($env:GITHUB_ACTIONS -ceq 'true' -or
     Hold 'INTERACTIVE_OWNER_REQUIRED'
 }
 foreach ($dir in @($root,$app,$stage)) { Directory $dir }
+$bridgeShaBefore = Hash $bridgePath
 $ownerTask = Task
 if ([string]$ownerTask.State -cnotin @('Running','Ready')) { Hold 'OWNER_NOT_READY_TO_PATCH' }
 NoOpenP2
@@ -204,7 +202,7 @@ if (-not (Test-Path -LiteralPath $recovery)) {
     New-Item -ItemType Directory -Path $recovery -ErrorAction Stop | Out-Null
 }
 Directory $recovery
-$backup = Join-Path $recovery ('p2-text-qa-' + [Guid]::NewGuid().ToString('N'))
+$backup = Join-Path $recovery ('p2-gateway-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $backup -ErrorAction Stop | Out-Null
 $previous = [ordered]@{}
 foreach ($rel in $files.Keys) {
@@ -236,6 +234,7 @@ try {
         ReplacePinned (Join-Path $stage ($rel.Replace('/','\'))) $to $files[$rel].new
     }
     if (-not (StartOwner $oldPid)) { Hold 'NEW_OWNER_NOT_HEALTHY' }
+    if ((Hash $bridgePath) -cne $bridgeShaBefore) { Hold 'OWNER_BRIDGE_DRIFT' }
     $stopped = $false
     Write-Output 'P2_TEXT_QA_OWNER=INSTALLED_HASH_VERIFIED_OWNER_RUNNING'
     Write-Output 'P2_TEXT_QA_P2_MARKERS=UNCHANGED'

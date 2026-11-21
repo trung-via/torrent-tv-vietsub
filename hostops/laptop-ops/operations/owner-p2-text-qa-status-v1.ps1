@@ -9,6 +9,7 @@ $result = [ordered]@{
     task = 'UNKNOWN'
     gateway = 'UNKNOWN'
     bridge = 'UNKNOWN'
+    bridge_sha16 = 'UNKNOWN'
     active_locks = -1
     pending_events = -1
     marker_count = -1
@@ -51,6 +52,9 @@ try {
             $item = Get-Item -LiteralPath $path -Force
             if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 $sha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($rel -match 'owner_session_bridge') {
+                    $result.bridge_sha16 = $sha.Substring(0,16)
+                }
                 if ($sha -ceq $files[$rel].new) { $classification = 'NEW' }
                 elseif ($sha -cin $files[$rel].previous) { $classification = 'OLD' }
             }
@@ -83,7 +87,7 @@ try {
     $receiptPath = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps\Receipts\receipt.json'
     $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
     if ($receipt.schema -cne 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -or
-        $receipt.operation -cne 'owner-p2-text-qa-install-v1' -or
+        $receipt.operation -cnotin @('owner-p2-text-qa-install-v1','owner-p2-gateway-install-v2') -or
         $receipt.nonce -cnotmatch '^[0-9a-f]{32}$') {
         throw 'P2_TEXT_STATUS_PREVIOUS_INSTALL_RECEIPT_MISSING'
     }

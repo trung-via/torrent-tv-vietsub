@@ -16,7 +16,7 @@ foreach ($relative in @(
     'hostops/jobs/owner-p2-fresh-inspect-v2-readonly.ps1',
     'hostops/laptop-ops/operations/owner-p2-block-rootcause-v1.ps1',
     'hostops/jobs/owner-p2-block-rootcause-readonly.ps1',
-    'hostops/laptop-ops/operations/owner-p2-text-qa-install-v1.ps1',
+    'hostops/laptop-ops/operations/owner-p2-gateway-install-v2.ps1',
     'hostops/laptop-ops/operations/owner-p2-text-qa-status-v1.ps1',
     'hostops/jobs/owner-p2-text-qa-status-readonly.ps1'
 )) {
