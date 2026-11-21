@@ -52,13 +52,49 @@ if ($report.PSObject.Properties.Name -contains 'snapshot_utc_epoch') {
     $seconds = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$report.snapshot_utc_epoch
     Write-Output ('OWNER_PREFLIGHT_SNAPSHOT_AGE_SECONDS=' + $seconds)
 }
+foreach ($field in @('status','mode','version','heartbeat','p3_state',
+                    'torrserver','ingress_instrumented')) {
+    if ($report.PSObject.Properties.Name -contains $field) {
+        $value = [string]$report.$field
+        if ($value -cmatch '^[A-Za-z0-9_-]{1,80}$') {
+            Write-Output ('OWNER_PREFLIGHT_' + $field.ToUpperInvariant() + '=' + $value)
+        }
+    }
+}
 if ($report.PSObject.Properties.Name -contains 'p2' -and $null -ne $report.p2) {
     $p2 = $report.p2
-    foreach ($field in @('status','pending_events','inflight_count','active_lock_present','outcome')) {
+    foreach ($field in @('status','pending_events','inflight_count','active_lock_present',
+                        'outcome','blocked_events','review_events','deferred_events',
+                        'committed_prefix','final_present','installed_no_retry_worker_match')) {
         if ($p2.PSObject.Properties.Name -contains $field) {
             $value = [string]$p2.$field
             if ($value -cmatch '^[A-Za-z0-9_-]{1,50}$') {
                 Write-Output ('OWNER_PREFLIGHT_P2_' + $field.ToUpperInvariant() + '=' + $value)
+            }
+        }
+    }
+}
+if ($report.PSObject.Properties.Name -contains 'ingress' -and $null -ne $report.ingress) {
+    foreach ($field in @('state_accepted','state_rejected','selection_dispatched',
+                         'selection_skipped','selection_rejected',
+                         'selection_rejected_current_tv_or_torrserver_unavailable',
+                         'selection_rejected_owner_policy','selection_rejected_enqueue')) {
+        if ($report.ingress.PSObject.Properties.Name -contains $field) {
+            $value = [string]$report.ingress.$field
+            if ($value -cmatch '^-?[0-9]{1,9}$') {
+                Write-Output ('OWNER_PREFLIGHT_P3_' + $field.ToUpperInvariant() + '=' + $value)
+            }
+        }
+    }
+}
+if ($report.PSObject.Properties.Name -contains 'p4' -and $null -ne $report.p4) {
+    foreach ($field in @('status','dispatches','activate_ok','activate_rejected',
+                         'revision_ready','revision_empty','revision_hold',
+                         'source_not_accepted','rolling_status','last_delivery')) {
+        if ($report.p4.PSObject.Properties.Name -contains $field) {
+            $value = [string]$report.p4.$field
+            if ($value -cmatch '^[A-Za-z0-9_-]{1,80}$') {
+                Write-Output ('OWNER_PREFLIGHT_P4_' + $field.ToUpperInvariant() + '=' + $value)
             }
         }
     }
