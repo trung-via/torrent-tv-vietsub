@@ -106,6 +106,8 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertIn("ROLLBACK_NEW_OWNER_WORKER_UNCERTAIN", installer)
         self.assertIn("ROLLBACK_TASK_RUNNING_OR_UNCERTAIN", installer)
         self.assertIn("HEALTH_REASON_", installer)
+        self.assertIn("$identity.ReturnValue -eq 0 -and $identity.Sid -ceq $ownerSid", installer)
+        self.assertNotIn("$identity.ReturnValue -eq 0 -and $identity.Sid -cne $ownerSid", installer)
         self.assertIn("LOADED_MODULE_PROVENANCE_NOT_INSTRUMENTED", installer)
         self.assertNotIn("Remove-Item -LiteralPath $backup", installer)
 

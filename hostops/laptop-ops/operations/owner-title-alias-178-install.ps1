@@ -183,7 +183,7 @@ function StartAndVerify([long]$priorPid) {
                 $script:healthReason = 'PROCESS_COMMAND_MISMATCH'; continue
             }
             $identity = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid
-            if ($identity.ReturnValue -eq 0 -and $identity.Sid -cne $ownerSid) {
+            if ($identity.ReturnValue -eq 0 -and $identity.Sid -ceq $ownerSid) {
                 $script:healthReason = 'READY_PID_SID_MATCH'
                 return $true
             }
