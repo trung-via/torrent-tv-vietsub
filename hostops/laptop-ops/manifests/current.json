@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-p2-text-qa-status-v1",
+  "operation": "owner-p2-batch2-archive-v1",
   "risk": "ROUTINE",
-  "category": "diagnostics",
-  "script_path": "hostops/laptop-ops/operations/owner-p2-text-qa-status-v1.ps1",
-  "script_sha256": "93763ede3f3e4f433796df327ede1c0e47086902e743c7ab1897dd93b02dab56",
+  "category": "owner-maintenance",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-batch2-archive-v1.ps1",
+  "script_sha256": "986bc9a678a95c556a2d95f12e4fafee66202a7903131858b769c5a89e8d19b5",
   "arguments": []
 }

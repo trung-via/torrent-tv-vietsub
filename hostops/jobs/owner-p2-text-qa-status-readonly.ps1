@@ -16,7 +16,7 @@ if ($item.Length -le 0 -or $item.Length -gt 512 -or
 }
 $record = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
 if (@($record.PSObject.Properties.Name | Sort-Object) -join ',' -cne
-        'active_locks,bridge,bridge_sha16,gateway,last_install_code,marker_count,owner_health,pending_events,phase,schema,status,task,utc_epoch' -or
+        'active_locks,archived_batch2_count,bridge,bridge_sha16,gateway,last_archive_code,last_install_code,marker_count,owner_health,pending_events,phase,schema,status,task,utc_epoch' -or
     $record.schema -cne 'TTV-P2-TEXT-QA-STATUS-V1' -or
     $record.status -cnotin @('OBSERVED','HOLD') -or
     $record.phase -cnotin @('IDENTITY','TASK','FILES','WORK','LAST_INSTALL','COMPLETE') -or
@@ -26,6 +26,9 @@ if (@($record.PSObject.Properties.Name | Sort-Object) -join ',' -cne
     $record.bridge_sha16 -cnotmatch '^(UNKNOWN|[0-9a-f]{16})$' -or
     $record.owner_health -cnotin @('UNKNOWN','READY_FRESH','STALE','MISSING') -or
     $record.last_install_code -cnotmatch '^(UNKNOWN|[A-Z][A-Z0-9_]{4,79})$' -or
+    $record.last_archive_code -cnotmatch '^(UNKNOWN|[A-Z][A-Z0-9_]{4,79})$' -or
+    $record.archived_batch2_count -isnot [ValueType] -or $record.archived_batch2_count -lt -1 -or
+    $record.archived_batch2_count -gt 10000 -or
     $record.active_locks -isnot [ValueType] -or $record.active_locks -lt -1 -or
     $record.pending_events -isnot [ValueType] -or $record.pending_events -lt -1 -or
     $record.marker_count -isnot [ValueType] -or $record.marker_count -lt -1 -or
@@ -45,5 +48,7 @@ Write-Output ('P2_TEXT_STATUS_OWNER_HEALTH=' + $record.owner_health)
 Write-Output ('P2_TEXT_STATUS_ACTIVE_LOCKS=' + $record.active_locks)
 Write-Output ('P2_TEXT_STATUS_PENDING_EVENTS=' + $record.pending_events)
 Write-Output ('P2_TEXT_STATUS_MARKER_COUNT=' + $record.marker_count)
+Write-Output ('P2_TEXT_STATUS_ARCHIVED_BATCH2_COUNT=' + $record.archived_batch2_count)
 Write-Output ('P2_TEXT_STATUS_LAST_INSTALL_CODE=' + $record.last_install_code)
+Write-Output ('P2_TEXT_STATUS_LAST_ARCHIVE_CODE=' + $record.last_archive_code)
 Write-Output 'P2_TEXT_STATUS_PRIVATE_LOG=NOT_EXPORTED'

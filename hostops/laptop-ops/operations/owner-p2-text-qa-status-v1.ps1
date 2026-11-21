@@ -13,8 +13,10 @@ $result = [ordered]@{
     active_locks = -1
     pending_events = -1
     marker_count = -1
+    archived_batch2_count = -1
     owner_health = 'UNKNOWN'
     last_install_code = 'UNKNOWN'
+    last_archive_code = 'UNKNOWN'
 }
 try {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -42,7 +44,8 @@ try {
             new = '85f8ca9e75d83e357becf7c9191734ce0f41b664b83cf8ea684a3bff1e1dc4b7'
             previous = @('5727ac9f71a5b736c198ce5697714d6a66fcf5b20feb4331a2db905ce1e8b997',
                 '6a8af62e4ff33806b7fd3c2deb66df08283302d3441c51edd65da02d1633ce31',
-                '1b3154846966879aa05ee1e15f4da0603b7ff75b9dbc0e69d3aaebd5036f1121')
+                '1b3154846966879aa05ee1e15f4da0603b7ff75b9dbc0e69d3aaebd5036f1121',
+                '6d987ab9b9cf29334807c933bf6ab48baff258be3f9accba4776a629dd725de0')
         }
     }
     foreach ($rel in $files.Keys) {
@@ -74,6 +77,10 @@ try {
         $result.active_locks = @(Get-ChildItem -LiteralPath $state -File -Recurse -Filter 'active.lock').Count
         $result.marker_count = @(Get-ChildItem -LiteralPath $state -File -Recurse -Filter 'batch-*.inflight').Count
     }
+    $archiveRoot = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\P2\ArchivedRetryJobs'
+    $result.archived_batch2_count = if (Test-Path -LiteralPath $archiveRoot -PathType Container) {
+        @(Get-ChildItem -LiteralPath $archiveRoot -Directory -Filter 'batch2-fresh-*').Count
+    } else { 0 }
     $healthPath = Join-Path $ownerRoot 'agent-health.json'
     if ((Test-Path -LiteralPath $healthPath -PathType Leaf) -and
         (Get-Item -LiteralPath $healthPath).Length -le 512) {
@@ -87,9 +94,10 @@ try {
     $receiptPath = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps\Receipts\receipt.json'
     $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
     if ($receipt.schema -cne 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -or
-        $receipt.operation -cnotin @('owner-p2-text-qa-install-v1','owner-p2-gateway-install-v2') -or
+        $receipt.operation -cnotin @('owner-p2-text-qa-install-v1','owner-p2-gateway-install-v2',
+                                     'owner-p2-batch2-archive-v1') -or
         $receipt.nonce -cnotmatch '^[0-9a-f]{32}$') {
-        throw 'P2_TEXT_STATUS_PREVIOUS_INSTALL_RECEIPT_MISSING'
+        throw 'P2_TEXT_STATUS_PREVIOUS_OPERATION_RECEIPT_MISSING'
     }
     $log = Join-Path $env:LOCALAPPDATA (
         'TorrentTVVietsub\LaptopHostOps\run-' + $receipt.nonce + '\full-owner-output.log')
@@ -118,6 +126,10 @@ try {
         if ($line -cmatch '^P2_TEXT_QA_OWNER=([A-Z][A-Z0-9_]+)$' -and
             $Matches[1] -cin $codes) {
             $result.last_install_code = $Matches[1]
+        }
+        if ($receipt.operation -ceq 'owner-p2-batch2-archive-v1' -and
+            $line -cmatch '^P2_BATCH2_ARCHIVE=(ARCHIVED_RECOVERABLY_OWNER_READY|ROLLED_BACK_JOB_FOLDER|HOLD_[A-Z0-9_]+)$') {
+            $result.last_archive_code = $Matches[1]
         }
     }
     $result.status = 'OBSERVED'

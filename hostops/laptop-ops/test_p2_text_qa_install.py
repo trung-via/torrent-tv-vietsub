@@ -33,11 +33,11 @@ class OwnerTextQaInstallContract(unittest.TestCase):
         ):
             self.assertNotIn(prohibited, source)
 
-    def test_dispatch_returns_to_readonly_after_install(self):
+    def test_manifest_pins_one_bounded_batch2_archive(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["operation"], "owner-p2-text-qa-status-v1")
-        self.assertEqual(manifest["script_path"], "hostops/laptop-ops/operations/owner-p2-text-qa-status-v1.ps1")
-        self.assertEqual(manifest["category"], "diagnostics")
+        self.assertEqual(manifest["operation"], "owner-p2-batch2-archive-v1")
+        self.assertEqual(manifest["script_path"], "hostops/laptop-ops/operations/owner-p2-batch2-archive-v1.ps1")
+        self.assertEqual(manifest["category"], "owner-maintenance")
         self.assertEqual(manifest["risk"], "ROUTINE")
         self.assertEqual(manifest["arguments"], [])
 
@@ -51,6 +51,8 @@ class OwnerTextQaInstallContract(unittest.TestCase):
             self.assertNotIn(prohibited, source)
         self.assertIn("full-owner-output.log", source)
         self.assertIn("last_install_code", source)
+        self.assertIn("archived_batch2_count", source)
+        self.assertIn("last_archive_code", source)
         self.assertIn("bridge_sha16", source)
         self.assertIn("owner-p2-gateway-install-v2", source)
         reader = READER.read_text(encoding="utf-8")
