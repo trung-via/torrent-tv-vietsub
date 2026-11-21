@@ -116,6 +116,17 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertIn("-lt $waitSeconds", dispatcher)
         self.assertIn("HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY", dispatcher)
 
+    def test_title178_postinstall_diagnostic_is_read_only(self):
+        diagnostic = (ROOT / "hostops/laptop-ops/operations/owner-title178-diagnostic.ps1").read_text()
+        self.assertIn("acd823cb5d8898d237749b4ced5af8700953c1ab", diagnostic)
+        self.assertIn("TTV-OWNER-TITLE178-DIAG-V4", diagnostic)
+        self.assertIn("HEALTH_REASON_", diagnostic)
+        self.assertIn("Get-FileHash -LiteralPath", diagnostic)
+        self.assertNotIn("Stop-ScheduledTask", diagnostic)
+        self.assertNotIn("Disable-ScheduledTask", diagnostic)
+        self.assertNotIn("[IO.File]::Replace", diagnostic)
+        self.assertNotIn("Remove-Item", diagnostic)
+
 
 if __name__ == "__main__":
     unittest.main()

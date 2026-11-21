@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-title-alias-178-install",
+  "operation": "owner-title178-diagnostic",
   "risk": "ROUTINE",
-  "category": "owner-maintenance",
-  "script_path": "hostops/laptop-ops/operations/owner-title-alias-178-install.ps1",
-  "script_sha256": "6e4bdf07736f540bb56daaeceb23b521a667784f7581256da81ced3529c8a105",
+  "category": "diagnostics",
+  "script_path": "hostops/laptop-ops/operations/owner-title178-diagnostic.ps1",
+  "script_sha256": "59ed819b6ff493d8d57934c527109065ab2cb59ac0436263b8db83a01fe896c0",
   "arguments": []
 }

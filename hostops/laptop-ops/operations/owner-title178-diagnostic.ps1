@@ -1,8 +1,8 @@
-# Owner-private, read-only classification of ONE failed source-pinned install.
+# Owner-private, read-only classification of the latest failed guarded install.
 # Publish only a bounded code to the HostOps receipt folder; no private log text.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$source = '9753445bb4bedd1b6662c1cc7e6656813f0f3075'
+$source = 'acd823cb5d8898d237749b4ced5af8700953c1ab'
 $op = 'owner-title-alias-178-install'
 $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $history = Join-Path $spool 'History'
@@ -31,7 +31,7 @@ if ($file.Length -le 0 -or $file.Length -gt 1048576 -or
     ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'TITLE178_DIAG_LOG_UNTRUSTED' }
 $lines = @(Get-Content -LiteralPath $log -Tail 220)
 $codes = @($lines | ForEach-Object {
-    if ($_ -cmatch '^OWNER_TITLE178=(HOLD_[A-Z0-9_]+|STAGED_SIX_EXACT_HASHES|ALREADY_INSTALLED_NO_RESTART|OFFLINE_IMPORT_PASS|INSTALLED_SIX_HASHES_OWNER_READY|ROLLBACK_ATTEMPTED|ROLLBACK_UNCERTAIN_OWNER_ATTENTION_REQUIRED|OLD_OWNER_RESTORED)$') {
+    if ($_ -cmatch '^OWNER_TITLE178=(HOLD_[A-Z0-9_]+|STAGED_SIX_EXACT_HASHES|STAGED_IMPORT_PASS_BEFORE_STOP|ALREADY_INSTALLED_NO_RESTART|INSTALLED_SIX_HASHES_OWNER_READY|ROLLBACK_SAFETY_EVALUATION|ROLLBACK_ATTEMPTED|ROLLBACK_UNCERTAIN_OWNER_ATTENTION_REQUIRED|OLD_OWNER_RESTORED)$') {
         $Matches[1]
     }
 })
@@ -75,6 +75,10 @@ foreach ($name in $pinned.Keys) {
 }
 $backupState = 'NOT_PROVEN'
 $importIssue = 'NOT_FOUND'
+$healthCodes = @($lines | ForEach-Object {
+    if ($_ -cmatch '^OWNER_TITLE178=HEALTH_REASON_([A-Z0-9_]{3,70})$') { $Matches[1] }
+})
+if ($healthCodes.Count -gt 0) { $importIssue = 'HEALTH_REASON_' + [string]$healthCodes[-1] }
 $backupRoot = Join-Path $ownerRoot 'backups'
 if (Test-Path -LiteralPath $backupRoot -PathType Container) {
     $candidates = @(Get-ChildItem -LiteralPath $backupRoot -Directory -Filter 'owner-title178-*' |
@@ -82,7 +86,7 @@ if (Test-Path -LiteralPath $backupRoot -PathType Container) {
     if ($candidates.Count -ge 1 -and $candidates.Count -le 4 -and
         -not ($candidates[0].Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         $importLog = Join-Path $candidates[0].FullName 'offline-import.log'
-        if (Test-Path -LiteralPath $importLog -PathType Leaf) {
+        if ($importIssue -ceq 'NOT_FOUND' -and (Test-Path -LiteralPath $importLog -PathType Leaf)) {
             $importItem = Get-Item -LiteralPath $importLog -Force
             if ($importItem.Length -gt 0 -and $importItem.Length -le 131072 -and
                 -not ($importItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
