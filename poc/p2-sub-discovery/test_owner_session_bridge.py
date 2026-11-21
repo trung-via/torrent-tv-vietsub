@@ -175,6 +175,50 @@ class OwnerSessionBridgeTests(unittest.TestCase):
         self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
                                       "OWNER_BRIDGE_BLOCK_REASON=AUTO_VIETSUB_PERMISSIONS_NOT_ENABLED"])
 
+    def test_abandoned_p2_job_is_named_and_never_replayed(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.mkv", owner_root=self.root)
+        class QuarantinedP2:
+            calls = 0
+            def selected_media(self, name):
+                self.calls += 1
+                raise ValueError("AUTO_LEAN120_ABANDONED_JOB_HOLD")
+        processor = QuarantinedP2()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor,
+            emit=self.lines.append), 1)
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                      "OWNER_BRIDGE_BLOCK_REASON=AUTO_LEAN120_ABANDONED_JOB_HOLD"])
+        self.assertTrue((self.root / "inbox" /
+                         ("event-" + event_id + ".blocked")).is_file())
+        self.assertTrue((self.root / "inbox" /
+                         ("claim-" + event_id)).is_file())
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor,
+            emit=self.lines.append), 0)
+        self.assertEqual(processor.calls, 1)
+
+    def test_uncertain_p2_provider_state_is_explicit_but_never_retried(self):
+        for reason in ("AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD",
+                       "AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE"):
+            with self.subTest(reason=reason):
+                self.lines.clear()
+                with tempfile.TemporaryDirectory() as private:
+                    root = Path(private).resolve()
+                    event_id = enqueue_selected_media(
+                        "Synthetic.Film.2017.mkv", owner_root=root)
+                    class UncertainP2:
+                        def selected_media(self, name):
+                            raise ValueError(reason)
+                    self.assertEqual(poll_private_events(
+                        owner_root=root, processor=UncertainP2(),
+                        emit=self.lines.append), 1)
+                    self.assertEqual(self.lines, [
+                        "OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                        "OWNER_BRIDGE_BLOCK_REASON=" + reason])
+                    self.assertTrue((root / "inbox" /
+                                     ("event-" + event_id + ".blocked")).is_file())
+
     def test_legacy_event_preprovider_error_must_not_replay(self):
         event_id = enqueue_selected_media(
             "Synthetic.Film.2017.mkv", owner_root=self.root)
