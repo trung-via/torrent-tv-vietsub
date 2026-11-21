@@ -7,7 +7,7 @@ from p3_signed_playback_signal import (
     sign_synthetic_event,
 )
 from p3_redmi_current_state import (
-    SCHEMA as STATE_SCHEMA, SignedRedmiStateCache, RedmiStateRejected,
+    SCHEMA_NATIVE_KEY as STATE_SCHEMA, SignedRedmiStateCache, RedmiStateRejected,
     sign_synthetic_state,
 )
 from p3_p4_shared_https_route import P3_POST_ROUTE, P3_STATE_ROUTE

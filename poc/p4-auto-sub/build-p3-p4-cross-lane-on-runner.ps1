@@ -298,7 +298,8 @@ if (([regex]::Matches($activityP3, [regex]::Escape('P3SelectedMediaPublisher.acc
 if ($LASTEXITCODE -ne 0) { throw 'STOP: P3 source whitespace invalid' }
 $sender = [IO.File]::ReadAllText($p3Publisher)
 foreach ($stateAnchor in @(
-    'TTV-P3-TV-STATE-V1',
+    'TTV-P3-TV-STATE-V2',
+    '.put("media_key", current.mediaKey)',
     'postJson(paired, "/p3/state", body)',
     'P1ProductionSubtitles.automaticChoice(',
     'private val bootId = randomHex()',
