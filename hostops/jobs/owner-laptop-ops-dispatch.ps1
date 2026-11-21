@@ -227,6 +227,43 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($receipt.operation -ceq 'owner-p2-source-trace-readonly') {
+        $summaryFile = Join-Path $outbox 'source-trace.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 512 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $expected = @('schema','nonce','scope','title_source','search',
+                    'route','download','cached','en_source','p2_outcome')
+                if ($summary.schema -ceq 'TTV-OWNER-SOURCE-TRACE-V1' -and
+                    $summary.nonce -ceq $nonce -and
+                    (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($expected | Sort-Object) -join ',') -and
+                    $summary.scope -cin @('NOT_OBSERVED','CURRENT_OWNER_REQUEST',
+                        'SESSION_NOT_IN_TAIL','OWNER_HEALTH_UNVERIFIED') -and
+                    $summary.title_source -cin @('NOT_OBSERVED','TORRENT_ALIAS','VIDEO_FILENAME') -and
+                    $summary.search -cin @('NOT_OBSERVED','NO_TITLE','ROUTE_EVALUATED') -and
+                    $summary.route -cin @('NOT_OBSERVED','VI_READY','EN_TRANSLATE',
+                        'REVIEW_REQUIRED','NO_MATCH') -and
+                    $summary.download -cin @('YES','NO') -and
+                    $summary.cached -cin @('YES','NO') -and
+                    $summary.en_source -cin @('NOT_OBSERVED','LOCAL_DIRECT',
+                        'TORRENT_SIDECAR','CACHED') -and
+                    $summary.p2_outcome -cin @('NOT_OBSERVED','VI_READY',
+                        'VIETSUB_READY','REVIEW_REQUIRED')) {
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_SCOPE=' + $summary.scope)
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_TITLE=' + $summary.title_source)
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_SEARCH=' + $summary.search)
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_ROUTE=' + $summary.route)
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_DOWNLOAD=' + $summary.download)
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_CACHED=' + $summary.cached)
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_EN_SOURCE=' + $summary.en_source)
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_P2_OUTCOME=' + $summary.p2_outcome)
+                }
+            }
+        }
+    }
     return
 }
 throw 'HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY'

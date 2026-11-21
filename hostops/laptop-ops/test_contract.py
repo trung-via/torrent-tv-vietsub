@@ -129,6 +129,22 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertNotIn("[IO.File]::Replace", diagnostic)
         self.assertNotIn("Remove-Item", diagnostic)
 
+    def test_owner_source_trace_is_bounded_read_only(self):
+        operation = (ROOT / "hostops/laptop-ops/operations/owner-p2-source-trace-readonly.ps1").read_text()
+        dispatcher = (ROOT / "hostops/jobs/owner-laptop-ops-dispatch.ps1").read_text()
+        self.assertIn("TTV-OWNER-SOURCE-TRACE-V1", operation)
+        self.assertIn("262144L", operation)
+        self.assertIn("OWNER_FULL_TRACE 'P3_SELECTION_ACCEPTED'", operation)
+        self.assertIn("AUTO_SOURCE_ROUTE=", operation)
+        self.assertIn("AUTO_SUBTITLE_CACHED=YES", operation)
+        self.assertNotIn("Invoke-WebRequest", operation)
+        self.assertNotIn("Stop-ScheduledTask", operation)
+        self.assertNotIn("Disable-ScheduledTask", operation)
+        self.assertNotIn("[IO.File]::Replace", operation)
+        self.assertNotIn("Remove-Item", operation)
+        self.assertIn("$receipt.operation -ceq 'owner-p2-source-trace-readonly'", dispatcher)
+        self.assertIn("HOSTOPS_OWNER_SOURCE_CACHED=", dispatcher)
+
 
 if __name__ == "__main__":
     unittest.main()
