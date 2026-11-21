@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-sidecar-178-install",
+  "operation": "owner-source-987-install",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-sidecar-178-install.ps1",
-  "script_sha256": "de82ffbe3079b61fb495a31e78a334f5c6483712324ee29f7f644408df434f90",
+  "script_path": "hostops/laptop-ops/operations/owner-source-987-install.ps1",
+  "script_sha256": "2f7a2901e1928e722695f0e35f4882349c2afd6b0ca6a2ee88c96392486bca2d",
   "arguments": []
 }
