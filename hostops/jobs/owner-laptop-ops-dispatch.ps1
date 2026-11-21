@@ -118,10 +118,10 @@ if (Test-Path -LiteralPath $requestFile) {
     if (-not (Test-Path -LiteralPath $history -PathType Container)) {
         New-Item -ItemType Directory -Path $history -ErrorAction Stop | Out-Null
     }
-    Move-Item -LiteralPath $requestFile -Destination
-        (Join-Path $history ('request-' + $oldRequest.nonce + '.json')) -ErrorAction Stop
-    Move-Item -LiteralPath $receiptFile -Destination
-        (Join-Path $history ('receipt-' + $oldRequest.nonce + '.json')) -ErrorAction Stop
+    $oldRequestArchive = Join-Path $history ('request-' + $oldRequest.nonce + '.json')
+    $oldReceiptArchive = Join-Path $history ('receipt-' + $oldRequest.nonce + '.json')
+    Move-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
+    Move-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
 }
 $nonce = [Guid]::NewGuid().ToString('N')
 $request = [ordered]@{
