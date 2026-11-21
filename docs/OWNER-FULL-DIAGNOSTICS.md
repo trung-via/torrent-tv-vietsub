@@ -36,6 +36,14 @@ of the existing scheduled task, backing up the old three files and rolling back
 if the new Owner fails to produce a fresh heartbeat. Never replay `*.blocked`,
 `*.inflight` or previous model/provider requests while deploying diagnostics.
 
+The exact pinned one-time script is
+`hostops/setup/owner-full-diagnostics-maintenance-once.ps1`:
+inspect with no flags and install with `-Apply` in the logged-in Windows Owner
+session. It downloads/verifies only the three source blobs from `627f452`,
+stops and restarts only `TorrentTV-Vietsub-OwnerAgent`, and checks a new
+heartbeat plus appended full-log startup marker. It does not restart a
+translator batch. A failed startup restores the original three source files.
+
 The existing HostOps service runs as `NETWORK_SERVICE`, not the logged-in
 Owner, so its existing sanitized snapshot job cannot open the Owner-private
 full log. An automated full-log reader requires a **one-time** Owner-context

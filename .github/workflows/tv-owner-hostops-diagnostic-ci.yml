@@ -20,6 +20,7 @@ on:
       - 'hostops/setup/enroll-owner-p2-quarantine-task.ps1'
       - 'hostops/setup/owner-p2-snapshot-once.ps1'
       - 'hostops/setup/owner-p2-quarantine-once.ps1'
+      - 'hostops/setup/owner-full-diagnostics-maintenance-once.ps1'
       - '.github/workflows/tv-owner-hostops-diagnostic-ci.yml'
   workflow_dispatch:
 
@@ -52,6 +53,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_OWNER_TASK_ENROLL_SOURCE_REGRESSION' }
           python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_diagnostic_capture_task.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_CAPTURE_TASK_SOURCE_REGRESSION' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_session_bridge.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_FULL_DIAGNOSTICS_SOURCE_REGRESSION' }
       - name: Parse Owner enrollment and trusted HostOps read-only PowerShell
         shell: pwsh
         run: |
@@ -60,6 +63,7 @@ jobs:
             'hostops/setup/enroll-owner-diagnostic-capture.ps1',
             'hostops/setup/owner-p2-snapshot-once.ps1',
             'hostops/setup/owner-p2-quarantine-once.ps1',
+            'hostops/setup/owner-full-diagnostics-maintenance-once.ps1',
             'hostops/setup/enroll-owner-p2-quarantine-task.ps1',
             'hostops/jobs/owner-p2-quarantine-dispatch.ps1',
             'hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1',
