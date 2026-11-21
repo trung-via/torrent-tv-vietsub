@@ -121,10 +121,7 @@ if (Test-Path -LiteralPath $requestFile) {
     $oldRequestArchive = Join-Path $history ('request-' + $oldRequest.nonce + '.json')
     $oldReceiptArchive = Join-Path $history ('receipt-' + $oldRequest.nonce + '.json')
     Move-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
-    # The receipt belongs to the interactive Owner, not NETWORK_SERVICE.
-    # Copy its terminal evidence; Owner will atomically overwrite the original
-    # with the new nonce. Moving that Owner-owned file may be ACL-denied.
-    Copy-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
+    Move-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
 }
 $nonce = [Guid]::NewGuid().ToString('N')
 $request = [ordered]@{
@@ -161,6 +158,22 @@ for ($i=0; $i -lt 200; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-title178-diagnostic') {
+        # Strictly bounded Owner-produced enum. Never print private log text.
+        $summaryFile = Join-Path $outbox 'title178-diag.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 256 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                if ($summary.schema -ceq 'TTV-OWNER-TITLE178-DIAG-V1' -and
+                    $summary.nonce -ceq $nonce -and
+                    $summary.code -cmatch '^[A-Z0-9_]{3,80}$') {
+                    Write-Output ('HOSTOPS_OWNER_TITLE178_DIAG=' + $summary.code)
+                }
+            }
+        }
+    }
     return
 }
 throw 'HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY'
