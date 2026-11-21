@@ -26,7 +26,19 @@ foreach ($file in $relative) {
 }
 $helper = Join-Path $root $relative[0]
 $enroller = Join-Path $root $relative[1]
-$hash = (Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant()
+# Windows checkout honors .gitattributes (working-tree CRLF). The signed-in
+# Owner downloads the immutable GitHub RAW LF blob, so normalize strictly to
+# the Git blob's LF bytes before comparing its SHA-256 enrollment pin.
+$helperText = [IO.File]::ReadAllText($helper,[Text.UTF8Encoding]::new($false,$true))
+if ($helperText.StartsWith([char]0xfeff)) {
+    throw 'HOSTOPS_OWNER_P2_SOURCE_CHECK_BOM_REFUSED'
+}
+$helperLF = $helperText.Replace("`r`n","`n")
+if ($helperLF.Contains("`r")) {
+    throw 'HOSTOPS_OWNER_P2_SOURCE_CHECK_LONE_CR_REFUSED'
+}
+$bytes = [Text.UTF8Encoding]::new($false).GetBytes($helperLF)
+$hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 $enrollText = [IO.File]::ReadAllText($enroller)
 if (-not $enrollText.Contains(("`$helperSHA = '" + $hash + "'"))) {
     throw 'HOSTOPS_OWNER_P2_SOURCE_CHECK_SHA_PIN_DRIFT'
