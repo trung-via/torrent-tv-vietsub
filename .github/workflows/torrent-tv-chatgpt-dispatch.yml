@@ -1,6 +1,5 @@
-# Human-reviewed, allowlisted ChatGPT -> GitHub Actions bridge.
-# Install on the repository's DEFAULT branch (`main`) once.
-# This workflow only validates a future Human-authorized comment and dispatches a pinned main build; it never executes APK code.
+# Legacy PR #38 comment bridge is retired by FLAT #170/#172. Never dispatch
+# an obsolete G1 build from a public issue comment; use the current FLAT flow.
 name: Torrent TV - ChatGPT G1 Debug Dispatch Bridge
 
 on:
@@ -10,7 +9,7 @@ on:
 permissions:
   actions: write
   contents: read
-  pull-requests: read # required to verify PR #38 head/state in a private repository
+  pull-requests: read # historical merged-state guard retained for provenance
 
 concurrency:
   group: torrent-tv-chatgpt-g1-dispatch
@@ -20,8 +19,8 @@ jobs:
   dispatch-reviewed-g1:
     if: >-
       ${{
+        false &&
         github.repository == 'trung-via/torrent-tv-vietsub' &&
-        github.event.repository.private == true &&
         github.actor == 'trung-via' &&
         github.event.comment.author_association == 'OWNER' &&
         github.event.issue.number == 38 &&

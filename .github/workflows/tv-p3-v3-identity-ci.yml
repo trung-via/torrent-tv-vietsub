@@ -1,0 +1,50 @@
+name: Torrent TV - P3 V3 Identity Integration Offline CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p2-sub-discovery/**'
+      - 'poc/p3-vietsub-trigger/**'
+      - 'docs/subtitle-activation/P3_V3_MEDIA_IDENTITY.md'
+      - '.github/workflows/tv-p3-v3-identity-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-v3:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p3-v3-selected-media-identity-compose-20261114' &&
+      github.event.pull_request.base.ref == 'feature/p2-owner-agent-ready-health-20261114'
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Checkout exact PR commit without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Prepare FFmpeg for generated synthetic test media only
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg
+          command -v ffprobe
+          command -v ffmpeg
+
+      - name: V3 current TV exact-media, D1 D2 local EN and LEAN120 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/poc/p2-sub-discovery:$PWD/poc/p2-aisub:$PWD/poc/p3-vietsub-trigger"
+          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -v
+          python3 -m unittest discover -s poc/p2-aisub -p 'test_*.py' -v
+          python3 -m py_compile poc/p2-sub-discovery/{verified_v3_processor.py,owner_selected_file_resolver.py,local_en_direct.py,owner_session_bridge.py,automatic_vietsub_flow.py,trusted_playback_to_owner.py}
+          echo 'P3_V3_OFFLINE_ONLY_NO_LAN_NO_TV_NO_OWNER_MEDIA_NO_KEYS_NO_PROVIDER'

@@ -1,5 +1,10 @@
 # P2-AISUB.1 — Offline timed-cue preparation and translation QA
 
+> **Historical slice documentation.** The current P2 execution decision is
+> Antigravity CLI only; see [owner guide](ANTIGRAVITY-OWNER-CURRENT.md),
+> ADR-0010 and Draft #173. Below, descriptions of Gemini Developer API and
+> unimplemented inference apply to the dated PoC slice, not the current gateway.
+
 **Current feature:** parse/validate UTF-8 SRT or WebVTT, import a *separately prepared* Vietnamese translation map keyed by cue number, preserve every original cue's millisecond start/end, render SRT/VTT, and refuse missing/extra cues and unsafe markup. Two original synthetic fixture examples are in unit tests.
 
 **Not yet implemented:** AI inference/model translation, ASR, voice-over, provider consent/selection, remote media upload, subtitle download, GPU resource measurement, OMP UI integration or on-TV test. These are separate acceptance gates; this step is the deterministic data contract needed before any model-generated Vietsub.
