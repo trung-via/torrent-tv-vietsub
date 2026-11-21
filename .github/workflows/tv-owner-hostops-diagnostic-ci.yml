@@ -55,6 +55,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_CAPTURE_TASK_SOURCE_REGRESSION' }
           python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_session_bridge.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'OWNER_FULL_DIAGNOSTICS_SOURCE_REGRESSION' }
+          Push-Location 'poc/p2-sub-discovery'
+          try {
+            python -B -c 'import owner_p3_p4_entrypoint; print("OWNER_FULL_DIAG_OFFLINE_IMPORT_PASS")'
+            if ($LASTEXITCODE -ne 0) { throw 'OWNER_FULL_DIAGNOSTICS_OFFLINE_IMPORT_FAILED' }
+          } finally { Pop-Location }
       - name: Parse Owner enrollment and trusted HostOps read-only PowerShell
         shell: pwsh
         run: |

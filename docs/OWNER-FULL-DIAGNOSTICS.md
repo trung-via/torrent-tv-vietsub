@@ -36,6 +36,17 @@ of the existing scheduled task, backing up the old three files and rolling back
 if the new Owner fails to produce a fresh heartbeat. Never replay `*.blocked`,
 `*.inflight` or previous model/provider requests while deploying diagnostics.
 
+The November 21 Owner attempt rolled back successfully but the earlier
+installer hid its original exception. Owner remained `Running`/`READY` on
+the old three hashes and `owner-full.log` was not created, so the underlying
+failure is **not yet identified**. The corrected installer performs a local
+offline import of the newly installed modules before starting the task,
+reports the exact failed phase and exception *before* rollback, and saves
+the original failure to the Owner-private backup folder as
+`maintenance-failure.log` (plus `offline-import-smoke.log`). The latter logs
+are separate from the unified P3/P2/P4 runtime log, which exists only after
+the new Python entrypoint starts. No raw log is sent to GitHub/HostOps.
+
 The exact pinned one-time script is
 `hostops/setup/owner-full-diagnostics-maintenance-once.ps1`:
 inspect with no flags and install with `-Apply` in the logged-in Windows Owner

@@ -118,22 +118,46 @@ function StopOwner {
 }
 function StartAndVerify([long]$oldPid) {
     $since = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $script:lastStartReason = 'NO_FRESH_HEARTBEAT'
     Enable-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop | Out-Null
     Start-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
     for ($i=0; $i -lt 30; $i++) {
         Start-Sleep -Seconds 1
-        if ([string](CheckTask).State -ne 'Running' -or
-            -not (Test-Path -LiteralPath $health -PathType Leaf)) { continue }
+        if ([string](CheckTask).State -ne 'Running') {
+            $script:lastStartReason = 'TASK_NOT_RUNNING'
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $health -PathType Leaf)) {
+            $script:lastStartReason = 'HEALTH_FILE_MISSING'
+            continue
+        }
         try {
             $heartbeat = Get-Content -LiteralPath $health -Raw | ConvertFrom-Json
-            if ($heartbeat.state -ne 'READY' -or [long]$heartbeat.pid -eq $oldPid -or
-                [long]$heartbeat.observed_utc_epoch -lt ($since - 2)) { continue }
+            if ($heartbeat.state -ne 'READY') {
+                $script:lastStartReason = 'HEALTH_NOT_READY'
+                continue
+            }
+            if ([long]$heartbeat.pid -eq $oldPid -or
+                [long]$heartbeat.observed_utc_epoch -lt ($since - 2)) {
+                $script:lastStartReason = 'HEALTH_NOT_FRESH'
+                continue
+            }
             $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$heartbeat.pid)
-            if (-not $proc -or [string]$proc.CommandLine -notmatch 'owner_p3_p4_entrypoint\.py') { continue }
+            if (-not $proc -or [string]$proc.CommandLine -notmatch 'owner_p3_p4_entrypoint\.py') {
+                $script:lastStartReason = 'HEALTH_PROCESS_NOT_VERIFIED'
+                continue
+            }
             $identity = Invoke-CimMethod -InputObject $proc -MethodName GetOwnerSid
-            if ($identity.ReturnValue -ne 0 -or $identity.Sid -cne $ownerSid) { continue }
+            if ($identity.ReturnValue -ne 0 -or $identity.Sid -cne $ownerSid) {
+                $script:lastStartReason = 'HEALTH_OWNER_NOT_VERIFIED'
+                continue
+            }
+            $script:lastStartReason = 'FRESH_OWNER_READY'
             return $true
-        } catch { continue }
+        } catch {
+            $script:lastStartReason = 'HEALTH_READ_OR_IDENTITY_ERROR: ' + $_.Exception.Message
+            continue
+        }
     }
     return $false
 }
@@ -175,6 +199,9 @@ try {
     $backups = Join-Path $root ('backups\owner-full-diag-' + [Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($backups) | Out-Null
     $changed = [System.Collections.Generic.List[string]]::new()
+    $phase = 'REPLACE_FILES'
+    $script:lastStartReason = 'NOT_STARTED'
+    $smoke = Join-Path $backups 'offline-import-smoke.log'
     try {
         foreach ($name in $pinned.Keys) {
             $target = Join-Path $installed $name
@@ -185,18 +212,64 @@ try {
             $changed.Add($name)
             if ((Hash $target) -cne $pinned[$name]) { throw 'INSTALLED_HASH_MISMATCH' }
         }
-        if (-not (StartAndVerify $oldPid) -or
-            -not (Test-Path -LiteralPath $trace -PathType Leaf) -or
-            (Get-Item -LiteralPath $trace).Length -le $oldTraceBytes -or
-            @((Get-Content -LiteralPath $trace -Tail 70) | Where-Object {
+        # Import the exact newly installed modules while Owner is stopped.
+        # No LAN listener or provider request is started by module import.
+        $phase = 'OFFLINE_IMPORT'
+        Push-Location -LiteralPath $installed
+        try {
+            & py -3 -B -c 'import owner_p3_p4_entrypoint; print("OWNER_FULL_DIAG_OFFLINE_IMPORT_PASS")' *> $smoke
+            $importExit = $LASTEXITCODE
+        } finally { Pop-Location }
+        if ($importExit -ne 0) { throw 'OFFLINE_IMPORT_FAILED' }
+        Write-Output 'OWNER_FULL_DIAG_OFFLINE_IMPORT=PASS_NO_LAN_NO_PROVIDER'
+
+        $phase = 'FRESH_OWNER_START'
+        if (-not (StartAndVerify $oldPid)) {
+            throw ('OWNER_FRESH_HEARTBEAT_NOT_VERIFIED: ' + $script:lastStartReason)
+        }
+        $phase = 'FULL_LOG_VERIFY'
+        if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
+            throw 'OWNER_FULL_LOG_NOT_CREATED'
+        }
+        if ((Get-Item -LiteralPath $trace).Length -le $oldTraceBytes) {
+            throw 'OWNER_FULL_LOG_NOT_APPENDED'
+        }
+        if (@((Get-Content -LiteralPath $trace -Tail 70) | Where-Object {
                 $_ -match '^OWNER_FULL_DIAGNOSTICS_STARTED pid=\d+ epoch=\d+$'
             }).Count -eq 0) {
-            throw 'FULL_DIAGNOSTICS_STARTUP_NOT_VERIFIED'
+            throw 'OWNER_FULL_LOG_STARTUP_MARKER_NOT_FOUND'
         }
         Write-Output 'OWNER_FULL_DIAG=INSTALLED_FRESH_OWNER_RUNNING'
         Write-Output 'OWNER_FULL_DIAG_LOG=OWNER_PRIVATE_FULL_UNREDACTED'
         Write-Output 'OWNER_FULL_DIAG_PROVIDER_TV=NOT_RUN_BY_INSTALLER'
     } catch {
+        # Preserve the *original* failure before rollback (which starts its
+        # own process and could otherwise conceal why the new one failed).
+        $originalFailure = $_
+        Write-Output ('OWNER_FULL_DIAG_FAILURE_PHASE=' + $phase)
+        Write-Output ('OWNER_FULL_DIAG_FAILURE_TYPE=' + $originalFailure.Exception.GetType().FullName)
+        Write-Output ('OWNER_FULL_DIAG_FAILURE_MESSAGE=' + $originalFailure.Exception.Message)
+        Write-Output ('OWNER_FULL_DIAG_NEW_OWNER_START=' + [string]$script:lastStartReason)
+        Write-Output ('OWNER_FULL_DIAG_LOG_CREATED=' +
+            [string](Test-Path -LiteralPath $trace -PathType Leaf))
+        if ($phase -eq 'OFFLINE_IMPORT' -and (Test-Path -LiteralPath $smoke -PathType Leaf)) {
+            Write-Output 'OWNER_FULL_DIAG_OFFLINE_IMPORT_TRACE_BEGIN'
+            Get-Content -LiteralPath $smoke -ErrorAction Continue | Write-Output
+            Write-Output 'OWNER_FULL_DIAG_OFFLINE_IMPORT_TRACE_END'
+        }
+        try {
+            @(
+                'OWNER_FULL_DIAG_FAILURE_UTC=' + [DateTimeOffset]::UtcNow.ToString('o')
+                'OWNER_FULL_DIAG_FAILURE_PHASE=' + $phase
+                'OWNER_FULL_DIAG_NEW_OWNER_START=' + [string]$script:lastStartReason
+                'OWNER_FULL_DIAG_ORIGINAL_EXCEPTION=' + $originalFailure.Exception.ToString()
+                'OWNER_FULL_DIAG_SCRIPT_STACK=' + $originalFailure.ScriptStackTrace
+            ) | Set-Content -LiteralPath (Join-Path $backups 'maintenance-failure.log') -Encoding utf8
+            Write-Output ('OWNER_FULL_DIAG_PRIVATE_FAILURE_LOG=' +
+                (Join-Path $backups 'maintenance-failure.log'))
+        } catch {
+            Write-Output 'OWNER_FULL_DIAG_PRIVATE_FAILURE_LOG=WRITE_FAILED'
+        }
         Write-Output 'OWNER_FULL_DIAG=ROLLBACK_ATTEMPTED'
         StopOwner
         foreach ($name in $changed) {
