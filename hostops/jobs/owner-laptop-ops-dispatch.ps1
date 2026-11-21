@@ -103,6 +103,7 @@ foreach ($dir in @($inbox,$outbox)) {
 }
 $requestFile = Join-Path $inbox 'request.json'
 $receiptFile = Join-Path $outbox 'receipt.json'
+$history = Join-Path $spool 'History'
 if (Test-Path -LiteralPath $requestFile) {
     if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) {
         throw 'HOSTOPS_OWNER_OPS_UNRESOLVED_PREVIOUS_REQUEST'
@@ -113,15 +114,49 @@ if (Test-Path -LiteralPath $requestFile) {
         $oldReceipt.result -cnotin @('SUCCESS','FAILED_NO_RETRY')) {
         throw 'HOSTOPS_OWNER_OPS_UNRESOLVED_PREVIOUS_REQUEST'
     }
-    # Preserve previous terminal result; never silently replay it.
-    $history = Join-Path $spool 'History'
+    # Archive the service-owned request. The Owner-owned receipt has a
+    # different ACL and must be COPIED, not moved by NETWORK_SERVICE.
     if (-not (Test-Path -LiteralPath $history -PathType Container)) {
         New-Item -ItemType Directory -Path $history -ErrorAction Stop | Out-Null
     }
     $oldRequestArchive = Join-Path $history ('request-' + $oldRequest.nonce + '.json')
-    $oldReceiptArchive = Join-Path $history ('receipt-' + $oldRequest.nonce + '.json')
+    if (Test-Path -LiteralPath $oldRequestArchive) {
+        throw 'HOSTOPS_OWNER_OPS_REQUEST_ARCHIVE_ALREADY_EXISTS'
+    }
     Move-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
-    Move-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
+}
+if (Test-Path -LiteralPath $receiptFile) {
+    # Also recover the interrupted state where the prior request was moved
+    # but moving its Owner-owned receipt was denied. Never erase that proof.
+    $item = Get-Item -LiteralPath $receiptFile -Force -ErrorAction Stop
+    if ($item.Length -le 0 -or $item.Length -gt 512 -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'HOSTOPS_OWNER_OPS_PREVIOUS_RECEIPT_INVALID'
+    }
+    $oldReceipt = Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
+    if ($oldReceipt.schema -cne 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -or
+        $oldReceipt.nonce -cnotmatch '\A[0-9a-f]{32}\z' -or
+        $oldReceipt.result -cnotin @('SUCCESS','FAILED_NO_RETRY')) {
+        throw 'HOSTOPS_OWNER_OPS_PREVIOUS_RECEIPT_NOT_TERMINAL'
+    }
+    $oldRequestArchive = Join-Path $history ('request-' + $oldReceipt.nonce + '.json')
+    if (-not (Test-Path -LiteralPath $oldRequestArchive -PathType Leaf)) {
+        throw 'HOSTOPS_OWNER_OPS_PREVIOUS_REQUEST_ARCHIVE_MISSING'
+    }
+    $archivedRequest = Get-Content -LiteralPath $oldRequestArchive -Raw | ConvertFrom-Json
+    if ($archivedRequest.nonce -cne $oldReceipt.nonce -or
+        $archivedRequest.source_commit -cne $oldReceipt.source_commit) {
+        throw 'HOSTOPS_OWNER_OPS_ARCHIVED_REQUEST_RECEIPT_MISMATCH'
+    }
+    $oldReceiptArchive = Join-Path $history ('receipt-' + $oldReceipt.nonce + '.json')
+    if (-not (Test-Path -LiteralPath $oldReceiptArchive)) {
+        Copy-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive -ErrorAction Stop
+    }
+    if ((Get-FileHash -LiteralPath $receiptFile -Algorithm SHA256).Hash -cne
+        (Get-FileHash -LiteralPath $oldReceiptArchive -Algorithm SHA256).Hash) {
+        throw 'HOSTOPS_OWNER_OPS_RECEIPT_ARCHIVE_HASH_MISMATCH'
+    }
+    Write-Output 'HOSTOPS_OWNER_OPS=TERMINAL_RECEIPT_COPIED_NO_DELETE'
 }
 $nonce = [Guid]::NewGuid().ToString('N')
 $request = [ordered]@{

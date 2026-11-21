@@ -59,6 +59,13 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertIn("FAILED_NO_RETRY", helper)
         self.assertIn("FAILED_NO_RETRY", dispatcher)
 
+    def test_owner_owned_receipt_is_archived_without_service_delete(self):
+        dispatcher = (ROOT / "hostops/jobs/owner-laptop-ops-dispatch.ps1").read_text()
+        self.assertIn("HOSTOPS_OWNER_OPS_PREVIOUS_REQUEST_ARCHIVE_MISSING", dispatcher)
+        self.assertIn("HOSTOPS_OWNER_OPS_RECEIPT_ARCHIVE_HASH_MISMATCH", dispatcher)
+        self.assertIn("Copy-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive", dispatcher)
+        self.assertNotIn("Move-Item -LiteralPath $receiptFile", dispatcher)
+
     def test_first_operation_installer_pin(self):
         operation = (ROOT / "hostops/laptop-ops/operations/owner-full-diagnostics-install.ps1").read_text()
         self.assertIn("b92926714199fa986c29b48202460d903a518025", operation)
