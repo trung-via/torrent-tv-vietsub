@@ -48,11 +48,23 @@ class _RollingReceipt:
 
 
 class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
-    def __init__(self, *, read_verified_current_playback: Callable):
+    def __init__(self, *, read_verified_current_playback: Callable,
+                 on_status: Callable[[str], None] | None = None):
         super().__init__(
             read_verified_current_playback=read_verified_current_playback)
+        if on_status is not None and not callable(on_status):
+            raise P3ReadyRejected("P4_ROLLING_STATUS_SINK_INVALID")
         self._rolling: dict[str, _RollingReceipt] = {}
         self._flow: object | None = None
+        self._on_status = on_status
+
+    def _status(self, code: str) -> None:
+        """Only source-owned enum; status reporting cannot affect delivery."""
+        if self._on_status is not None:
+            try:
+                self._on_status(code)
+            except Exception:
+                pass
 
     def bind_existing_flow(self, flow: object) -> None:
         """Bind the ONE already-running P2 worker for read-only checkpoint reuse.
@@ -164,11 +176,12 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         except Exception:
             raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_NOT_VERIFIED") from None
 
-    def _restore_current_checkpoint(self, media_key: str) -> None:
+    def _restore_current_checkpoint(self, media_key: str) -> str | None:
         with self._lock:
             flow = self._flow
         if flow is None:
-            return
+            self._status("FLOW_UNBOUND")
+            return "FLOW_UNBOUND"
         # Even a live registry can lag after a failed P4 callback. Reconcile
         # the newest durable batch on EVERY new authenticated activation.
         try:
@@ -180,7 +193,8 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         media = Media(current.server_id, current.torrent_hash,
                       current.file_index, current.video_name)
         if p4_media_key(media, vlc_selected=True) != media_key:
-            return
+            self._status("MEDIA_KEY_MISMATCH")
+            return "MEDIA_KEY_MISMATCH"
         with self._lock:
             prior = self._rolling.get(media_key)
             if prior is not None and prior.tv_session != current.tv_session_id:
@@ -190,9 +204,13 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         self._current(media, current.tv_session_id, fingerprint)
         handoff = self._recover_handoff(flow, fingerprint)
         if handoff is None:
-            return
+            # May be a VI source or an early request before EN cache exists.
+            # The original completed-VI factory is still allowed to resolve.
+            self._status("EN_INDEX_NOT_READY")
+            return "EN_INDEX_NOT_READY"
         revision = self._committed_revision(flow.worker, handoff)
         if revision is None:
+            self._status("P2_CHECKPOINT_PENDING")
             # The TV may activate BEFORE the first paid window has committed.
             # Establish an empty authenticated feed now (GET returns 204),
             # then the original worker callback fills it with 120 cues.
@@ -206,12 +224,13 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                         media, current.tv_session_id, fingerprint, media_key,
                         file, root, handoff.source_sha256, handoff.cue_count,
                         handoff.media_key, None)
-            return
+            return "P2_CHECKPOINT_PENDING"
         try:
             self.publish_worker_revision(
                 media=media, source_fingerprint=fingerprint,
                 tv_session_id=current.tv_session_id, flow=flow,
                 handoff=handoff, revision=revision)
+            self._status("P2_CHECKPOINT_READY")
         except P3ReadyRejected as exc:
             # A live producer may have published a newer batch concurrently.
             if exc.args != ("P4_ROLLING_OLDER_REVISION",):
@@ -328,10 +347,15 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
 
     def resolve_progressive(self, media_key: str
                             ) -> AuthenticatedProgressiveSource | None:
-        self._restore_current_checkpoint(media_key)
+        status = self._restore_current_checkpoint(media_key)
         with self._lock:
             receipt = self._rolling.get(media_key)
         if receipt is None or receipt.media_key != media_key:
+            # A generic fallthrough must not overwrite the *actual* reason
+            # (e.g. TV/Owner media-key mismatch) in the flight recorder.
+            if status not in ("FLOW_UNBOUND", "MEDIA_KEY_MISMATCH",
+                              "EN_INDEX_NOT_READY"):
+                self._status("ROLLING_FEED_MISSING")
             return None
         self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
         self._file(receipt.source_root, receipt.source_file,

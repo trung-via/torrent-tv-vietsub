@@ -16,6 +16,7 @@ from owner_r2_verified_processor import R2VerifiedV3Processor
 from p3_owner_state_wiring import OwnerP3StatusComposition
 from p3_owner_state_wiring_r0 import compose_owner_redmi_status as _compose_r0
 from p3_p4_shared_https_route_r0 import make_p3_p4_handler_r0
+from owner_session_bridge import owner_full_trace
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,8 @@ def compose_owner_redmi_status(**kwargs) -> R2OwnerP3StatusComposition:
         raise ValueError("OWNER_R2_VERIFIED_READY_REQUIRED")
     wiring = _compose_r0(**kwargs)
     registry = R2OwnerProgressiveRegistry(
-        read_verified_current_playback=wiring.current.read_v3)
+        read_verified_current_playback=wiring.current.read_v3,
+        on_status=lambda code: owner_full_trace("P4_ROLLING_STATUS", code=code))
     gateway = PairedActivation(
         device_secret=secret, supplied={},
         authenticated_vietsub_factory=registry.resolve,

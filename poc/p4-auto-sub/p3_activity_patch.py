@@ -24,11 +24,16 @@ TICK = """    /** Sample live PlayerSession + G1/P4 per-movie choice, not last P
     private val p3StatusTick = object : Runnable {
         override fun run() {
             if (isFinishing || isDestroyed || closedSent ||
-                !::session.isInitialized ||
-                !P3SelectedMediaPublisher.enabled(applicationContext)) return
-            P3SelectedMediaPublisher.sample(
-                applicationContext, session.request, session.index,
-                engine is VlcEngine)
+                !::session.isInitialized) return
+            // Keep the timer alive while sharing is OFF. If Vietsub AI is
+            // enabled mid-playback, the next tick MUST resume fresh signed
+            // TV status; an 8-second Owner TTL cannot survive a 15-second
+            // P4 activation/reaffirmation interval on its own.
+            if (P3SelectedMediaPublisher.enabled(applicationContext)) {
+                P3SelectedMediaPublisher.sample(
+                    applicationContext, session.request, session.index,
+                    engine is VlcEngine)
+            }
             handler.postDelayed(this, 3_000L)
         }
     }
@@ -170,6 +175,7 @@ P4_CONNECTING_REPLACEMENT = """        // The one-tap P3 request already display
             showMessage("Đang kết nối Vietsub AI với PC...", false)
         }"""
 P4_PENDING_REPLACEMENT = """                if (result == null) {
+                    android.util.Log.i("TorrentTV-Vietsub", "P4_TV_ACTIVATE_NOT_READY")
                     // Missing source is expected while the existing P2/D2
                     // pipeline runs. A bounded retry is owned by the user's
                     // still-current explicit request, not a new AI worker.
@@ -185,6 +191,7 @@ P4_SUCCESS = """                result.sessionSecret.fill(0)
                     else "Phim đã đổi hoặc không thể bật Vietsub AI.", !started)"""
 P4_SUCCESS_REPLACEMENT = """                result.sessionSecret.fill(0)
                 if (started) {
+                    android.util.Log.i("TorrentTV-Vietsub", "P4_TV_SESSION_ACCEPTED")
                     handler.removeCallbacks(p3ActivationTick)
                     p3ActivationAttempts = 0
                     P3SelectedMediaPublisher.sample(
@@ -193,6 +200,20 @@ P4_SUCCESS_REPLACEMENT = """                result.sessionSecret.fill(0)
                 showMessage(
                     if (started) "Đã bật Vietsub AI. Đang chờ bản dịch đầu tiên..."
                     else "Phim đã đổi hoặc không thể bật Vietsub AI.", !started)"""
+
+P4_FIRST_FRAME = """        if (!acknowledged) return false
+        // Only after the persisted first-frame ACK is this new registry valid."""
+P4_FIRST_FRAME_REPLACEMENT = """        if (!acknowledged) return false
+        android.util.Log.i("TorrentTV-Vietsub", "P4_TV_G2_FIRST_FRAME_ACK")
+        // Only after the persisted first-frame ACK is this new registry valid."""
+
+P4_OFFER = """        val choice = P1ProductionSubtitles.automaticChoice(applicationContext, r, idx)
+        return try {
+            receiver.receive("""
+P4_OFFER_REPLACEMENT = """        val choice = P1ProductionSubtitles.automaticChoice(applicationContext, r, idx)
+        android.util.Log.i("TorrentTV-Vietsub", "P4_TV_OFFER_RECEIVED_UNVERIFIED")
+        return try {
+            receiver.receive("""
 
 P4_REVOKE = """                stopP4LanSession()
                 val revoked = P4PairingStore(applicationContext).revoke()"""
@@ -266,6 +287,8 @@ def patch_activity(text: str) -> str:
         (P4_CONNECTING_MESSAGE, P4_CONNECTING_REPLACEMENT),
         (P4_PENDING_MESSAGE, P4_PENDING_REPLACEMENT),
         (P4_SUCCESS, P4_SUCCESS_REPLACEMENT),
+        (P4_FIRST_FRAME, P4_FIRST_FRAME_REPLACEMENT),
+        (P4_OFFER, P4_OFFER_REPLACEMENT),
     )
     for original, _ in rules:
         if text.count(original) != 1:

@@ -254,6 +254,46 @@ class R2RollingTests(unittest.TestCase):
         self.assertEqual(decode_latest_test_only(feed)["translated_count"], 120)
         self.assertEqual(len(self.provider.calls), 1)
 
+    def test_p4_diagnoses_media_key_mismatch_without_starting_provider(self):
+        statuses = []
+        registry = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=lambda: self.current,
+            on_status=statuses.append)
+        registry.bind_existing_flow(self.flow)
+        wrong = Media("another-tv-profile", MEDIA.torrent_hash,
+                      MEDIA.file_index, MEDIA.filename)
+        self.assertIsNone(registry.resolve_progressive(
+            p4_media_key(wrong, vlc_selected=True)))
+        self.assertEqual(statuses[-1], "MEDIA_KEY_MISMATCH")
+        self.assertNotIn("ROLLING_FEED_MISSING", statuses)
+        self.assertEqual(len(self.provider.calls), 0)
+
+    def test_p4_diagnoses_no_index_and_pending_checkpoint_without_replay(self):
+        statuses = []
+        registry = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=lambda: self.current,
+            on_status=statuses.append)
+        registry.bind_existing_flow(self.flow)
+        index = self.cache / (".auto-source-" + FP + ".json")
+        saved = index.read_bytes()
+        index.unlink()
+        self.assertIsNone(registry.resolve_progressive(MEDIA_KEY))
+        self.assertEqual(statuses[-1], "EN_INDEX_NOT_READY")
+        index.write_bytes(saved)
+        self.assertIsNotNone(registry.resolve_progressive(MEDIA_KEY))
+        self.assertIn("P2_CHECKPOINT_PENDING", statuses)
+        self.assertEqual(len(self.provider.calls), 0)
+
+    def test_p4_diagnostic_callback_cannot_block_existing_feed(self):
+        def broken_sink(_code):
+            raise RuntimeError("synthetic diagnostic sink failed")
+        registry = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=lambda: self.current,
+            on_status=broken_sink)
+        registry.bind_existing_flow(self.flow)
+        self.assertIsNotNone(registry.resolve_progressive(MEDIA_KEY))
+        self.assertEqual(len(self.provider.calls), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

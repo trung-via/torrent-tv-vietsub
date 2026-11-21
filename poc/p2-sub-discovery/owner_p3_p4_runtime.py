@@ -20,7 +20,7 @@ from typing import Callable
 
 from owner_session_bridge import run_owner_agent
 from owner_p3_p4_diagnostics import write_diagnostic
-from owner_hostops_snapshot_v3 import publish_owner_snapshot_v3
+from owner_full_flow_snapshot_v4 import publish_owner_snapshot_v4
 # p3_owner_state_wiring installs this repository's two pinned sibling paths.
 from p3_owner_state_wiring import OwnerP3StatusComposition
 from lan_revision_feed import private_lan_ip
@@ -36,7 +36,7 @@ def _diagnostic_tick(*, owner_root: Path, wiring: OwnerP3StatusComposition,
     """Keep old installed diagnostic pins, optionally publish sanitized copy."""
     write_diagnostic(owner_root=owner_root, wiring=wiring, state=state)
     try:
-        publish_owner_snapshot_v3(owner_root=owner_root)
+        publish_owner_snapshot_v4(owner_root=owner_root)
     except (OSError, ValueError):
         # A missing/locked HostOps reader is not a reason to stop the Owner.
         pass

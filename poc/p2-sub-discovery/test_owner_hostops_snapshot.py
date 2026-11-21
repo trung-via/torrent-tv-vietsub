@@ -190,7 +190,7 @@ class HostOpsSnapshotTests(unittest.TestCase):
 
     def test_runtime_tick_preserves_private_diagnostic_before_optional_export(self):
         with (mock.patch("owner_p3_p4_runtime.write_diagnostic") as private,
-              mock.patch("owner_p3_p4_runtime.publish_owner_snapshot_v3") as publish):
+              mock.patch("owner_p3_p4_runtime.publish_owner_snapshot_v4") as publish):
             _diagnostic_tick(owner_root=self.owner, wiring=self.wiring, state="READY")
         private.assert_called_once_with(owner_root=self.owner,
                                         wiring=self.wiring, state="READY")

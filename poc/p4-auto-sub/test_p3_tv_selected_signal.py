@@ -24,6 +24,17 @@ def fake_p4_activity() -> str:
 class PlayerActivity {
     private var g2Recovery: G2RefreshRecovery? = null
     internal fun receiveP4Revision(offer: P4SubtitleOffer): String { return "" }
+    private fun acknowledgeP4FirstFrame(): Boolean {
+        if (!acknowledged) return false
+        // Only after the persisted first-frame ACK is this new registry valid.
+        return true
+    }
+    private fun receiveP4CurrentOffer(): String {
+        val choice = P1ProductionSubtitles.automaticChoice(applicationContext, r, idx)
+        return try {
+            receiver.receive(offer, sid, nowKey, choice)
+        } catch (_: IllegalArgumentException) { "P4_INVALID" }
+    }
     override fun trackChosen(choice: TrackChoice) {
         if (!closedSent && ::session.isInitialized) P1ProductionSubtitles.noteTrackChoice(this, session.request, index(), choice)
     }
@@ -160,6 +171,10 @@ class P3TvSourceContractTests(unittest.TestCase):
     def test_true_current_status_samples_exact_native_and_g1_choice(self):
         self.assertIn("private val p3StatusTick =", self.patched)
         self.assertIn("handler.postDelayed(this, 3_000L)", self.patched)
+        # OFF at activity creation may not permanently kill the 3s status
+        # sampler: enabling Vietsub AI during playback must resume it.
+        self.assertIn('if (P3SelectedMediaPublisher.enabled(applicationContext)) {', self.patched)
+        self.assertNotIn('!P3SelectedMediaPublisher.enabled(applicationContext)) return', self.patched)
         self.assertIn("handler.removeCallbacks(p3StatusTick)", self.patched)
         self.assertEqual(self.patched.count("P3SelectedMediaPublisher.sample("), 4)
         self.assertIn("P1ProductionSubtitles.automaticChoice(", self.kt)
@@ -172,6 +187,9 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('private val statusSequence = AtomicLong(0L)', self.kt)
         self.assertIn('val sampledAt = android.os.SystemClock.elapsedRealtime()', self.kt)
         self.assertIn('STATUS_TIMEOUT_MS = 2_000L', self.kt)
+        for stage in ('P4_TV_ACTIVATE_NOT_READY', 'P4_TV_SESSION_ACCEPTED',
+                      'P4_TV_OFFER_RECEIVED_UNVERIFIED', 'P4_TV_G2_FIRST_FRAME_ACK'):
+            self.assertIn(stage, self.patched)
         self.assertNotIn('item.title', self.kt)
         self.assertNotIn('"video_filename"', self.kt)
 

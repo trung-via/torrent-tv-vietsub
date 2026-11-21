@@ -117,13 +117,16 @@ for ($attempt = 0; $attempt -lt 50; $attempt++) {
         $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -
             [long]$receipt.snapshot_utc_epoch
         if ($receipt.schema -cin @('TTV-HOSTOPS-OWNER-SNAPSHOT-V2',
-                                  'TTV-HOSTOPS-OWNER-SNAPSHOT-V3') -and
+                                  'TTV-HOSTOPS-OWNER-SNAPSHOT-V3',
+                                  'TTV-HOSTOPS-OWNER-SNAPSHOT-V4') -and
             [long]$receipt.snapshot_utc_epoch -gt $beforeEpoch -and
             [long]$receipt.snapshot_utc_epoch -ge ($startedEpoch - 3) -and
             $age -ge 0 -and $age -le 30) {
             $verified = $true
             if ($receipt.schema -ceq 'TTV-HOSTOPS-OWNER-SNAPSHOT-V3') {
                 $receiptVersion = 'V3'
+            } elseif ($receipt.schema -ceq 'TTV-HOSTOPS-OWNER-SNAPSHOT-V4') {
+                $receiptVersion = 'V4'
             }
             break
         }
