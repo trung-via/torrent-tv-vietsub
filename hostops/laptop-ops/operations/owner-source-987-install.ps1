@@ -4,7 +4,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$sourceCommit = '9ff74b31672ea6c90b6aba1b2c234b0fe0aa26fa'
+$sourceCommit = '786c82a4e3bdfb7d8e769b84e7ea9a10b7bdf5ee'
 $moduleHashes = [ordered]@{
     'automatic_vietsub_flow.py' = 'caba20a16c98b041b10fd24fac33645a967b34f00186280b39a5d0c5a611336c'
     'matcher.py' = 'cf77148a39ea87e7e958b7a2a00b32a75d6e4703a038fef09aa92b93562f86af'
