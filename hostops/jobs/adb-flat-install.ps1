@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 
 $repo = 'trung-via/torrent-tv-vietsub'
 $branch = 'feature/r0-flat-hostops-owner-diagnostics-20261118'
-$head = 'a1ee6507e146737b2f053c081a0362b322360ff3'
+$head = '5d662c2b714172770211801d31dbc77d1e2ee1d5'
 $expectedApkSha = 'd91960538824394d22f08bffc74af6f5765674f2fd7a319edb3669deb704f8a9'
 $expectedCert = '8bf6937801524fd7c264b55855bb35a2133c242114fb66b5fa9f1907e334fd84'
 $pkg = 'com.spacesarmat.omp.test'
