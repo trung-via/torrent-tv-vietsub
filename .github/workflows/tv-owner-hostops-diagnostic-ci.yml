@@ -1,0 +1,100 @@
+# Offline checks only. No self-hosted runner, credentials, Owner profile or TV.
+name: Torrent TV - R0 Owner HostOps Diagnostic Source
+
+on:
+  pull_request:
+    paths:
+      - 'poc/p2-sub-discovery/owner_p3_p4_runtime.py'
+      - 'poc/p2-sub-discovery/owner_hostops_snapshot.py'
+      - 'poc/p2-sub-discovery/test_owner_hostops_snapshot.py'
+      - 'poc/p2-sub-discovery/test_owner_p2_snapshot_once.py'
+      - 'poc/p2-sub-discovery/test_owner_p2_quarantine_once.py'
+      - 'poc/p2-sub-discovery/test_owner_p2_hostops_task.py'
+      - 'poc/p2-sub-discovery/test_owner_diagnostic_capture_task.py'
+      - 'hostops/jobs/owner-diagnostic-snapshot.ps1'
+      - 'hostops/jobs/owner-diagnostic-capture.ps1'
+      - 'hostops/jobs/owner-p2-quarantine-dispatch.ps1'
+      - 'hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1'
+      - 'hostops/setup/enroll-owner-diagnostic-spool.ps1'
+      - 'hostops/setup/enroll-owner-diagnostic-capture.ps1'
+      - 'hostops/setup/enroll-owner-p2-quarantine-task.ps1'
+      - 'hostops/setup/owner-p2-snapshot-once.ps1'
+      - 'hostops/setup/owner-p2-quarantine-once.ps1'
+      - 'hostops/setup/owner-full-diagnostics-maintenance-once.ps1'
+      - 'hostops/setup/owner-laptop-ops-helper.ps1'
+      - 'hostops/setup/enroll-owner-laptop-ops.ps1'
+      - 'hostops/jobs/owner-laptop-ops-dispatch.ps1'
+      - 'hostops/laptop-ops/**'
+      - '.github/workflows/tv-owner-hostops-diagnostic-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-only:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # pinned v5
+        with:
+          python-version: '3.12'
+      - name: Test bounded Owner/HostOps snapshot contracts
+        shell: pwsh
+        run: |
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_hostops_snapshot.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_SNAPSHOT_PYTHON_FAIL' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_p3_p4_diagnostics.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_LEGACY_DIAGNOSTIC_REGRESSION' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_p2_snapshot_once.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_OWNER_ONESHOT_REGRESSION' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_p2_quarantine_once.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_OWNER_QUARANTINE_SOURCE_REGRESSION' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_p2_hostops_task.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_OWNER_TASK_ENROLL_SOURCE_REGRESSION' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_diagnostic_capture_task.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_HOSTOPS_CAPTURE_TASK_SOURCE_REGRESSION' }
+          python -m unittest discover -s poc/p2-sub-discovery -p 'test_owner_session_bridge.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_FULL_DIAGNOSTICS_SOURCE_REGRESSION' }
+          python -m unittest discover -s hostops/laptop-ops -p 'test_contract.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'OWNER_LAPTOP_HOSTOPS_CONTRACT_FAILED' }
+          Push-Location 'poc/p2-sub-discovery'
+          try {
+            python -B -c 'import owner_p3_p4_entrypoint; print("OWNER_FULL_DIAG_OFFLINE_IMPORT_PASS")'
+            if ($LASTEXITCODE -ne 0) { throw 'OWNER_FULL_DIAGNOSTICS_OFFLINE_IMPORT_FAILED' }
+          } finally { Pop-Location }
+      - name: Parse Owner enrollment and trusted HostOps read-only PowerShell
+        shell: pwsh
+        run: |
+          foreach ($file in @(
+            'hostops/setup/enroll-owner-diagnostic-spool.ps1',
+            'hostops/setup/enroll-owner-diagnostic-capture.ps1',
+            'hostops/setup/owner-p2-snapshot-once.ps1',
+            'hostops/setup/owner-p2-quarantine-once.ps1',
+            'hostops/setup/owner-full-diagnostics-maintenance-once.ps1',
+            'hostops/setup/owner-laptop-ops-helper.ps1',
+            'hostops/setup/enroll-owner-laptop-ops.ps1',
+            'hostops/jobs/owner-laptop-ops-dispatch.ps1',
+            'hostops/laptop-ops/operations/owner-full-diagnostics-install.ps1',
+            'hostops/setup/enroll-owner-p2-quarantine-task.ps1',
+            'hostops/jobs/owner-p2-quarantine-dispatch.ps1',
+            'hostops/jobs/owner-p2-quarantine-enrollment-probe.ps1',
+            'hostops/jobs/owner-diagnostic-snapshot.ps1',
+            'hostops/jobs/owner-diagnostic-capture.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path -LiteralPath $file).Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              foreach ($errorItem in $errors) {
+                Write-Output ("OWNER_HOSTOPS_PARSE_FILE=$file LINE=" +
+                  $errorItem.Extent.StartLineNumber + " MESSAGE=" + $errorItem.Message)
+              }
+              throw 'OWNER_HOSTOPS_POWERSHELL_PARSE_FAIL'
+            }
+          }
+          Write-Output 'OWNER_HOSTOPS_SOURCE_ONLY_PASS_NO_OWNER_TV_PROVIDER'

@@ -1,0 +1,235 @@
+# Read-only owner-scoped host preflight. Never start ADB, bind listeners, install
+# APKs, read subtitle files, change firewall/router/services or expose secrets.
+# A temporary read of the installed *code APK* to inspect signer output shape
+# is permitted; temporary files are deleted, and no fingerprint is printed.
+name: Torrent TV - P4 Windows Redmi Readonly Preflight
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/tv-p4-windows-readonly-preflight.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: torrent-tv-p4-readonly-preflight-pr120
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.number == 120 &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/p4-native-auto-sub-g2-20261111' &&
+      github.event.pull_request.base.ref == 'feature/g2-refresh-vietsub-inplace-20261111'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 8
+    steps:
+      - name: Check runtime without starting services or printing device identifiers
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host 'P4_PREFLIGHT_READONLY_NO_HOST_MUTATION=true'
+          Write-Host 'P4_PREFLIGHT_REPO_ISOLATED_RUNNER_LABEL=true'
+          # ADB may exist inside an Android SDK even if absent from PATH.
+          # Check known SDK roots only; do not print directories or serials.
+          $adbCmd = Get-Command adb.exe -ErrorAction SilentlyContinue
+          $adbPath = if ($null -ne $adbCmd) { $adbCmd.Source } else { $null }
+          $adbOrigin = if ($null -ne $adbCmd) { 'PATH' } else { 'NONE' }
+          $sdkRoots = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT,
+              (Join-Path $env:LOCALAPPDATA 'Android\Sdk')) |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          # Trusted historical Torrent TV HostOps ADB pin, not a generic drive search.
+          if ($null -eq $adbPath) {
+            $ownerAdb = 'C:\TOOL\Android-SDK\platform-tools\adb.exe'
+            if (Test-Path -LiteralPath $ownerAdb -PathType Leaf) {
+              $adbPath = $ownerAdb
+              $adbOrigin = 'HOSTOPS_PIN'
+            }
+          }
+          if ($null -eq $adbPath) {
+            foreach ($sdk in $sdkRoots) {
+              $candidate = Join-Path $sdk 'platform-tools\adb.exe'
+              if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $adbPath = $candidate
+                $adbOrigin = 'ANDROID_SDK'
+                break
+              }
+            }
+          }
+          $adbProcesses = @(Get-Process -Name adb -ErrorAction SilentlyContinue)
+          $running = $adbProcesses.Count -gt 0
+          if ($null -eq $adbPath -and $running) {
+            foreach ($proc in $adbProcesses) {
+              $candidate = try { $proc.Path } catch { $null }
+              if (-not [string]::IsNullOrWhiteSpace($candidate) -and
+                  (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+                $adbPath = $candidate
+                $adbOrigin = 'RUNNING_PROCESS'
+                break
+              }
+            }
+          }
+          Write-Host ('P4_ADB_AVAILABLE=' + ($null -ne $adbPath).ToString().ToLowerInvariant())
+          Write-Host ('P4_ADB_ORIGIN=' + $adbOrigin)
+          Write-Host ('P4_ADB_ALREADY_RUNNING=' + $running.ToString().ToLowerInvariant())
+          if ($null -eq $adbPath -or -not $running) {
+            # Do not invoke adb: it could spawn an ADB server.
+            Write-Host 'P4_ADB_AUTHORIZED_DEVICE_PRESENT=UNKNOWN'
+          } else {
+            # Capture output privately; report only booleans (no serial/IP).
+            $lines = @(& $adbPath devices 2>$null)
+            $authorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+device(\s|$)' }).Count -gt 0
+            $unauthorized = @($lines | Where-Object { $_ -match '^[^\s]+\s+unauthorized(\s|$)' }).Count -gt 0
+            Write-Host ('P4_ADB_AUTHORIZED_DEVICE_PRESENT=' + $authorized.ToString().ToLowerInvariant())
+            Write-Host ('P4_ADB_UNAUTHORIZED_DEVICE_PRESENT=' + $unauthorized.ToString().ToLowerInvariant())
+            $authorizedLines = @($lines | Where-Object { $_ -match '^[^\s]+\s+device(\s|$)' })
+            Write-Host ('P4_ADB_SINGLE_AUTHORIZED_DEVICE=' + ($authorizedLines.Count -eq 1).ToString().ToLowerInvariant())
+            if ($authorizedLines.Count -eq 1) {
+              # Serial is held only in this process; never printed to CI log.
+              $serial = ($authorizedLines[0].Trim() -split '\s+')[0]
+              function Get-RedmiProp([string]$prop) {
+                $raw = @(& $adbPath -s $serial shell getprop $prop 2>$null)
+                if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { return 'UNKNOWN' }
+                $value = [string]$raw[0]
+                $value = ($value -replace '[^\p{L}\p{N} ._-]', '').Trim()
+                if ($value.Length -gt 80) { return 'UNKNOWN' }
+                if ([string]::IsNullOrWhiteSpace($value)) { return 'UNKNOWN' }
+                return $value
+              }
+              $model = Get-RedmiProp 'ro.product.model'
+              $brand = Get-RedmiProp 'ro.product.brand'
+              $android = Get-RedmiProp 'ro.build.version.release'
+              $api = Get-RedmiProp 'ro.build.version.sdk'
+              $abi = Get-RedmiProp 'ro.product.cpu.abi'
+              $fw = Get-RedmiProp 'ro.build.version.incremental'
+              Write-Host ('P4_TV_BRAND=' + $brand)
+              Write-Host ('P4_TV_MODEL=' + $model)
+              Write-Host ('P4_TV_ANDROID=' + $android)
+              Write-Host ('P4_TV_API=' + $api)
+              Write-Host ('P4_TV_ABI=' + $abi)
+              Write-Host ('P4_TV_BUILD=' + $fw)
+              # OMP debug has applicationIdSuffix ".test"; do not confuse it with release.
+              $stablePaths = @(& $adbPath -s $serial shell pm path com.spacesarmat.omp 2>$null)
+              $stableCode = $LASTEXITCODE
+              $debugPaths = @(& $adbPath -s $serial shell pm path com.spacesarmat.omp.test 2>$null)
+              $debugCode = $LASTEXITCODE
+              $global:LASTEXITCODE = 0
+              $stablePresent = ($stableCode -eq 0) -and (@($stablePaths | Where-Object { $_ -match '^package:' }).Count -gt 0)
+              $debugPresent = ($debugCode -eq 0) -and (@($debugPaths | Where-Object { $_ -match '^package:' }).Count -gt 0)
+              Write-Host ('P4_OMP_RELEASE_PRESENT=' + $stablePresent.ToString().ToLowerInvariant())
+              Write-Host ('P4_OMP_DEBUG_PRESENT=' + $debugPresent.ToString().ToLowerInvariant())
+            } else {
+              Write-Host 'P4_DEVICE_INVENTORY=SKIPPED_AMBIGUOUS_OR_ABSENT'
+            }
+          }
+          $tlsCert = [Environment]::GetEnvironmentVariable('TTV_P4_TLS_CERT_FILE','Process')
+          $tlsKey = [Environment]::GetEnvironmentVariable('TTV_P4_TLS_KEY_FILE','Process')
+          $tlsPair = [Environment]::GetEnvironmentVariable('TTV_P4_PAIRING_MASTER_HEX','Process')
+          $certPresent = (-not [string]::IsNullOrWhiteSpace($tlsCert)) -and (Test-Path -LiteralPath $tlsCert -PathType Leaf)
+          $keyPresent = (-not [string]::IsNullOrWhiteSpace($tlsKey)) -and (Test-Path -LiteralPath $tlsKey -PathType Leaf)
+          $pairPresent = $null -ne $tlsPair -and $tlsPair -match '^[a-fA-F0-9]{64}$'
+          Write-Host ('P4_TLS_CERT_PATH_READY=' + $certPresent.ToString().ToLowerInvariant())
+          Write-Host ('P4_TLS_KEY_PATH_READY=' + $keyPresent.ToString().ToLowerInvariant())
+          Write-Host ('P4_PAIRING_KEY_CONFIGURED=' + $pairPresent.ToString().ToLowerInvariant())
+          # These flags only prove configuration presence, NOT valid cert/IP SAN,
+          # PC listener, usable port, or real Redmi transport.
+          Write-Host 'P4_REAL_LAN_AND_REDMi_E2E=NOT_RUN'
+          # ADB pm path can return 1 for an absent app; that is an observed state,
+          # not a failed read-only preflight or an overall job failure.
+          $global:LASTEXITCODE = 0
+      - name: Checkout exact owner PR HEAD for temporary certificate-format inspection
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Inspect installed OMP Debug signer LINE FORMAT ONLY (no fingerprint or install)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\inspect-signer-morphology.ps1'
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $path,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            foreach ($e in $errors) {
+              Write-Host ('P4_SIGNER_MORPH_PARSER_ID='+$e.ErrorId+' LINE='+$e.Extent.StartLineNumber)
+            }
+            throw 'P4_SIGNER_MORPH_STOP_PARSER_ERROR'
+          }
+          $jdk=@(Get-ChildItem -LiteralPath 'C:\Program Files\Eclipse Adoptium' -Directory |
+            Where-Object { $_.Name -like 'jdk-21*' -and
+              (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\java.exe')) } |
+            Sort-Object Name -Descending | Select-Object -First 1)
+          if ($jdk.Count -ne 1) {throw 'P4_SIGNER_MORPH_STOP_JDK21_UNAVAILABLE'}
+          $env:JAVA_HOME=$jdk[0].FullName
+          $env:PATH=(Join-Path $env:JAVA_HOME 'bin')+';'+$env:PATH
+          & $path
+          if (-not $?) {throw 'P4_SIGNER_MORPH_STOP_SCRIPT_FAILED'}
+
+      - name: Inspect PC HTTPS prerequisites without host or network changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\pc-https-readiness.ps1'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $script,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            foreach ($e in $errors) {
+              Write-Host ('P4_PC_PREFLIGHT_PARSE_ERROR_ID=' + $e.ErrorId + ' LINE=' + $e.Extent.StartLineNumber)
+            }
+            throw 'P4_PC_PREFLIGHT_STOP_PARSE_FAILED'
+          }
+          & $script
+          if (-not $?) { throw 'P4_PC_PREFLIGHT_STOP_SCRIPT_FAILED' }
+
+      - name: Check owner profile and Debug run-as eligibility for silent PC bootstrap READ ONLY
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\P4'
+          $pair=Join-Path $root 'pairing-token.txt'
+          $pcReady=Test-Path -LiteralPath $pair -PathType Leaf
+          Write-Host ('P4_ONE_PC_OWNER_PAIRING_FILE_VISIBLE_TO_RUNNER=' + $pcReady.ToString().ToLowerInvariant())
+          $adb='C:\TOOL\Android-SDK\platform-tools\adb.exe'
+          $runAs=$false
+          if (Test-Path -LiteralPath $adb -PathType Leaf) {
+            $devices=@(& $adb devices)
+            $items=@($devices | Where-Object { $_ -match '^[^\s]+\s+device(\s|$)' })
+            if ($LASTEXITCODE -eq 0 -and $items.Count -eq 1) {
+              $serial=(([string]$items[0]).Trim() -split '\s+')[0]
+              $proof=@(& $adb -s $serial shell run-as com.spacesarmat.omp.test pwd 2>$null)
+              $runAs=($LASTEXITCODE -eq 0 -and $proof.Count -eq 1)
+            }
+          }
+          Write-Host ('P4_DEBUG_RUN_AS_READONLY_ELIGIBLE=' + $runAs.ToString().ToLowerInvariant())
+          Write-Host 'P4_OWNER_ADB_BOOTSTRAP_NOT_RUN=true'
+          $global:LASTEXITCODE=0
+
+      - name: Inspect P4 pairing import READ ONLY (boolean-only, no key content)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\inspect-pairing-import-readonly.ps1'
+          $t=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $path,[ref]$t,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            foreach($e in $errors) {
+              Write-Host ('P4_PAIR_READONLY_PARSER_ID='+$e.ErrorId+' LINE='+$e.Extent.StartLineNumber)
+            }
+            throw 'P4_PAIR_READONLY_STOP_PARSER_ERROR'
+          }
+          & $path
+          if (-not $?) {throw 'P4_PAIR_READONLY_STOP_PROBE_FAILED'}
+

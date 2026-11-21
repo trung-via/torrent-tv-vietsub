@@ -1,5 +1,10 @@
 # P2-AISUB.2d — 36 *independent* contextual subtitle benchmarks (offline source)
 
+> **Historical synthetic benchmark.** For the current owner Antigravity CLI
+> translation gateway, refer to
+> [owner guide](ANTIGRAVITY-OWNER-CURRENT.md). The scope exclusions below
+> describe this benchmark only, not the current integrated P2 feature.
+
 **Source data:** `benchmark_synthetic.json` (36 original, fictional, individually contextualized **single-dialogue situations**, **NOT 36 movie scenes** and **NOT a full-film memory test**). Every case has ID, genre, independently applicable short scene context, speaker and translation-risk category. Six cases each in action, romance, comedy, mystery, historical and family. Benchmark corpus is SHA-256 pinned in prompt, output, ratings and review summary so attempts cannot be silently mixed.
 
 **Authority and side effects:** This source **NEVER calls** `agy`, Gemini API or any other provider. It does **not** create an automatic Antigravity/Google Pro backend for OMP; it **does not** read real film subtitles, send licensed media or use API keys. An authorized Human may run **ONE** manual `agy -p` command per chosen batch. That costs Antigravity quota and might expose these **original synthetic-only** texts to the provider under its own data policies. No cloud calls occur merely by preparing a prompt, importing a user-saved JSON receipt, or scoring.

@@ -1,0 +1,25 @@
+{
+  "schema": "TTV-OWNER-RELEASE-STAGE-V1",
+  "release_id": "r2-rolling-175-r2",
+  "source_tree": "b9e42ef91be1c5c347f418e4e4a6133e2a963366",
+  "mode": "STAGE_ONLY",
+  "files": [
+    {"path": "poc/p2-aisub/paired_activation.py", "sha256": "c8714306f96cd4fdbfa748b01795991d045f108476aea830b366486e68012ca8"},
+    {"path": "poc/p2-sub-discovery/owner_hostops_snapshot_v3.py", "sha256": "2d3c3b3417f11b3e426c5060ab6a97ec22f907be352b7b74ae18d3a0c215d0a9"},
+    {"path": "poc/p2-sub-discovery/owner_hostops_snapshot.py", "sha256": "91e1c3400cfdca347c0cd15c5da9ee942d2a189a095e4ab7cb583a1d7664eb4f"},
+    {"path": "poc/p2-sub-discovery/owner_p3_p4_entrypoint.py", "sha256": "6704086141e0823b5024661ee0183542ac6445da0a04939ca79f4cf5189f3b7b"},
+    {"path": "poc/p2-sub-discovery/owner_p3_p4_policy_r0.py", "sha256": "f52e5ce0fd41fd6bbd593d9dd11265aaf0f8334d85dd99f0ebb075238d918121"},
+    {"path": "poc/p2-sub-discovery/owner_p3_p4_private_policy.py", "sha256": "3804a2afa1b66889488a8a515472609b0b4b476f85876f9456a73e2e1bf842c5"},
+    {"path": "poc/p2-sub-discovery/owner_p3_p4_runtime.py", "sha256": "b03a3b8fb204dabc431bca3fdcec2e62b5462d11fa9c541d16489dbec2b6efd2"},
+    {"path": "poc/p2-sub-discovery/owner_r2_progressive_registry.py", "sha256": "8946dfd48e63d318cd9bb327d786411a10f01552f073d62187939f4658cd9cc7"},
+    {"path": "poc/p2-sub-discovery/owner_r2_progressive_worker.py", "sha256": "f024ac97d6989876975a2c32bffdf3d0dccf51bbbc964b4e0bd29e4e4e3e8457"},
+    {"path": "poc/p2-sub-discovery/owner_r2_verified_processor.py", "sha256": "f8a4aec4ed350488e92821b6400eb40782d9603141c07099b023abfd1effff13"},
+    {"path": "poc/p2-sub-discovery/owner_session_bridge.py", "sha256": "6a8af62e4ff33806b7fd3c2deb66df08283302d3441c51edd65da02d1633ce31"},
+    {"path": "poc/p2-sub-discovery/owner_torrserver_ffp_tracks.py", "sha256": "0ebcea4ad6a1d08da12539f06fd7db5a3a4f654ca7697277f868e8ea124a437a"},
+    {"path": "poc/p2-sub-discovery/p3_owner_current_redmi.py", "sha256": "42a15e926d515c6779e54cbef8bff45a9e46d70467ba60b7189d3500b637f98e"},
+    {"path": "poc/p2-sub-discovery/p3_owner_state_wiring_r0.py", "sha256": "149a914127d3aff5636ecb23d7d5ae1128e28a5b219c868098663bc0510d734b"},
+    {"path": "poc/p2-sub-discovery/p3_owner_state_wiring_r2.py", "sha256": "89ee220d2526a11a4baead89839c27df3601fb299923bf8ed966bc3833e1e596"},
+    {"path": "poc/p2-sub-discovery/p3_p4_shared_https_route_r0.py", "sha256": "45be5172e6e360af583f7eabc0df13d36a3e9f1fb92ccc17ca2777a14b44de91"},
+    {"path": "poc/p2-sub-discovery/verified_v3_processor.py", "sha256": "e20d3d0aa8176692c6dedcfa107a71f384cfdb11ca734e95d8b857940a2956d3"}
+  ]
+}
