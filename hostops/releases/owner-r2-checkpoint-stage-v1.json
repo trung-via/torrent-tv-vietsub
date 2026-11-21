@@ -1,0 +1,13 @@
+{
+  "schema": "TTV-OWNER-RELEASE-STAGE-V1",
+  "release_id": "r2-checkpoint-175",
+  "source_tree": "5d5c1e56d1bae750db29761e158c03c82fc656ed",
+  "mode": "STAGE_ONLY",
+  "files": [
+    {"path": "poc/p2-aisub/paired_activation.py", "sha256": "814f0cffd6c078bb1dd59bfbb118b1a7f992e27db16e3b997e0efc671502a567"},
+    {"path": "poc/p2-sub-discovery/owner_r2_progressive_registry.py", "sha256": "036f2d753e60187f6a05012c4315c39e5f02c8771cdc8eef4e1f42da3df02aaa"},
+    {"path": "poc/p2-sub-discovery/owner_session_bridge.py", "sha256": "2ee9061743852092e3543245e7b711656774b2f615fabcff39a13cb92b4c695e"},
+    {"path": "poc/p2-sub-discovery/p3_owner_state_wiring_r2.py", "sha256": "8b285ca33fe8aa2fc24e6c7d1af616150a5fec181d0ac40f56c51910ac6b7a0d"},
+    {"path": "poc/p2-sub-discovery/p3_p4_shared_https_route_r0.py", "sha256": "7358cfafa901fa0a74743450302d99cb7ee370561c28fa336a73535498a7dadf"}
+  ]
+}

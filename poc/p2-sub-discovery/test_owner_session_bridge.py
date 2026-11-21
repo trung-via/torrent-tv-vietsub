@@ -395,6 +395,38 @@ class OwnerSessionBridgeTests(unittest.TestCase):
                                 cache_root=self.root / "cache",
                                 state_root=self.root / "state")
 
+    def test_owner_health_continues_during_long_p2_event(self):
+        """The event worker may block on an AGY window without stale P3."""
+        import os
+        import time
+        ready_ticks = []
+
+        class EndSyntheticJob(Exception):
+            pass
+
+        def long_running_event(**_kwargs):
+            time.sleep(0.16)
+            self.assertEqual(read_owner_agent_health(owner_root=self.root),
+                             "READY")
+            raise EndSyntheticJob()
+
+        with (mock.patch.dict(os.environ,
+                              {"CI": "false", "GITHUB_ACTIONS": "false"}),
+              mock.patch("automatic_vietsub_flow.build_owner_auto_flow",
+                         return_value=type("Flow", (), {})()),
+              mock.patch("owner_session_bridge.poll_private_events",
+                         side_effect=long_running_event),
+              mock.patch("owner_session_bridge._HEALTH_TICK_SECONDS", 0.03)):
+            with self.assertRaises(EndSyntheticJob):
+                run_owner_agent(
+                    private_root=self.root, cache_root=self.root / "cache",
+                    state_root=self.root / "state", interval_seconds=0.5,
+                    emit=lambda _line: None,
+                    diagnostic_tick=ready_ticks.append)
+        self.assertGreaterEqual(ready_ticks.count("READY"), 2)
+        self.assertEqual(read_owner_agent_health(owner_root=self.root),
+                         "STOPPED")
+
 
 if __name__ == "__main__":
     unittest.main()

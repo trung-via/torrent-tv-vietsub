@@ -29,6 +29,10 @@ class R2OwnerP3StatusComposition(OwnerP3StatusComposition):
         if not isinstance(worker, R2ProgressiveWorker):
             existing_flow.worker = R2ProgressiveWorker(
                 existing=worker, emit=getattr(existing_flow, "emit", print))
+        # P4 HTTPS runs concurrently with P2: it may rehydrate the latest
+        # committed checkpoint even after a lost delivery callback/restart.
+        # This binding is read-only and never starts another model operation.
+        registry.bind_existing_flow(existing_flow)
         return R2VerifiedV3Processor(
             progressive_registry=registry,
             flow=existing_flow,
