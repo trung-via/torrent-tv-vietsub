@@ -239,7 +239,9 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 $row = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
                 $required = @('schema','nonce','state','metadata','ffp','en_text',
-                              'en_bitmap','unlabeled_text','other_subs','elapsed_ms','ffmpeg')
+                              'en_bitmap','unlabeled_text','other_subs','elapsed_ms','ffmpeg',
+                              'en_default','track_choice','prefix_result','prefix_cues',
+                              'prefix_elapsed_ms','prefix_bytes')
                 if ($row.schema -ceq 'TTV-OWNER-EMBEDDED-EN-V1' -and
                     $row.nonce -ceq $nonce -and
                     (@($row.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
@@ -248,6 +250,10 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     $row.metadata -cin @('NOT_RUN','MATCH') -and
                     [string]$row.ffp -cmatch '^[A-Z0-9_]{3,30}$' -and
                     $row.ffmpeg -cin @('NOT_CHECKED','AVAILABLE','MISSING') -and
+                    $row.track_choice -cin @('NOT_RUN','UNIQUE_DEFAULT','SAMPLE_ONLY') -and
+                    $row.prefix_result -cin @('NOT_RUN','FFMPEG_LAUNCH_FAILED',
+                                               'CUES_120_REACHED','PARTIAL_CUES',
+                                               'NO_CUES_BEFORE_DEADLINE','OUTPUT_CAP_REACHED') -and
                     $row.en_text -is [ValueType] -and [int]$row.en_text -ge 0 -and
                     [int]$row.en_text -le 128 -and
                     $row.en_bitmap -is [ValueType] -and [int]$row.en_bitmap -ge 0 -and
@@ -257,10 +263,20 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     $row.other_subs -is [ValueType] -and [int]$row.other_subs -ge 0 -and
                     [int]$row.other_subs -le 128 -and
                     $row.elapsed_ms -is [ValueType] -and [int]$row.elapsed_ms -ge 0 -and
-                    [int]$row.elapsed_ms -le 120000) {
+                    [int]$row.elapsed_ms -le 120000 -and
+                    $row.en_default -is [ValueType] -and [int]$row.en_default -ge 0 -and
+                    [int]$row.en_default -le 128 -and
+                    $row.prefix_cues -is [ValueType] -and [int]$row.prefix_cues -ge 0 -and
+                    [int]$row.prefix_cues -le 120 -and
+                    $row.prefix_elapsed_ms -is [ValueType] -and [int]$row.prefix_elapsed_ms -ge 0 -and
+                    [int]$row.prefix_elapsed_ms -le 120000 -and
+                    $row.prefix_bytes -is [ValueType] -and [int]$row.prefix_bytes -ge 0 -and
+                    [int]$row.prefix_bytes -le 262144) {
                     foreach ($field in @('state','metadata','ffp','en_text',
                                          'en_bitmap','unlabeled_text','other_subs',
-                                         'elapsed_ms','ffmpeg')) {
+                                         'elapsed_ms','ffmpeg','en_default',
+                                         'track_choice','prefix_result','prefix_cues',
+                                         'prefix_elapsed_ms','prefix_bytes')) {
                         Write-Output ('HOSTOPS_EMBEDDED_' + $field.ToUpperInvariant() +
                                       '=' + $row.$field)
                     }

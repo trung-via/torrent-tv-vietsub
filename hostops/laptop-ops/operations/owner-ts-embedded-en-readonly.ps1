@@ -8,7 +8,7 @@ if ($request.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or
     [string]$request.nonce -cnotmatch '^[0-9a-f]{32}$') { throw 'EMBEDDED_PROBE_REQUEST_INVALID' }
 $owner = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $code = @'
-import hashlib, json, re, shutil, sys, time
+import hashlib, json, queue, re, shutil, subprocess, sys, threading, time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
@@ -16,7 +16,9 @@ from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHand
 owner=Path(sys.argv[1])
 result=dict(schema='TTV-OWNER-EMBEDDED-EN-V1',state='NOT_RUN',metadata='NOT_RUN',
             ffp='NOT_RUN',en_text=0,en_bitmap=0,unlabeled_text=0,
-            other_subs=0,elapsed_ms=0,ffmpeg='NOT_CHECKED')
+            other_subs=0,elapsed_ms=0,ffmpeg='NOT_CHECKED',en_default=0,
+            track_choice='NOT_RUN',prefix_result='NOT_RUN',
+            prefix_cues=0,prefix_elapsed_ms=0,prefix_bytes=0)
 def finish():
     print(json.dumps(result,separators=(',',':'),ensure_ascii=True));sys.exit(0)
 class NoRedirect(HTTPRedirectHandler):
@@ -119,6 +121,7 @@ try:
     result['ffp']='HTTP_200'
     text_codecs={'subrip','ass','ssa','webvtt','mov_text','text'}
     en_names={'eng','en','en-us','en-gb','english'}
+    en_candidates=[]
     for s in streams:
         if not isinstance(s,dict) or s.get('codec_type')!='subtitle':continue
         tags=s.get('tags')
@@ -126,6 +129,12 @@ try:
         text_codec=s.get('codec_name') in text_codecs
         if lang in en_names:
             result['en_text' if text_codec else 'en_bitmap']+=1
+            stream_idx=s.get('index')
+            if text_codec and type(stream_idx) is int and 0<=stream_idx<128:
+                disp=s.get('disposition')
+                default=(isinstance(disp,dict) and disp.get('default')==1)
+                en_candidates.append((stream_idx,default))
+                if default:result['en_default']+=1
         elif text_codec and lang in ('','und'):
             result['unlabeled_text']+=1
         else:result['other_subs']+=1
@@ -134,6 +143,54 @@ try:
                      'EN_BITMAP_ONLY' if result['en_bitmap'] else
                      'UNLABELED_TEXT_PRESENT' if result['unlabeled_text'] else
                      'NO_EN_SUBTITLE_TRACK')
+    if not en_candidates or result['ffmpeg']!='AVAILABLE':finish()
+    defaults=[i for i,d in en_candidates if d]
+    if len(defaults)==1:
+        stream_idx=defaults[0];result['track_choice']='UNIQUE_DEFAULT'
+    else:
+        # Sampling one stream is NOT a production selection or translation.
+        stream_idx=min(i for i,_ in en_candidates)
+        result['track_choice']='SAMPLE_ONLY'
+    args=['ffmpeg','-nostdin','-hide_banner','-loglevel','error',
+          '-i',base+'/play/'+tor+'/'+str(idx),'-map','0:'+str(stream_idx),
+          '-vn','-an','-dn','-c:s','srt','-t','1800',
+          '-flush_packets','1','-f','srt','pipe:1']
+    try:
+        started=time.monotonic()
+        proc=subprocess.Popen(args,stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    except OSError:
+        result['prefix_result']='FFMPEG_LAUNCH_FAILED';finish()
+    lines=queue.Queue(maxsize=256)
+    def read_lines():
+        try:
+            for line in proc.stdout:
+                lines.put(line,timeout=1)
+        except (ValueError,OSError,queue.Full):pass
+    threading.Thread(target=read_lines,daemon=True).start()
+    limit=started+40.0
+    total_bytes=0
+    try:
+        while time.monotonic()<limit and result['prefix_cues']<120:
+            try:line=lines.get(timeout=min(0.25,max(0.01,limit-time.monotonic())))
+            except queue.Empty:
+                if proc.poll() is not None and lines.empty():break
+                continue
+            total_bytes+=len(line)
+            if total_bytes>262144:
+                result['prefix_result']='OUTPUT_CAP_REACHED';break
+            if re.match(rb'^\d\d:\d\d:\d\d,\d{3} --> ',line.strip()):
+                result['prefix_cues']+=1
+        if result['prefix_result']=='NOT_RUN':
+            result['prefix_result']=('CUES_120_REACHED' if result['prefix_cues']>=120
+                                     else 'PARTIAL_CUES' if result['prefix_cues']>0
+                                     else 'NO_CUES_BEFORE_DEADLINE')
+    finally:
+        result['prefix_elapsed_ms']=min(120000,int((time.monotonic()-started)*1000))
+        result['prefix_bytes']=min(total_bytes,262144)
+        if proc.poll() is None:proc.kill()
+        try:proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:pass
 except Exception:
     result['state']='LOCAL_DIAGNOSTIC_ERROR'
 finish()
@@ -142,20 +199,27 @@ $rows = @(& py -3 -I -B -c $code $owner 2>$null)
 if ($LASTEXITCODE -ne 0 -or $rows.Count -ne 1) { throw 'EMBEDDED_PROBE_FAILED' }
 $summary = [string]$rows[0] | ConvertFrom-Json
 $fields = @('schema','state','metadata','ffp','en_text','en_bitmap',
-            'unlabeled_text','other_subs','elapsed_ms','ffmpeg')
+            'unlabeled_text','other_subs','elapsed_ms','ffmpeg','en_default',
+            'track_choice','prefix_result','prefix_cues','prefix_elapsed_ms','prefix_bytes')
 if ($summary.schema -cne 'TTV-OWNER-EMBEDDED-EN-V1' -or
     (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -cne
         (@($fields | Sort-Object) -join ',') -or
     [string]$summary.state -cnotmatch '^[A-Z0-9_]{3,60}$' -or
     $summary.metadata -cnotin @('NOT_RUN','MATCH') -or
     [string]$summary.ffp -cnotmatch '^[A-Z0-9_]{3,30}$' -or
-    $summary.ffmpeg -cnotin @('NOT_CHECKED','AVAILABLE','MISSING')) {
+    $summary.ffmpeg -cnotin @('NOT_CHECKED','AVAILABLE','MISSING') -or
+    $summary.track_choice -cnotin @('NOT_RUN','UNIQUE_DEFAULT','SAMPLE_ONLY') -or
+    $summary.prefix_result -cnotin @('NOT_RUN','FFMPEG_LAUNCH_FAILED',
+                                    'CUES_120_REACHED','PARTIAL_CUES',
+                                    'NO_CUES_BEFORE_DEADLINE','OUTPUT_CAP_REACHED')) {
     throw 'EMBEDDED_PROBE_SCHEMA_INVALID'
 }
-foreach ($field in @('en_text','en_bitmap','unlabeled_text','other_subs','elapsed_ms')) {
+foreach ($field in @('en_text','en_bitmap','unlabeled_text','other_subs','elapsed_ms',
+                     'en_default','prefix_cues','prefix_elapsed_ms','prefix_bytes')) {
     $value = $summary.$field
     if ($value -isnot [ValueType] -or [int]$value -lt 0 -or
-        [int]$value -gt $(if ($field -eq 'elapsed_ms') {120000} else {128})) {
+        [int]$value -gt $(if ($field -in @('elapsed_ms','prefix_elapsed_ms')) {120000}
+                          elseif ($field -eq 'prefix_bytes') {262144} else {128})) {
         throw 'EMBEDDED_PROBE_COUNT_INVALID'
     }
 }
