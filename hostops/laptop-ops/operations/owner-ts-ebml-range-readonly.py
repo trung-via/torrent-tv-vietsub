@@ -251,10 +251,13 @@ def parse_track(reader, seeks):
                            number(f.get(0x55AA, b"\0"))))
     nonforced = [t for t in tracks if t[3] == 0]
     defaults = [t for t in nonforced if t[2] == 1]
+    if not nonforced:
+        raise DiagnosticStop("EN_TRACK_UNAVAILABLE")
+    # SAMPLE_ONLY: an ambiguous EN track must never be promoted to the P2
+    # translation source. Use the lowest non-forced TrackNumber strictly for
+    # measuring whether MKV Cues point to real text blocks.
     pool = defaults if len(defaults) == 1 else nonforced
-    if len(pool) != 1:
-        raise DiagnosticStop("EN_TRACK_AMBIGUOUS" if pool else "EN_TRACK_UNAVAILABLE")
-    return pool[0], len(tracks)
+    return min(pool, key=lambda t: t[0]), len(tracks)
 
 
 def parse_cues(reader, seeks, track):
