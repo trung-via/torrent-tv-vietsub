@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-ts-ebml-owner-readonly.ps1",
-  "script_sha256": "ab32c4e43cad0fb081bfcbe8e2661b7277cd5569982dd9593f3f54d1123fc5b5",
+  "script_sha256": "aa8527ef669eb0c1b74900441a64ea0b5a30f5790f81746247c98c08111d3822",
   "arguments": []
 }

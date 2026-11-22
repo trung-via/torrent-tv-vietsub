@@ -12,7 +12,7 @@ if ($request.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or
     [string]$request.source_commit -cnotmatch '^[0-9a-f]{40}$') {
     throw 'OWNER_EBML_REQUEST_INVALID'
 }
-$expectedSha256 = 'cb017c335708857bc4a07225575ce981a61abec9e976626aac962fff8d32d94c'
+$expectedSha256 = '344a4d2b395cee3bc9fc063b726bcc3e9f8d0f0b20716706b848d0a553dd3df7'
 $pythonFile = Join-Path $PSScriptRoot 'owner-ts-ebml-range-readonly.py'
 $uri = 'https://raw.githubusercontent.com/trung-via/torrent-tv-vietsub/' +
     $request.source_commit +

@@ -45,7 +45,7 @@ class OwnerBoundProbeTests(unittest.TestCase):
                           return_value=(profile, [(wanted, fingerprint)])):
             with patch.object(PROBE, "api", side_effect=fake_api):
                 result = PROBE.candidate()
-        self.assertEqual(result, ("b" * 40, 1, 1))
+        self.assertEqual(result, ("b" * 40, 1, 1, True))
         self.assertEqual(len(requested), 2)
 
     def test_unmatched_owner_event_cannot_fall_back_to_en_guess(self):
@@ -131,6 +131,65 @@ class OwnerBoundProbeTests(unittest.TestCase):
                 reader.read(0, 16)
         self.assertEqual(caught.exception.code, "RANGE_CONNECTION_ERROR")
         self.assertEqual(opening.call_args.kwargs["timeout"], 3)
+
+    def test_cues_cache_observation_is_get_only_and_content_silent(self):
+        fingerprint = "a" * 40
+        base = {"Hash": fingerprint, "PiecesLength": 1048576, "PiecesCount": 5000,
+                "Pieces": {"4": {"Id": 4, "Completed": True}}}
+        with patch.object(PROBE, "api", return_value=base) as get_cache:
+            self.assertEqual(PROBE.cached_cues_piece(fingerprint, 5_000_000, True),
+                             "READY")
+        self.assertEqual(get_cache.call_args.args[0], "/cache")
+        self.assertEqual(get_cache.call_args.args[1],
+                         b'{"action":"get","hash":"' + fingerprint.encode() + b'"}')
+
+    def test_cues_cache_distinguishes_missing_incomplete_and_unknown(self):
+        fingerprint = "b" * 40
+        base = {"Hash": fingerprint, "PiecesLength": 1048576, "PiecesCount": 100,
+                "Pieces": {}}
+        with patch.object(PROBE, "api", return_value=base) as read_cache:
+            self.assertEqual(PROBE.cached_cues_piece(fingerprint, 5_000_000, True),
+                             "MISS")
+            self.assertEqual(PROBE.cached_cues_piece(fingerprint, 5_000_000, False),
+                             "MULTIFILE")
+        self.assertEqual(read_cache.call_count, 1)
+        base["Pieces"]["4"] = {"Id": 4, "Completed": False}
+        with patch.object(PROBE, "api", return_value=base):
+            self.assertEqual(PROBE.cached_cues_piece(fingerprint, 5_000_000, True),
+                             "PARTIAL")
+        base["Hash"] = "c" * 40
+        with patch.object(PROBE, "api", return_value=base):
+            self.assertEqual(PROBE.cached_cues_piece(fingerprint, 5_000_000, True),
+                             "UNVERIFIED")
+
+    def test_cues_cache_unavailable_does_not_hide_original_timeout(self):
+        with patch.object(PROBE, "api", side_effect=PROBE.DiagnosticStop("API_SIZE")):
+            self.assertEqual(PROBE.cached_cues_piece("c" * 40, 5_000_000, True),
+                             "UNAVAILABLE")
+
+    def test_range_records_timeout_phase(self):
+        reader = PROBE.Ranges("a" * 40, 0)
+
+        class HeadOnly:
+            status = 206
+            headers = {"Content-Range": "bytes 1000000-1000015/2000000"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self, length):
+                raise TimeoutError
+
+        with patch.object(PROBE.OPENER, "open", side_effect=[HeadOnly(), HeadOnly()]):
+            with patch.object(PROBE.time, "sleep"):
+                with self.assertRaises(PROBE.DiagnosticStop) as caught:
+                    reader.read(1000000, 16)
+        self.assertEqual(caught.exception.code, "RANGE_TIMEOUT")
+        self.assertEqual(reader.timeout_at, 1000000)
+        self.assertEqual(reader.timeout_phase, "BODY")
 
 
 if __name__ == "__main__":

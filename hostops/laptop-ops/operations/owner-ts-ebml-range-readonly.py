@@ -154,7 +154,10 @@ def candidate():
                        and str(s["tags"].get("language", "")).lower() in EN]
             if not en_text:
                 raise DiagnosticStop("OWNER_EN_TEXT_UNAVAILABLE")
-            return hashval, idx, len(en_text)
+            # The sorted display IDs are not torrent byte offsets. A single
+            # file is the only case where its torrent-relative offset is
+            # unambiguously zero without parsing the .torrent metadata.
+            return hashval, idx, len(en_text), len(files) == 1
     raise DiagnosticStop("OWNER_SELECTION_NOT_FOUND")
 
 
@@ -202,6 +205,8 @@ class Ranges:
         self.total = None
         self.requests = 0
         self.bytes = 0
+        self.timeout_at = None
+        self.timeout_phase = None
 
     def read(self, at, length, *, retried=False):
         if (time.monotonic() > LIMIT or self.requests >= MAX_RANGE_REQUESTS
@@ -217,6 +222,7 @@ class Ranges:
         # A transient cross-offset reader race is documented upstream. Give
         # the distant Cues seek one short attempt and one bounded retry only.
         timeout = 8 if retried else 3
+        phase = "HEADERS"
         try:
             with OPENER.open(request, timeout=timeout) as response:
                 if response.status != 206:
@@ -229,6 +235,7 @@ class Ranges:
                 if total <= 0 or (self.total is not None and self.total != total):
                     raise DiagnosticStop("FILE_IDENTITY_DRIFT")
                 self.total = total
+                phase = "BODY"
                 content = response.read(length + 1)
                 if len(content) != int(match[2]) - at + 1:
                     raise DiagnosticStop("RANGE_SHORT_READ")
@@ -242,20 +249,23 @@ class Ranges:
             raise DiagnosticStop("RANGE_HTTP_OTHER") from None
         except URLError as exc:
             if isinstance(exc.reason, TimeoutError):
-                return self._retry_timeout(at, length, retried)
+                return self._retry_timeout(at, length, retried, phase)
             raise DiagnosticStop("RANGE_CONNECTION_ERROR") from None
         except TimeoutError:
-            return self._retry_timeout(at, length, retried)
+            return self._retry_timeout(at, length, retried, phase)
         except OSError:
             raise DiagnosticStop("RANGE_IO_ERROR") from None
 
-    def _retry_timeout(self, at, length, retried):
+    def _retry_timeout(self, at, length, retried, phase):
         # No retry on the initial header, HTTP rejection or identity drift.
         # This costs at most two Range requests and 3 + 8 seconds of I/O.
         if at >= 262144 and not retried and time.monotonic() + 1 < LIMIT:
             time.sleep(0.35)
             return self.read(at, length, retried=True)
+        self.timeout_at = at
+        self.timeout_phase = phase
         raise DiagnosticStop("RANGE_TIMEOUT") from None
+
 
     def element(self, at, maximum):
         header = self.read(at, 16)
@@ -287,6 +297,40 @@ class Ranges:
             next_size = min(16384, length - len(remainder))
             remainder.extend(self.read(at + payload_at + len(remainder), next_size))
         return eid, bytes(remainder)
+
+
+def cached_cues_piece(hashval, offset, single_file):
+    """Observe one already-active piece; never request a preload or cache edit.
+
+    TorrServer's cache state indexes the *entire torrent*. FileStats IDs are
+    sorted for display, not byte offsets, so multi-file mappings are unsafe.
+    """
+    if offset is None or offset < 262144:
+        return "UNVERIFIED"
+    if not single_file:
+        return "MULTIFILE"
+    try:
+        state = api("/cache", json.dumps({"action": "get", "hash": hashval},
+                                         separators=(",", ":")).encode(), cap=1048576)
+    except DiagnosticStop:
+        return "UNAVAILABLE"
+    if not isinstance(state, dict) or state.get("Hash") != hashval:
+        return "UNVERIFIED"
+    size, count, pieces = (state.get("PiecesLength"), state.get("PiecesCount"),
+                           state.get("Pieces"))
+    if (type(size) is not int or not 0 < size <= 64 * 1024 * 1024
+            or type(count) is not int or not 0 < count <= 1000000
+            or not isinstance(pieces, dict)):
+        return "UNVERIFIED"
+    idx = offset // size
+    if idx >= count:
+        return "UNVERIFIED"
+    item = pieces.get(str(idx))
+    if item is None:
+        return "MISS"
+    if not isinstance(item, dict) or item.get("Id") != idx:
+        return "UNVERIFIED"
+    return "READY" if item.get("Completed") is True else "PARTIAL"
 
 
 def parse_root(reader):
@@ -420,7 +464,7 @@ def main():
                bytes=0, requests=0, ms=0, first_ten_ms=0)
     reader = None
     try:
-        hashval, idx, count = candidate()
+        hashval, idx, count, single_file = candidate()
         row["identity"] = "OWNER_EVENT_MATCH"
         row["en_ffp"] = count
         reader = Ranges(hashval, idx)
@@ -449,6 +493,10 @@ def main():
             "INDEX_FOUND_TEXT_PARTIAL" if row["cues_verified"] else "INDEX_FOUND_TEXT_UNVERIFIED")
     except DiagnosticStop as exc:
         row["state"] = exc.code
+        if exc.code == "RANGE_TIMEOUT" and reader is not None:
+            cache = cached_cues_piece(hashval, reader.timeout_at, single_file)
+            phase = reader.timeout_phase if reader.timeout_phase in ("HEADERS", "BODY") else "UNKNOWN"
+            row["state"] = "RANGE_TIMEOUT_" + phase + "_" + cache
     except (ValueError, UnicodeError, KeyError, TypeError):
         row["state"] = "PARSER_ERROR"
     finally:
