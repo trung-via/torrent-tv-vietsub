@@ -373,6 +373,28 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($receipt.operation -ceq 'owner-selector-task-enable-recovery') {
+        $summaryFile = Join-Path $outbox 'selector-recovery.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 512 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $expected = @('schema','nonce','task','owner','version')
+                if ($summary.schema -ceq 'TTV-OWNER-SELECTOR-RECOVERY-V1' -and
+                    $summary.nonce -ceq $nonce -and
+                    (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($expected | Sort-Object) -join ',') -and
+                    $summary.task -ceq 'ENABLED' -and
+                    $summary.owner -ceq 'PRESERVED_RUNNING_VERIFIED' -and
+                    $summary.version -ceq 'OLD_TWO') {
+                    Write-Output 'HOSTOPS_SELECTOR_RECOVERY_TASK=ENABLED'
+                    Write-Output 'HOSTOPS_SELECTOR_RECOVERY_OWNER=PRESERVED_RUNNING_VERIFIED'
+                    Write-Output 'HOSTOPS_SELECTOR_RECOVERY_VERSION=OLD_TWO'
+                }
+            }
+        }
+    }
     return
 }
 throw 'HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY'

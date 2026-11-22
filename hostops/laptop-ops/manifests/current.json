@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-p2-selector-install-diagnostic",
+  "operation": "owner-selector-task-enable-recovery",
   "risk": "ROUTINE",
-  "category": "diagnostics",
-  "script_path": "hostops/laptop-ops/operations/owner-p2-selector-install-diagnostic.ps1",
-  "script_sha256": "ff15dc539d803f0bb81fceb019bda4d953736e35cd9e53730befac27a1b348cd",
+  "category": "owner-maintenance",
+  "script_path": "hostops/laptop-ops/operations/owner-selector-task-enable-recovery.ps1",
+  "script_sha256": "404ef5cc2c293ead705bd7ae1927cbde50aa8b638d360dadb7d97304ce8ed40f",
   "arguments": []
 }
