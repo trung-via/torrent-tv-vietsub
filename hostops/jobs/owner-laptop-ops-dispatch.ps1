@@ -174,8 +174,10 @@ $temp = Join-Path $inbox ('request-' + $nonce + '.tmp')
 [IO.File]::Move($temp, $requestFile)
 Start-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction Stop
 Write-Output 'HOSTOPS_OWNER_OPS=OWNER_TASK_TRIGGERED'
-# Maintenance can include staged import, fresh health and rollback.
-# Keep diagnostics short; timeout is UNKNOWN_EFFECT, never retry.
+# A maintenance transaction may include two independently bounded health
+# observations and rollback. The former 200 s bound expired during recovery
+# and mislabeled the completed Owner-side operation as an unknown effect.
+# Diagnostic jobs retain the short bound; no retry is issued on expiry.
 $waitSeconds = if ($manifest.category -ceq 'owner-maintenance') { 600 } else { 200 }
 for ($i=0; $i -lt $waitSeconds; $i++) {
     Start-Sleep -Seconds 1
@@ -260,6 +262,51 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     Write-Output ('HOSTOPS_OWNER_SOURCE_CACHED=' + $summary.cached)
                     Write-Output ('HOSTOPS_OWNER_SOURCE_EN_SOURCE=' + $summary.en_source)
                     Write-Output ('HOSTOPS_OWNER_SOURCE_P2_OUTCOME=' + $summary.p2_outcome)
+                }
+            }
+        }
+    }
+    if ($receipt.operation -ceq 'owner-p2-candidate-audit-readonly') {
+        $summaryFile = Join-Path $outbox 'candidate-audit.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $expected = @('schema','nonce','state','route','reason','title',
+                    'vi_rows','vi_ranked','vi_confident','en_rows','en_ranked',
+                    'en_confident','en_total','top_score','top_source','top_year',
+                    'top_group','top_resolution','gap')
+                if ($summary.schema -ceq 'TTV-OWNER-CANDIDATE-AUDIT-V1' -and
+                    $summary.nonce -ceq $nonce -and
+                    (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($expected | Sort-Object) -join ',') -and
+                    $summary.state -cmatch '^[A-Z0-9_]{3,60}$' -and
+                    $summary.route -cin @('UNKNOWN','VI_READY','EN_TRANSLATE','REVIEW_REQUIRED','NO_MATCH') -and
+                    $summary.reason -cmatch '^[A-Z0-9_]{3,60}$' -and
+                    $summary.title -cin @('UNKNOWN','TORRENT_ALIAS','FILENAME') -and
+                    $summary.top_source -cin @('UNKNOWN','MATCH','MISSING','CONFLICT') -and
+                    $summary.top_year -cin @('UNKNOWN','MATCH','MISSING','CONFLICT') -and
+                    $summary.top_group -cin @('UNKNOWN','MATCH','MISSING','CONFLICT') -and
+                    $summary.top_resolution -cin @('UNKNOWN','MATCH','MISSING','CONFLICT')) {
+                    Write-Output ('HOSTOPS_CANDIDATE_STATE=' + $summary.state)
+                    Write-Output ('HOSTOPS_CANDIDATE_ROUTE=' + $summary.route)
+                    Write-Output ('HOSTOPS_CANDIDATE_REASON=' + $summary.reason)
+                    Write-Output ('HOSTOPS_CANDIDATE_TITLE=' + $summary.title)
+                    foreach ($field in @('vi_rows','vi_ranked','vi_confident',
+                          'en_rows','en_ranked','en_confident','en_total',
+                          'top_score','gap')) {
+                        if ($summary.$field -is [ValueType] -and
+                            [int]$summary.$field -ge -1 -and
+                            [int]$summary.$field -le 10000000) {
+                            Write-Output ('HOSTOPS_CANDIDATE_' +
+                                $field.ToUpperInvariant() + '=' + [int]$summary.$field)
+                        }
+                    }
+                    foreach ($field in @('top_source','top_year','top_group','top_resolution')) {
+                        Write-Output ('HOSTOPS_CANDIDATE_' +
+                            $field.ToUpperInvariant() + '=' + $summary.$field)
+                    }
                 }
             }
         }
