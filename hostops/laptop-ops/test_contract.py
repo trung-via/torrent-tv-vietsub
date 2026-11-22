@@ -145,6 +145,32 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertIn("$receipt.operation -ceq 'owner-p2-source-trace-readonly'", dispatcher)
         self.assertIn("HOSTOPS_OWNER_SOURCE_CACHED=", dispatcher)
 
+    def test_batch_0011_quarantine_is_exact_and_preservation_first(self):
+        operation = (ROOT / "hostops/laptop-ops/operations/owner-p2-b11-quarantine.ps1").read_text()
+        self.assertIn("$expectedBatch = 'batch-0011'", operation)
+        self.assertIn("40f98035778158467cce7b8e2016166763a3f5085381c0b90e2349e19f7252c5", operation)
+        self.assertIn("P2_RECONCILE_INSTALLED_NO_RETRY_WORKER_MATCH", operation)
+        self.assertIn("P2_RECONCILE_CHECKPOINT_PRESENT", operation)
+        self.assertIn("P2_RECONCILE_PENDING_EVENTS", operation)
+        self.assertIn("-ApplyQuarantine", operation)
+        self.assertIn("-AcknowledgeUnknownEffect", operation)
+        self.assertIn("P2_RECONCILE_ORIGINAL_MARKER_BYTES=PRESERVED", operation)
+        self.assertNotIn("Start-ScheduledTask", operation)
+        self.assertNotIn("Invoke-RestMethod", operation)
+        self.assertNotIn("generateContent", operation)
+
+    def test_406_installer_requires_exact_quarantine_and_atomic_backup(self):
+        operation = (ROOT / "hostops/laptop-ops/operations/owner-opensub-406-install.ps1").read_text()
+        self.assertIn("AssertQuarantinedB11", operation)
+        self.assertIn("'UNKNOWN_EFFECT_NO_RETRY'", operation)
+        self.assertIn("'Disabled'", operation)
+        self.assertIn("[IO.File]::Replace($next, $target, (Join-Path $backup ('atomic-' + $name)))", operation)
+        self.assertIn("'SOURCE_HASH_MISMATCH'", operation)
+        self.assertIn("'INSTALLED_SOURCE_DRIFT'", operation)
+        self.assertIn("'OFFLINE_IMPORT_FAILED'", operation)
+        self.assertIn("StartOwner $oldPid", operation)
+        self.assertNotIn("-ApplyQuarantine", operation)
+
 
 if __name__ == "__main__":
     unittest.main()
