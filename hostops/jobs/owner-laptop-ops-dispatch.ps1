@@ -329,6 +329,29 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($receipt.operation -ceq 'owner-p2-installed-hashes-readonly') {
+        $summaryFile = Join-Path $outbox 'p2-baseline.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 512 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $fields = @('schema','nonce','opensubtitles','owner_bridge','owner')
+                if ($summary.schema -cne 'TTV-P2-BASELINE-HASH-V1' -or
+                    $summary.nonce -cne $nonce -or
+                    (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -cne
+                        (@($fields | Sort-Object) -join ',') -or
+                    $summary.opensubtitles -cnotmatch '^(NOT_OBSERVED|[0-9a-f]{64})$' -or
+                    $summary.owner_bridge -cnotmatch '^(NOT_OBSERVED|[0-9a-f]{64})$' -or
+                    $summary.owner -cnotin @('NOT_OBSERVED','RUNNING','READY','OTHER')) {
+                    throw 'HOSTOPS_P2_BASELINE_INVALID'
+                }
+                Write-Output ('HOSTOPS_P2_BASELINE_OPENSUBTITLES=' + $summary.opensubtitles)
+                Write-Output ('HOSTOPS_P2_BASELINE_OWNER_BRIDGE=' + $summary.owner_bridge)
+                Write-Output ('HOSTOPS_P2_BASELINE_OWNER=' + $summary.owner)
+            }
+        }
+    }
     if ($receipt.operation -ceq 'owner-p2-block-trace-readonly') {
         $summaryFile = Join-Path $outbox 'block-trace.json'
         if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
