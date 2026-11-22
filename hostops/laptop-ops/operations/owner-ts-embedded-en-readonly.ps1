@@ -19,7 +19,7 @@ result=dict(schema='TTV-OWNER-EMBEDDED-EN-V1',state='NOT_RUN',metadata='NOT_RUN'
             other_subs=0,elapsed_ms=0,ffmpeg='NOT_CHECKED',en_default=0,
             track_choice='NOT_RUN',prefix_result='NOT_RUN',
             prefix_cues=0,prefix_elapsed_ms=0,prefix_bytes=0,
-            en_forced=0,gst_status='NOT_RUN',play_status='NOT_RUN',
+            en_forced=0,play_status='NOT_RUN',
             play_elapsed_ms=0,play_bytes=0,prefix_error='NONE',
             prefix_exit='NOT_RUN',prefix_progress_s=0)
 def finish():
@@ -148,13 +148,6 @@ try:
                      'EN_BITMAP_ONLY' if result['en_bitmap'] else
                      'UNLABELED_TEXT_PRESENT' if result['unlabeled_text'] else
                      'NO_EN_SUBTITLE_TRACK')
-    gst,raw=request(base+'/gst/settings',cap=16384,timeout=3)
-    if gst=='OK':
-        try:
-            config=json.loads(raw.decode('utf-8'))
-            result['gst_status']='BUILT_IN' if config.get('built_in') is True else 'STANDARD' if config.get('built_in') is False else 'UNKNOWN'
-        except (ValueError,AttributeError,UnicodeError):result['gst_status']='UNKNOWN'
-    else:result['gst_status']='NOT_AVAILABLE'
     if not en_candidates or result['ffmpeg']!='AVAILABLE':finish()
     defaults=[i for i,d,f in en_candidates if d]
     nonforced=[i for i,d,f in en_candidates if not f]
@@ -264,7 +257,7 @@ $summary = [string]$rows[0] | ConvertFrom-Json
 $fields = @('schema','state','metadata','ffp','en_text','en_bitmap',
             'unlabeled_text','other_subs','elapsed_ms','ffmpeg','en_default',
             'track_choice','prefix_result','prefix_cues','prefix_elapsed_ms','prefix_bytes',
-            'en_forced','gst_status','play_status','play_elapsed_ms','play_bytes',
+            'en_forced','play_status','play_elapsed_ms','play_bytes',
             'prefix_error','prefix_exit','prefix_progress_s')
 if ($summary.schema -cne 'TTV-OWNER-EMBEDDED-EN-V1' -or
     (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -cne
@@ -274,7 +267,6 @@ if ($summary.schema -cne 'TTV-OWNER-EMBEDDED-EN-V1' -or
     [string]$summary.ffp -cnotmatch '^[A-Z0-9_]{3,30}$' -or
     $summary.ffmpeg -cnotin @('NOT_CHECKED','AVAILABLE','MISSING') -or
     $summary.track_choice -cnotin @('NOT_RUN','UNIQUE_DEFAULT','UNIQUE_NONFORCED','SAMPLE_ONLY') -or
-    $summary.gst_status -cnotin @('NOT_RUN','BUILT_IN','STANDARD','UNKNOWN','NOT_AVAILABLE') -or
     [string]$summary.play_status -cnotmatch '^(NOT_RUN|HTTP_[0-9]{3}|HTTP_OTHER|READ_TIMEOUT|UNAVAILABLE)$' -or
     $summary.prefix_error -cnotin @('NONE','HTTP_AUTH','HTTP_NOT_FOUND','TIMEOUT',
                                     'STREAM_MAP_INVALID','INVALID_MEDIA','CONNECTION_REFUSED',

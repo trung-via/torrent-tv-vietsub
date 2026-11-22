@@ -36,7 +36,7 @@ Xây dựng ứng dụng giải trí gia đình trên Android TV/Google TV tươ
 - **PROPOSED:** chọn nguồn hợp pháp, xếp hạng, xác nhận người dùng, đưa magnet vào TorrServer, điều khiển playback trên TV; chưa có E2E API/TV-control được nghiệm thu.
 - **UNVERIFIED:** commit/submodule OMP và GPL/dependency inventory khi nhập vào repo, Android build trên nhánh sản phẩm, bản firmware/API/ABI thực tế của Redmi, tương thích codec/seek, TorrServer deployed version/API/auth, kết nối LAN và external subtitle E2E.
 - **UNVERIFIED:** runner hiện tại có online/isolated đúng phiên làm việc hay không; file workflow chứa runner name/labels chỉ là cấu hình kỳ vọng. Đánh giá lại bằng run evidence theo từng đợt.
-- **RESEARCH_REVIEWED / IMPLEMENTATION_UNVERIFIED:** nghiên cứu đã có nhưng upstream TorrServer -gst/native /mcp, private MCP tunnel, Redmi firmware, AI Vietsub/voice-over, vendor price, latency/cost và ChatGPT→Gateway vẫn cần evidence chính thức và/hoặc kiểm thực trên hệ thống.
+- **RESEARCH_REVIEWED / IMPLEMENTATION_UNVERIFIED:** nghiên cứu upstream TorrServer native /mcp, private MCP tunnel, Redmi firmware, AI Vietsub/voice-over, vendor price, latency/cost và ChatGPT→Gateway vẫn cần kiểm chứng độc lập. Thử nghiệm GStreamer đã được gỡ khỏi Windows và loại khỏi nhánh phụ đề; chỉ EBML/HTTP Range còn là hướng trích xuất EN nhúng đang nghiên cứu.
 
 Không dùng trạng thái source-audit, mock, emulator hoặc workflow file tồn tại để tuyên bố `REAL_TV_PASS`, `REAL_SERVER_PASS`, `RUNNER_READY` hay `AGENT_E2E_PASS`.
 

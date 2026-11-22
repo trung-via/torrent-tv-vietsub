@@ -1,7 +1,7 @@
 """Owner-local TorrServer /subs adapter for external in-torrent subtitle FILES.
 
 The endpoint explicitly excludes subtitle tracks embedded in MKV. This
-adapter never accesses /play, /ffp, GStreamer, MKV bytes, or remote hosts.
+adapter never accesses /play, /ffp, embedded MKV bytes, or remote hosts.
 Only a separately verified TV/media selection may call list_for_media().
 """
 from __future__ import annotations

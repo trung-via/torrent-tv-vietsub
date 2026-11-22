@@ -1,5 +1,11 @@
 # Torrent sidecar English fast path — R2 decision and latency audit
 
+> **Historical source-only design, superseded on 2026-11-22.** The Owner's
+> isolated GStreamer experiment was retired with a verified Windows HostOps
+> cleanup (1 trial process stopped, 1 trial directory removed). The current
+> English-in-MKV research path is Owner-bound EBML/HTTP Range; the older
+> exclusion of MKV embedded subtitles below is not the current Human decision.
+
 Date: 2026-11-21. Status: **SOURCE_IMPLEMENTED in PR #178 candidate;
 not installed on Owner, real TorrServer/Redmi unverified**.
 Target: one signed Redmi `Bật Vietsub AI` request -> existing Owner P2

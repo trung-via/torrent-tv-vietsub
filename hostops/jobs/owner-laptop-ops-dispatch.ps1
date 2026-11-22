@@ -64,8 +64,7 @@ $name = 'TorrentTV-Vietsub-Laptop-HostOps'
 $task = Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
 if ($manifest.operation -ceq 'owner-ts-ebml-range-readonly') {
     # This probe only reads selected-file metadata and bounded byte ranges.
-    # It deliberately bypasses the unresolved GStreamer Owner request and
-    # never triggers a Scheduled Task or touches the Owner spool.
+    # This read-only probe never triggers an Owner task or modifies the spool.
     $relative = 'hostops/laptop-ops/operations/owner-ts-ebml-range-readonly.ps1'
     if ($manifest.script_path -cne $relative -or
         $manifest.category -cne 'diagnostics' -or
@@ -84,104 +83,6 @@ if ($manifest.operation -ceq 'owner-ts-ebml-range-readonly') {
     }
     & $reader
     Write-Output 'HOSTOPS_EBML_DISPATCH_READONLY_PASS'
-    return
-}
-if ($manifest.operation -ceq 'owner-ts-gst-status-readonly') {
-    # Recovery after a timeout is observation only. Do not require the Owner
-    # task to be Ready, touch the spool, or trigger another Owner operation.
-    if ($null -eq $task) {
-        Write-Output 'HOSTOPS_GST_RECOVERY_OWNER_TASK=NOT_FOUND'
-    } else {
-        $state = [string]$task.State
-        if ($state -cnotmatch '\A[A-Za-z]{2,25}\z') { $state = 'UNKNOWN' }
-        Write-Output ('HOSTOPS_GST_RECOVERY_OWNER_TASK=' + $state.ToUpperInvariant())
-        $taskInfo = Get-ScheduledTaskInfo -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
-        if ($null -ne $taskInfo) {
-            Write-Output ('HOSTOPS_GST_RECOVERY_LAST_RESULT=' + [long]$taskInfo.LastTaskResult)
-        }
-    }
-    $trialProcesses = @(Get-Process -Name 'TorrServer-gst-windows-amd64' -ErrorAction SilentlyContinue)
-    Write-Output ('HOSTOPS_GST_RECOVERY_GST_PROCESS_COUNT=' + $trialProcesses.Count)
-    $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
-    $requestFile = Join-Path $spool 'Requests\request.json'
-    $receiptFile = Join-Path $spool 'Receipts\receipt.json'
-    $summaryFile = Join-Path $spool 'Receipts\owner-ts-gst-trial.json'
-    $requestNonce = ''
-    $requestState = 'MISSING'
-    if (Test-Path -LiteralPath $requestFile -PathType Leaf) {
-        $requestState = 'INVALID'
-        try {
-            $item = Get-Item -LiteralPath $requestFile -Force -ErrorAction Stop
-            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
-                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                $req = Get-Content -LiteralPath $requestFile -Raw -ErrorAction Stop | ConvertFrom-Json
-                if ([string]$req.nonce -cmatch '\A[0-9a-f]{32}\z' -and
-                    [string]$req.source_commit -cmatch '\A[0-9a-f]{40}\z') {
-                    $requestNonce = [string]$req.nonce
-                    $requestState = if ($req.source_commit -ceq '0df6d98b2ca56739273af0e75f1c2ac066b06978') {
-                        'GST_TRIAL'
-                    } else { 'OTHER' }
-                }
-            }
-        } catch { $requestState = 'UNREADABLE' }
-    }
-    Write-Output ('HOSTOPS_GST_RECOVERY_REQUEST=' + $requestState)
-    $receiptState = 'MISSING'
-    if (Test-Path -LiteralPath $receiptFile -PathType Leaf) {
-        $receiptState = 'INVALID'
-        try {
-            $item = Get-Item -LiteralPath $receiptFile -Force -ErrorAction Stop
-            if ($item.Length -gt 0 -and $item.Length -le 512 -and
-                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                $rec = Get-Content -LiteralPath $receiptFile -Raw -ErrorAction Stop | ConvertFrom-Json
-                if ($rec.schema -ceq 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -and
-                    [string]$rec.nonce -cmatch '\A[0-9a-f]{32}\z' -and
-                    $rec.result -cin @('SUCCESS','FAILED_NO_RETRY')) {
-                    $receiptState = if ($requestNonce -ne '' -and $rec.nonce -ceq $requestNonce) {
-                        'MATCHED_' + $rec.result
-                    } else { 'UNMATCHED_TERMINAL' }
-                }
-            }
-        } catch { $receiptState = 'UNREADABLE' }
-    }
-    Write-Output ('HOSTOPS_GST_RECOVERY_RECEIPT=' + $receiptState)
-    $summaryState = 'MISSING'
-    if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
-        $summaryState = 'INVALID'
-        try {
-            $item = Get-Item -LiteralPath $summaryFile -Force -ErrorAction Stop
-            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
-                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                $row = Get-Content -LiteralPath $summaryFile -Raw -ErrorAction Stop | ConvertFrom-Json
-                if ($row.schema -ceq 'TTV-OWNER-GST-TRIAL-V1' -and
-                    [string]$row.nonce -cmatch '\A[0-9a-f]{32}\z') {
-                    $summaryState = if ($requestNonce -ne '' -and $row.nonce -ceq $requestNonce) {
-                        'MATCHED'
-                    } else { 'UNMATCHED' }
-                    if ($summaryState -ceq 'MATCHED') {
-                        foreach ($field in @('state','binary','sidecar','gst','echo',
-                                             'main_before','main_after','master',
-                                             'vtt','cleanup')) {
-                            $value = [string]$row.$field
-                            if ($value -cmatch '\A[A-Z0-9_]{3,50}\z') {
-                                Write-Output ('HOSTOPS_GST_RECOVERY_' +
-                                              $field.ToUpperInvariant() + '=' + $value)
-                            }
-                        }
-                        foreach ($field in @('en_playlists','cues','first_cue_ms','probe_ms')) {
-                            $value = [string]$row.$field
-                            if ($value -cmatch '\A[0-9]{1,7}\z') {
-                                Write-Output ('HOSTOPS_GST_RECOVERY_' +
-                                              $field.ToUpperInvariant() + '=' + $value)
-                            }
-                        }
-                    }
-                }
-            }
-        } catch { $summaryState = 'UNREADABLE' }
-    }
-    Write-Output ('HOSTOPS_GST_RECOVERY_SUMMARY=' + $summaryState)
-    Write-Output 'HOSTOPS_GST_STATUS_ONLY_PASS'
     return
 }
 if ($null -eq $task) {
@@ -226,62 +127,6 @@ foreach ($dir in @($inbox,$outbox)) {
 $requestFile = Join-Path $inbox 'request.json'
 $receiptFile = Join-Path $outbox 'receipt.json'
 $history = Join-Path $spool 'History'
-if ($manifest.operation -ceq 'owner-ts-retire-gst-trial') {
-    # An abandoned 2026-11-21 isolated trial has a terminal receipt with an
-    # unrelated nonce. Only this exact source-pinned retirement may reconcile
-    # the old spool. Preserve both records independently before proceeding.
-    if ($manifest.script_path -cne
-            'hostops/laptop-ops/operations/owner-ts-retire-gst-trial.ps1' -or
-        $manifest.category -cne 'owner-maintenance' -or
-        $manifest.arguments.Count -ne 0 -or
-        -not (Test-Path -LiteralPath $requestFile -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) {
-        throw 'HOSTOPS_GST_RETIRE_EXACT_SPOOL_REQUIRED'
-    }
-    foreach ($file in @($requestFile,$receiptFile)) {
-        $item = Get-Item -LiteralPath $file -Force -ErrorAction Stop
-        if ($item.Length -le 0 -or $item.Length -gt 1024 -or
-            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            throw 'HOSTOPS_GST_RETIRE_UNTRUSTED_RECORD'
-        }
-    }
-    $obsolete = Get-Content -LiteralPath $requestFile -Raw | ConvertFrom-Json
-    $orphan = Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
-    if ($obsolete.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or
-        [string]$obsolete.nonce -cnotmatch '\A[0-9a-f]{32}\z' -or
-        $obsolete.source_commit -cne '0df6d98b2ca56739273af0e75f1c2ac066b06978' -or
-        $obsolete.manifest_path -cne 'hostops/laptop-ops/manifests/current.json' -or
-        $obsolete.manifest_sha256 -cne
-            '31b810d98351d8851cdbd4bd94d41cd1fcab5aade6ce4289f31e5e5691504827' -or
-        $orphan.schema -cne 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -or
-        [string]$orphan.nonce -cnotmatch '\A[0-9a-f]{32}\z' -or
-        [string]$orphan.source_commit -cnotmatch '\A[0-9a-f]{40}\z' -or
-        $orphan.result -cnotin @('SUCCESS','FAILED_NO_RETRY') -or
-        $obsolete.nonce -ceq $orphan.nonce) {
-        throw 'HOSTOPS_GST_RETIRE_OLD_SPOOL_IDENTITY_DRIFT'
-    }
-    if (-not (Test-Path -LiteralPath $history -PathType Container)) {
-        New-Item -ItemType Directory -Path $history -ErrorAction Stop | Out-Null
-    }
-    $oldRequestArchive = Join-Path $history ('retired-gst-request-' + $obsolete.nonce + '.json')
-    $orphanArchive = Join-Path $history ('retired-gst-orphan-receipt-' + $orphan.nonce + '.json')
-    if ((Test-Path -LiteralPath $oldRequestArchive) -or
-        (Test-Path -LiteralPath $orphanArchive)) {
-        throw 'HOSTOPS_GST_RETIRE_ARCHIVE_ALREADY_EXISTS'
-    }
-    Copy-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
-    Copy-Item -LiteralPath $receiptFile -Destination $orphanArchive -ErrorAction Stop
-    if ((Get-FileHash -LiteralPath $requestFile -Algorithm SHA256).Hash -cne
-            (Get-FileHash -LiteralPath $oldRequestArchive -Algorithm SHA256).Hash -or
-        (Get-FileHash -LiteralPath $receiptFile -Algorithm SHA256).Hash -cne
-            (Get-FileHash -LiteralPath $orphanArchive -Algorithm SHA256).Hash) {
-        throw 'HOSTOPS_GST_RETIRE_ARCHIVE_HASH_MISMATCH'
-    }
-    # NETWORK_SERVICE owns request.json; the Owner owns receipt.json. Never
-    # delete the receipt from this service session; the helper replaces it.
-    Remove-Item -LiteralPath $requestFile -ErrorAction Stop
-    Write-Output 'HOSTOPS_GST_RETIRE_OLD_SPOOL=ARCHIVED_INDEPENDENTLY'
-}
 if (Test-Path -LiteralPath $requestFile) {
     if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) {
         throw 'HOSTOPS_OWNER_OPS_UNRESOLVED_PREVIOUS_REQUEST'
@@ -303,8 +148,7 @@ if (Test-Path -LiteralPath $requestFile) {
     }
     Move-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
 }
-if ((Test-Path -LiteralPath $receiptFile) -and
-    $manifest.operation -cne 'owner-ts-retire-gst-trial') {
+if (Test-Path -LiteralPath $receiptFile) {
     # Also recover the interrupted state where the prior request was moved
     # but moving its Owner-owned receipt was denied. Never erase that proof.
     $item = Get-Item -LiteralPath $receiptFile -Force -ErrorAction Stop
@@ -377,28 +221,6 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
-    if ($receipt.operation -ceq 'owner-ts-retire-gst-trial') {
-        $summaryFile = Join-Path $outbox ('owner-gst-retire-' + $nonce + '.json')
-        $item = Get-Item -LiteralPath $summaryFile -Force -ErrorAction Stop
-        if ($item.Length -le 0 -or $item.Length -gt 512 -or
-            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            throw 'HOSTOPS_GST_RETIRE_SUMMARY_UNTRUSTED'
-        }
-        $result = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
-        if ($result.schema -cne 'TTV-OWNER-GST-RETIRE-V1' -or
-            $result.nonce -cne $nonce -or
-            $result.status -cne 'RETIRED_PROJECT_TRIAL_ONLY') {
-            throw 'HOSTOPS_GST_RETIRE_SUMMARY_INVALID'
-        }
-        foreach ($field in @('removed_dirs','stopped_processes','unrelated_processes')) {
-            if ($result.$field -isnot [ValueType] -or
-                [int]$result.$field -lt 0 -or [int]$result.$field -gt 12) {
-                throw 'HOSTOPS_GST_RETIRE_COUNTER_INVALID'
-            }
-            Write-Output ('HOSTOPS_GST_RETIRE_' + $field.ToUpperInvariant() + '=' + $result.$field)
-        }
-        Write-Output 'HOSTOPS_GST_RETIRE=PROJECT_TRIAL_RETIRED'
-    }
     if ($receipt.operation -ceq 'owner-ts-ebml-owner-readonly') {
         $summaryFile = Join-Path $outbox ('owner-ebml-cues-' + $nonce + '.json')
         if (-not (Test-Path -LiteralPath $summaryFile -PathType Leaf)) {
@@ -434,49 +256,6 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             Write-Output ('HOSTOPS_OWNER_EBML_' + $field.ToUpperInvariant() + '=' + $row.$field)
         }
         Write-Output 'HOSTOPS_OWNER_EBML_READONLY_PASS'
-    }
-    if ($receipt.operation -ceq 'owner-ts-gst-isolated-test') {
-        $summaryFile = Join-Path $outbox 'owner-ts-gst-trial.json'
-        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
-            $item = Get-Item -LiteralPath $summaryFile -Force
-            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
-                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                $row = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
-                $fields = @('schema','nonce','state','identity','binary','sidecar','gst',
-                            'echo','main_before','main_after','master','en_playlists',
-                            'vtt','cues','first_cue_ms','probe_ms','cleanup')
-                if ($row.schema -ceq 'TTV-OWNER-GST-TRIAL-V1' -and
-                    $row.nonce -ceq $nonce -and
-                    (@($row.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
-                        (@($fields | Sort-Object) -join ',') -and
-                    [string]$row.state -cmatch '^[A-Z0-9_]{3,50}$' -and
-                    $row.identity -cin @('NOT_RUN','MATCH') -and
-                    $row.binary -cin @('NOT_RUN','VERIFIED','HASH_MISMATCH','DOWNLOAD_FAILED') -and
-                    $row.sidecar -cin @('NOT_RUN','READY') -and
-                    $row.gst -cin @('NOT_RUN','BUILT_IN','NOT_BUILT','SCHEMA_ERROR',
-                                   'HTTP_OTHER','TOO_LARGE','UNAVAILABLE','HTTP_404') -and
-                    [string]$row.echo -cmatch '^[A-Z0-9_]{3,30}$' -and
-                    [string]$row.main_before -cmatch '^[A-Z0-9_]{3,30}$' -and
-                    [string]$row.main_after -cmatch '^[A-Z0-9_]{3,30}$' -and
-                    [string]$row.master -cmatch '^[A-Z0-9_]{3,30}$' -and
-                    [string]$row.vtt -cmatch '^[A-Z0-9_]{3,30}$' -and
-                    $row.cleanup -cin @('NO_PROCESS','STOPPED','STILL_RUNNING','FILES_LEFT') -and
-                    $row.en_playlists -is [ValueType] -and
-                    [int]$row.en_playlists -ge 0 -and [int]$row.en_playlists -le 16 -and
-                    $row.cues -is [ValueType] -and
-                    [int]$row.cues -ge 0 -and [int]$row.cues -le 120 -and
-                    $row.first_cue_ms -is [ValueType] -and
-                    [int]$row.first_cue_ms -ge 0 -and [int]$row.first_cue_ms -le 180000 -and
-                    $row.probe_ms -is [ValueType] -and
-                    [int]$row.probe_ms -ge 0 -and [int]$row.probe_ms -le 180000) {
-                    foreach ($field in @('state','identity','binary','sidecar','gst','echo',
-                                         'main_before','main_after','master','en_playlists',
-                                         'vtt','cues','first_cue_ms','probe_ms','cleanup')) {
-                        Write-Output ('HOSTOPS_GST_' + $field.ToUpperInvariant() + '=' + $row.$field)
-                    }
-                }
-            }
-        }
     }
     if ($receipt.operation -ceq 'owner-ts-en-sidecar-readonly') {
         $summaryFile = Join-Path $outbox 'owner-ts-en-sidecar.json'
@@ -521,7 +300,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 $required = @('schema','nonce','state','metadata','ffp','en_text',
                               'en_bitmap','unlabeled_text','other_subs','elapsed_ms','ffmpeg',
                               'en_default','track_choice','prefix_result','prefix_cues',
-                              'prefix_elapsed_ms','prefix_bytes','en_forced','gst_status',
+                              'prefix_elapsed_ms','prefix_bytes','en_forced',
                               'play_status','play_elapsed_ms','play_bytes',
                               'prefix_error','prefix_exit','prefix_progress_s')
                 if ($row.schema -ceq 'TTV-OWNER-EMBEDDED-EN-V1' -and
@@ -533,7 +312,6 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     [string]$row.ffp -cmatch '^[A-Z0-9_]{3,30}$' -and
                     $row.ffmpeg -cin @('NOT_CHECKED','AVAILABLE','MISSING') -and
                     $row.track_choice -cin @('NOT_RUN','UNIQUE_DEFAULT','UNIQUE_NONFORCED','SAMPLE_ONLY') -and
-                    $row.gst_status -cin @('NOT_RUN','BUILT_IN','STANDARD','UNKNOWN','NOT_AVAILABLE') -and
                     [string]$row.play_status -cmatch '^(NOT_RUN|HTTP_[0-9]{3}|HTTP_OTHER|READ_TIMEOUT|UNAVAILABLE)$' -and
                     $row.prefix_error -cin @('NONE','HTTP_AUTH','HTTP_NOT_FOUND','TIMEOUT',
                                             'STREAM_MAP_INVALID','INVALID_MEDIA','CONNECTION_REFUSED',
@@ -573,7 +351,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                                          'elapsed_ms','ffmpeg','en_default',
                                          'track_choice','prefix_result','prefix_cues',
                                          'prefix_elapsed_ms','prefix_bytes','en_forced',
-                                         'gst_status','play_status','play_elapsed_ms',
+                                         'play_status','play_elapsed_ms',
                                          'play_bytes','prefix_error','prefix_exit','prefix_progress_s')) {
                         Write-Output ('HOSTOPS_EMBEDDED_' + $field.ToUpperInvariant() +
                                       '=' + $row.$field)

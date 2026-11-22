@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-ts-retire-gst-trial",
-  "category": "owner-maintenance",
+  "operation": "owner-ts-ebml-owner-readonly",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-ts-retire-gst-trial.ps1",
-  "script_sha256": "d86f791658f61d79591ec0a699b325d8b1d3b4e4f8a8bd69e3df3c2d16749c16",
+  "script_path": "hostops/laptop-ops/operations/owner-ts-ebml-owner-readonly.ps1",
+  "script_sha256": "758650e4c3466ca655ecf093409744dca100b204592fb7946e1f226ae3cf8f29",
   "arguments": []
 }

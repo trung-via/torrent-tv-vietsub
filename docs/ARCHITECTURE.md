@@ -87,7 +87,7 @@ Optional ChatGPT / AI Intent
         |-- Candidate Verifier (source, rights, seed observations, ffprobe)
         |-- TorrServer on Windows/NAS LAN
         |     |-- direct HTTP
-        |     '-- remux/HLS/transcode if deployed -gst supports it
+        |     '-- embedded subtitle read via bounded HTTP Range/EBML (Owner-side)
         |-- Vietnamese Audio Worker (optional licensed content; ASR/MT/TTS/mix)
         '-- OMP TV session extension: device identity, token, manifest
               -> OMP existing Preact/Capacitor UI + 2160/Media3/VLC

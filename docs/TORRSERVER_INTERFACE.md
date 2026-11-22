@@ -19,13 +19,13 @@ Test mock offline/HTTP status/parser without Internet or BitTorrent. Real server
 
 ## Deep Research adapter/verification proposal (NOT DEPLOYED)
 
-Report dated 2026-10-28 describes upstream Torznab, native /mcp and a -gst build for HLS/remux/transcode and cites a MatriX.147.1 example. **None of these are proof about the TorrServer binary currently on the user's Windows/NAS host.** Check official upstream tag/source, actual binary SHA/version/features and REST/auth/Range responses before any code assumes this interface.
+The 2026-10-28 research reported optional upstream experimental streaming features; these are not deployed capability evidence. **The project's isolated GStreamer trial was retired on 2026-11-22.** The active embedded-EN diagnostic uses bounded EBML/HTTP Range reads, independently of those experimental features. Check the deployed TorrServer binary, REST/auth and Range responses before claiming live support.
 
 - Prowlarr/Jackett through Torznab is optional alongside existing OMP website-source search; Torznab is a schema, not a repository of licensed media.
-- Candidate verifier: source-rights and metadata prefilter -> optional tracker scrape (store tracker, timestamp, scrape support) -> TorrentServer metadata/file list -> select main file -> ffprobe/GStreamer resolution, codec, audio, bitrate -> actual download rate and buffer ahead.
+- Candidate verifier: source-rights and metadata prefilter -> optional tracker scrape (store tracker, timestamp, scrape support) -> TorrServer metadata/file list -> selected-file validation -> ffprobe resolution, codec, audio, bitrate -> actual download rate and buffer ahead.
 - Distinguish reported, scraped and connected seeders, as well as observed peers/throughput; never sum duplicate tracker peer counts or treat a release name as codec proof.
 - Adaptive readiness research POC targets: observe torrent rate for 10–20 seconds; initial playable buffer 30–60 seconds; target sustainable throughput >=1.5–2.0 × average media bitrate. Real peaks/server cache/hardware can require more. Targets are not TorrServer defaults or guarantees.
-- Delivery order: direct HTTP first, remux if container incompatible, transcode only for actual codec mismatch and verified server -gst/hardware capability. Never enable GStreamer or change cache/connection defaults purely because the report suggests a benchmark.
+- Delivery order: direct HTTP first. Remux or transcode is a separate, explicitly verified future option, not part of the English subtitle extraction path. Do not change server cache, streaming defaults or binaries because of this historical research.
 - No direct ChatGPT access to native TorrServer /mcp. Gateway calls scoped REST methods inside LAN; secrets must never enter native/VLC media URLs, model context or logs. Typed errors, idempotent requests, timeouts and cleanup need negative tests.
 
 Record deployed API/schema/version/build, basic authentication mode, permitted fixture, Range/seek, server metrics and exact test evidence before REAL_SERVER_VERIFIED.
