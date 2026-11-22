@@ -329,6 +329,44 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($receipt.operation -ceq 'owner-p2-block-trace-readonly') {
+        $summaryFile = Join-Path $outbox 'block-trace.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $fields = @('schema','nonce','scope','p3','route','claimed',
+                    'blocked','reason','exception_type','exception_code',
+                    'fault_site','provider_claim','cache','p4')
+                $valid = $summary.schema -ceq 'TTV-OWNER-P2-BLOCK-TRACE-V1' -and
+                    $summary.nonce -ceq $nonce -and
+                    (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($fields | Sort-Object) -join ',') -and
+                    $summary.scope -cin @('NOT_OBSERVED','LOG_UNAVAILABLE','HEALTH_STALE',
+                        'SESSION_NOT_IN_TAIL','NO_DISPATCH','CURRENT_OWNER_SESSION','LOCAL_READ_ERROR') -and
+                    $summary.p3 -cin @('NOT_OBSERVED','DISPATCHED') -and
+                    $summary.route -cin @('NOT_OBSERVED','VI_READY','EN_TRANSLATE',
+                        'REVIEW_REQUIRED','NO_MATCH') -and
+                    $summary.claimed -cin @('YES','NO') -and
+                    $summary.blocked -cin @('YES','NO') -and
+                    $summary.provider_claim -cin @('YES','NO') -and
+                    $summary.cache -cin @('YES','NO') -and
+                    $summary.p4 -cin @('NOT_OBSERVED','REVISION_READY') -and
+                    $summary.exception_type -cmatch '^(NOT_OBSERVED|OTHER|SubtitleApiError|ValueError|OSError|RuntimeError|FileNotFoundError|TimeoutError)$' -and
+                    $summary.exception_code -cmatch '^[A-Z0-9_]{3,100}$' -and
+                    $summary.reason -cmatch '^[A-Z0-9_]{3,100}$' -and
+                    $summary.fault_site -cmatch '^[a-zA-Z0-9_]{3,80}$'
+                if (-not $valid) { throw 'HOSTOPS_BLOCK_TRACE_INVALID' }
+                foreach ($field in @('scope','p3','route','claimed','blocked',
+                    'reason','exception_type','exception_code','fault_site',
+                    'provider_claim','cache','p4')) {
+                    Write-Output ('HOSTOPS_BLOCK_TRACE_' +
+                        $field.ToUpperInvariant() + '=' + $summary.$field)
+                }
+            }
+        }
+    }
     if ($receipt.operation -ceq 'owner-p2-candidate-audit-readonly') {
         $summaryFile = Join-Path $outbox 'candidate-audit.json'
         if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
