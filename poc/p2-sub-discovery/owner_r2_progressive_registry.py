@@ -30,6 +30,8 @@ from owner_selected_file_resolver import CurrentPlaying, _fingerprint
 from matcher import Media
 from p3_p4_media_key import p4_key_from_verified_current
 from p3_p4_ready_registry import P3OwnerReadyRegistry, P3ReadyRejected
+from dual_subtitle_catalog import DualSubtitleCatalog
+from verified_vietsub_ready import VerifiedVietsubReady
 
 
 @dataclass
@@ -80,11 +82,59 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                 raise P3ReadyRejected("P4_ROLLING_FLOW_CHANGED")
             self._flow = flow
 
+    def resolve_variant(self, media_key: str, variant: str) -> VerifiedVietsubReady | None:
+        """Explicitly selected VI option; never auto-replace the AI P4 feed.
+
+        This is invoked only after V2's variant-specific device HMAC. A
+        cached Vietnamese candidate stays labelled unverified for sync, but
+        its bytes and exact media ownership are independently verified.
+        """
+        if variant != "downloaded_vi":
+            raise P3ReadyRejected("P4_VARIANT_NOT_SUPPORTED")
+        with self._lock:
+            flow = self._flow
+        if flow is None:
+            raise P3ReadyRejected("P4_VARIANT_FLOW_UNBOUND")
+        try:
+            current = self._read()
+        except Exception:
+            raise P3ReadyRejected("P4_VARIANT_CURRENT_TV_MISSING") from None
+        if not isinstance(current, CurrentPlaying):
+            raise P3ReadyRejected("P4_VARIANT_CURRENT_TV_MISSING")
+        media = Media(current.server_id, current.torrent_hash,
+                      current.file_index, current.video_name)
+        fingerprint = _fingerprint(media.server_profile_id,
+                                   media.torrent_hash, media.file_index)
+        self._current(media, current.tv_session_id, fingerprint)
+        if p4_key_from_verified_current(media, current) != media_key:
+            raise P3ReadyRejected("P4_VARIANT_MEDIA_KEY_CHANGED")
+        receipt = DualSubtitleCatalog(self._root(flow.cache_root)).read(
+            media, fingerprint, "downloaded_vi")
+        if receipt is None:
+            return None
+        payload = self._file(self._root(flow.cache_root), receipt.file,
+                             sha=receipt.sha256, cues=receipt.cues)
+        latest = self._current(media, current.tv_session_id, fingerprint)
+        if p4_key_from_verified_current(media, latest) != media_key:
+            raise P3ReadyRejected("P4_VARIANT_MEDIA_KEY_CHANGED")
+        return VerifiedVietsubReady.from_verified_bytes(
+            media_key=media_key, source_language="vi",
+            source_bytes=payload, vietsub_bytes=payload)
+
     @classmethod
-    def _recover_handoff(cls, flow: object, fingerprint: str
+    def _recover_handoff(cls, flow: object, fingerprint: str,
+                         media: Media | None = None
                          ) -> AssumedEnglishSubtitle | None:
         """Trust only the existing private source receipt and its EN bytes."""
         root = cls._root(getattr(flow, "cache_root", None))
+        if media is not None:
+            dual = DualSubtitleCatalog(root).read(media, fingerprint, "ai_en")
+            if dual is not None:
+                handoff = prepare_local_translation_source(
+                    CachedEnReceipt(dual.file, dual.sha256, dual.cues),
+                    private_root=root)
+                cls._cached_en(flow, fingerprint, handoff, media)
+                return handoff
         index = root / (".auto-source-" + fingerprint + ".json")
         if not index.is_file():
             return None  # A first P2 checkpoint has not been prepared yet.
@@ -210,7 +260,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         fingerprint = _fingerprint(current.server_id, current.torrent_hash,
                                    current.file_index)
         self._current(media, current.tv_session_id, fingerprint)
-        handoff = self._recover_handoff(flow, fingerprint)
+        handoff = self._recover_handoff(flow, fingerprint, media)
         if handoff is None:
             # May be a VI source or an early request before EN cache exists.
             # The original completed-VI factory is still allowed to resolve.
@@ -222,7 +272,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             # The TV may activate BEFORE the first paid window has committed.
             # Establish an empty authenticated feed now (GET returns 204),
             # then the original worker callback fills it with 120 cues.
-            root, file, _ = self._cached_en(flow, fingerprint, handoff)
+            root, file, _ = self._cached_en(flow, fingerprint, handoff, media)
             self._current(media, current.tv_session_id, fingerprint)
             with self._lock:
                 if media_key not in self._rolling:
@@ -246,8 +296,23 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
 
     @classmethod
     def _cached_en(cls, flow: object, fingerprint: str,
-                   handoff: AssumedEnglishSubtitle) -> tuple[Path, Path, bytes]:
+                   handoff: AssumedEnglishSubtitle,
+                   media: Media | None = None) -> tuple[Path, Path, bytes]:
         root = cls._root(getattr(flow, "cache_root", None))
+        if media is not None:
+            dual = DualSubtitleCatalog(root).read(media, fingerprint, "ai_en")
+            if dual is not None:
+                raw = cls._file(root, dual.file,
+                                sha=handoff.source_sha256, cues=handoff.cue_count)
+                expected = prepare_local_translation_source(
+                    CachedEnReceipt(dual.file, dual.sha256, dual.cues),
+                    private_root=root)
+                if (dual.sha256 != handoff.source_sha256
+                        or dual.cues != handoff.cue_count
+                        or expected.media_key != handoff.media_key
+                        or expected.source_bytes != handoff.source_bytes):
+                    raise P3ReadyRejected("P4_ROLLING_P2_SOURCE_MISMATCH")
+                return root, dual.file, raw
         index = root / (".auto-source-" + fingerprint + ".json")
         try:
             if index.is_symlink() or not index.is_file() or index.stat().st_size > 512:
@@ -317,7 +382,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             raise P3ReadyRejected("P4_ROLLING_VERIFIED_MEDIA_REQUIRED")
         current = self._current(media, tv_session_id, source_fingerprint)
         key = p4_key_from_verified_current(media, current)
-        root, file, _ = self._cached_en(flow, source_fingerprint, handoff)
+        root, file, _ = self._cached_en(flow, source_fingerprint, handoff, media)
         mapped = self._verified_revision(handoff, revision, key)
         # Do not register an old film after a long P2 provider call or I/O.
         latest = self._current(media, tv_session_id, source_fingerprint)

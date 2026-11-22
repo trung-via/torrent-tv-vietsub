@@ -34,12 +34,15 @@ def _preflight_cache(root: Path) -> None:
         Path(probe).unlink(missing_ok=True)
 
 
-def _claim_one_post(root: Path, filename: str, release: str) -> None:
+def _claim_one_post(root: Path, filename: str, release: str, *,
+                    marker_prefix: str = ".en-once-") -> None:
     """Owner-local, no-reset marker: once claimed, no repeat without review."""
+    if marker_prefix not in (".en-once-", ".vi-option-once-"):
+        raise SubtitleApiError("INVALID_POST_CLAIM_KIND")
     digest = hashlib.sha256(
         (filename.casefold() + "\0" + release.casefold()).encode("utf-8")
     ).hexdigest()
-    target = root / (".en-once-" + digest)
+    target = root / (marker_prefix + digest)
     if target.is_symlink():
         raise SubtitleApiError("EN_DOWNLOAD_ALREADY_ATTEMPTED")
     try:

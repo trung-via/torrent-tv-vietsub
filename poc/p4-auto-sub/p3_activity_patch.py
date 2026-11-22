@@ -106,6 +106,81 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
         }
 """
 
+P4_SOURCE_MENU = """        add("Vietsub AI (mặc định)", "AD01.14") {
+            switchP4SubtitleSource(downloadedVi = false)
+        }
+        add("Vietsub có sẵn (có thể lệch)", "AD01.15") {
+            switchP4SubtitleSource(downloadedVi = true)
+        }
+"""
+
+P4_SWITCH_SOURCE = """    /** Switch only after a new source-specific, signed P4 activation. */
+    private fun switchP4SubtitleSource(downloadedVi: Boolean) {
+        if (p4ActivationInFlight || closedSent || isFinishing || isDestroyed ||
+            !::session.isInitialized || engine !is VlcEngine) return
+        val r = session.request ?: return
+        val idx = index()
+        if (!P3SelectedMediaPublisher.viewerRequested(
+                applicationContext, r, idx, engine is VlcEngine)) {
+            showMessage("Hãy bật Vietsub AI cho phim này trước.", true)
+            return
+        }
+        val media = P1ProductionSubtitles.mediaKey(r, idx) ?: return
+        val device = P4PairingStore(applicationContext).load() ?: run {
+            showMessage("Laptop chưa được kết nối an toàn.", true)
+            return
+        }
+        p4ActivationInFlight = true
+        val gen = ++p4ActivationGeneration
+        Thread {
+            val result = try {
+                if (downloadedVi) P4ActivationClient.activateDownloadedVi(
+                    device.host, device.port, media,
+                    device.deviceSecret, device.certPinSha256)
+                else P4ActivationClient.activate(
+                    device.host, device.port, media,
+                    device.deviceSecret, device.certPinSha256)
+            } catch (_: Exception) { null }
+            device.deviceSecret.fill(0)
+            runOnUiThread {
+                if (gen != p4ActivationGeneration) {
+                    result?.sessionSecret?.fill(0)
+                    return@runOnUiThread
+                }
+                p4ActivationInFlight = false
+                if (result == null) {
+                    showMessage(if (downloadedVi)
+                        "Chưa có phụ đề Việt tải sẵn cho phim này."
+                        else "Vietsub AI chưa sẵn sàng.", true)
+                    return@runOnUiThread
+                }
+                val same = !closedSent && !isFinishing && !isDestroyed &&
+                    ::session.isInitialized && session.request === r &&
+                    index() == idx && engine is VlcEngine &&
+                    P1ProductionSubtitles.mediaKey(r, idx) == media &&
+                    P3SelectedMediaPublisher.viewerRequested(
+                        applicationContext, r, idx, engine is VlcEngine)
+                var started = false
+                if (same) {
+                    // No P4 session is destroyed until the replacement is
+                    // authenticated; old subtitles remain if it is absent.
+                    unbindP4Session()
+                    started = startP4LanSession(
+                        device.host, device.port, result.sessionId,
+                        result.sourceSha256, result.sessionSecret,
+                        device.certPinSha256)
+                }
+                result.sessionSecret.fill(0)
+                showMessage(if (started) {
+                    if (downloadedVi) "Đang nạp Vietsub có sẵn (có thể lệch)..."
+                    else "Đã chọn Vietsub AI. Đang chờ bản dịch..."
+                } else "Phim đã đổi hoặc không thể đổi phụ đề.", !started)
+            }
+        }.start()
+    }
+
+"""
+
 P3_RETRY = """    /** Bound only to explicit request, never to a native Play event. */
     private var p3ActivationAttempts = 0
     private var p3LastDelivery: Boolean? = null
@@ -241,7 +316,7 @@ def patch_activity(text: str) -> str:
             or text.count(MENU) != 1):
         raise ValueError("P3_REQUIRES_EXACT_P4_COMPOSED_SOURCE")
     rules = (
-        (FIELD, TICK + P3_RETRY + FIELD),
+        (FIELD, TICK + P3_RETRY + P4_SWITCH_SOURCE + FIELD),
         (CHOICE, CHOICE + """
         if (!choice.audio && ::session.isInitialized &&
             P1ProductionSubtitles.automaticChoice(
@@ -282,7 +357,7 @@ def patch_activity(text: str) -> str:
         p3ActivationAttempts = 0
         P3SelectedMediaPublisher.closed(applicationContext)
         commitPendingSeek()"""),
-        (P4_BUTTON, P4_BUTTON_REQUEST),
+        (P4_BUTTON, P4_BUTTON_REQUEST + P4_SOURCE_MENU),
         (P4_REVOKE, P4_REVOKE_REQUEST),
         (P4_CONNECTING_MESSAGE, P4_CONNECTING_REPLACEMENT),
         (P4_PENDING_MESSAGE, P4_PENDING_REPLACEMENT),

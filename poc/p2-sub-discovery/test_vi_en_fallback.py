@@ -84,6 +84,25 @@ class RouteTests(unittest.TestCase):
         self.assertIsNone(dual.ai_file_id)
         self.assertEqual(dual.vi_option_file_id, 7)
 
+    def test_dual_en_network_failure_keeps_vi_option_without_retry(self):
+        class FlakyEnglish(Fake):
+            def __call__(self, method, url, headers, body, cap):
+                lang = parse_qs(urlsplit(url).query)["languages"][0]
+                if lang == "en":
+                    self.calls.append((method, lang, 1))
+                    raise SubtitleApiError("API_NETWORK_ERROR")
+                return super().__call__(method, url, headers, body, cap)
+
+        fake = FlakyEnglish({("vi", 1): ([make_row(7, SAME, "vi")], 1)})
+        dual = discover_dual_candidates(
+            OpenSubtitles(api_key="TEST", transport=fake),
+            Media("profile", "hash", 0, FILM))
+        self.assertEqual(dual.default_source, "VI_OPTION")
+        self.assertIsNone(dual.ai_file_id)
+        self.assertEqual(dual.vi_option_file_id, 7)
+        self.assertEqual(dual.get_requests, 2)
+        self.assertEqual(fake.calls, [("GET", "vi", 1), ("GET", "en", 1)])
+
     def test_confident_vi_stops_before_en(self):
         route, calls = run({("vi", 1): ([make_row(7, SAME, "vi")], 1)})
         self.assertEqual(route.status, "VI_READY")

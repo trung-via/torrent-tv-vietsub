@@ -29,7 +29,10 @@ from owner_selected_file_resolver import CurrentPlaying, _fingerprint
 from p3_p4_media_key import p4_media_key
 from p3_p4_ready_registry import P3ReadyRejected
 from paired_activation import PairedActivation, activation_request_mac
+from paired_activation import variant_activation_request_mac
 from synthetic_mock_feed import synthetic_source_srt, decode_latest_test_only
+from opensubtitles import Asset, write_private_cache
+from dual_subtitle_catalog import DualSubtitleCatalog
 from test_automatic_lean120_worker import FakeAntigravity
 
 
@@ -42,6 +45,35 @@ MEDIA_KEY = p4_media_key(MEDIA, vlc_selected=True)
 
 
 class R2RollingTests(unittest.TestCase):
+    def test_opt_in_vi_option_is_independent_of_ai_progressive_feed(self):
+        raw = synthetic_source_srt().replace(b"_EN_", b"_VI_")
+        asset = Asset(55, "vi", "srt", raw, hashlib.sha256(raw).hexdigest(), 240)
+        file = write_private_cache(self.cache, MEDIA, asset)
+        DualSubtitleCatalog(self.cache).record(
+            MEDIA, FP, "downloaded_vi", asset, file, release_matched=False)
+        gateway = PairedActivation(
+            device_secret=KEY, supplied={},
+            authenticated_vietsub_factory=self.registry.resolve,
+            authenticated_progressive_factory=self.registry.resolve_progressive,
+            authenticated_variant_factory=self.registry.resolve_variant)
+        ai = gateway.activate(dict(
+            schema="TTV-P4-ACTIVATE-V1", media_key=MEDIA_KEY,
+            nonce="7" * 32, auth=activation_request_mac(KEY, MEDIA_KEY, "7" * 32)))
+        self.assertIsNone(gateway.feed_for(ai["session_id"]).latest())
+        option = gateway.activate(dict(
+            schema="TTV-P4-ACTIVATE-V2", media_key=MEDIA_KEY,
+            variant="downloaded_vi", nonce="8" * 32,
+            auth=variant_activation_request_mac(KEY, MEDIA_KEY, "8" * 32, "downloaded_vi")))
+        vi_feed = gateway.feed_for(option["session_id"])
+        self.assertEqual(decode_latest_test_only(vi_feed)["translated_count"], 240)
+        self.assertNotEqual(option["session_id"], ai["session_id"])
+        self.assertNotEqual(option["source_sha256"], ai["source_sha256"])
+        self.assertEqual(self.provider.calls, [])
+        # A changed selected film cannot reuse A's downloaded VI receipt.
+        self.current = replace(self.current, file_index=MEDIA.file_index + 1)
+        with self.assertRaises(P3ReadyRejected):
+            self.registry.resolve_variant(MEDIA_KEY, "downloaded_vi")
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

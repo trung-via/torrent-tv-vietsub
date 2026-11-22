@@ -89,6 +89,31 @@ def activation_request_mac(device_secret: bytes, media_key: str, nonce: str) -> 
                     hashlib.sha256).hexdigest()
 
 
+def variant_activation_request_mac(device_secret: bytes, media_key: str,
+                                   nonce: str, variant: str) -> str:
+    """V2 MAC binds the chosen subtitle source, not just the film."""
+    if variant != "downloaded_vi":
+        raise ValueError("P4_VARIANT_UNSUPPORTED")
+    if (not MEDIA_RX.fullmatch(media_key) or not NONCE_RX.fullmatch(nonce)
+            or not isinstance(device_secret, bytes) or len(device_secret) != 32):
+        raise ValueError("P4_ACTIVATION_REQUEST_INVALID")
+    return hmac.new(device_secret,
+                    ("TTV-P4-ACTIVATE-V2\n" + media_key + "\n" + nonce + "\n" + variant).encode("ascii"),
+                    hashlib.sha256).hexdigest()
+
+
+def variant_activation_response_mac(device_secret: bytes, media_key: str,
+                                    nonce: str, session_id: str,
+                                    source_sha256: str, variant: str) -> str:
+    derive_session_secret(device_secret, session_id, media_key, source_sha256)
+    if variant != "downloaded_vi":
+        raise ValueError("P4_VARIANT_UNSUPPORTED")
+    return hmac.new(device_secret,
+                    ("TTV-P4-ACTIVATED-V2\n" + media_key + "\n" + nonce + "\n"
+                     + session_id + "\n" + source_sha256 + "\n" + variant).encode("ascii"),
+                    hashlib.sha256).hexdigest()
+
+
 def activation_response_mac(device_secret: bytes, media_key: str, nonce: str,
                             session_id: str, source_sha256: str) -> str:
     derive_session_secret(device_secret, session_id,media_key,source_sha256)
@@ -111,7 +136,8 @@ class PairedActivation:
                  authenticated_mock_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None,
                  authenticated_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None,
                  authenticated_vietsub_factory: Callable[[str], VerifiedVietsubReady] | None = None,
-                 authenticated_progressive_factory: Callable[[str], AuthenticatedProgressiveSource | None] | None = None):
+                 authenticated_progressive_factory: Callable[[str], AuthenticatedProgressiveSource | None] | None = None,
+                 authenticated_variant_factory: Callable[[str, str], VerifiedVietsubReady | None] | None = None):
         if not isinstance(device_secret, bytes) or len(device_secret) != 32:
             raise ValueError("P4_DEVICE_SECRET_INVALID")
         if len(supplied) > 32 or any(
@@ -126,7 +152,8 @@ class PairedActivation:
             not callable(authenticated_mock_source_factory) or supplied or
             authenticated_source_factory is not None or
             authenticated_vietsub_factory is not None or
-            authenticated_progressive_factory is not None
+            authenticated_progressive_factory is not None or
+            authenticated_variant_factory is not None
         ):
             raise ValueError("P4_MOCK_SOURCE_FACTORY_SCOPE_INVALID")
         if authenticated_source_factory is not None and not callable(authenticated_source_factory):
@@ -141,8 +168,13 @@ class PairedActivation:
                  authenticated_source_factory is not None or
                  on_activate is not None)):
             raise ValueError("P4_PROGRESSIVE_FACTORY_SCOPE_INVALID")
+        if (authenticated_variant_factory is not None and
+                (not callable(authenticated_variant_factory) or supplied
+                 or authenticated_source_factory is not None or on_activate is not None)):
+            raise ValueError("P4_VARIANT_FACTORY_SCOPE_INVALID")
         self.__vietsub_factory = authenticated_vietsub_factory
         self.__progressive_factory = authenticated_progressive_factory
+        self.__variant_factory = authenticated_variant_factory
         self.__mock_factory = authenticated_mock_source_factory
         self.__source_factory = authenticated_source_factory
         self.__locked_mock_media: str | None = None
@@ -155,15 +187,23 @@ class PairedActivation:
         self.__lock = Lock()
 
     def activate(self, request: dict[str, object]) -> dict[str, object]:
-        if not isinstance(request,dict) or set(request)!={"schema","media_key","nonce","auth"}:
+        if not isinstance(request, dict):
+            raise ValueError("P4_ACTIVATE_SCHEMA_INVALID")
+        variant_mode = request.get("schema") == "TTV-P4-ACTIVATE-V2"
+        if set(request) != ({"schema", "media_key", "nonce", "auth", "variant"}
+                            if variant_mode else {"schema", "media_key", "nonce", "auth"}):
             raise ValueError("P4_ACTIVATE_SCHEMA_INVALID")
         media,nonce,tag = (request[x] for x in ("media_key","nonce","auth"))
-        if (request["schema"]!="TTV-P4-ACTIVATE-V1" or
+        if (request["schema"] not in ("TTV-P4-ACTIVATE-V1", "TTV-P4-ACTIVATE-V2") or
             not isinstance(media,str) or not MEDIA_RX.fullmatch(media) or
             not isinstance(nonce,str) or not NONCE_RX.fullmatch(nonce) or
             not isinstance(tag,str) or not MAC_RX.fullmatch(tag)):
             raise ValueError("P4_ACTIVATE_SCHEMA_INVALID")
-        expected = activation_request_mac(self.__key,media,nonce)
+        variant = request.get("variant") if variant_mode else None
+        if variant_mode and variant != "downloaded_vi":
+            raise ValueError("P4_ACTIVATE_SCHEMA_INVALID")
+        expected = (variant_activation_request_mac(self.__key, media, nonce, variant)
+                    if variant_mode else activation_request_mac(self.__key, media, nonce))
         if not hmac.compare_digest(expected,tag):
             raise ValueError("P4_ACTIVATE_AUTH_INVALID")
         now = time.monotonic()
@@ -171,8 +211,8 @@ class PairedActivation:
             self.__seen={n:t for n,t in self.__seen.items() if now-t<600.0}
             if nonce in self.__seen or len(self.__seen)>=1024:
                 raise ValueError("P4_ACTIVATE_REPLAY")
-            source = self.__sources.get(media)
-            if source is None and self.__mock_factory is not None:
+            source = None if variant_mode else self.__sources.get(media)
+            if source is None and not variant_mode and self.__mock_factory is not None:
                 # Only happens AFTER a valid per-device HMAC was checked.
                 # A wrong MAC, malformed input or other PC cannot register
                 # any media. Never discover or accept real subtitle content.
@@ -185,7 +225,7 @@ class PairedActivation:
                 source = candidate
                 self.__sources[media] = source
                 self.__locked_mock_media = media
-            if source is None and self.__source_factory is not None:
+            if source is None and not variant_mode and self.__source_factory is not None:
                 # After HMAC validation only: resolve an exact local, owner-
                 # approved EN handoff. No blind first-film fallback for real
                 # subtitles or paid AI calls.
@@ -199,7 +239,7 @@ class PairedActivation:
                 source = candidate
                 self.__sources[media] = source
             progressive = None
-            if source is None and self.__progressive_factory is not None:
+            if source is None and not variant_mode and self.__progressive_factory is not None:
                 candidate = self.__progressive_factory(media)
                 if candidate is not None:
                     if (not isinstance(candidate, AuthenticatedProgressiveSource)
@@ -212,7 +252,7 @@ class PairedActivation:
                         raise ValueError("P4_PROGRESSIVE_SOURCE_MISMATCH")
                     progressive = candidate
             ready = None
-            if (source is None and progressive is None
+            if (source is None and progressive is None and not variant_mode
                     and self.__vietsub_factory is not None):
                 # The ready registry is populated ONLY by the existing owner
                 # VI_FAST or EN→LEAN120 completion, never by a bare Play.
@@ -223,6 +263,14 @@ class PairedActivation:
                     raise ValueError("P4_READY_FACTORY_MEDIA_MISMATCH")
                 candidate.as_final_revision()  # strict hash/cues/timeline
                 ready = candidate
+            if variant_mode and self.__variant_factory is not None:
+                candidate = self.__variant_factory(media, variant)
+                if candidate is not None:
+                    if (not isinstance(candidate, VerifiedVietsubReady)
+                            or candidate.media_key != media):
+                        raise ValueError("P4_VARIANT_SOURCE_MISMATCH")
+                    candidate.as_final_revision()
+                    ready = candidate
             if source is None and ready is None and progressive is None:
                 raise ValueError("P4_ASSUMED_SOURCE_MISSING")
             if len(self.__feeds)>=16:
@@ -258,12 +306,18 @@ class PairedActivation:
             except Exception:
                 with self.__lock:self.__feeds.pop(sid,None)
                 raise ValueError("P4_TRANSLATION_START_FAILED") from None
-        return {
-            "schema":"TTV-P4-ACTIVATED-V1",
+        response = {
+            "schema":"TTV-P4-ACTIVATED-V2" if variant_mode else "TTV-P4-ACTIVATED-V1",
             "media_key":media,"nonce":nonce,
             "session_id":sid,"source_sha256":source_sha,
-            "auth":activation_response_mac(self.__key,media,nonce,sid,source_sha),
+            "auth":(variant_activation_response_mac(
+                self.__key, media, nonce, sid, source_sha, variant)
+                if variant_mode else activation_response_mac(
+                    self.__key, media, nonce, sid, source_sha)),
         }
+        if variant_mode:
+            response["variant"] = variant
+        return response
 
     def feed_for(self, session_id: str) -> SessionRevisionFeed | None:
         with self.__lock:return self.__feeds.get(session_id)

@@ -30,6 +30,18 @@ internal object P4ActivationClient {
     internal fun activate(
         host: String, port: Int, mediaKey: String, deviceSecret: ByteArray,
         certPinSha256: String,
+    ): Activated = activateSource(host, port, mediaKey, deviceSecret, certPinSha256, null)
+
+    /** Explicit manual VI alternative; AI remains the legacy default. */
+    internal fun activateDownloadedVi(
+        host: String, port: Int, mediaKey: String, deviceSecret: ByteArray,
+        certPinSha256: String,
+    ): Activated = activateSource(
+        host, port, mediaKey, deviceSecret, certPinSha256, "downloaded_vi")
+
+    private fun activateSource(
+        host: String, port: Int, mediaKey: String, deviceSecret: ByteArray,
+        certPinSha256: String, variant: String?,
     ): Activated {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw IllegalStateException("P4_ACTIVATE_MAIN_THREAD_FORBIDDEN")
@@ -39,13 +51,20 @@ internal object P4ActivationClient {
         }
         val nonce = ByteArray(16).also { SecureRandom().nextBytes(it) }
             .joinToString("") { "%02x".format(it.toInt() and 255) }
+        if (variant != null && variant != "downloaded_vi") {
+            throw IllegalArgumentException("P4_VARIANT_UNSUPPORTED")
+        }
+        val schema = if (variant == null) "TTV-P4-ACTIVATE-V1" else "TTV-P4-ACTIVATE-V2"
+        val canonical = if (variant == null) "TTV-P4-ACTIVATE-V1\n$mediaKey\n$nonce"
+            else "TTV-P4-ACTIVATE-V2\n$mediaKey\n$nonce\n$variant"
         val request = JSONObject()
-            .put("schema", "TTV-P4-ACTIVATE-V1")
+            .put("schema", schema)
             .put("media_key", mediaKey)
             .put("nonce", nonce)
-            .put("auth", sign(deviceSecret,"TTV-P4-ACTIVATE-V1\n$mediaKey\n$nonce"))
-            .toString().toByteArray(Charsets.US_ASCII)
-        if (request.size > 800) throw IllegalArgumentException("P4_ACTIVATE_SIZE_INVALID")
+            .put("auth", sign(deviceSecret,canonical))
+        if (variant != null) request.put("variant", variant)
+        val wire = request.toString().toByteArray(Charsets.US_ASCII)
+        if (wire.size > 800) throw IllegalArgumentException("P4_ACTIVATE_SIZE_INVALID")
         val conn = P4PinnedTls.open(
             P4LanClient.activationEndpoint(host,port),certPinSha256)
         try {
@@ -56,8 +75,8 @@ internal object P4ActivationClient {
             conn.useCaches = false
             conn.doOutput = true
             conn.setRequestProperty("Content-Type","application/json")
-            conn.setFixedLengthStreamingMode(request.size)
-            conn.outputStream.use { it.write(request) }
+            conn.setFixedLengthStreamingMode(wire.size)
+            conn.outputStream.use { it.write(wire) }
             if (conn.responseCode != 200) throw IllegalArgumentException("P4_ACTIVATE_NOT_READY")
             if (conn.contentType?.substringBefore(';')!="application/json") {
                 throw IllegalArgumentException("P4_ACTIVATE_CONTENT_TYPE_INVALID")
@@ -74,8 +93,11 @@ internal object P4ActivationClient {
             }
             val data=JSONObject(out.toString("UTF-8"))
             val keys=data.keys().asSequence().toSet()
-            if (keys!=setOf("schema","media_key","nonce","session_id","source_sha256","auth") ||
-                data.getString("schema")!="TTV-P4-ACTIVATED-V1" ||
+            val responseKeys = setOf("schema","media_key","nonce","session_id","source_sha256","auth") +
+                (if (variant == null) emptySet() else setOf("variant"))
+            if (keys != responseKeys ||
+                data.getString("schema") != (if (variant == null) "TTV-P4-ACTIVATED-V1" else "TTV-P4-ACTIVATED-V2") ||
+                (variant != null && data.getString("variant") != variant) ||
                 data.getString("media_key")!=mediaKey || data.getString("nonce")!=nonce) {
                 throw IllegalArgumentException("P4_ACTIVATE_SCOPE_INVALID")
             }
@@ -85,8 +107,10 @@ internal object P4ActivationClient {
             if (!SESSION.matches(session) || !SHA.matches(source) || !SHA.matches(tag)) {
                 throw IllegalArgumentException("P4_ACTIVATE_RESPONSE_INVALID")
             }
-            val expected=sign(deviceSecret,
-                "TTV-P4-ACTIVATED-V1\n$mediaKey\n$nonce\n$session\n$source")
+            val responseCanonical = if (variant == null)
+                "TTV-P4-ACTIVATED-V1\n$mediaKey\n$nonce\n$session\n$source"
+            else "TTV-P4-ACTIVATED-V2\n$mediaKey\n$nonce\n$session\n$source\n$variant"
+            val expected=sign(deviceSecret,responseCanonical)
             val actual=ByteArray(32){ i->tag.substring(i*2,i*2+2).toInt(16).toByte() }
             val correct=ByteArray(32){ i->expected.substring(i*2,i*2+2).toInt(16).toByte() }
             if (!MessageDigest.isEqual(actual,correct)) {

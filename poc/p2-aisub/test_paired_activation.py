@@ -12,9 +12,11 @@ from assumed_source_handoff import AssumedEnglishSubtitle
 from paired_activation import (
     AuthenticatedProgressiveSource,PairedActivation,
     activation_request_mac,activation_response_mac,
+    variant_activation_request_mac,variant_activation_response_mac,
     create_paired_server,derive_session_secret,make_paired_handler,
 )
 from lan_revision_feed import SessionRevisionFeed
+from verified_vietsub_ready import VerifiedVietsubReady
 
 MEDIA="media."+"a"*64
 OTHER="media."+"b"*64
@@ -27,6 +29,39 @@ def src():
 
 
 class PCActivationTests(unittest.TestCase):
+    def test_v2_vi_option_is_separate_signed_session_and_never_auto_selected(self):
+        vi = b"1\n00:00:01,000 --> 00:00:01,850\nSynthetic Vietnamese\n"
+        calls = []
+        def factory(key, variant):
+            calls.append((key, variant))
+            return VerifiedVietsubReady.from_verified_bytes(
+                media_key=key, source_language="vi",
+                source_bytes=vi, vietsub_bytes=vi)
+        gateway = PairedActivation(
+            device_secret=MASTER, supplied={},
+            authenticated_variant_factory=factory,
+        )
+        nonce = "8" * 32
+        request = {"schema": "TTV-P4-ACTIVATE-V2", "media_key": MEDIA,
+                   "nonce": nonce, "variant": "downloaded_vi",
+                   "auth": variant_activation_request_mac(MASTER, MEDIA, nonce, "downloaded_vi")}
+        tampered = dict(request, auth=activation_request_mac(MASTER, MEDIA, nonce))
+        with self.assertRaisesRegex(ValueError, "AUTH_INVALID"):
+            gateway.activate(tampered)
+        self.assertEqual(calls, [])
+        reply = gateway.activate(request)
+        self.assertEqual(reply["schema"], "TTV-P4-ACTIVATED-V2")
+        self.assertEqual(reply["variant"], "downloaded_vi")
+        self.assertEqual(reply["auth"], variant_activation_response_mac(
+            MASTER, MEDIA, nonce, reply["session_id"], reply["source_sha256"],
+            "downloaded_vi"))
+        self.assertEqual(gateway.feed_for(reply["session_id"]).latest() is not None, True)
+        self.assertEqual(calls, [(MEDIA, "downloaded_vi")])
+        with self.assertRaisesRegex(ValueError, "REPLAY"):
+            gateway.activate(request)
+        with self.assertRaisesRegex(ValueError, "SCHEMA_INVALID"):
+            gateway.activate(dict(request, variant="ai_en"))
+
     def setUp(self):
         self.handoff=AssumedEnglishSubtitle.from_supplied(
             media_key=MEDIA,fmt="srt",source_bytes=src())

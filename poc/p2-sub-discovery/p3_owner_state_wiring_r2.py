@@ -55,7 +55,8 @@ def compose_owner_redmi_status(**kwargs) -> R2OwnerP3StatusComposition:
     gateway = PairedActivation(
         device_secret=secret, supplied={},
         authenticated_vietsub_factory=registry.resolve,
-        authenticated_progressive_factory=registry.resolve_progressive)
+        authenticated_progressive_factory=registry.resolve_progressive,
+        authenticated_variant_factory=registry.resolve_variant)
     handler = make_p3_p4_handler_r0(
         gateway, wiring.signal, wiring.cache, wiring.ingress)
     fields = vars(wiring).copy()

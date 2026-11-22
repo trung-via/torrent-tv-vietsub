@@ -99,8 +99,16 @@ def discover_dual_candidates(client: OpenSubtitles, media: Media, *,
         if str(error) != "API_NETWORK_ERROR":
             raise
         vi_gets = 1  # One failed bounded GET; do not retry.
-    en, _complete, en_gets = _discover_complete(
-        client, media, language="en", imdb_id=imdb_id, max_pages=2)
+    en = _empty_discovery(media)
+    try:
+        en, _complete, en_gets = _discover_complete(
+            client, media, language="en", imdb_id=imdb_id, max_pages=2)
+    except SubtitleApiError as error:
+        if str(error) != "API_NETWORK_ERROR":
+            raise
+        # A transient EN network failure must not discard a separately
+        # eligible, explicitly labelled VI option. Do not retry the GET.
+        en_gets = 1
     ai = en.decision.winner if en.decision.status == "EN_TRANSLATE" else None
     option = _vi_option(media, vi)
     return DualCandidates(

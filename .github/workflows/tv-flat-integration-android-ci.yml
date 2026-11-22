@@ -23,7 +23,9 @@ jobs:
       github.event.pull_request.base.ref == 'main' &&
       (startsWith(github.event.pull_request.head.ref, 'feature/r0-flat-') ||
        (github.event.pull_request.number == 178 &&
-        github.event.pull_request.head.ref == 'fix/full-flow-p2-p4-telemetry-20261121'))
+        github.event.pull_request.head.ref == 'fix/full-flow-p2-p4-telemetry-20261121') ||
+       (github.event.pull_request.number == 179 &&
+        github.event.pull_request.head.ref == 'fix/p2-dual-candidates-20261122'))
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -67,7 +69,9 @@ jobs:
       github.event.pull_request.base.ref == 'main' &&
       (startsWith(github.event.pull_request.head.ref, 'feature/r0-flat-') ||
        (github.event.pull_request.number == 178 &&
-        github.event.pull_request.head.ref == 'fix/full-flow-p2-p4-telemetry-20261121'))
+        github.event.pull_request.head.ref == 'fix/full-flow-p2-p4-telemetry-20261121') ||
+       (github.event.pull_request.number == 179 &&
+        github.event.pull_request.head.ref == 'fix/p2-dual-candidates-20261122'))
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 100
     steps:

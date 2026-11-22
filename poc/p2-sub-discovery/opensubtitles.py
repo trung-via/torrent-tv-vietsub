@@ -352,16 +352,33 @@ def write_private_cache(directory: Path, media: Media, asset: Asset) -> Path:
 
 class OpenSubtitles:
     def __init__(self, *, api_key: str, bearer: str | None = None,
-                 transport: Transport = urllib_transport):
+                 transport: Transport = urllib_transport,
+                 allow_dual_downloads: bool = False):
         if not isinstance(api_key, str) or not api_key.strip() or "\n" in api_key or "\r" in api_key:
             raise SubtitleApiError("API_KEY_NOT_CONFIGURED")
         if bearer is not None and (not isinstance(bearer, str) or not bearer.strip()
                                    or "\r" in bearer or "\n" in bearer):
             raise SubtitleApiError("INVALID_BEARER_TOKEN")
+        if type(allow_dual_downloads) is not bool:
+            raise SubtitleApiError("INVALID_DUAL_DOWNLOAD_MODE")
         self._api_key = api_key
         self._bearer = bearer
         self._transport = transport
         self._manual_post_attempted = False
+        self._allow_dual_downloads = allow_dual_downloads
+        self._attempted_languages: set[str] = set()
+
+    def _reserve_manual_post(self, language: str) -> None:
+        # Legacy trial contract allows ONE POST per client. Dual owner mode
+        # permits at most ONE distinct source per language, independently.
+        if self._allow_dual_downloads:
+            if language in self._attempted_languages:
+                raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
+            self._attempted_languages.add(language)
+        else:
+            if self._manual_post_attempted:
+                raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
+            self._manual_post_attempted = True
 
     def _request(self, method: str, url: str, *, api: bool,
                  payload: dict | None = None,
@@ -452,11 +469,9 @@ class OpenSubtitles:
                   and "title" in item.evidence]
         if len(matching) != 1 or len(ranked) != 1:
             raise SubtitleApiError("NO_APPROVED_MANUAL_CANDIDATE")
-        if self._manual_post_attempted:
-            raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
         # Latch BEFORE POST: a provider/network/QA failure never silently
         # triggers another quota-bearing request for this client session.
-        self._manual_post_attempted = True
+        self._reserve_manual_post("vi")
         # Request exactly one SRT output. The source file extension is only a
         # hint and cannot certify the returned byte stream or synchronization.
         response = _json(self._request("POST", BASE_URL + "/download", api=True,
@@ -492,10 +507,8 @@ class OpenSubtitles:
                     and c.subtitle.language == "en"]
         if len(matching) != 1:
             raise SubtitleApiError("NO_CONFIDENT_EN_CANDIDATE")
-        if self._manual_post_attempted:
-            raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
         # Set latch before the first quota-bearing POST, including failures.
-        self._manual_post_attempted = True
+        self._reserve_manual_post("en")
         response = _json(self._request("POST", BASE_URL + "/download", api=True,
                                        payload={"file_id": file_id,
                                                 "sub_format": "srt"}))
@@ -507,6 +520,41 @@ class OpenSubtitles:
         contents = _repair_provider_srt(contents)
         cues = validate_timed_text(contents, "srt")
         return Asset(file_id, "en", "srt", contents,
+                     hashlib.sha256(contents).hexdigest(), cues)
+
+    def download_optional_vi(self, media: Media, discovery: Discovery, *,
+                             file_id: int) -> Asset:
+        """Dual owner-only VI candidate; never claim release sync confidence.
+
+        Only called after an explicit current viewer request. The candidate
+        must pass the narrow optional-VI title/year/release conflict screen.
+        This consumes its own quota unit, independent of EN in dual mode.
+        """
+        if not self._allow_dual_downloads:
+            raise SubtitleApiError("DUAL_OPTION_NOT_ENABLED")
+        if (discovery.media_key != media.key or
+                discovery.results.media_key != media.key or
+                type(file_id) is not int or file_id <= 0):
+            raise SubtitleApiError("MEDIA_BINDING_MISMATCH")
+        from vi_en_fallback import _vi_option
+        choice = _vi_option(media, discovery)
+        if choice is None or choice.subtitle_id != str(file_id):
+            raise SubtitleApiError("NO_ELIGIBLE_VI_OPTION")
+        matching = [c for c in discovery.candidates
+                    if c.file_id == file_id and c.subtitle.language == "vi"]
+        if len(matching) != 1:
+            raise SubtitleApiError("CANDIDATE_BINDING_MISMATCH")
+        self._reserve_manual_post("vi")
+        response = _json(self._request(
+            "POST", BASE_URL + "/download", api=True,
+            payload={"file_id": file_id, "sub_format": "srt"}))
+        link = response.get("link")
+        if not isinstance(link, str):
+            raise SubtitleApiError("BAD_DOWNLOAD_SCHEMA")
+        _safe_https(link, api=False)
+        contents = _repair_provider_srt(self._request("GET_BINARY", link, api=False))
+        cues = validate_timed_text(contents, "srt")
+        return Asset(file_id, "vi", "srt", contents,
                      hashlib.sha256(contents).hexdigest(), cues)
 
     def download_selected(self, media: Media, discovery: Discovery) -> Asset:

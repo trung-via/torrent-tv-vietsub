@@ -215,7 +215,19 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn("P3SelectedMediaPublisher.cancelViewer(", self.patched)
         self.assertIn("handler.removeCallbacks(p3ActivationTick)", self.patched)
         self.assertIn("p4ActivationGeneration++", self.patched)
-        self.assertNotIn("startP4LanSession(", self.patched)
+        # Source switching may start a *separately authenticated* session;
+        # the 15s retry tick itself must not bypass legacy activation.
+        retry = self.patched.split("private val p3ActivationTick =", 1)[1].split(
+            "private fun switchP4SubtitleSource(", 1)[0]
+        self.assertNotIn("startP4LanSession(", retry)
+
+    def test_explicit_ai_and_downloaded_vi_source_menu(self):
+        self.assertIn('"Vietsub AI (mặc định)"', self.patched)
+        self.assertIn('"Vietsub có sẵn (có thể lệch)"', self.patched)
+        self.assertIn('P4ActivationClient.activateDownloadedVi(', self.patched)
+        self.assertIn('P4ActivationClient.activate(', self.patched)
+        self.assertIn("if (result == null)", self.patched)
+        self.assertIn("if (same) {", self.patched)
 
     def test_exact_pr178_build_only_ci_gate_without_adb_side_effect(self):
         repo = HERE.parents[1]

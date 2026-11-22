@@ -23,6 +23,7 @@ for _sibling in ("p2-aisub", "p3-vietsub-trigger"):
         sys.path.insert(0, _path)
 
 from automatic_vietsub_flow import AutoResult
+from dual_subtitle_catalog import DualSubtitleCatalog
 from owner_selected_file_resolver import CurrentPlaying, _fingerprint
 from p3_p4_media_key import p4_key_from_verified_current
 from matcher import Media
@@ -129,8 +130,19 @@ class P3OwnerReadyRegistry:
 
     @classmethod
     def _source(cls, *, flow: object, fingerprint: str,
+                media: Media,
                 result: AutoResult) -> tuple[Path, str, str, int, bytes]:
         cache = cls._root(getattr(flow, "cache_root", None))
+        # V2 two-source mode: independent EN→AI and downloaded-VI receipts.
+        # Never mistake a legacy VI index for the new AI source.
+        if getattr(flow, "dual_mode", False) is True:
+            kind = "ai_en" if result.status == "VIETSUB_READY" else "downloaded_vi"
+            receipt = DualSubtitleCatalog(cache).read(media, fingerprint, kind)
+            if receipt is None or receipt.cues != result.cue_count:
+                raise P3ReadyRejected("P3_READY_DUAL_SOURCE_MISSING")
+            raw = cls._file(cache, receipt.file,
+                            sha=receipt.sha256, cues=receipt.cues)
+            return receipt.file, ("en" if kind == "ai_en" else "vi"), receipt.sha256, receipt.cues, raw
         index = cache / (".auto-source-" + fingerprint + ".json")
         try:
             if (index.is_symlink() or not index.is_file()
@@ -218,7 +230,8 @@ class P3OwnerReadyRegistry:
         current = self._current(media, tv_session_id, source_fingerprint)
         media_key = p4_key_from_verified_current(media, current)
         source_file, origin, source_sha, cues, source = self._source(
-            flow=flow, fingerprint=source_fingerprint, result=result)
+            flow=flow, fingerprint=source_fingerprint,
+            media=media, result=result)
         if origin == "vi":
             finished, sha = source_file, source_sha
         else:

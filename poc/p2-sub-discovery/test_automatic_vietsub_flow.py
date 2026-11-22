@@ -15,6 +15,7 @@ from automatic_vietsub_flow import (
 )
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache
 from matcher import Media
+from dual_subtitle_catalog import DualSubtitleCatalog
 from automatic_lean120_worker import AutomaticLean120Worker
 from lean120_api import ModelProfile
 from fake_antigravity_cli import FakeAntigravity
@@ -72,6 +73,108 @@ class FakeProvider:
 
 
 class AutomaticFlowTests(unittest.TestCase):
+    def _dual(self):
+        return AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic-ost-key",
+                                 transport=self.provider,
+                                 allow_dual_downloads=True),
+            worker=self.worker, cache_root=self.cache,
+            permissions=AutoPermissions(True, True), dual_mode=True,
+            emit=self.events.append)
+
+    def test_ai_default_with_independent_vi_option_two_provider_posts(self):
+        self.provider.vi = (row(8, VI, "vi"),)
+        media = Media("owner", "a" * 40, 2, VIDEO)
+        fp = hashlib.sha256("\x00".join((
+            media.server_profile_id, media.torrent_hash,
+            str(media.file_index))).encode()).hexdigest()
+        dual = self._dual()
+        result = dual.selected_media(VIDEO, verified_media=media,
+                                     source_fingerprint=fp)
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertEqual((result.get_requests, result.download_posts), (2, 2))
+        self.assertEqual([x[0] for x in self.provider.calls],
+                         ["GET", "GET", "POST", "GET_BINARY", "POST", "GET_BINARY"])
+        self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
+        catalog = DualSubtitleCatalog(self.cache)
+        vi = catalog.read(media, fp, "downloaded_vi")
+        ai = catalog.read(media, fp, "ai_en")
+        self.assertIsNotNone(vi)
+        self.assertIsNotNone(ai)
+        self.assertNotEqual(vi.file, ai.file)
+        before = list(self.provider.calls)
+        again = self._dual().selected_media(
+            VIDEO, verified_media=media, source_fingerprint=fp)
+        self.assertEqual(again.status, "VIETSUB_READY")
+        self.assertEqual(self.provider.calls, before)
+        self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
+
+    def test_existing_vi_source_is_preserved_when_ai_is_added(self):
+        self.provider.vi = (row(8, VI, "vi"),)
+        media = Media("owner", "a" * 40, 2, VIDEO)
+        fp = hashlib.sha256("\x00".join((
+            media.server_profile_id, media.torrent_hash,
+            str(media.file_index))).encode()).hexdigest()
+        original = self.flow.selected_media(
+            VIDEO, verified_media=media, source_fingerprint=fp)
+        self.assertEqual(original.status, "VI_READY")
+        old_index = self.flow._cache_index(VIDEO, source_fingerprint=fp)
+        prior = old_index.read_bytes()
+        self.provider.calls.clear()
+        new = self._dual().selected_media(
+            VIDEO, verified_media=media, source_fingerprint=fp)
+        self.assertEqual(new.status, "VIETSUB_READY")
+        self.assertEqual(old_index.read_bytes(), prior)
+        catalog = DualSubtitleCatalog(self.cache)
+        self.assertIsNotNone(catalog.read(media, fp, "downloaded_vi"))
+        self.assertIsNotNone(catalog.read(media, fp, "ai_en"))
+        self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 1)
+
+    def test_existing_ai_source_adds_vi_option_without_retranslating(self):
+        media = Media("owner", "a" * 40, 2, VIDEO)
+        fp = hashlib.sha256("\x00".join((
+            media.server_profile_id, media.torrent_hash,
+            str(media.file_index))).encode()).hexdigest()
+        old = self.flow.selected_media(
+            VIDEO, verified_media=media, source_fingerprint=fp)
+        self.assertEqual(old.status, "VIETSUB_READY")
+        model_calls = len(self.gemini.calls)
+        legacy = self.flow._cache_index(VIDEO, source_fingerprint=fp).read_bytes()
+        self.provider.vi = (row(8, VI, "vi"),)
+        self.provider.calls.clear()
+        upgraded = self._dual().selected_media(
+            VIDEO, verified_media=media, source_fingerprint=fp)
+        self.assertEqual(upgraded.status, "VIETSUB_READY")
+        self.assertEqual(len(self.gemini.calls), model_calls)
+        self.assertEqual([m for m, _ in self.provider.calls].count("POST"), 1)
+        catalog = DualSubtitleCatalog(self.cache)
+        self.assertIsNotNone(catalog.read(media, fp, "ai_en"))
+        self.assertIsNotNone(catalog.read(media, fp, "downloaded_vi"))
+        self.assertEqual(self.flow._cache_index(VIDEO, source_fingerprint=fp).read_bytes(),
+                         legacy)
+
+    def test_optional_vi_post_failure_does_not_block_ai_translation(self):
+        self.provider.vi = (row(8, VI, "vi"),)
+        original = self.provider.__call__
+        class ViOnlyFailure:
+            def __call__(_, method, url, headers, body, cap):
+                if method == "POST" and json.loads(body)["file_id"] == 8:
+                    self.provider.calls.append((method, url))
+                    raise SubtitleApiError("API_NETWORK_ERROR")
+                return original(method, url, headers, body, cap)
+        media = Media("owner", "a" * 40, 2, VIDEO)
+        fp = hashlib.sha256("\x00".join((
+            media.server_profile_id, media.torrent_hash,
+            str(media.file_index))).encode()).hexdigest()
+        dual = self._dual()
+        dual.client._transport = ViOnlyFailure()
+        result = dual.selected_media(
+            VIDEO, verified_media=media, source_fingerprint=fp)
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 2)
+        self.assertIn("AUTO_DUAL_VI_OPTION_DOWNLOAD=UNAVAILABLE", self.events)
+        self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
+
     def test_cyrillic_video_uses_verified_torrent_title_and_reuses_cache(self):
         name = "Пример.2017.BDRip-HEVC.1080p.mkv"
         media = Media("owner-server", "a" * 40, 2, name,
