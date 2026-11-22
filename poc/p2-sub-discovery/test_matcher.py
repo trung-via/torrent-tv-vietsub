@@ -104,6 +104,40 @@ class MatcherTests(unittest.TestCase):
         self.assertNotIn("group", selected.winner.evidence)
         self.assertNotIn("codec", selected.winner.evidence)
 
+    def test_missing_provider_source_accepts_unique_year_resolution_codec(self):
+        media = Media("home", "torrent", 0, "Sample.Film.2017.1080p.BDRip.HEVC.mkv")
+        candidate = Subtitle("en42", "Sample.Film.2017.1080p.HEVC.en.srt", "en")
+        decision = choose(media, batch(media, candidate))
+        self.assertEqual(decision.status, "EN_TRANSLATE")
+        self.assertEqual(decision.winner.subtitle_id, "en42")
+        self.assertNotIn("source", decision.winner.evidence)
+
+    def test_cyrillic_torrent_alias_accepts_english_without_the(self):
+        media = Media("home", "torrent", 1,
+                      "Пример.2017.BDRip-HEVC.1080p.mkv",
+                      torrent_title="Пример / The Example Film (2017) BDRip-HEVC 1080p | P | Voice")
+        candidate = Subtitle("en11", "Example.Film.2017.1080p.HEVC.eng.srt", "en")
+        decision = choose(media, batch(media, candidate))
+        self.assertEqual(decision.status, "EN_TRANSLATE")
+        self.assertEqual(decision.winner.subtitle_id, "en11")
+
+    def test_conflicting_top_score_does_not_veto_only_confident_source(self):
+        media = film()
+        conflicting = Subtitle("unrelated-cut",
+                               "Sample.Film.2017.1080p.BluRay.x265-OTHER.srt", "en")
+        viable = Subtitle("viable", "Sample.Film.2017.1080p.x265.eng.srt", "en")
+        result = choose(media, batch(media, conflicting, viable))
+        self.assertGreater(result.ranked[0].score, result.ranked[1].score)
+        self.assertFalse(result.ranked[0].confident)
+        self.assertEqual(result.status, "EN_TRANSLATE")
+        self.assertEqual(result.winner.subtitle_id, "viable")
+
+    def test_missing_source_needs_two_other_release_clues(self):
+        media = Media("home", "torrent", 0, "Sample.Film.2017.1080p.BDRip.HEVC.mkv")
+        too_vague = Subtitle("weak", "Sample.Film.2017.1080p.eng.srt", "en")
+        decision = choose(media, batch(media, too_vague))
+        self.assertEqual(decision.status, "REVIEW_REQUIRED")
+
     def test_missing_group_does_not_override_known_source_conflict(self):
         media = Media("home", "torrent", 0, "Sample.Film.2017.1080p.WEB-DL.mkv")
         different = Subtitle("en20", "Sample.Film.2017.1080p.BluRay_eng.srt", "en")

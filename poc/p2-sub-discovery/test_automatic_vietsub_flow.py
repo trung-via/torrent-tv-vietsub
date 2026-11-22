@@ -153,6 +153,12 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual([x[0] for x in self.provider.calls], ["GET", "GET"])
         self.assertEqual(self.gemini.calls, [])
         self.assertFalse(self.cache.exists())
+        self.assertIn("AUTO_SOURCE_ROUTE_REASON=NO_CONFIDENT_UNAMBIGUOUS_RELEASE", self.events)
+        self.assertIn("AUTO_EN_RAW_ROWS=1", self.events)
+        self.assertIn("AUTO_EN_RANKED=1", self.events)
+        self.assertIn("AUTO_EN_CONFIDENT=0", self.events)
+        self.assertIn("AUTO_PROVIDER_GET_REQUESTS=2", self.events)
+        self.assertTrue(all("PRIVATE_TOKEN" not in value for value in self.events))
 
     def test_permissions_off_no_network_or_prompts(self):
         flow = AutomaticVietsubFlow(

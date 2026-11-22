@@ -397,7 +397,37 @@ class AutomaticVietsubFlow:
                     "VIETSUB_READY", cue_count=en_asset.cues,
                     translated_cues=translated.translated_cues,
                     get_requests=route.get_requests)
+        # Owner-private, bounded evidence for the *real* provider response.
+        # Do not emit raw releases, file IDs, torrent IDs, URLs or text. This
+        # is populated during normal P2 discovery using the existing GETs;
+        # no diagnostic replay of the billable/credentialed job is needed.
         self.emit(f"AUTO_SOURCE_ROUTE={route.status}")
+        self.emit(f"AUTO_SOURCE_ROUTE_REASON={route.reason}")
+        self.emit(f"AUTO_PROVIDER_GET_REQUESTS={route.get_requests}")
+        for tag, discovery in (("VI", route.vi), ("EN", route.en)):
+            if discovery is None or (tag == "VI" and route.vi_probe_status == "SKIPPED"):
+                self.emit(f"AUTO_{tag}_SEARCHED=NO")
+                continue
+            self.emit(f"AUTO_{tag}_SEARCHED=YES")
+            self.emit(f"AUTO_{tag}_RAW_ROWS={discovery.raw_rows}")
+            self.emit(f"AUTO_{tag}_API_TOTAL={discovery.api_total if discovery.api_total is not None else 'UNKNOWN'}")
+            self.emit(f"AUTO_{tag}_RANKED={len(discovery.decision.ranked)}")
+            self.emit(f"AUTO_{tag}_CONFIDENT={sum(r.confident for r in discovery.decision.ranked)}")
+            if discovery.decision.ranked:
+                leader = discovery.decision.ranked[0]
+                self.emit(f"AUTO_{tag}_TOP_SCORE={leader.score}")
+                self.emit(f"AUTO_{tag}_TOP_CONFIDENT={'YES' if leader.confident else 'NO'}")
+                name = next((c.subtitle.release_name for c in discovery.candidates
+                             if c.subtitle.subtitle_id == leader.subtitle_id), None)
+                if name is not None:
+                    target = preferred_media_release(media)
+                    candidate = parse_release(name)
+                    for field in ("year", "source", "group", "resolution", "codec"):
+                        expected = getattr(target, field)
+                        actual = getattr(candidate, field)
+                        relation = ("MISSING" if expected is None or actual is None
+                                    else "MATCH" if expected == actual else "CONFLICT")
+                        self.emit(f"AUTO_{tag}_TOP_{field.upper()}={relation}")
         if route.status not in ("VI_READY", "EN_TRANSLATE"):
             return AutoResult("REVIEW_REQUIRED", get_requests=route.get_requests)
         discovery = route.vi if route.status == "VI_READY" else route.en

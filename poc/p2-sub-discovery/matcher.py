@@ -208,7 +208,14 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
         return None
     reference = preferred_media_release(media)
     proposed = parse_release(candidate.release_name)
-    if not reference.title or not proposed.title or reference.title != proposed.title:
+    # OpenSubtitles uploads sometimes omit the leading English article from
+    # the exact international torrent alias ("The Odyssey" -> "Odyssey").
+    # Compare the remaining *complete* title, never a fuzzy token subset.
+    def without_the(value: str) -> str:
+        return value.removeprefix("the ")
+
+    if (not reference.title or not proposed.title or
+            without_the(reference.title) != without_the(proposed.title)):
         return None
     if reference.year is not None and proposed.year is not None and reference.year != proposed.year:
         return None
@@ -244,10 +251,9 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
         evidence.append("moviehash")
     if hash_conflict:
         evidence.append("different_moviehash")
-    # Release groups and codecs are optional, not required for every torrent.
-    # Preserve explicit conflict checks for provider results, but allow a
-    # unique candidate with matching title, year and source even if either
-    # filename omits its group. Exact torrent /subs tracks bypass D1 entirely.
+    # Release labels often omit BDRip/WEB metadata. That should not discard
+    # an otherwise unique full title/year/1080p/HEVC match. An *explicit*
+    # source, group or resolution conflict still blocks confidence.
     group_conflict = (reference.group is not None and proposed.group is not None
                       and reference.group != proposed.group)
     source_conflict = (reference.source is not None and proposed.source is not None
@@ -257,12 +263,19 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
                            and reference.resolution != proposed.resolution)
     same_release = (
         reference.year is not None and reference.year == proposed.year
-        and reference.source is not None and reference.source == proposed.source
         and not group_conflict and not source_conflict
         # The same scene group may encode the same cut at 720p and 1080p;
         # no known group means 2160p vs 1080p is only an uncertain release.
         and (not resolution_conflict or (
             reference.group is not None and reference.group == proposed.group))
+        and (
+            (reference.source is not None and reference.source == proposed.source)
+            or (reference.resolution is not None
+                and reference.resolution == proposed.resolution
+                and ((reference.codec is not None and reference.codec == proposed.codec)
+                     or (reference.group is not None
+                         and reference.group == proposed.group)))
+        )
     )
     confident = not hash_conflict and (exact_hash or same_release)
     return Ranked(candidate.subtitle_id, lang, score, confident, tuple(evidence))
@@ -286,7 +299,10 @@ def choose(media: Media, results: SearchResults) -> Decision:
     if not ranked:
         return Decision("NO_MATCH", None, ranked)
     for language, status in (("vi", "VI_MATCH"), ("en", "EN_TRANSLATE")):
-        choices = [item for item in ranked if item.language == language]
-        if choices and choices[0].confident and (len(choices) == 1 or choices[0].score - choices[1].score >= 10):
+        # A high-scoring upload with a *known conflicting release group* is
+        # not a plausible runner-up and must not veto a confident candidate.
+        choices = [item for item in ranked
+                   if item.language == language and item.confident]
+        if choices and (len(choices) == 1 or choices[0].score - choices[1].score >= 10):
             return Decision(status, choices[0], ranked)
     return Decision("REVIEW_REQUIRED", None, ranked)
