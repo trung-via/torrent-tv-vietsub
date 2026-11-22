@@ -1,16 +1,16 @@
-# Owner-interactive deployment of PR #178 OpenSubtitles SRT timeline repair.
+# Owner-interactive deployment of PR #178 P4 VI_READY routing repair.
 # One pinned P2 source module only; preserve all P2 jobs, caches, credentials,
 # P3/P4 state and the already-installed TV APK. No provider or playback call.
 param([switch]$PreflightOnly)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$sourceCommit = '7f6b2ce0e7233267e5b9094b11e2fd93259ec67d'
+$sourceCommit = 'b4525845c4f78e8cef5714af947bd28c3691c679'
 $old = [ordered]@{
-    'opensubtitles.py' = '0e5b4e3e1593cfb4e93102a1e269014178d004a3e4a9e3a4af8e4ff07a648ecb'
+    'owner_r2_progressive_registry.py' = '627b94d995f09731b40bc16c993fbcc19bfb95775340586bbedd8db5eb1036cb'
 }
 $new = [ordered]@{
-    'opensubtitles.py' = '7707da40a6463fff830065c0266725b6138e5e3c59cd67a1dd1cd2cbef6818c7'
+    'owner_r2_progressive_registry.py' = 'c6006e3d2c047ae86a7630bcf772a1c15187b232b19e14024cec8d15a62d8592'
 }
 $owner = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $installed = Join-Path $owner 'app\poc\p2-sub-discovery'
@@ -242,10 +242,10 @@ try {
         }
         $baseline.Add($digest)
     }
-    if ($baseline[0] -ceq $new['opensubtitles.py']) {
+    if ($baseline[0] -ceq $new['owner_r2_progressive_registry.py']) {
         $code = 'ALREADY_INSTALLED'
     } else {
-        if ($baseline[0] -cne $old['opensubtitles.py']) { Fail 'PARTIAL_INSTALL_NEEDS_RECONCILIATION' }
+        if ($baseline[0] -cne $old['owner_r2_progressive_registry.py']) { Fail 'PARTIAL_INSTALL_NEEDS_RECONCILIATION' }
         $stage = Join-Path $env:TEMP ('ttv-selector-' + [Guid]::NewGuid().ToString('N'))
         [IO.Directory]::CreateDirectory($stage) | Out-Null
         foreach ($name in $new.Keys) {
@@ -263,7 +263,7 @@ stage, app = (pathlib.Path(x) for x in sys.argv[1:3])
 sys.path[0:0] = [str(stage), str(app / 'poc/p2-sub-discovery'),
                 str(app / 'poc/p2-aisub'), str(app / 'poc/p3-vietsub-trigger')]
 try:
-    for name in ('opensubtitles',):
+    for name in ('owner_r2_progressive_registry',):
         mod = importlib.import_module(name)
         if pathlib.Path(mod.__file__).resolve() != (stage / (name + '.py')).resolve():
             raise RuntimeError('WRONG_MODULE')
