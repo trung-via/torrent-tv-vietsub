@@ -12,6 +12,16 @@ if ($env:GITHUB_ACTIONS -cne 'true' -or
 $task = Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\' -ErrorAction SilentlyContinue
 Write-Output ('OWNER_AUDIT_TASK=' + $(if ($null -ne $task -and
     [string]$task.State -ceq 'Running') { 'RUNNING' } else { 'NOT_RUNNING_OR_UNAVAILABLE' }))
+$taskState = if ($null -eq $task) { 'MISSING' } elseif (
+    [string]$task.State -in @('Running','Ready','Disabled')) {
+    [string]$task.State
+} else { 'OTHER' }
+Write-Output ('OWNER_AUDIT_TASK_STATE=' + $taskState.ToUpperInvariant())
+$ownerWorkers = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+    $_.Name -in @('python.exe','pythonw.exe','py.exe') -and
+    [string]$_.CommandLine -match 'owner_p3_p4_entrypoint\.py|owner_session_bridge\.py'
+})
+Write-Output ('OWNER_AUDIT_OWNER_PROCESS_COUNT=' + $ownerWorkers.Count)
 $file = Join-Path $env:ProgramData 'TorrentTVVietsub\OwnerBridge\Diagnostics\owner-snapshot.json'
 if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
     Write-Output 'OWNER_AUDIT_SNAPSHOT=MISSING'
