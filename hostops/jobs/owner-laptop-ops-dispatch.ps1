@@ -266,6 +266,69 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($receipt.operation -ceq 'owner-p2-live-candidates-readonly') {
+        $summaryFile = Join-Path $outbox 'live-candidates.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $expected = @('schema','nonce','scope','p3','route','reason',
+                    'vi_rows','vi_ranked','vi_confident','en_rows','en_total',
+                    'en_ranked','en_confident','en_top_score','en_top_confident',
+                    'en_top_source','en_top_year','en_top_group',
+                    'en_top_resolution','en_top_codec','download','cached','p2','p4')
+                $countFields = @('vi_rows','vi_ranked','vi_confident',
+                    'en_rows','en_total','en_ranked','en_confident','en_top_score')
+                $matchFields = @('en_top_source','en_top_year','en_top_group',
+                    'en_top_resolution','en_top_codec')
+                $valid = $summary.schema -ceq 'TTV-OWNER-P2-LIVE-CANDIDATES-V1' -and
+                    $summary.nonce -ceq $nonce -and
+                    (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($expected | Sort-Object) -join ',') -and
+                    $summary.scope -cin @('NOT_OBSERVED','PRIVATE_LOG_UNAVAILABLE',
+                        'OWNER_HEALTH_NOT_FRESH','SESSION_NOT_IN_TAIL',
+                        'NO_DISPATCH_SINCE_RESTART','CURRENT_OWNER_SESSION','LOCAL_READ_ERROR') -and
+                    $summary.p3 -cin @('NOT_OBSERVED','DISPATCHED') -and
+                    $summary.route -cin @('NOT_OBSERVED','VI_READY','EN_TRANSLATE',
+                        'REVIEW_REQUIRED','NO_MATCH') -and
+                    $summary.reason -cin @('NOT_OBSERVED','CONFIDENT_VI_RELEASE',
+                        'CONFIDENT_EN_RELEASE','EN_COVERAGE_INCOMPLETE',
+                        'NO_CONFIDENT_UNAMBIGUOUS_RELEASE','NO_RANKABLE_SUBTITLES',
+                        'VI_COVERAGE_INCOMPLETE') -and
+                    $summary.en_top_confident -cin @('NOT_OBSERVED','YES','NO') -and
+                    $summary.download -cin @('YES','NO') -and
+                    $summary.cached -cin @('YES','NO') -and
+                    $summary.p2 -cin @('NOT_OBSERVED','CLAIMED','BLOCKED',
+                        'VI_READY','VIETSUB_READY','REVIEW_REQUIRED') -and
+                    $summary.p4 -cin @('NOT_OBSERVED','REVISION_READY')
+                foreach ($field in $matchFields) {
+                    if ($summary.$field -cnotin @('NOT_OBSERVED','MATCH',
+                            'MISSING','CONFLICT')) { $valid = $false }
+                }
+                foreach ($field in $countFields) {
+                    if ($summary.$field -isnot [ValueType] -or
+                        [int]$summary.$field -lt -1 -or
+                        [int]$summary.$field -gt 10000000) { $valid = $false }
+                }
+                if ($valid) {
+                    foreach ($field in @('scope','p3','route','reason')) {
+                        Write-Output ('HOSTOPS_LIVE_CANDIDATE_' +
+                            $field.ToUpperInvariant() + '=' + $summary.$field)
+                    }
+                    foreach ($field in $countFields) {
+                        Write-Output ('HOSTOPS_LIVE_CANDIDATE_' +
+                            $field.ToUpperInvariant() + '=' + [int]$summary.$field)
+                    }
+                    foreach ($field in (@('en_top_confident') + $matchFields +
+                        @('download','cached','p2','p4'))) {
+                        Write-Output ('HOSTOPS_LIVE_CANDIDATE_' +
+                            $field.ToUpperInvariant() + '=' + $summary.$field)
+                    }
+                } else { throw 'HOSTOPS_LIVE_CANDIDATE_RECEIPT_INVALID' }
+            }
+        }
+    }
     if ($receipt.operation -ceq 'owner-p2-candidate-audit-readonly') {
         $summaryFile = Join-Path $outbox 'candidate-audit.json'
         if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
