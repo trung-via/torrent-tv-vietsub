@@ -169,13 +169,19 @@ try:
     play_url=base+'/play/'+tor+'/'+str(idx)
     started=time.monotonic()
     probe=Request(play_url,headers={'Cache-Control':'no-store',
-                                    'Range':'bytes=0-4095','Connection':'close'})
+                                    'Range':'bytes=0-1048575','Connection':'close'})
     try:
-        with opener.open(probe,timeout=9) as response:
+        with opener.open(probe,timeout=5) as response:
             if response.status in (200,206):
                 result['play_status']='HTTP_'+str(response.status)
-                try:result['play_bytes']=min(4096,len(response.read(4096)))
-                except (OSError,TimeoutError):result['play_status']='READ_TIMEOUT'
+                for _ in range(16):
+                    if time.monotonic()-started>10:break
+                    try:
+                        chunk=response.read(65536)
+                        if not chunk:break
+                        result['play_bytes']+=len(chunk)
+                    except (OSError,TimeoutError):
+                        result['play_status']='READ_TIMEOUT';break
             else:result['play_status']='HTTP_OTHER'
     except HTTPError as e:
         result['play_status']='HTTP_'+str(e.code) if 400<=e.code<=599 else 'HTTP_OTHER'
@@ -184,7 +190,9 @@ try:
     result['play_elapsed_ms']=min(120000,int((time.monotonic()-started)*1000))
     if result['play_bytes']==0:finish()
     args=['ffmpeg','-nostdin','-hide_banner','-loglevel','warning',
-          '-stats_period','2','-progress','pipe:2','-rw_timeout','10000000',
+          '-stats_period','2','-progress','pipe:2','-rw_timeout','6000000',
+          '-fflags','nobuffer','-probesize','131072',
+          '-analyzeduration','1000000',
           '-i',play_url,'-map','0:'+str(stream_idx),
           '-vn','-an','-dn','-c:s','srt','-t','1800',
           '-flush_packets','1','-f','srt','pipe:1']
@@ -219,7 +227,7 @@ try:
         except (OSError,ValueError):pass
     stderr_reader=threading.Thread(target=read_errors,daemon=True)
     stderr_reader.start()
-    limit=started+30.0
+    limit=started+22.0
     total_bytes=0
     try:
         while time.monotonic()<limit and result['prefix_cues']<120:
@@ -284,7 +292,7 @@ foreach ($field in @('en_text','en_bitmap','unlabeled_text','other_subs','elapse
     if ($value -isnot [ValueType] -or [int]$value -lt 0 -or
         [int]$value -gt $(if ($field -in @('elapsed_ms','prefix_elapsed_ms','play_elapsed_ms')) {120000}
                           elseif ($field -eq 'prefix_bytes') {262144}
-                          elseif ($field -eq 'play_bytes') {4096}
+                          elseif ($field -eq 'play_bytes') {1048576}
                           elseif ($field -eq 'prefix_progress_s') {86400} else {128})) {
         throw 'EMBEDDED_PROBE_COUNT_INVALID'
     }

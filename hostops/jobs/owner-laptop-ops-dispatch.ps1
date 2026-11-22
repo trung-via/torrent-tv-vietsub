@@ -285,7 +285,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     $row.play_elapsed_ms -is [ValueType] -and [int]$row.play_elapsed_ms -ge 0 -and
                     [int]$row.play_elapsed_ms -le 120000 -and
                     $row.play_bytes -is [ValueType] -and [int]$row.play_bytes -ge 0 -and
-                    [int]$row.play_bytes -le 4096 -and
+                    [int]$row.play_bytes -le 1048576 -and
                     $row.prefix_progress_s -is [ValueType] -and [int]$row.prefix_progress_s -ge 0 -and
                     [int]$row.prefix_progress_s -le 86400) {
                     foreach ($field in @('state','metadata','ffp','en_text',
