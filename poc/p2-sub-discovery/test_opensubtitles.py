@@ -1,17 +1,21 @@
 """Offline contract tests for D2: never contact provider or TV."""
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 import tempfile
 from threading import Barrier
 import unittest
+from unittest import mock
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
 from matcher import Media
 from opensubtitles import (
-    Asset, OpenSubtitles, SubtitleApiError, _safe_https, parse_search_response,
-    validate_timed_text, write_private_cache,
+    Asset, OpenSubtitles, SubtitleApiError, BASE_URL, _safe_https,
+    parse_search_response, urllib_transport, validate_timed_text,
+    write_private_cache,
 )
 
 
@@ -58,6 +62,36 @@ class FakeTransport:
 
 
 class D2Tests(unittest.TestCase):
+    def test_provider_download_406_classification_never_leaks_body(self):
+        cases = (
+            (b'{"message":"Invalid file_id"}',
+             "API_DOWNLOAD_INVALID_FILE_ID_406"),
+            (b'{"message":"You have downloaded your allowed 5 subtitles for 24h"}',
+             "API_DOWNLOAD_QUOTA_406"),
+            (b'{"message":"unexpected private token=SECRET_TEST_ONLY"}',
+             "API_DOWNLOAD_REJECTED_406"),
+            (b'<html>SECRET_TEST_ONLY</html>',
+             "API_DOWNLOAD_REJECTED_406"),
+        )
+
+        class RejectingOpener:
+            def __init__(self, data):
+                self.data = data
+
+            def open(self, req, timeout):
+                raise HTTPError(req.full_url, 406, "Not Acceptable", {},
+                                BytesIO(self.data))
+
+        for body, reason in cases:
+            with self.subTest(reason=reason, body=body[:20]):
+                with mock.patch("opensubtitles.urllib.request.build_opener",
+                                return_value=RejectingOpener(body)):
+                    with self.assertRaises(SubtitleApiError) as caught:
+                        urllib_transport("POST", BASE_URL + "/download", {},
+                                         b'{"file_id":81}', 1024)
+                self.assertEqual(str(caught.exception), reason)
+                self.assertNotIn("SECRET_TEST_ONLY", str(caught.exception))
+
     def test_dual_owner_client_downloads_distinct_films_and_blocks_same_film_retry(self):
         fake = FakeTransport(search=response(row(81, language="en")))
         client = OpenSubtitles(api_key="synthetic", transport=fake,

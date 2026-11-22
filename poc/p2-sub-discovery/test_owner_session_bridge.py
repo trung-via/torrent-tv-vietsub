@@ -15,6 +15,7 @@ from owner_session_bridge import (
     write_owner_agent_health, read_owner_agent_health,
     PreProviderTransient,
     install_owner_full_diagnostics,
+    _safe_block_reason,
 )
 
 
@@ -32,6 +33,15 @@ class FakeProcessor:
 
 
 class OwnerSessionBridgeTests(unittest.TestCase):
+    def test_download_406_reports_safe_reason_without_authorizing_retry(self):
+        for reason in ("API_DOWNLOAD_INVALID_FILE_ID_406",
+                       "API_DOWNLOAD_QUOTA_406",
+                       "API_DOWNLOAD_REJECTED_406", "API_HTTP_406"):
+            with self.subTest(reason=reason):
+                self.assertEqual(_safe_block_reason(RuntimeError(reason)), reason)
+        self.assertEqual(_safe_block_reason(
+            RuntimeError("API_DOWNLOAD_QUOTA_406 SECRET_KEY")), "UNCLASSIFIED")
+
     def setUp(self):
         root = tempfile.TemporaryDirectory()
         self.addCleanup(root.cleanup)

@@ -149,6 +149,10 @@ _SAFE_BLOCK_REASONS = frozenset({
     "AGY_TRANSLATION_TEXT_NUL", "AGY_TRANSLATION_TEXT_UTF8_INVALID",
     "AGY_TRANSLATION_TEXT_MARKUP_UNSUPPORTED",
     "PLAIN_UTF8_TRANSLATION_REQUIRED",
+    # OpenSubtitles 406 may mean a stale file ID OR an exhausted allowance.
+    # Both are post-attempt holds; an error label is never retry permission.
+    "API_DOWNLOAD_INVALID_FILE_ID_406", "API_DOWNLOAD_QUOTA_406",
+    "API_DOWNLOAD_REJECTED_406", "API_HTTP_406",
     # These are explicit P2 no-replay gates, not an unidentified exception.
     # In particular, an acknowledged unknown-effect batch must remain
     # quarantined; exposing the fixed reason never authorizes a retry.

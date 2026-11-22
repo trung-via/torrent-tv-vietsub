@@ -34,6 +34,32 @@ class SubtitleApiError(Exception):
     """Safe error: no API key, temporary download URL or subtitle text."""
 
 
+def _download_406_reason(error: urllib.error.HTTPError) -> str:
+    """Classify a provider rejection without copying its untrusted body to logs.
+
+    OpenSubtitles uses HTTP 406 for both invalid file IDs and exhausted daily
+    download allowance. Only fixed, source-owned error codes may escape.
+    """
+    try:
+        raw = error.read(4097)
+        if len(raw) > 4096:
+            return "API_DOWNLOAD_REJECTED_406"
+        payload = json.loads(raw.decode("utf-8"))
+        message = payload.get("message") if isinstance(payload, dict) else None
+        if not isinstance(message, str):
+            return "API_DOWNLOAD_REJECTED_406"
+        message = message.casefold()
+    except (OSError, ValueError, UnicodeError):
+        return "API_DOWNLOAD_REJECTED_406"
+    if "invalid file_id" in message or "invalid file id" in message:
+        return "API_DOWNLOAD_INVALID_FILE_ID_406"
+    if ("quota" in message or "daily limit" in message
+            or "download limit" in message
+            or ("downloaded" in message and "allowed" in message)):
+        return "API_DOWNLOAD_QUOTA_406"
+    return "API_DOWNLOAD_REJECTED_406"
+
+
 @dataclass(frozen=True)
 class Candidate:
     file_id: int
@@ -109,6 +135,8 @@ def urllib_transport(method: str, url: str, headers: dict[str, str],
             raise SubtitleApiError("RATE_LIMITED_429") from None
         if status in (401, 403):
             raise SubtitleApiError("API_AUTH_DENIED") from None
+        if status == 406 and method == "POST" and urllib.parse.urlsplit(url).path == "/api/v1/download":
+            raise SubtitleApiError(_download_406_reason(exc)) from None
         raise SubtitleApiError(f"API_HTTP_{status}") from None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise SubtitleApiError("API_NETWORK_ERROR") from None

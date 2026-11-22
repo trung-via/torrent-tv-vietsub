@@ -48,6 +48,7 @@ class FakeProvider:
         self.vi = tuple(vi)
         self.en = (row(9, SDH, "en"), row(10, EN, "en")) if en is None else tuple(en)
         self.calls = []
+        self.post_ids = []
         self.broken_post = broken_post
 
     def __call__(self, method, url, headers, body, cap):
@@ -61,6 +62,7 @@ class FakeProvider:
             if self.broken_post:
                 raise SubtitleApiError("API_NETWORK_ERROR")
             request = json.loads(body)
+            self.post_ids.append(request["file_id"])
             assert request in (
                 {"file_id": 9, "sub_format": "srt"},
                 {"file_id": 10, "sub_format": "srt"},
@@ -95,6 +97,8 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual((result.get_requests, result.download_posts), (2, 2))
         self.assertEqual([x[0] for x in self.provider.calls],
                          ["GET", "GET", "POST", "GET_BINARY", "POST", "GET_BINARY"])
+        # The AI default consumes EN quota before the downloaded-VI option.
+        self.assertEqual(self.provider.post_ids, [10, 8])
         self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
         catalog = DualSubtitleCatalog(self.cache)
         vi = catalog.read(media, fp, "downloaded_vi")
@@ -174,6 +178,55 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 2)
         self.assertIn("AUTO_DUAL_VI_OPTION_DOWNLOAD=UNAVAILABLE", self.events)
         self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
+
+    def test_en_406_blocks_without_spending_optional_vi_download(self):
+        self.provider.vi = (row(8, VI, "vi"),)
+        original = self.provider.__call__
+
+        class EnQuotaRejected:
+            def __call__(_, method, url, headers, body, cap):
+                if method == "POST" and json.loads(body)["file_id"] == 10:
+                    self.provider.calls.append((method, url))
+                    raise SubtitleApiError("API_DOWNLOAD_QUOTA_406")
+                return original(method, url, headers, body, cap)
+
+        media = Media("owner", "a" * 40, 2, VIDEO)
+        fp = hashlib.sha256("\x00".join((
+            media.server_profile_id, media.torrent_hash,
+            str(media.file_index))).encode()).hexdigest()
+        dual = self._dual()
+        dual.client._transport = EnQuotaRejected()
+        with self.assertRaisesRegex(SubtitleApiError, "API_DOWNLOAD_QUOTA_406"):
+            dual.selected_media(VIDEO, verified_media=media,
+                                source_fingerprint=fp)
+        self.assertEqual([method for method, _ in self.provider.calls].count("POST"), 1)
+        self.assertNotIn("AUTO_DUAL_VI_OPTION_POST_ATTEMPTED=YES", self.events)
+        self.assertIsNone(DualSubtitleCatalog(self.cache).read(
+            media, fp, "downloaded_vi"))
+        self.assertEqual(len(self.gemini.calls), 0)
+
+    def test_dual_unavailable_ai_preflight_preserves_optional_vi(self):
+        self.provider.vi = (row(8, VI, "vi"),)
+        media = Media("owner", "a" * 40, 2, VIDEO)
+        fp = hashlib.sha256("\x00".join((
+            media.server_profile_id, media.torrent_hash,
+            str(media.file_index))).encode()).hexdigest()
+        dual = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic", transport=self.provider,
+                                 allow_dual_downloads=True),
+            worker=self.worker, cache_root=self.cache,
+            permissions=AutoPermissions(True, True), dual_mode=True,
+            model_preflight=lambda: (_ for _ in ()).throw(
+                ValueError("MODEL_NOT_AVAILABLE")),
+            emit=self.events.append)
+        result = dual.selected_media(VIDEO, verified_media=media,
+                                     source_fingerprint=fp)
+        self.assertEqual(result.status, "VI_READY")
+        self.assertEqual(self.provider.post_ids, [8])
+        self.assertIsNotNone(DualSubtitleCatalog(self.cache).read(
+            media, fp, "downloaded_vi"))
+        self.assertIn("AUTO_DUAL_AI_PREFLIGHT_UNAVAILABLE_VI_OPTION=YES", self.events)
+        self.assertEqual(len(self.gemini.calls), 0)
 
     def test_cyrillic_video_uses_verified_torrent_title_and_reuses_cache(self):
         name = "Пример.2017.BDRip-HEVC.1080p.mkv"

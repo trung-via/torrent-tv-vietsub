@@ -288,6 +288,52 @@ class AutomaticVietsubFlow:
             self.emit(f"AUTO_DUAL_VI_OPTION_ELIGIBLE={'YES' if route.vi_option_file_id else 'NO'}")
         gets = route.get_requests if route is not None else 0
         posts = 0
+        en_asset = None
+        en_file = None
+        if ai is None:
+            # AI is the owner's default. Reserve its English quota POST
+            # BEFORE downloading the optional Vietnamese track. A daily
+            # allowance exhausted by the optional track must not starve AI.
+            if local is not None:
+                en_asset, en_file = local.asset, local.private_cache_file
+            elif inventory is not None and inventory.en is not None:
+                try:
+                    en_asset = self.torrent_sidecars.download(inventory, inventory.en)
+                except TorrServerSubsUnavailable:
+                    self.emit("AUTO_TORRENT_EN=UNAVAILABLE_FALLBACK")
+            if en_asset is None and route is not None and route.ai_file_id is not None:
+                match = next((c for c in route.en.candidates
+                              if c.file_id == route.ai_file_id), None)
+                if match is not None:
+                    try:
+                        self._ensure_en_model_ready()
+                    except (RuntimeError, ValueError, OSError):
+                        # A model unavailable BEFORE any paid call must not
+                        # prevent the separately labelled VI-only choice.
+                        if (vi is None and (route.vi_option_file_id is None)
+                                and (inventory is None or inventory.vi is None)):
+                            raise
+                        self.emit("AUTO_DUAL_AI_PREFLIGHT_UNAVAILABLE_VI_OPTION=YES")
+                    else:
+                        _preflight_cache(self.cache_root)
+                        _claim_one_post(self.cache_root, fingerprint,
+                                        match.subtitle.release_name)
+                        en_asset = self.client.download_manual_en(
+                            media, route.en, file_id=route.ai_file_id,
+                            authorized=True)
+                        posts += 1
+            if en_asset is not None:
+                en_file = en_file or write_private_cache(
+                    self.cache_root, media, en_asset)
+                ai = catalog.record(media, fingerprint, "ai_en",
+                                    en_asset, en_file, release_matched=True)
+                # V1 owner/P4 source binding remains compatible; an old VI
+                # index is never overwritten or deleted by this repair.
+                if not self._cache_index(
+                        media.filename, source_fingerprint=fingerprint).exists():
+                    self._remember_source(media.filename, en_file, en_asset,
+                                          source_fingerprint=fingerprint)
+
         if vi is None:
             vi_asset = None
             matched_release = False
@@ -323,7 +369,7 @@ class AutomaticVietsubFlow:
                                     release_matched=matched_release)
                 self.emit("AUTO_DUAL_VI_OPTION_CACHED=YES")
 
-        if ai is not None:
+        if ai is not None and en_asset is None:
             # Old EN-only receipts deserve the VI option on the next
             # selection, but never another EN POST or another completed
             # translation. The VI attempt above is independently bounded.
@@ -337,34 +383,7 @@ class AutomaticVietsubFlow:
                               translated_cues=translated.translated_cues,
                               get_requests=gets, download_posts=posts)
 
-        en_asset = None
-        en_file = None
-        if local is not None:
-            en_asset, en_file = local.asset, local.private_cache_file
-        elif inventory is not None and inventory.en is not None:
-            try:
-                en_asset = self.torrent_sidecars.download(inventory, inventory.en)
-            except TorrServerSubsUnavailable:
-                self.emit("AUTO_TORRENT_EN=UNAVAILABLE_FALLBACK")
-        if en_asset is None and route is not None and route.ai_file_id is not None:
-            match = next((c for c in route.en.candidates
-                          if c.file_id == route.ai_file_id), None)
-            if match is not None:
-                self._ensure_en_model_ready()
-                _preflight_cache(self.cache_root)
-                _claim_one_post(self.cache_root, fingerprint, match.subtitle.release_name)
-                en_asset = self.client.download_manual_en(
-                    media, route.en, file_id=route.ai_file_id, authorized=True)
-                posts += 1
         if en_asset is not None:
-            en_file = en_file or write_private_cache(self.cache_root, media, en_asset)
-            ai = catalog.record(media, fingerprint, "ai_en",
-                                en_asset, en_file, release_matched=True)
-            # Existing V1 owner/P4 still resolves .auto-source if no old VI
-            # index exists. A prior VI index is kept intact, not overwritten.
-            if not self._cache_index(media.filename, source_fingerprint=fingerprint).exists():
-                self._remember_source(media.filename, en_file, en_asset,
-                                      source_fingerprint=fingerprint)
             translated = self.after_en_cached(en_asset, en_file)
             if not translated.translation_complete:
                 raise ValueError("AUTO_DUAL_EN_INCOMPLETE_TRANSLATION")
