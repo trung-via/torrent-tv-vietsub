@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-en406-recovery-diagnostic",
-  "category": "diagnostics",
+  "operation": "owner-en406-ready-resume",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-en406-recovery-diagnostic.ps1",
-  "script_sha256": "6b7e5f4b4263f1e95cbd40c77c7123a28221c99b30acc21031d2afdf8f578d33",
+  "script_path": "hostops/laptop-ops/operations/owner-en406-ready-resume.ps1",
+  "script_sha256": "7ab7a830f86f3b029589dd1764122e0d8e88c904c2cb24450b861e493bc13462",
   "arguments": []
 }

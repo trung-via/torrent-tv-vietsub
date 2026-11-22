@@ -202,6 +202,25 @@ class LaptopOpsContractTests(unittest.TestCase):
                           "Remove-Item", "Move-Item -LiteralPath $marker"):
             self.assertNotIn(forbidden, operation)
 
+    def test_en406_ready_resume_only_starts_idle_verified_owner(self):
+        script = (ROOT / "hostops/laptop-ops/operations/owner-en406-ready-resume.ps1").read_text()
+        self.assertIn("OWNER_EN406_RESUME=PREFLIGHT_READY_IDLE_HASH_VERIFIED", script)
+        self.assertIn("OWNER_EN406_RESUME=FRESH_OWNER_RUNNING", script)
+        self.assertIn("'OWNER_TASK_NOT_READY'", script)
+        self.assertIn("'P2_ACTIVE_OR_UNKNOWN'", script)
+        self.assertIn("'INSTALLED_MODULE_HASH_DRIFT'", script)
+        self.assertIn("GetOwnerTask", script)
+        self.assertIn("GetOwnerSid", script)
+        self.assertIn("Start-ScheduledTask", script)
+        self.assertNotIn("Disable-ScheduledTask", script)
+        self.assertNotIn("Enable-ScheduledTask", script)
+        self.assertNotIn("Stop-ScheduledTask", script)
+        self.assertNotIn("Stop-Process", script)
+        self.assertNotIn("Remove-Item", script)
+        self.assertNotIn("Move-Item", script)
+        self.assertNotIn("Invoke-WebRequest", script)
+        self.assertNotIn("Invoke-RestMethod", script)
+
 
 if __name__ == "__main__":
     unittest.main()
