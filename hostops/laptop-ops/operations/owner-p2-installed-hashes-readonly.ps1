@@ -25,6 +25,7 @@ function InstalledHash([string]$filename) {
 }
 $a = InstalledHash 'opensubtitles.py'
 $b = InstalledHash 'owner_session_bridge.py'
+$p4 = InstalledHash 'owner_r2_progressive_registry.py'
 $task = Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\' -ErrorAction SilentlyContinue
 $ownerState = if ($null -eq $task) { 'NOT_OBSERVED' } elseif ($task.State -eq 'Running') {
     'RUNNING'
@@ -33,7 +34,7 @@ $current = Get-Content -LiteralPath $requestPath -Raw | ConvertFrom-Json
 if ($current.nonce -cne $request.nonce) { throw 'P2_BASELINE_REQUEST_CHANGED' }
 $data = [ordered]@{
     schema='TTV-P2-BASELINE-HASH-V1'; nonce=$request.nonce
-    opensubtitles=$a; owner_bridge=$b; owner=$ownerState
+    opensubtitles=$a; owner_bridge=$b; p4_registry=$p4; owner=$ownerState
 }
 $payload = $data | ConvertTo-Json -Compress
 if ([Text.Encoding]::UTF8.GetByteCount($payload) -gt 512) {

@@ -352,18 +352,20 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             if ($item.Length -gt 0 -and $item.Length -le 512 -and
                 -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
-                $fields = @('schema','nonce','opensubtitles','owner_bridge','owner')
+                $fields = @('schema','nonce','opensubtitles','owner_bridge','p4_registry','owner')
                 if ($summary.schema -cne 'TTV-P2-BASELINE-HASH-V1' -or
                     $summary.nonce -cne $nonce -or
                     (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -cne
                         (@($fields | Sort-Object) -join ',') -or
                     $summary.opensubtitles -cnotmatch '^(NOT_OBSERVED|[0-9a-f]{64})$' -or
                     $summary.owner_bridge -cnotmatch '^(NOT_OBSERVED|[0-9a-f]{64})$' -or
+                    $summary.p4_registry -cnotmatch '^(NOT_OBSERVED|[0-9a-f]{64})$' -or
                     $summary.owner -cnotin @('NOT_OBSERVED','RUNNING','READY','OTHER')) {
                     throw 'HOSTOPS_P2_BASELINE_INVALID'
                 }
                 Write-Output ('HOSTOPS_P2_BASELINE_OPENSUBTITLES=' + $summary.opensubtitles)
                 Write-Output ('HOSTOPS_P2_BASELINE_OWNER_BRIDGE=' + $summary.owner_bridge)
+                Write-Output ('HOSTOPS_P2_BASELINE_P4_REGISTRY=' + $summary.p4_registry)
                 Write-Output ('HOSTOPS_P2_BASELINE_OWNER=' + $summary.owner)
             }
         }
