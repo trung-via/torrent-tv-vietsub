@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-en-once-406-quarantine",
+  "operation": "owner-opensub-406-install",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-en-once-406-quarantine.ps1",
-  "script_sha256": "1c3e9a31655b60838b1e4a6b47cedf7aff55be05a7a780fc26f9cff7c3fc33b3",
+  "script_path": "hostops/laptop-ops/operations/owner-opensub-406-install.ps1",
+  "script_sha256": "8d90c167518f0b6fec7c53965cc73c4184e6c237682221464482510896942a94",
   "arguments": []
 }
