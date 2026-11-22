@@ -324,7 +324,9 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     'SELECTOR_PENDING_OWNER_EVENT','SELECTOR_P2_ACTIVE_OR_UNCERTAIN',
                     'SELECTOR_INSTALLED_BASELINE_DRIFT',
                     'SELECTOR_PARTIAL_INSTALL_NEEDS_RECONCILIATION',
-                    'SELECTOR_OWNER_TASK_NOT_RUNNING',
+                    'SELECTOR_OWNER_TASK_NOT_RUNNABLE',
+                    'SELECTOR_READY_TASK_WITHOUT_OWNER',
+                    'SELECTOR_READY_OWNER_IDENTITY_DRIFT',
                     'SELECTOR_STAGED_IMPORT_FAILED','SELECTOR_SOURCE_HASH_DRIFT')
                 if ($summary.schema -ceq 'TTV-OWNER-SELECTOR-INSTALL-V1' -and
                     $summary.nonce -ceq $nonce -and

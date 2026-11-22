@@ -117,7 +117,42 @@ function Quiesce {
     if ([string]$task.State -ceq 'Running') {
         Stop-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
     }
-    for ($i = 0; $i -lt 20; $i++) {
+    for ($i = 0; $i -lt 8; $i++) {
+        if (@(Workers).Count -eq 0) { return }
+        Start-Sleep -Seconds 1
+    }
+    # Windows may stop the scheduled-task wrapper yet leave its child Python
+    # Owner process alive. The old six-file installer already handled this.
+    # Stop only an exact, identity-verified Owner process, never arbitrary py.
+    $left = @(Workers)
+    if ($left.Count -gt 3) { Fail 'RESIDUAL_WORKER_COUNT_UNVERIFIED' }
+    $allowed = @((Join-Path $installed 'owner_p3_p4_entrypoint.py'),
+                 (Join-Path $installed 'owner_session_bridge.py'))
+    foreach ($worker in $left) {
+        $matching = @($allowed | Where-Object {
+            [string]$worker.CommandLine -and
+            $worker.CommandLine.IndexOf($_,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+        $who = Invoke-CimMethod -InputObject $worker -MethodName GetOwnerSid
+        if ($matching.Count -ne 1 -or $null -eq $worker.CreationDate -or
+            $who.ReturnValue -ne 0 -or $who.Sid -cne $sid) {
+            Fail 'RESIDUAL_WORKER_IDENTITY_UNVERIFIED'
+        }
+    }
+    foreach ($worker in $left) {
+        NoP2InFlight
+        if ([string](Task).State -ne 'Disabled') { Fail 'TASK_REENABLED_DURING_STOP' }
+        $live = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$worker.ProcessId)
+        if ($null -eq $live) { continue }
+        $who = Invoke-CimMethod -InputObject $live -MethodName GetOwnerSid
+        if ($live.CommandLine -cne $worker.CommandLine -or
+            $live.CreationDate -ne $worker.CreationDate -or
+            $who.ReturnValue -ne 0 -or $who.Sid -cne $sid) {
+            Fail 'RESIDUAL_WORKER_CHANGED'
+        }
+        Stop-Process -Id ([int]$worker.ProcessId) -Force -ErrorAction Stop
+    }
+    for ($i = 0; $i -lt 10; $i++) {
         if (@(Workers).Count -eq 0) { return }
         Start-Sleep -Seconds 1
     }
@@ -171,8 +206,33 @@ try {
         -not $identity.Name.Equals($logged,[StringComparison]::OrdinalIgnoreCase)) {
         Fail 'OWNER_INTERACTIVE_REQUIRED'
     }
-    if (-not (Test-Path -LiteralPath $installed -PathType Container) -or
-        [string](Task).State -ne 'Running') { Fail 'OWNER_TASK_NOT_RUNNING' }
+    if (-not (Test-Path -LiteralPath $installed -PathType Container)) {
+        Fail 'OWNER_INSTALL_ROOT_MISSING'
+    }
+    $observedTask = Task
+    if ([string]$observedTask.State -notin @('Running','Ready')) {
+        Fail 'OWNER_TASK_NOT_RUNNABLE'
+    }
+    # A recovered scheduled task can be Ready while its previously launched
+    # Python child still owns the Owner singleton. Confirm its exact identity
+    # before treating this state as installable; never launch a second Owner.
+    if ([string]$observedTask.State -eq 'Ready') {
+        $heartbeat = Get-Content -LiteralPath (Join-Path $owner 'agent-health.json') -Raw |
+            ConvertFrom-Json
+        $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -
+            [long]$heartbeat.observed_utc_epoch
+        $liveOwner = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$heartbeat.pid)
+        if ($heartbeat.schema -cne 'TTV-OWNER-AGENT-HEALTH-V1' -or
+            $heartbeat.state -cne 'READY' -or $age -lt 0 -or $age -gt 30 -or
+            $null -eq $liveOwner -or
+            [string]$liveOwner.CommandLine -notmatch 'owner_p3_p4_entrypoint\.py') {
+            Fail 'READY_TASK_WITHOUT_OWNER'
+        }
+        $liveIdentity = Invoke-CimMethod -InputObject $liveOwner -MethodName GetOwnerSid
+        if ($liveIdentity.ReturnValue -ne 0 -or $liveIdentity.Sid -cne $sid) {
+            Fail 'READY_OWNER_IDENTITY_DRIFT'
+        }
+    }
     NoWork
     $baseline = [Collections.Generic.List[string]]::new()
     foreach ($name in $new.Keys) {
@@ -271,7 +331,7 @@ print('SELECTOR_STAGE_IMPORT_PASS')
             } else { Fail 'OWNER_STOP_UNCERTAIN' }
             $code = 'ROLLED_BACK_OWNER_READY'
         } catch { throw 'OWNER_SELECTOR_INSTALL_ROLLBACK_UNCERTAIN_PRIVATE_LOG' }
-    } elseif ($errorReason -cmatch '^SELECTOR_(PENDING_OWNER_EVENT|P2_ACTIVE_OR_UNCERTAIN|INSTALLED_BASELINE_DRIFT|PARTIAL_INSTALL_NEEDS_RECONCILIATION|OWNER_TASK_NOT_RUNNING|STAGED_IMPORT_FAILED|SOURCE_HASH_DRIFT)$') {
+    } elseif ($errorReason -cmatch '^SELECTOR_(PENDING_OWNER_EVENT|P2_ACTIVE_OR_UNCERTAIN|INSTALLED_BASELINE_DRIFT|PARTIAL_INSTALL_NEEDS_RECONCILIATION|OWNER_TASK_NOT_RUNNABLE|READY_TASK_WITHOUT_OWNER|READY_OWNER_IDENTITY_DRIFT|STAGED_IMPORT_FAILED|SOURCE_HASH_DRIFT)$') {
         $code = $errorReason
     } else { throw 'OWNER_SELECTOR_INSTALL_FAILED_BEFORE_STOP_PRIVATE_LOG' }
 } finally {
