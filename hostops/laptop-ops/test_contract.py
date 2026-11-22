@@ -171,6 +171,22 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertIn("StartOwner $oldPid", operation)
         self.assertNotIn("-ApplyQuarantine", operation)
 
+    def test_en406_marker_recovery_is_single_target_and_no_provider(self):
+        script = (ROOT / "hostops/laptop-ops/operations/owner-en-once-406-quarantine.ps1").read_text()
+        self.assertIn("'MARKER_NOT_UNIQUE'", script)
+        self.assertIn("OWNER_EN406_PREFLIGHT=ONE_ACTIVE_MARKER_ONE_RECENT_BLOCKED_EN_FAILURE", script)
+        self.assertIn("OWNER_BRIDGE_BLOCK_REASON=EN_DOWNLOAD_ALREADY_ATTEMPTED", script)
+        self.assertIn("CURRENT_AI_EN_ALREADY_CACHED", script)
+        self.assertIn("CURRENT_LEGACY_EN_ALREADY_CACHED", script)
+        self.assertIn("IdleP2", script)
+        self.assertIn("Move-Item -LiteralPath $marker.FullName", script)
+        self.assertIn("Hash $quarantine", script)
+        self.assertIn("StartOwner $oldPid", script)
+        self.assertNotIn("Invoke-WebRequest", script)
+        self.assertNotIn("Invoke-RestMethod", script)
+        self.assertNotIn("Remove-Item", script)
+        self.assertNotIn("download_manual_en", script)
+
 
 if __name__ == "__main__":
     unittest.main()
