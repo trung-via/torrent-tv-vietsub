@@ -198,6 +198,39 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-ts-en-sidecar-readonly') {
+        $summaryFile = Join-Path $outbox 'owner-ts-en-sidecar.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $row = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $required = @('schema','nonce','state','metadata','endpoint',
+                              'en_tracks','installed_reader','download','cues','byte_count')
+                if ($row.schema -ceq 'TTV-OWNER-TS-EN-SIDECAR-V1' -and
+                    $row.nonce -ceq $nonce -and
+                    (@($row.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($required | Sort-Object) -join ',') -and
+                    [string]$row.state -cmatch '^[A-Z0-9_]{3,70}$' -and
+                    $row.metadata -cin @('NOT_RUN','MATCH','MISMATCH','UNAVAILABLE') -and
+                    [string]$row.endpoint -cmatch '^[A-Z0-9_]{3,35}$' -and
+                    $row.installed_reader -cin @('NOT_RUN','MISSING','FAILED','PRESENT') -and
+                    $row.download -cin @('NOT_RUN','FAILED','VALID_SRT') -and
+                    $row.en_tracks -is [ValueType] -and [int]$row.en_tracks -ge 0 -and
+                    [int]$row.en_tracks -le 64 -and
+                    $row.cues -is [ValueType] -and [int]$row.cues -ge 0 -and
+                    [int]$row.cues -le 30000 -and
+                    $row.byte_count -is [ValueType] -and [int]$row.byte_count -ge 0 -and
+                    [int]$row.byte_count -le 262144) {
+                    foreach ($field in @('state','metadata','endpoint','en_tracks',
+                               'installed_reader','download','cues','byte_count')) {
+                        Write-Output ('HOSTOPS_TS_EN_' + $field.ToUpperInvariant() +
+                                      '=' + $row.$field)
+                    }
+                }
+            }
+        }
+    }
     if ($receipt.operation -ceq 'owner-en406-recovery-diagnostic') {
         $summaryFile = Join-Path $outbox 'en406-recovery-diag.json'
         if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
