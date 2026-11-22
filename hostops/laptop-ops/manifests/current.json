@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-p2-source-trace-readonly",
+  "operation": "owner-p2-block-trace-readonly",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-p2-source-trace-readonly.ps1",
-  "script_sha256": "798cec342f8bd0c1850b6bf97991149f56884a765baf9c81e953e067a5c327d3",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-block-trace-readonly.ps1",
+  "script_sha256": "6440188897346373ac9b22ada4bfc53ff504f00a905e76ece1b82cb200fb068c",
   "arguments": []
 }
