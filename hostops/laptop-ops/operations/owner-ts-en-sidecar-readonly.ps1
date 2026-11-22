@@ -55,26 +55,75 @@ try:
         out['state']='POLICY_INVALID';finish()
     inbox=owner/'inbox'
     candidates=[]
-    for ext in ('blocked','done','review','pending'):
+    for ext in ('blocked','done','review','pending','json'):
         candidates.extend(p for p in inbox.glob('event-*.'+ext)
                           if not p.is_symlink() and p.is_file()
                           and 0<p.stat().st_size<=1024)
     candidates.sort(key=lambda p:p.stat().st_mtime,reverse=True)
-    if not candidates or time.time()-candidates[0].stat().st_mtime>7*86400:
+    candidates=[p for p in candidates[:128]
+                if time.time()-p.stat().st_mtime<=7*86400]
+    if not candidates:
         out['state']='SELECTED_EVENT_MISSING';finish()
-    event=json.loads(candidates[0].read_text('utf-8'))
-    attested=event.get('authorized_selection')
-    if not isinstance(attested,dict) or set(attested)!={'server_id','torrent_hash','file_index'}:
-        out['state']='SELECTED_EVENT_UNTRUSTED';finish()
-    server,tor,index=(attested['server_id'],attested['torrent_hash'],attested['file_index'])
-    name=event.get('selected_video_filename');fp=event.get('source_fingerprint')
-    if (server!=profile or not isinstance(tor,str)
-        or not re.fullmatch('(?:[0-9a-f]{40}|[0-9a-f]{64})',tor)
-        or type(index) is not int or not 0<=index<4096
-        or not isinstance(name,str) or not name or '/' in name or '\\' in name
-        or hashlib.sha256('\0'.join((server,tor,str(index))).encode()).hexdigest()!=fp):
-        out['state']='SELECTED_EVENT_UNTRUSTED';finish()
     base='http://127.0.0.1:'+str(port)
+    chosen_event=None; historical=[]
+    for path in candidates:
+        try: event=json.loads(path.read_text('utf-8'))
+        except (OSError,ValueError,UnicodeError): continue
+        if not isinstance(event,dict): continue
+        name=event.get('selected_video_filename');fp=event.get('source_fingerprint')
+        event_id=event.get('event_id')
+        if (not isinstance(name,str) or not name or len(name)>255
+            or '/' in name or '\\' in name
+            or not isinstance(fp,str) or not re.fullmatch('[0-9a-f]{64}',fp)
+            or not isinstance(event_id,str)
+            or not re.fullmatch('[0-9a-f]{32}',event_id)
+            or path.name!='event-'+event_id+path.suffix): continue
+        historical.append((name,fp))
+        attested=event.get('authorized_selection')
+        if not isinstance(attested,dict) or set(attested)!={'server_id','torrent_hash','file_index'}:
+            continue
+        server,tor,index=(attested['server_id'],attested['torrent_hash'],attested['file_index'])
+        if (server==profile and isinstance(tor,str)
+            and re.fullmatch('(?:[0-9a-f]{40}|[0-9a-f]{64})',tor)
+            and type(index) is int and 0<=index<4096
+            and hashlib.sha256('\0'.join((server,tor,str(index))).encode()).hexdigest()==fp):
+            chosen_event=(tor,index,name);break
+    if chosen_event is None and not historical:
+        out['state']='SELECTED_EVENT_UNTRUSTED';finish()
+    if chosen_event is None:
+        # Old Owner event schemas carry only the server/hash/index fingerprint.
+        # Recover exact coordinates using read-only metadata from THIS owner PC.
+        state,raw=call(base+'/torrents','POST',b'{"action":"list"}',cap=524288)
+        if state!='OK':
+            out['state']='TORRENT_LIST_UNAVAILABLE';finish()
+        listing=json.loads(raw.decode('utf-8'))
+        if not isinstance(listing,list) or len(listing)>256:
+            out['state']='TORRENT_LIST_INVALID';finish()
+        recovered=[]
+        for torrent in listing:
+            if not isinstance(torrent,dict): continue
+            th=torrent.get('hash')
+            if not isinstance(th,str) or not re.fullmatch('(?:[0-9a-f]{40}|[0-9a-f]{64})',th):
+                continue
+            files=torrent.get('file_stats')
+            if not isinstance(files,list) or not files:
+                try: files=json.loads(torrent.get('data','{}'))['TorrServer']['Files']
+                except (ValueError,TypeError,KeyError): continue
+            if not isinstance(files,list) or len(files)>4096: continue
+            for fil in files:
+                if not isinstance(fil,dict): continue
+                idx=fil.get('id');file_path=fil.get('path')
+                if (type(idx) is not int or not 0<=idx<4096
+                    or not isinstance(file_path,str)): continue
+                digest=hashlib.sha256('\0'.join((profile,th,str(idx))).encode()).hexdigest()
+                if any(n==file_path.replace('\\','/').rsplit('/',1)[-1] and f==digest
+                       for n,f in historical):
+                    recovered.append((th,idx,file_path.replace('\\','/').rsplit('/',1)[-1]))
+        if len(set(recovered))!=1:
+            out['state']=('SELECTED_EVENT_NOT_IN_TORRSERVER' if not recovered
+                          else 'SELECTED_EVENT_AMBIGUOUS');finish()
+        chosen_event=recovered[0]
+    tor,index,name=chosen_event
     state,raw=call(base+'/torrents','POST',
         json.dumps({'action':'get','hash':tor}).encode(),cap=524288)
     if state!='OK': out['metadata']='UNAVAILABLE';out['state']='TORRENT_METADATA_UNAVAILABLE';finish()
@@ -140,6 +189,8 @@ $fields = @('schema','state','metadata','endpoint','en_tracks',
             'installed_reader','download','cues','byte_count')
 $states = @('NOT_OBSERVED','POLICY_MISSING','POLICY_INVALID',
             'SELECTED_EVENT_MISSING','SELECTED_EVENT_UNTRUSTED',
+            'SELECTED_EVENT_NOT_IN_TORRSERVER','SELECTED_EVENT_AMBIGUOUS',
+            'TORRENT_LIST_UNAVAILABLE','TORRENT_LIST_INVALID',
             'TORRENT_METADATA_UNAVAILABLE','TORRENT_METADATA_INVALID',
             'TS_SUBS_ENDPOINT_UNAVAILABLE','TS_SUBS_LIST_INVALID',
             'EN_SIDECAR_NOT_FOUND','EN_SIDECAR_AMBIGUOUS',
