@@ -3,10 +3,13 @@
 The diagnostic never writes subtitle text, torrent identifiers or media titles.
 It never asks TorrServer to add/remove a torrent or calls a translation API.
 """
+import hashlib
 import json
+import os
 import re
 import sys
 import time
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
@@ -46,7 +49,53 @@ def api(path, body=None, cap=262144):
         raise DiagnosticStop("API_UNAVAILABLE") from None
 
 
+def recent_owner_selections():
+    # The OwnerBridge event already binds the file to its TorrServer hash,
+    # index and configured profile. Read only the owner's own local state;
+    # never publish the event, filename, profile or fingerprint.
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        raise DiagnosticStop("OWNER_CONTEXT_UNAVAILABLE")
+    owner = Path(base) / "TorrentTVVietsub" / "OwnerBridge"
+    try:
+        policy = json.loads((owner / "p3-p4-policy.json").read_text("utf-8"))
+        profile = policy.get("profile_id")
+        if (policy.get("enabled") is not True or not isinstance(profile, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", profile)):
+            raise DiagnosticStop("OWNER_POLICY_UNAVAILABLE")
+        inbox = owner / "inbox"
+        events = [p for suffix in ("blocked", "done", "review", "pending", "json")
+                  for p in inbox.glob("event-*." + suffix)
+                  if p.is_file() and not p.is_symlink()
+                  and 0 < p.stat().st_size <= 1024
+                  and 0 <= time.time() - p.stat().st_mtime <= 2 * 86400]
+        events.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        selection = []
+        for path in events[:128]:
+            try:
+                doc = json.loads(path.read_text("utf-8"))
+            except (ValueError, UnicodeError):
+                continue
+            if not isinstance(doc, dict):
+                continue
+            name, fp, event_id = (doc.get("selected_video_filename"),
+                                  doc.get("source_fingerprint"), doc.get("event_id"))
+            if (isinstance(name, str) and 0 < len(name) <= 255
+                    and "/" not in name and "\\" not in name
+                    and isinstance(fp, str) and re.fullmatch("[0-9a-f]{64}", fp)
+                    and isinstance(event_id, str)
+                    and re.fullmatch("[0-9a-f]{32}", event_id)
+                    and path.name == "event-" + event_id + path.suffix):
+                selection.append((name, fp))
+        if not selection:
+            raise DiagnosticStop("OWNER_EVENT_UNAVAILABLE")
+        return profile, selection
+    except (OSError, ValueError, TypeError):
+        raise DiagnosticStop("OWNER_CONTEXT_UNAVAILABLE") from None
+
+
 def candidate():
+    profile, selections = recent_owner_selections()
     torrents = api("/torrents", b'{"action":"list"}', cap=524288)
     if not isinstance(torrents, list) or len(torrents) > 256:
         raise DiagnosticStop("LIST_INVALID")
@@ -71,37 +120,33 @@ def candidate():
             idx, path = file.get("id"), file.get("path")
             if (type(idx) is int and 0 <= idx < 4096 and isinstance(path, str)
                     and path.lower().endswith(".mkv")):
-                choices.append((hashval, idx))
+                basename = path.replace("\\", "/").rsplit("/", 1)[-1]
+                digest = hashlib.sha256(
+                    "\0".join((profile, hashval, str(idx))).encode()).hexdigest()
+                if (basename, digest) in selections:
+                    choices.append((hashval, idx, basename, digest))
     if not choices:
-        raise DiagnosticStop("NO_MKV")
-    if len(choices) > 24:
-        raise DiagnosticStop("TOO_MANY_MKV")
-    matching = []
-    for hashval, idx in choices:
-        try:
+        raise DiagnosticStop("OWNER_SELECTION_NOT_FOUND")
+    for name, fp in selections:
+        matches = {(tor, idx) for tor, idx, basename, digest in choices
+                   if name == basename and fp == digest}
+        if len(matches) > 1:
+            raise DiagnosticStop("OWNER_SELECTION_AMBIGUOUS")
+        if len(matches) == 1:
+            hashval, idx = next(iter(matches))
             doc = api("/ffp/" + hashval + "/" + str(idx), cap=131072)
-        except DiagnosticStop:
-            continue
-        streams = doc.get("streams") if isinstance(doc, dict) else None
-        if not isinstance(streams, list) or len(streams) > 128:
-            continue
-        en_text = [
-            s for s in streams if isinstance(s, dict)
-            and s.get("codec_type") == "subtitle"
-            and s.get("codec_name") in TEXT_CODECS
-            and isinstance(s.get("tags"), dict)
-            and str(s["tags"].get("language", "")).lower() in EN
-        ]
-        if en_text:
-            matching.append((hashval, idx, len(en_text)))
-    # Prior read-only /ffp evidence observed three EN text tracks. This is a
-    # diagnostic narrowing hint, never a media/session authorization proof.
-    three_track = [item for item in matching if item[2] == 3]
-    if len(three_track) == 1:
-        matching = three_track
-    if len(matching) != 1:
-        raise DiagnosticStop("AMBIGUOUS_EN_MKV" if matching else "NO_EN_MKV")
-    return matching[0]
+            streams = doc.get("streams") if isinstance(doc, dict) else None
+            if not isinstance(streams, list) or len(streams) > 128:
+                raise DiagnosticStop("FFP_INVALID")
+            en_text = [s for s in streams if isinstance(s, dict)
+                       and s.get("codec_type") == "subtitle"
+                       and s.get("codec_name") in TEXT_CODECS
+                       and isinstance(s.get("tags"), dict)
+                       and str(s["tags"].get("language", "")).lower() in EN]
+            if not en_text:
+                raise DiagnosticStop("OWNER_EN_TEXT_UNAVAILABLE")
+            return hashval, idx, len(en_text)
+    raise DiagnosticStop("OWNER_SELECTION_NOT_FOUND")
 
 
 def vint(buf, offset, *, size):
@@ -344,7 +389,7 @@ def main():
     reader = None
     try:
         hashval, idx, count = candidate()
-        row["identity"] = "UNIQUE_EN_CANDIDATE"
+        row["identity"] = "OWNER_EVENT_MATCH"
         row["en_ffp"] = count
         reader = Ranges(hashval, idx)
         seeks = parse_root(reader)

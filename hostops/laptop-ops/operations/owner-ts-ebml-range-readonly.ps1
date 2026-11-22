@@ -25,7 +25,7 @@ $fields = @('state','identity','en_ffp','en_mkv','cues_indexed',
 if ((@($row.PSObject.Properties.Name | Sort-Object) -join ',') -cne
     (@($fields | Sort-Object) -join ',') -or
     [string]$row.state -cnotmatch '^[A-Z0-9_]{3,50}$' -or
-    $row.identity -cnotin @('UNVERIFIED','UNIQUE_EN_CANDIDATE')) {
+    $row.identity -cnotin @('UNVERIFIED','OWNER_EVENT_MATCH')) {
     throw 'EBML_PROBE_FIELDS_INVALID'
 }
 foreach ($field in @('en_ffp','en_mkv','cues_indexed','cues_relative',
