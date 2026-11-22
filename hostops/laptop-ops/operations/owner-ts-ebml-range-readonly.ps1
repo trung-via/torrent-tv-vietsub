@@ -21,7 +21,7 @@ if ($LASTEXITCODE -ne 0 -or $lines.Count -ne 1 -or
 }
 $row = $line.Substring('HOSTOPS_EBML_'.Length) | ConvertFrom-Json
 $fields = @('state','identity','en_ffp','en_mkv','cues_indexed',
-            'cues_relative','cues_verified','bytes','requests','ms')
+            'cues_relative','cues_verified','bytes','requests','ms','first_ten_ms')
 if ((@($row.PSObject.Properties.Name | Sort-Object) -join ',') -cne
     (@($fields | Sort-Object) -join ',') -or
     [string]$row.state -cnotmatch '^[A-Z0-9_]{3,50}$' -or
@@ -29,16 +29,17 @@ if ((@($row.PSObject.Properties.Name | Sort-Object) -join ',') -cne
     throw 'EBML_PROBE_FIELDS_INVALID'
 }
 foreach ($field in @('en_ffp','en_mkv','cues_indexed','cues_relative',
-                     'cues_verified','bytes','requests','ms')) {
+                     'cues_verified','bytes','requests','ms','first_ten_ms')) {
     $max = switch ($field) {
         'en_ffp' { 128 }
         'en_mkv' { 128 }
         'cues_indexed' { 30000 }
         'cues_relative' { 30000 }
-        'cues_verified' { 10 }
-        'bytes' { 6291456 }
-        'requests' { 120 }
-        'ms' { 60000 }
+        'cues_verified' { 120 }
+        'bytes' { 8388608 }
+        'requests' { 300 }
+        'ms' { 160000 }
+        'first_ten_ms' { 160000 }
     }
     if ($row.$field -isnot [ValueType] -or
         [long]$row.$field -lt 0 -or [long]$row.$field -gt $max) {

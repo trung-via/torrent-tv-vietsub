@@ -13,9 +13,9 @@ from urllib.request import ProxyHandler, Request, build_opener
 BASE = "http://127.0.0.1:8090"
 OPENER = build_opener(ProxyHandler({}))
 START = time.monotonic()
-LIMIT = START + 48
-MAX_RANGE_REQUESTS = 120
-MAX_RANGE_BYTES = 6 * 1024 * 1024
+LIMIT = START + 145
+MAX_RANGE_REQUESTS = 300
+MAX_RANGE_BYTES = 8 * 1024 * 1024
 TEXT_CODECS = {"subrip", "ass", "ssa", "webvtt", "mov_text", "text"}
 MATROSKA_TEXT = {"S_TEXT/UTF8", "S_TEXT/ASS", "S_TEXT/SSA", "S_TEXT/WEBVTT"}
 EN = {"en", "eng", "en-us", "en-gb", "english"}
@@ -193,6 +193,24 @@ class Ranges:
             content.extend(self.read(offset + len(content), next_size))
         return eid, bytes(content), offset
 
+    def small_element(self, at, maximum=16384):
+        # One Range request for the complete small subtitle block in the common
+        # case, including its EBML ID/size. Never fetch a full video Cluster.
+        probe = self.read(at, 768)
+        eid, ilen = vint(probe, 0, size=False)
+        length, slen = vint(probe, ilen, size=True)
+        if length > maximum:
+            raise DiagnosticStop("ELEMENT_TOO_LARGE")
+        payload_at = ilen + slen
+        required = payload_at + length
+        if required <= len(probe):
+            return eid, probe[payload_at:required]
+        remainder = bytearray(probe[payload_at:])
+        while len(remainder) < length:
+            next_size = min(16384, length - len(remainder))
+            remainder.extend(self.read(at + payload_at + len(remainder), next_size))
+        return eid, bytes(remainder)
+
 
 def parse_root(reader):
     prefix = reader.read(0, 262144)
@@ -286,17 +304,20 @@ def parse_cues(reader, seeks, track):
     return cues
 
 
-def has_text_block(reader, cluster_at, relative, track):
-    header = reader.read(cluster_at, 16)
-    cluster_id, ilen = vint(header, 0, size=False)
-    _, slen = vint(header, ilen, size=True)
-    if cluster_id != 0x1F43B675:
-        return False
-    cluster_data_start = cluster_at + ilen + slen
-    # Different muxers use offsets measured from the Cluster element or data.
-    for start in (cluster_at + relative, cluster_data_start + relative):
+def has_text_block(reader, cluster_at, relative, track, cluster_headers):
+    if cluster_at not in cluster_headers:
+        header = reader.read(cluster_at, 16)
+        cluster_id, ilen = vint(header, 0, size=False)
+        _, slen = vint(header, ilen, size=True)
+        if cluster_id != 0x1F43B675:
+            return False
+        cluster_headers[cluster_at] = ilen + slen
+    cluster_data_start = cluster_at + cluster_headers[cluster_at]
+    # Matroska CueRelativePosition is relative to Cluster payload. Retain a
+    # fallback for differing source behavior, but avoid two probes per cue.
+    for start in (cluster_data_start + relative, cluster_at + relative):
         try:
-            eid, payload, _ = reader.element(start, 16384)
+            eid, payload = reader.small_element(start)
         except DiagnosticStop:
             continue
         if eid == 0xA0:
@@ -319,7 +340,7 @@ def has_text_block(reader, cluster_at, relative, track):
 def main():
     row = dict(state="NOT_RUN", identity="UNVERIFIED", en_ffp=0,
                en_mkv=0, cues_indexed=0, cues_relative=0, cues_verified=0,
-               bytes=0, requests=0, ms=0)
+               bytes=0, requests=0, ms=0, first_ten_ms=0)
     reader = None
     try:
         hashval, idx, count = candidate()
@@ -335,16 +356,19 @@ def main():
         if not cues:
             raise DiagnosticStop("EN_CUES_MISSING")
         previous = -1
-        for stamp, cluster, relative, duration in cues[:10]:
+        cluster_headers = {}
+        for stamp, cluster, relative, duration in cues[:120]:
             if time.monotonic() > LIMIT:
                 break
             if stamp < previous:
                 raise DiagnosticStop("CUES_UNSORTED")
             previous = stamp
             if relative is not None and has_text_block(reader, seeks.get("_segment_base", 0) + cluster,
-                                                        relative, selected[0]):
+                                                        relative, selected[0], cluster_headers):
                 row["cues_verified"] += 1
-        row["state"] = "TEXT_CUES_VERIFIED" if row["cues_verified"] >= 10 else (
+                if row["cues_verified"] == 10:
+                    row["first_ten_ms"] = int((time.monotonic() - START) * 1000)
+        row["state"] = "TEXT_CUES_VERIFIED" if row["cues_verified"] >= 120 else (
             "INDEX_FOUND_TEXT_PARTIAL" if row["cues_verified"] else "INDEX_FOUND_TEXT_UNVERIFIED")
     except DiagnosticStop as exc:
         row["state"] = exc.code
@@ -354,7 +378,7 @@ def main():
         if reader is not None:
             row["bytes"] = min(reader.bytes, MAX_RANGE_BYTES)
             row["requests"] = reader.requests
-        row["ms"] = min(60000, int((time.monotonic() - START) * 1000))
+        row["ms"] = min(160000, int((time.monotonic() - START) * 1000))
         print("HOSTOPS_EBML_" + json.dumps(row, separators=(",", ":")))
 
 
