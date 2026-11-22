@@ -62,6 +62,30 @@ foreach ($arg in $manifest.arguments) {
 
 $name = 'TorrentTV-Vietsub-Laptop-HostOps'
 $task = Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
+if ($manifest.operation -ceq 'owner-ts-ebml-range-readonly') {
+    # This probe only reads selected-file metadata and bounded byte ranges.
+    # It deliberately bypasses the unresolved GStreamer Owner request and
+    # never triggers a Scheduled Task or touches the Owner spool.
+    $relative = 'hostops/laptop-ops/operations/owner-ts-ebml-range-readonly.ps1'
+    if ($manifest.script_path -cne $relative -or
+        $manifest.category -cne 'diagnostics' -or
+        $manifest.arguments.Count -ne 0) {
+        throw 'EBML_PROBE_MANIFEST_DRIFT'
+    }
+    $reader = Join-Path $env:GITHUB_WORKSPACE ($relative.Replace('/', '\'))
+    if (-not (Test-Path -LiteralPath $reader -PathType Leaf)) {
+        throw 'EBML_PROBE_READER_MISSING'
+    }
+    $expectedBlob = (& git rev-parse ('HEAD:' + $relative)).Trim()
+    $actualBlob = (& git hash-object --path=$relative $reader).Trim()
+    if ($expectedBlob -cnotmatch '^[0-9a-f]{40}$' -or
+        $expectedBlob -cne $actualBlob) {
+        throw 'EBML_PROBE_SOURCE_DRIFT'
+    }
+    & $reader
+    Write-Output 'HOSTOPS_EBML_DISPATCH_READONLY_PASS'
+    return
+}
 if ($manifest.operation -ceq 'owner-ts-gst-status-readonly') {
     # Recovery after a timeout is observation only. Do not require the Owner
     # task to be Ready, touch the spool, or trigger another Owner operation.
