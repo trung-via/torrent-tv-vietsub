@@ -1,7 +1,7 @@
 """Opt-in logged-in owner bootstrap for ONE P3 status/selection + P4 HTTPS.
 
 Reuses the already-enrolled owner's P4 pairing/cert identity, existing owner
-V3 event loop, and P2 OpenSubtitles/Gemini credentials. An enabled, empty
+V3 event loop, and the signed-in Owner Antigravity CLI. An enabled, empty
 owner media list selects personal single-owner stream mode with exact local
 TorrServer metadata and independent VI probing; nonempty lists retain legacy
 per-film pins. Missing policy/pairing/bootstrap -> HOLD before opening port.

@@ -91,7 +91,7 @@ def evaluate_playback(event: PlaybackSelected) -> TriggerDecision:
         str(event.file_index),
     )
     fingerprint = sha256("\x00".join(parts).encode("utf-8")).hexdigest()
-    return TriggerDecision("DISPATCH", "SEARCH_VI_FAST_THEN_EN", fingerprint)
+    return TriggerDecision("DISPATCH", "AGY_FIND_EN_AND_TRANSLATE", fingerprint)
 
 
 class ActivationDeduplicator:

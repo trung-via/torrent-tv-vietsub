@@ -224,6 +224,30 @@ class V3CompositionTests(unittest.TestCase):
         self.assertEqual(local.torrent_hash, media.torrent_hash)
         self.assertEqual(local.en_sidecar_path, self.side)
 
+    def test_agent_only_flow_never_probes_incomplete_mkv_or_local_sidecar(self):
+        class AgentOnlyCapture(CapturingFlow):
+            dual_mode = True
+            source_acquirer = staticmethod(lambda *_: None)
+
+        agent = AgentOnlyCapture()
+
+        def local_mapping_must_not_run(*_args):
+            raise AssertionError("AGY_EXTERNAL_ROUTE_MUST_NOT_SCAN_LOCAL_FILES")
+
+        processor = VerifiedV3Processor(
+            flow=agent, private_media_root=self.media,
+            read_verified_current_playback=self.read_tv,
+            read_verified_torrserver_file=self.read_file,
+            locate_owner_pinned_files=local_mapping_must_not_run)
+        result = processor.selected_media(
+            VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        self.assertEqual(result.status, "VI_READY")  # capturing fixture only
+        self.assertEqual(self.read_calls, ["TV", "SERVER", "TV"])
+        self.assertEqual(len(agent.calls), 1)
+        self.assertIsNone(agent.calls[0][3])
+        self.assertEqual(agent.calls[0][2].key, (SERVER, HASH, 5))
+
     def test_owner_private_event_same_filename_different_session_is_blocked(self):
         enqueue_selected_media(
             VIDEO, owner_root=self.owner,

@@ -36,7 +36,7 @@ class FullFlowSnapshotV4Tests(unittest.TestCase):
     def test_current_owner_request_reports_only_fixed_stage_counters(self):
         self.write_log(
             "OWNER_FULL_DIAGNOSTICS_STARTED pid=1234 epoch=1784700000",
-            "OWNER_FULL_TRACE 'P3_SELECTION_ACCEPTED' {'status': 'DISPATCH', 'reason': 'SEARCH_VI_FAST_THEN_EN'}",
+            "OWNER_FULL_TRACE 'P3_SELECTION_ACCEPTED' {'status': 'DISPATCH', 'reason': 'AGY_FIND_EN_AND_TRANSLATE'}",
             "OWNER_FULL_TRACE 'P2_EVENT_CLAIMED' {'video': 'PRIVATE_MOVIE_TITLE'}",
             "OWNER_FULL_TRACE 'P2_EVENT_FINISHED' {'event_id': 'secret', 'result': 'VIETSUB_READY'}",
             "OWNER_FULL_TRACE 'P4_DELIVERY_STATUS' {'code': 'P4_ACTIVATE_REJECTED_P3_READY_NO_CURRENT_ACCEPTED_SOURCE'}",

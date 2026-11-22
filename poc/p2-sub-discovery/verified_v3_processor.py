@@ -198,8 +198,12 @@ class VerifiedV3Processor:
         except Exception:
             raise PreProviderTransient("V3_SERVER_READER_UNAVAILABLE") from None
 
-        # The resolver performs ALL exact TV, session, metadata, owner-root,
-        # local file and subtitle controls, even when no local EN is mapped.
+        # The resolver checks exact TV/session/TorrServer metadata. For the
+        # one-path AGY OpenSubtitles flow there is no local-video dependency:
+        # looking up a sparse/incomplete MKV or stale sidecar would wrongly
+        # block the owner-requested online English acquisition.
+        agent_only = (getattr(self.flow, "dual_mode", False) is True
+                      and callable(getattr(self.flow, "source_acquirer", None)))
         local: LocalMediaSelection | None = resolve_selected_local_source(
             requested_name=video_filename,
             source_fingerprint=source_fingerprint,
@@ -207,7 +211,8 @@ class VerifiedV3Processor:
             private_media_root=self.media_root,
             read_verified_current_playback=lambda: current,
             read_verified_torrserver_file=lambda *_: record,
-            locate_owner_pinned_files=self.locate_owner,
+            locate_owner_pinned_files=(
+                (lambda *_: None) if agent_only else self.locate_owner),
         )
         lookup = subtitle_lookup_identity(current, record)
         # A missing parseable release title is NOT an identity mismatch.

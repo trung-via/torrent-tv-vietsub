@@ -1,9 +1,9 @@
-"""Automatic selected-media subtitle source -> existing P2 LEAN120, no prompts.
+"""One Owner Vietsub AI request -> AGY OpenSubtitles EN -> AGY P2 -> P4.
 
-This is a *callable integration component* for the owner-local TV workflow.
-The verified Owner path uses cached/local EN, torrent-embedded EN then a
-same-torrent EN sidecar, without OpenSubtitles search/download requests.
-No new translator, queue, background timer, public GitHub upload or TV claims.
+The installed Owner builder uses one agent-selected English download route
+when its matching film cache is empty. Earlier local/REST flows remain only
+for source compatibility and offline rollback, never a production fallback.
+No new translator, queue, receiver, public GitHub upload or TV claims.
 """
 from __future__ import annotations
 
@@ -59,7 +59,8 @@ class AutomaticVietsubFlow:
                  cache_root: Path, permissions: AutoPermissions,
                  emit: Callable[[str], object] | None = None,
                  model_preflight: Callable[[], None] | None = None,
-                 dual_mode: bool = False):
+                 dual_mode: bool = False,
+                 source_acquirer: Callable[[Media, Path], Asset] | None = None):
         if (not isinstance(client, OpenSubtitles)
                 or not isinstance(cache_root, Path) or not cache_root.is_absolute()
                 or not isinstance(permissions, AutoPermissions)
@@ -70,6 +71,8 @@ class AutomaticVietsubFlow:
                 or (model_preflight is not None
                     and not callable(model_preflight))):
             raise ValueError("AUTO_VIETSUB_INVALID_CONFIGURATION")
+        if source_acquirer is not None and not callable(source_acquirer):
+            raise ValueError("AUTO_AGY_SOURCE_ACQUIRER_INVALID")
         self.client = client
         self.worker = worker
         self.cache_root = cache_root
@@ -78,6 +81,7 @@ class AutomaticVietsubFlow:
         self._model_preflight = model_preflight
         self._model_ready = False
         self.dual_mode = dual_mode
+        self.source_acquirer = source_acquirer
         self.torrent_sidecars: OwnerTorrServerSubtitleReader | None = None
         self.torrent_embedded_en: OwnerTorrServerEmbeddedEnglishReader | None = None
 
@@ -260,11 +264,10 @@ class AutomaticVietsubFlow:
 
     def _selected_media_dual(self, media: Media, fingerprint: str,
                              local: object | None) -> AutoResult:
-        """EN-only Owner mode: no OpenSubtitles GET/POST and no VI lookup.
+        """Owner AI mode: cached EN, otherwise one AGY OpenSubtitles task.
 
         The older catalog's ai_en kind is deliberately preserved for P4 and
-        already finished LEAN120 checkpoints. Old downloaded_vi cache items
-        may still exist, but this path never fetches or selects them.
+        already finished LEAN120 checkpoints. No automatic VI source selection.
         """
         catalog = DualSubtitleCatalog(self.cache_root)
         ai = catalog.read(media, fingerprint, "ai_en")
@@ -280,6 +283,37 @@ class AutomaticVietsubFlow:
                 translated = self.after_en_cached(source, ai.file)
             self.emit("AUTO_DUAL_AI_CACHED_REUSED=YES")
             return AutoResult("VIETSUB_READY", cue_count=ai.cues,
+                              translated_cues=translated.translated_cues)
+        if self.source_acquirer is not None:
+            # Production path: AGY owns the discovery method and EN download.
+            # The Owner only verifies the matching SRT, caches it, invokes the
+            # existing AGY LEAN120 translator, then hands VI to existing P4.
+            # Do not branch through local MKV/sidecars, VI lookup or a second
+            # OpenSubtitles client here, even if they happen to exist.
+            from agy_opensubtitles_acquisition import AgyEnglishUnavailable
+            self._ensure_en_model_ready()
+            try:
+                en_asset = self.source_acquirer(media, self.cache_root)
+            except AgyEnglishUnavailable as exc:
+                if str(exc) == "AGY_EN_NO_MATCH":
+                    self.emit("AUTO_EN_SOURCE=AGY_OPENSUB_NO_MATCH")
+                    return AutoResult("REVIEW_REQUIRED")
+                raise
+            if (not isinstance(en_asset, Asset) or en_asset.language != "en"
+                    or en_asset.fmt != "srt"):
+                raise ValueError("AUTO_AGY_EN_SOURCE_INVALID")
+            en_file = write_private_cache(self.cache_root, media, en_asset)
+            catalog.record(media, fingerprint, "ai_en", en_asset, en_file,
+                           release_matched=True)
+            if not self._cache_index(
+                    media.filename, source_fingerprint=fingerprint).exists():
+                self._remember_source(media.filename, en_file, en_asset,
+                                      source_fingerprint=fingerprint)
+            translated = self.after_en_cached(en_asset, en_file)
+            if not translated.translation_complete:
+                raise ValueError("AUTO_AGY_EN_INCOMPLETE_TRANSLATION")
+            self.emit("AUTO_EN_SOURCE=AGY_OPENSUB_MATCHED")
+            return AutoResult("VIETSUB_READY", cue_count=en_asset.cues,
                               translated_cues=translated.translated_cues)
         en_asset: Asset | None = None
         source_label: str | None = None
@@ -357,7 +391,8 @@ class AutomaticVietsubFlow:
             raise ValueError("AUTO_V3_LOCAL_SOURCE_REQUIRES_MEDIA")
 
         local = None
-        if local_source is not None:
+        if (local_source is not None
+                and not (self.dual_mode and self.source_acquirer is not None)):
             if (not isinstance(local_source, LocalMediaSelection)
                     or local_source.video_name != video_name
                     or (local_source.server_id,
@@ -574,7 +609,7 @@ class AutomaticVietsubFlow:
 def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
                           model_preflight: Callable[[], None] | None = None
                           ) -> AutomaticVietsubFlow:
-    """Owner-process bootstrap. One permission/secret load, never per-media UI.
+    """Owner-process bootstrap. One AGY English source, never per-media UI.
 
     Host app resolves owner-local preference (enabled) once at startup and
     supplies user-owned credential environment. None of these credentials
@@ -598,21 +633,22 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     from lean120_api import load_profile
     from owner_vietsub_pipeline import _P2
     from translator_gateway import preflight_provider, provider_enabled
+    from agy_opensubtitles_acquisition import acquire_english
 
     profile = load_profile(_P2 / "translator_profile.json")
     if not provider_enabled(profile.provider):
         raise ValueError("AUTO_VIETSUB_PROVIDER_NOT_ENABLED")
 
-    # No CLI model request at owner startup. Only when EN needs translation,
-    # validate the owner's signed-in Antigravity CLI (never an API key).
+    # No CLI/model/web request at owner startup. On a signed TV tap, validate
+    # the existing Owner CLI login before the agent searches OpenSubtitles.
     preflight = model_preflight or (lambda: preflight_provider(profile))
     worker = AutomaticLean120Worker(
         state_root=state_root, profile=profile, glossary={},
     )
 
     def provider_disabled(*_args: object) -> bytes:
-        # Keep the older OpenSubtitles client shape for existing callers,
-        # but make accidental network regression impossible in Owner mode.
+        # Keep the old client shape for source compatibility only. The agent
+        # chooses its permitted OpenSubtitles method; this client stays inert.
         raise SubtitleApiError("AUTO_PROVIDER_SEARCH_DISABLED")
 
     return AutomaticVietsubFlow(
@@ -625,4 +661,7 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
             auto_download=True, auto_translate_en=True),
         model_preflight=lambda: preflight(),
         dual_mode=True,
+        source_acquirer=lambda media, root: acquire_english(
+            media, cache_root=root, model=profile.model,
+            thinking_level=profile.thinking_level),
     )

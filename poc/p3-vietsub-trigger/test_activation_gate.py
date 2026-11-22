@@ -28,7 +28,7 @@ class TriggerGateTests(unittest.TestCase):
         gate = ActivationDeduplicator()
         first = gate.consider(event())
         self.assertEqual((first.status, first.reason),
-                         ("DISPATCH", "SEARCH_VI_FAST_THEN_EN"))
+                         ("DISPATCH", "AGY_FIND_EN_AND_TRANSLATE"))
         self.assertRegex(first.local_fingerprint or "", r"^[0-9a-f]{64}$")
         self.assertEqual(gate.consider(event()).reason,
                          "DUPLICATE_CURRENT_PLAY_EVENT")

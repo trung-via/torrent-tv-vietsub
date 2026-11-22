@@ -1,5 +1,11 @@
 # Dual subtitle sources: AI default, downloaded Vietnamese optional
 
+> **Historical candidate, superseded for the active `Bật Vietsub AI` route on
+> 2026-11-22 by [ADR-0011](DECISIONS/ADR-0011-agy-english-one-path.md).**
+> The Owner now delegates matching OpenSubtitles English acquisition to AGY;
+> downloaded-VI, cached MKV tracks and this dual-source routing are not used
+> by the active AI operation. Existing files are preserved for rollback.
+
 **Decision:** Human, 2026-11-22. **Status:** source implementation on Draft
 PR #179. P2 dual discovery/cache, independent P4 V2 activation and the OMP
 source-choice menu exist in source and have offline tests. **No Android build,

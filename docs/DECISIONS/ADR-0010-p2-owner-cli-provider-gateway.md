@@ -1,5 +1,10 @@
 # ADR-0010 — P2 owner-account CLI translation provider gateway
 
+**2026-11-22 update:** [ADR-0011](ADR-0011-agy-english-one-path.md)
+supersedes the discovery/VI-first steps below for the active TV AI path.
+The Owner now uses AGY for both autonomous OpenSubtitles English acquisition
+and its existing LEAN120 translation, with one signed P4/VLC delivery.
+
 Status: **DECIDED BY HUMAN, SOURCE-ONLY CANDIDATE — NOT DEPLOYED** (2026-11-18)
 
 ## Decision and scope
