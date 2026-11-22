@@ -187,6 +187,21 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertNotIn("Remove-Item", script)
         self.assertNotIn("download_manual_en", script)
 
+    def test_en406_recovery_diagnostic_only_classifies_private_logs(self):
+        operation = (ROOT / "hostops/laptop-ops/operations/owner-en406-recovery-diagnostic.ps1").read_text()
+        dispatcher = (ROOT / "hostops/jobs/owner-laptop-ops-dispatch.ps1").read_text()
+        self.assertIn("4611cbb481f2b706c164238764f5509ecfcb9310", operation)
+        self.assertIn("3f070231a90039185b85e5963b0a575d1f39e0c8", operation)
+        self.assertIn("full-owner-output.log", operation)
+        self.assertIn("TTV-OWNER-EN406-RECOVERY-DIAG-V1", operation)
+        self.assertIn("HOSTOPS_EN406_DIAG_QUARANTINE=", dispatcher)
+        self.assertIn("HOSTOPS_EN406_DIAG_MARKER=", dispatcher)
+        self.assertIn("$summary.nonce -ceq $nonce", dispatcher)
+        for forbidden in ("Start-ScheduledTask", "Stop-ScheduledTask", "Disable-ScheduledTask",
+                          "Enable-ScheduledTask", "Invoke-WebRequest", "Invoke-RestMethod",
+                          "Remove-Item", "Move-Item -LiteralPath $marker"):
+            self.assertNotIn(forbidden, operation)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -198,6 +198,58 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-en406-recovery-diagnostic') {
+        $summaryFile = Join-Path $outbox 'en406-recovery-diag.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 512 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $fields = @('schema','nonce','quarantine','restore','task','marker','p2')
+                $causes = @('RECEIPT_NOT_UNIQUE','PRIVATE_LOG_MISSING','PRIVATE_LOG_INVALID',
+                    'UNCLASSIFIED_PRIVATE_ERROR','MARKER_ARCHIVED_THEN_FAILED',
+                    'TASK_DISABLED_MARKER_ORIGINAL','INTERACTIVE_OWNER_REQUIRED',
+                    'ROOT_MISSING','ROOT_REPARSE_POINT','OWNER_TASK_IDENTITY_DRIFT',
+                    'OWNER_TASK_NOT_RUNNING','PENDING_OWNER_EVENT',
+                    'P2_UNKNOWN_OR_ACTIVE_EFFECT','MARKER_NOT_UNIQUE','FILE_MISSING',
+                    'FILE_UNTRUSTED','MARKER_CONTENT_CHANGED','BLOCKED_EVENT_NOT_FOUND',
+                    'BLOCKED_EVENT_NOT_RECENT','MULTIPLE_RECENT_BLOCKED_EVENTS',
+                    'LATEST_BLOCKED_EVENT_NOT_BOUND','OWNER_EVENT_CLAIM_INVALID',
+                    'MARKER_NEWER_THAN_EVENT','CURRENT_AI_EN_ALREADY_CACHED',
+                    'CURRENT_LEGACY_EN_ALREADY_CACHED','CURRENT_FAILURE_TRACE_NOT_PROVEN',
+                    'HEALTH_NOT_READABLE','UNEXPECTED_WORKER_COUNT',
+                    'OWNER_WORKER_IDENTITY_UNVERIFIED','WORKERS_STILL_RUNNING',
+                    'PREMOVE_CLAIM_DRIFT','ARCHIVED_BYTES_MISMATCH',
+                    'RESTART_NEW_OWNER_NOT_VERIFIED','OWNER_INTERACTIVE_REQUIRED',
+                    'OWNER_INSTALL_ROOT_INVALID','POST_QUARANTINE_TASK_NOT_DISABLED',
+                    'OWNER_WORKERS_PRESENT','P2_STATE_MISSING',
+                    'EXACT_B11_ARCHIVE_NOT_VERIFIED','REPARSE_PATH',
+                    'B11_NO_RETRY_LEDGER_INVALID','P2_INFLIGHT_OR_ACTIVE_LOCK',
+                    'PREVIOUS_HEALTH_UNREADABLE','INSTALLED_SOURCE_DRIFT',
+                    'SOURCE_HASH_MISMATCH','POST_QUARANTINE_CONCURRENCY_DRIFT',
+                    'BACKUP_HASH_MISMATCH','INSTALLED_HASH_MISMATCH',
+                    'OFFLINE_IMPORT_FAILED','FRESH_OWNER_HEALTH_NOT_VERIFIED',
+                    'POST_RESTART_SOURCE_HASH_DRIFT')
+                if ($summary.schema -ceq 'TTV-OWNER-EN406-RECOVERY-DIAG-V1' -and
+                    $summary.nonce -ceq $nonce -and
+                    (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($fields | Sort-Object) -join ',') -and
+                    $summary.quarantine -cin $causes -and
+                    $summary.restore -cin $causes -and
+                    $summary.task -cin @('Running','Ready','Disabled','OTHER') -and
+                    $summary.marker -cin @('UNKNOWN','ONE_ARCHIVED_NONE_ACTIVE',
+                        'ONE_ACTIVE_NONE_ARCHIVED','MULTIPLE_ACTIVE','NO_MARKER_SEEN',
+                        'MIXED_MARKER_STATE') -and
+                    $summary.p2 -cin @('UNKNOWN','CLEAR','BUSY_OR_UNCERTAIN')) {
+                    Write-Output ('HOSTOPS_EN406_DIAG_QUARANTINE=' + $summary.quarantine)
+                    Write-Output ('HOSTOPS_EN406_DIAG_RESTORE=' + $summary.restore)
+                    Write-Output ('HOSTOPS_EN406_DIAG_TASK=' + $summary.task)
+                    Write-Output ('HOSTOPS_EN406_DIAG_MARKER=' + $summary.marker)
+                    Write-Output ('HOSTOPS_EN406_DIAG_P2=' + $summary.p2)
+                }
+            }
+        }
+    }
     if ($receipt.operation -ceq 'owner-title178-diagnostic') {
         # Strictly bounded Owner-produced enum. Never print private log text.
         $summaryFile = Join-Path $outbox 'title178-diag.json'

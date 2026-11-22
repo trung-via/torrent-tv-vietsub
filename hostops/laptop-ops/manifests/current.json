@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-opensub-406-install",
-  "category": "owner-maintenance",
+  "operation": "owner-en406-recovery-diagnostic",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-opensub-406-install.ps1",
-  "script_sha256": "8d90c167518f0b6fec7c53965cc73c4184e6c237682221464482510896942a94",
+  "script_path": "hostops/laptop-ops/operations/owner-en406-recovery-diagnostic.ps1",
+  "script_sha256": "6b7e5f4b4263f1e95cbd40c77c7123a28221c99b30acc21031d2afdf8f578d33",
   "arguments": []
 }
