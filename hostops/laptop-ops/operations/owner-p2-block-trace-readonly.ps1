@@ -69,12 +69,13 @@ try:
     sites={'download_selected','download_manual_vi','download_manual_en',
            '_request','_claim_one_post','validate_timed_text',
            'write_private_cache','_remember_source','selected_media',
-           'run_claimed','_safe_https','_json'}
-    site='NOT_OBSERVED'
+           'run_claimed','_safe_https','_json','_milliseconds'}
+    site='NOT_OBSERVED'; site_line=0
     for line in after:
         if "OWNER_FULL_TRACE 'P3_SELECTION_ACCEPTED'" in line: break
-        m=re.search(r'File "[^"]+", line \d+, in ([a-zA-Z_]+)',line)
-        if m and m.group(1) in sites: site=m.group(1)
+        m=re.search(r'File "[^"]*opensubtitles\.py", line (\d{1,4}), in ([a-zA-Z_]+)',line)
+        if m and m.group(2) in sites:
+            site=m.group(2); site_line=int(m.group(1))
         m=re.fullmatch(r'(?:[a-zA-Z_][a-zA-Z_0-9]*\.)?([A-Za-z]+Error):\s*([A-Z][A-Z0-9_]{3,100})',line.strip())
         if m:
             out['exception_type']=m.group(1) if m.group(1) in {'SubtitleApiError','ValueError','OSError','RuntimeError','FileNotFoundError','TimeoutError'} else 'OTHER'
@@ -83,7 +84,7 @@ try:
         if line.startswith('OWNER_BRIDGE_BLOCK_REASON='):
             code=line.partition('=')[2]
             out['reason']=code if code in known or code=='UNCLASSIFIED' else 'OTHER'
-    out['fault_site']=site
+    out['fault_site']=site+'_'+str(site_line) if site_line else site
 except Exception:
     out['scope']='LOCAL_READ_ERROR'
 finish()

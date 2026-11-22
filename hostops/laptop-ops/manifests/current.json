@@ -4,6 +4,6 @@
   "risk": "ROUTINE",
   "category": "diagnostics",
   "script_path": "hostops/laptop-ops/operations/owner-p2-block-trace-readonly.ps1",
-  "script_sha256": "f9aefff1e8383ca7c7573f31a1d5c7c90f621896ebbab8e8eae395beedbe5e5c",
+  "script_sha256": "6440188897346373ac9b22ada4bfc53ff504f00a905e76ece1b82cb200fb068c",
   "arguments": []
 }
