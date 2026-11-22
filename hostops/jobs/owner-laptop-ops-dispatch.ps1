@@ -444,6 +444,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
                 $expected = @('schema','nonce','result','installed_modules','owner')
+                $moduleCount = if ($receipt.operation -ceq 'owner-p2-coverage-178-install') { 1 } else { 2 }
                 $codes = @('PREFLIGHT_PASS_NO_STOP','ALREADY_INSTALLED',
                     'INSTALLED_OWNER_READY','ROLLED_BACK_OWNER_READY',
                     'SELECTOR_PENDING_OWNER_EVENT','SELECTOR_P2_ACTIVE_OR_UNCERTAIN',
@@ -458,10 +459,10 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
                         (@($expected | Sort-Object) -join ',') -and
                     $summary.result -cin $codes -and
-                    [int]$summary.installed_modules -in @(0,2) -and
+                    [int]$summary.installed_modules -in @(0,$moduleCount) -and
                     $summary.owner -cin @('RUNNING_READY','NOT_PROVEN')) {
                     Write-Output ('HOSTOPS_OWNER_SELECTOR_INSTALL=' + $summary.result)
-                    Write-Output ('HOSTOPS_OWNER_SELECTOR_MODULES=' + [int]$summary.installed_modules + '/2')
+                    Write-Output ('HOSTOPS_OWNER_SELECTOR_MODULES=' + [int]$summary.installed_modules + '/' + $moduleCount)
                     Write-Output ('HOSTOPS_OWNER_SELECTOR_OWNER=' + $summary.owner)
                 }
             }

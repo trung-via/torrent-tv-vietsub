@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-p2-installed-hashes-readonly",
+  "operation": "owner-p2-coverage-178-install",
   "risk": "ROUTINE",
-  "category": "diagnostics",
-  "script_path": "hostops/laptop-ops/operations/owner-p2-installed-hashes-readonly.ps1",
-  "script_sha256": "ed377f2a1043d2bf30eeee2895a3dc0fdcc45567685e1ae658c57d5f7500c893",
+  "category": "owner-maintenance",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-coverage-178-install.ps1",
+  "script_sha256": "347de62059146fb915e8ecaef70daeab97366a59ab8fdf6cb448c5c836bc21e3",
   "arguments": []
 }
