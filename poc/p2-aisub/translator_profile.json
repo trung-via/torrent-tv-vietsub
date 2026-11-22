@@ -1,0 +1,5 @@
+{
+  "provider": "antigravity",
+  "model": "gemini-4-hydrogen-high",
+  "thinking_level": "high"
+}

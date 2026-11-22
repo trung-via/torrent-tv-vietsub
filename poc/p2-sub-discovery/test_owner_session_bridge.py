@@ -1,0 +1,594 @@
+"""Owner-session bridge offline contract tests; no real Windows keys or APIs."""
+import json
+import io
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import tempfile
+from threading import Barrier, Event, Lock
+import unittest
+from unittest import mock
+
+from owner_session_bridge import (
+    enqueue_selected_media, poll_private_events, run_owner_agent,
+    consume_inert_runner_wakes,
+    _owner_process_lock,
+    write_owner_agent_health, read_owner_agent_health,
+    PreProviderTransient,
+    install_owner_full_diagnostics,
+)
+
+
+class FakeProcessor:
+    def __init__(self, *, status="VIETSUB_READY", fail=False):
+        self.calls = []
+        self.status = status
+        self.fail = fail
+
+    def selected_media(self, filename):
+        self.calls.append(filename)
+        if self.fail:
+            raise RuntimeError("private API key: NEVER PRINT")
+        return type("Result", (), {"status": self.status})()
+
+
+class OwnerSessionBridgeTests(unittest.TestCase):
+    def setUp(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.root = Path(root.name).resolve() / "owner-private"
+        self.lines = []
+
+    def test_trusted_event_one_processing_and_no_automatic_replay(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+            owner_root=self.root,
+        )
+        self.assertEqual(len(event_id), 32)
+        processor = FakeProcessor()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor, emit=self.lines.append), 1)
+        self.assertEqual(processor.calls, ["Synthetic.Film.2017.1080p.BluRay.x265-GRP"])
+        self.assertTrue((self.root / "inbox" / ("event-" + event_id + ".done")).is_file())
+        self.assertTrue((self.root / "inbox" / ("claim-" + event_id)).is_file())
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor, emit=self.lines.append), 0)
+        self.assertEqual(len(processor.calls), 1)
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_COMPLETE"])
+
+    def test_provider_error_fails_closed_and_keeps_claim(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.1080p.BluRay.x265-GRP", owner_root=self.root)
+        processor = FakeProcessor(fail=True)
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor, emit=self.lines.append), 1)
+        self.assertTrue((self.root / "inbox" / ("event-" + event_id + ".blocked")).is_file())
+        self.assertTrue((self.root / "inbox" / ("claim-" + event_id)).is_file())
+        self.assertEqual(len(processor.calls), 1)
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                      "OWNER_BRIDGE_BLOCK_REASON=UNCLASSIFIED"])
+        self.assertNotIn("private API key", " ".join(self.lines))
+
+    def test_two_films_translate_concurrently_without_replaying_claims(self):
+        first = enqueue_selected_media(
+            "Synthetic.A.2017.1080p.BluRay.x265-GRP", owner_root=self.root)
+        second = enqueue_selected_media(
+            "Synthetic.B.2017.1080p.BluRay.x265-GRP", owner_root=self.root)
+        both_started = Barrier(3, timeout=3)
+        release = Event()
+        seen = []
+        lock = Lock()
+
+        class SlowProcessor:
+            def selected_media(self, name):
+                with lock:
+                    seen.append(name)
+                both_started.wait()
+                if not release.wait(3):
+                    raise RuntimeError("synthetic timeout")
+                return type("Result", (), {"status": "VIETSUB_READY"})()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = []
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=SlowProcessor(),
+                emit=self.lines.append, max_events=2,
+                submit=lambda job: futures.append(pool.submit(job))), 2)
+            both_started.wait()
+            self.assertEqual(len(seen), 2)  # A and B are running together.
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=SlowProcessor(),
+                emit=self.lines.append), 0)  # Claimed, no replay.
+            release.set()
+            for future in futures:
+                future.result(timeout=3)
+        for event_id in (first, second):
+            self.assertTrue((self.root / "inbox" /
+                             ("event-" + event_id + ".done")).exists())
+        self.assertEqual(len(seen), 2)
+
+    def test_reopening_same_film_while_pending_attaches_without_duplicate(self):
+        fp = "a" * 64
+        first = enqueue_selected_media(
+            "Synthetic.A.2017.1080p.BluRay.x265-GRP",
+            owner_root=self.root, source_fingerprint=fp,
+            tv_session_id="first-session")
+        second = enqueue_selected_media(
+            "Synthetic.A.2017.1080p.BluRay.x265-GRP",
+            owner_root=self.root, source_fingerprint=fp,
+            tv_session_id="second-session")
+        self.assertEqual(first, second)
+        self.assertEqual(len(list((self.root / "inbox").glob("event-*.json"))), 1)
+
+    def test_v4_background_request_not_swallowed_by_legacy_tv_bound_v3(self):
+        import hashlib
+        server, torrent, index = "owner-server", "a" * 40, 0
+        fp = hashlib.sha256(
+            f"{server}\x00{torrent}\x00{index}".encode()).hexdigest()
+        legacy = enqueue_selected_media(
+            "Synthetic.A.2017.mkv", owner_root=self.root,
+            source_fingerprint=fp, tv_session_id="old-session")
+        newer = enqueue_selected_media(
+            "Synthetic.A.2017.mkv", owner_root=self.root,
+            source_fingerprint=fp, tv_session_id="new-session",
+            authorized_selection={"server_id": server,
+                                  "torrent_hash": torrent,
+                                  "file_index": index})
+        self.assertNotEqual(legacy, newer)
+        self.assertEqual(len(list((self.root / "inbox").glob("event-*.json"))), 2)
+
+    def test_owner_full_diagnostic_preserves_original_unclassified_exception(self):
+        self.root.mkdir(parents=True)
+        console = io.StringIO()
+        errors = io.StringIO()
+        with (mock.patch("owner_session_bridge._FULL_LOG", None),
+              mock.patch("sys.stdout", console),
+              mock.patch("sys.stderr", errors)):
+            path = install_owner_full_diagnostics(self.root)
+            try:
+                event_id = enqueue_selected_media(
+                    "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+                    owner_root=self.root)
+                poll_private_events(owner_root=self.root,
+                                    processor=FakeProcessor(fail=True),
+                                    emit=self.lines.append)
+                raw = path.read_text(encoding="utf-8")
+                self.assertIn("OWNER_FULL_TRACE 'P2_EVENT_BLOCKED'", raw)
+                self.assertIn("RuntimeError: private API key: NEVER PRINT", raw)
+                self.assertIn("Traceback (most recent call last)", raw)
+                self.assertIn(event_id, raw)
+                self.assertIn("private API key: NEVER PRINT", errors.getvalue())
+                self.assertEqual(self.lines[-1],
+                                 "OWNER_BRIDGE_BLOCK_REASON=UNCLASSIFIED")
+            finally:
+                import owner_session_bridge
+                owner_session_bridge._FULL_LOG.close()
+
+    def test_preprovider_transient_bounded_retry_then_success(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.mkv", owner_root=self.root,
+            source_fingerprint="a" * 64, tv_session_id="b" * 32)
+        class TemporaryReader:
+            calls = 0
+            def selected_media(self, name, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise PreProviderTransient("V3_TV_READER_UNAVAILABLE")
+                return type("Result", (), {"status": "VI_READY"})()
+        processor = TemporaryReader()
+        with mock.patch("owner_session_bridge.time.time", return_value=100):
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=processor,
+                emit=self.lines.append), 1)
+        folder = self.root / "inbox"
+        self.assertFalse((folder / ("claim-" + event_id)).exists())
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_PREPROVIDER_DEFERRED",
+                                      "OWNER_BRIDGE_PREPROVIDER_REASON=V3_TV_READER_UNAVAILABLE"])
+        with mock.patch("owner_session_bridge.time.time", return_value=103):
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=processor,
+                emit=self.lines.append), 0)
+        with mock.patch("owner_session_bridge.time.time", return_value=106):
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=processor,
+                emit=self.lines.append), 1)
+        self.assertEqual(processor.calls, 2)
+        self.assertTrue((folder / ("event-" + event_id + ".done")).is_file())
+        self.assertTrue((folder / ("claim-" + event_id)).is_file())
+        self.assertFalse((folder / ("preprovider-retry-" + event_id + ".json")).exists())
+
+    def test_preprovider_outage_does_not_permanently_block_user_request(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.mkv", owner_root=self.root,
+            source_fingerprint="a" * 64, tv_session_id="b" * 32)
+        class FailingReader:
+            calls = 0
+            def selected_media(self, name, **kwargs):
+                self.calls += 1
+                raise PreProviderTransient("V3_SERVER_READER_UNAVAILABLE")
+        processor = FailingReader()
+        for moment in (100, 106, 122, 153, 184):
+            with mock.patch("owner_session_bridge.time.time", return_value=moment):
+                self.assertEqual(poll_private_events(
+                    owner_root=self.root, processor=processor,
+                    emit=self.lines.append), 1)
+        folder = self.root / "inbox"
+        self.assertEqual(processor.calls, 5)
+        self.assertTrue((folder / ("event-" + event_id + ".json")).exists())
+        self.assertFalse((folder / ("claim-" + event_id)).exists())
+        retry = json.loads((folder / ("preprovider-retry-" + event_id + ".json")).read_text())
+        self.assertEqual(retry["attempts"], 3)
+        self.assertEqual(retry["not_before_epoch"], 214)
+        self.assertEqual(self.lines[-1],
+                         "OWNER_BRIDGE_PREPROVIDER_REASON=V3_SERVER_READER_UNAVAILABLE")
+
+        class RecoveredReader:
+            calls = 0
+            def selected_media(self, name, **kwargs):
+                self.calls += 1
+                return type("Result", (), {"status": "VI_READY"})()
+        recovered = RecoveredReader()
+        with mock.patch("owner_session_bridge.time.time", return_value=215):
+            self.assertEqual(poll_private_events(
+                owner_root=self.root, processor=recovered,
+                emit=self.lines.append), 1)
+        self.assertEqual(recovered.calls, 1)
+        self.assertTrue((folder / ("event-" + event_id + ".done")).exists())
+        self.assertFalse((folder / ("preprovider-retry-" + event_id + ".json")).exists())
+
+    def test_blocked_known_reason_is_reported_without_private_details(self):
+        enqueue_selected_media("Synthetic.Film.2017.mkv", owner_root=self.root)
+        class FailingFlow:
+            def selected_media(self, name):
+                raise ValueError("AUTO_VIETSUB_PERMISSIONS_NOT_ENABLED")
+        poll_private_events(owner_root=self.root, processor=FailingFlow(),
+                            emit=self.lines.append)
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                      "OWNER_BRIDGE_BLOCK_REASON=AUTO_VIETSUB_PERMISSIONS_NOT_ENABLED"])
+
+    def test_abandoned_p2_job_is_named_and_never_replayed(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.mkv", owner_root=self.root)
+        class QuarantinedP2:
+            calls = 0
+            def selected_media(self, name):
+                self.calls += 1
+                raise ValueError("AUTO_LEAN120_ABANDONED_JOB_HOLD")
+        processor = QuarantinedP2()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor,
+            emit=self.lines.append), 1)
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                      "OWNER_BRIDGE_BLOCK_REASON=AUTO_LEAN120_ABANDONED_JOB_HOLD"])
+        self.assertTrue((self.root / "inbox" /
+                         ("event-" + event_id + ".blocked")).is_file())
+        self.assertTrue((self.root / "inbox" /
+                         ("claim-" + event_id)).is_file())
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor,
+            emit=self.lines.append), 0)
+        self.assertEqual(processor.calls, 1)
+
+    def test_uncertain_p2_provider_state_is_explicit_but_never_retried(self):
+        for reason in ("AUTO_LEAN120_PRIOR_PROVIDER_INFLIGHT_HOLD",
+                       "AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE"):
+            with self.subTest(reason=reason):
+                self.lines.clear()
+                with tempfile.TemporaryDirectory() as private:
+                    root = Path(private).resolve()
+                    event_id = enqueue_selected_media(
+                        "Synthetic.Film.2017.mkv", owner_root=root)
+                    class UncertainP2:
+                        def selected_media(self, name):
+                            raise ValueError(reason)
+                    self.assertEqual(poll_private_events(
+                        owner_root=root, processor=UncertainP2(),
+                        emit=self.lines.append), 1)
+                    self.assertEqual(self.lines, [
+                        "OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                        "OWNER_BRIDGE_BLOCK_REASON=" + reason])
+                    self.assertTrue((root / "inbox" /
+                                     ("event-" + event_id + ".blocked")).is_file())
+
+    def test_p2_text_validation_failure_reports_only_fixed_error_code(self):
+        for reason in ("AGY_TRANSLATION_TEXT_EMPTY",
+                       "AGY_TRANSLATION_TEXT_TOO_LONG",
+                       "AGY_TRANSLATION_TEXT_NUL",
+                       "AGY_TRANSLATION_TEXT_UTF8_INVALID",
+                       "AGY_TRANSLATION_TEXT_MARKUP_UNSUPPORTED"):
+            with self.subTest(reason=reason):
+                lines = []
+                with tempfile.TemporaryDirectory() as private:
+                    root = Path(private).resolve()
+                    enqueue_selected_media("Synthetic.Film.2017.mkv", owner_root=root)
+                    class RejectedP2:
+                        def selected_media(self, name):
+                            raise ValueError(reason)
+                    self.assertEqual(poll_private_events(
+                        owner_root=root, processor=RejectedP2(), emit=lines.append), 1)
+                    self.assertEqual(lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                             "OWNER_BRIDGE_BLOCK_REASON=" + reason])
+
+    def test_legacy_event_preprovider_error_must_not_replay(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.mkv", owner_root=self.root)
+        class FailingReader:
+            calls = 0
+            def selected_media(self, name):
+                self.calls += 1
+                raise PreProviderTransient("V3_TV_READER_UNAVAILABLE")
+        processor = FailingReader()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor,
+            emit=self.lines.append), 1)
+        folder = self.root / "inbox"
+        self.assertEqual(processor.calls, 1)
+        self.assertTrue((folder / ("event-" + event_id + ".blocked")).exists())
+        self.assertTrue((folder / ("claim-" + event_id)).exists())
+        self.assertFalse((folder / ("preprovider-retry-" + event_id + ".json")).exists())
+        self.assertEqual(self.lines, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY"])
+
+    def test_corrupt_preprovider_retry_receipt_fails_closed(self):
+        event_id = enqueue_selected_media("Synthetic.Film.2017.mkv", owner_root=self.root)
+        (self.root / "inbox" /
+         ("preprovider-retry-" + event_id + ".json")).write_text("invalid")
+        processor = FakeProcessor()
+        poll_private_events(owner_root=self.root, processor=processor,
+                            emit=self.lines.append)
+        self.assertEqual(processor.calls, [])
+        self.assertIn("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY", self.lines)
+        self.assertTrue((self.root / "inbox" /
+                         ("event-" + event_id + ".blocked")).exists())
+
+    def test_review_is_not_paid_retry(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.1080p.BluRay.x265-GRP", owner_root=self.root)
+        processor = FakeProcessor(status="REVIEW_REQUIRED")
+        poll_private_events(owner_root=self.root, processor=processor, emit=self.lines.append)
+        self.assertTrue((self.root / "inbox" / ("event-" + event_id + ".review")).is_file())
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor, emit=self.lines.append), 0)
+
+    def test_malformed_or_symlinked_event_not_executed(self):
+        folder = self.root / "inbox"
+        folder.mkdir(parents=True)
+        wrong = folder / ("event-" + "a"*32 + ".json")
+        wrong.write_text(json.dumps({
+            "schema": "TTV-OWNER-VIDEO-EVENT-V1",
+            "event_id": "a"*32,
+            "selected_video_filename": "../foreign-media",
+        }))
+        processor = FakeProcessor()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor, emit=self.lines.append), 0)
+        self.assertEqual(processor.calls, [])
+        self.assertIn("OWNER_BRIDGE_EVENT_REJECTED", self.lines)
+        try:
+            link = folder / ("event-" + "b"*32 + ".json")
+            link.symlink_to(wrong)
+        except (OSError, NotImplementedError):
+            return
+        poll_private_events(owner_root=self.root, processor=processor, emit=self.lines.append)
+        self.assertIn("OWNER_BRIDGE_EVENT_REJECTED_SYMLINK", self.lines)
+
+    def test_stale_inflight_claim_never_replays(self):
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.1080p.BluRay.x265-GRP", owner_root=self.root)
+        (self.root / "inbox" / ("claim-" + event_id)).write_text("uncertain")
+        processor = FakeProcessor()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor, emit=self.lines.append), 0)
+        self.assertEqual(processor.calls, [])
+
+    def test_enqueue_does_not_accept_path_or_command_input(self):
+        for bad in ("../outside", "C:\\movie.mkv", "bad\nshell", "", "/tmp/video"):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ValueError, "BAD_VIDEO_NAME"):
+                    enqueue_selected_media(bad, owner_root=self.root)
+
+    def test_invalid_max_events_and_processor_refused(self):
+        with self.assertRaisesRegex(ValueError, "BAD_PROCESSOR"):
+            poll_private_events(owner_root=self.root, processor=object(), max_events=1)
+        with self.assertRaisesRegex(ValueError, "BAD_PROCESSOR"):
+            poll_private_events(owner_root=self.root, processor=FakeProcessor(),
+                                max_events=100)
+
+    def test_distinct_requests_are_processed_with_bounded_limit(self):
+        for n in range(5):
+            enqueue_selected_media(f"Synthetic.Film.2017.1080p.BluRay.x265-GRP{n}",
+                                   owner_root=self.root)
+        processor = FakeProcessor()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor,
+            emit=self.lines.append, max_events=3), 3)
+        self.assertEqual(len(processor.calls), 3)
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=processor,
+            emit=self.lines.append, max_events=3), 2)
+
+    def test_runner_wake_carries_no_film_or_command(self):
+        # Runner may create WAKE_V1, but owner executes ONLY private events.
+        wake = self.root / "public-wake"
+        wake.mkdir(parents=True)
+        (wake / ("wake-" + "a"*32 + ".txt")).write_bytes(b"WAKE_V1\n")
+        (wake / ("wake-" + "b"*32 + ".txt")).write_bytes(b"python evil.py")
+        (wake / ("wake-" + "c"*32 + ".txt")).write_bytes(b"WAKE_V1\n")
+        self.assertEqual(consume_inert_runner_wakes(shared_wake_root=wake), 2)
+        self.assertEqual(len(list(wake.glob("wake-*.txt"))), 1)
+        self.assertEqual(consume_inert_runner_wakes(shared_wake_root=wake), 0)
+        self.assertFalse((self.root / "inbox").exists())
+
+    def test_symlinked_wake_folder_refused(self):
+        outside = self.root / "elsewhere"
+        outside.mkdir(parents=True)
+        link = self.root / "wake-link"
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            return
+        self.assertEqual(consume_inert_runner_wakes(shared_wake_root=link), 0)
+
+    def test_bound_event_passes_media_fingerprint_no_name_only_cache(self):
+        target = "e" * 64
+        event_id = enqueue_selected_media(
+            "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+            owner_root=self.root, source_fingerprint=target)
+        body = json.loads((self.root / "inbox" /
+            ("event-" + event_id + ".json")).read_text())
+        self.assertEqual(body["schema"], "TTV-OWNER-VIDEO-EVENT-V2")
+        self.assertEqual(body["source_fingerprint"], target)
+
+        class BoundFake:
+            def __init__(self):
+                self.calls = []
+            def selected_media(self, name, *, source_fingerprint):
+                self.calls.append((name, source_fingerprint))
+                return type("Result", (), {"status": "VIETSUB_READY"})()
+
+        worker = BoundFake()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=worker, emit=self.lines.append), 1)
+        self.assertEqual(len(worker.calls), 1)
+        self.assertEqual(worker.calls[0][1], target)
+
+    def test_bound_event_invalid_fingerprint_never_processed(self):
+        for bad in ("A"*64, "abc", "../bad", "", 123):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ValueError, "SOURCE_FINGERPRINT_INVALID"):
+                    enqueue_selected_media(
+                        "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+                        owner_root=self.root, source_fingerprint=bad)
+        self.assertFalse((self.root / "inbox").exists())
+        folder = self.root / "inbox"
+        folder.mkdir(parents=True)
+        bad_id = "a" * 32
+        (folder / ("event-" + bad_id + ".json")).write_text(json.dumps({
+            "schema": "TTV-OWNER-VIDEO-EVENT-V2",
+            "event_id": bad_id,
+            "selected_video_filename": "Synthetic.Film.2017.1080p.BluRay.x265-GRP",
+            "source_fingerprint": "NOT-SHA",
+        }))
+        class Probe:
+            calls = []
+            def selected_media(self, name, *, source_fingerprint):
+                self.calls.append(name)
+        worker = Probe()
+        self.assertEqual(poll_private_events(
+            owner_root=self.root, processor=worker, emit=self.lines.append), 0)
+        self.assertEqual(worker.calls, [])
+
+    def test_owner_lock_exclusive_but_released_on_exit(self):
+        with _owner_process_lock(self.root):
+            with self.assertRaisesRegex(ValueError, "ALREADY_RUNNING"):
+                with _owner_process_lock(self.root):
+                    pass
+        # Exiting/crashing the *process lock* does not require a human to
+        # manually delete the file; provider claims are handled separately.
+        self.assertTrue((self.root / "owner-agent-active.lock").is_file())
+        with _owner_process_lock(self.root):
+            self.assertTrue((self.root / "owner-agent-active.lock").exists())
+
+    def test_old_stale_pid_marker_is_not_permanent_lock(self):
+        self.root.mkdir(parents=True)
+        (self.root / "owner-agent-active.lock").write_bytes(b"123456")
+        with _owner_process_lock(self.root):
+            pass
+
+    def test_owner_process_body_failure_does_not_fake_lock_conflict(self):
+        with self.assertRaisesRegex(OSError, "synthetic"):
+            with _owner_process_lock(self.root):
+                raise OSError("synthetic")
+        with _owner_process_lock(self.root):
+            pass
+
+    def test_owner_only_health_is_fresh_and_contains_no_media_or_secrets(self):
+        self.assertEqual(read_owner_agent_health(owner_root=self.root),
+                         "NOT_INSTALLED")
+        write_owner_agent_health(owner_root=self.root, state="STARTING")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root),
+                         "STARTING")
+        write_owner_agent_health(owner_root=self.root, state="READY")
+        path = self.root / "agent-health.json"
+        body = path.read_text(encoding="utf-8")
+        self.assertIn("TTV-OWNER-AGENT-HEALTH-V1", body)
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "READY")
+        self.assertNotIn("GEMINI", body)
+        self.assertNotIn("OpenSubtitles", body)
+        self.assertNotIn("movie", body.lower())
+        self.assertNotIn("key", body.lower())
+        doc = json.loads(body)
+        self.assertEqual(read_owner_agent_health(
+            owner_root=self.root, now=doc["observed_utc_epoch"] + 31), "STALE")
+        write_owner_agent_health(owner_root=self.root, state="BLOCKED")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "BLOCKED")
+        write_owner_agent_health(owner_root=self.root, state="STOPPED")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "STOPPED")
+
+    def test_health_symlink_and_malformed_json_fail_closed(self):
+        self.root.mkdir(parents=True)
+        path = self.root / "agent-health.json"
+        path.write_text('{"schema":"invalid"}', encoding="utf-8")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "INVALID")
+        path.unlink()
+        outside = self.root / "other.json"
+        outside.write_text('{"state":"READY"}', encoding="utf-8")
+        try:
+            path.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            return
+        with self.assertRaisesRegex(ValueError, "HEALTH_SYMLINK"):
+            write_owner_agent_health(owner_root=self.root, state="READY")
+        self.assertEqual(read_owner_agent_health(owner_root=self.root), "INVALID")
+        self.assertEqual(outside.read_text(encoding="utf-8"), '{"state":"READY"}')
+
+    def test_health_rejects_bad_state_before_writing(self):
+        for invalid in ("", "RUN_OWNERS_SCRIPT", "READY\\nsecret", None):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises((TypeError, ValueError)):
+                    write_owner_agent_health(owner_root=self.root,
+                                             state=invalid)
+        self.assertFalse(self.root.exists())
+
+    def test_no_live_background_agent_in_ci(self):
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CI": "true"}):
+            with self.assertRaisesRegex(ValueError, "NO_OWNER_RUNTIME_IN_CI"):
+                run_owner_agent(private_root=self.root,
+                                cache_root=self.root / "cache",
+                                state_root=self.root / "state")
+
+    def test_owner_health_continues_during_long_p2_event(self):
+        """The event worker may block on an AGY window without stale P3."""
+        import os
+        import time
+        ready_ticks = []
+
+        class EndSyntheticJob(Exception):
+            pass
+
+        def long_running_event(**_kwargs):
+            time.sleep(0.16)
+            self.assertEqual(read_owner_agent_health(owner_root=self.root),
+                             "READY")
+            raise EndSyntheticJob()
+
+        with (mock.patch.dict(os.environ,
+                              {"CI": "false", "GITHUB_ACTIONS": "false"}),
+              mock.patch("automatic_vietsub_flow.build_owner_auto_flow",
+                         return_value=type("Flow", (), {})()),
+              mock.patch("owner_session_bridge.poll_private_events",
+                         side_effect=long_running_event),
+              mock.patch("owner_session_bridge._HEALTH_TICK_SECONDS", 0.03)):
+            with self.assertRaises(EndSyntheticJob):
+                run_owner_agent(
+                    private_root=self.root, cache_root=self.root / "cache",
+                    state_root=self.root / "state", interval_seconds=0.5,
+                    emit=lambda _line: None,
+                    diagnostic_tick=ready_ticks.append)
+        self.assertGreaterEqual(ready_ticks.count("READY"), 2)
+        self.assertEqual(read_owner_agent_health(owner_root=self.root),
+                         "STOPPED")
+
+
+if __name__ == "__main__":
+    unittest.main()

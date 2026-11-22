@@ -1,0 +1,39 @@
+# P4 parallel source-only reliability: never dispatch self-host, ADB or API.
+name: Torrent TV - P4 Session Loss Offline CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p4-auto-sub/P4LanClient.kt'
+      - 'poc/p4-auto-sub/activity_patch.py'
+      - 'poc/p4-auto-sub/test_session_loss_contract.py'
+      - '.github/workflows/tv-p4-session-loss-offline.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  p4-session-offline:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/p4-expired-session-diagnosis-20261114' &&
+      github.event.pull_request.base.ref == 'feature/p4-native-auto-sub-g2-20261111'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact reviewed PR source without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify P4 overlay and session failure policy offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s poc/p4-auto-sub -p 'test_session_loss_contract.py' -v
+          python3 -m unittest discover -s poc/p2-aisub -p 'test_p4_overlay.py' -v
+          echo 'P4_SESSION_LOSS_SOURCE_ONLY_NO_ANDROID_NO_TV_NO_NETWORK_NO_PROVIDER'

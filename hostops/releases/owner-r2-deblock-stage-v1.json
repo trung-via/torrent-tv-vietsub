@@ -1,0 +1,11 @@
+{
+  "schema": "TTV-OWNER-RELEASE-STAGE-V1",
+  "release_id": "r2-deblock-175",
+  "source_tree": "99e4eee06675c9e5db2a640962ba641c0329b60c",
+  "mode": "STAGE_ONLY",
+  "files": [
+    {"path": "poc/p2-sub-discovery/owner_session_bridge.py", "sha256": "5727ac9f71a5b736c198ce5697714d6a66fcf5b20feb4331a2db905ce1e8b997"},
+    {"path": "poc/p2-sub-discovery/verified_v3_processor.py", "sha256": "e3fc95986247f928cdc651fdc6afc94bbdcaca49cb62f0b7a6382da2fbb32d43"},
+    {"path": "poc/p2-sub-discovery/owner_r2_verified_processor.py", "sha256": "8eb8579d82a710aff28380cf5cae146393a69fecb4fa2ecbd3d11e1ff4b466ae"}
+  ]
+}

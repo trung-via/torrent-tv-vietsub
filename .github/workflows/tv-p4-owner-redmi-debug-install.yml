@@ -1,0 +1,112 @@
+# ONE-SHOT install scheduled in run #43341784632; subsequent commits disarmed.
+# Run 43273786878 installed exact ARM32 debug SHA256 615ae630f2f545c68cbc048f7d45bc8ac50cd28d0dc1690b0db4a10584b38bf6.
+# Do not execute further Debug installs when source changes.
+# Source is rebuilt from exact head and pre-install package/certificate/version
+# guards must pass. Windows PowerShell ADB stdout/stderr is captured privately.
+# Never uninstall, clear app data, downgrade or ship artifacts.
+name: Torrent TV - P4 Owner Redmi Debug Install
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/tv-p4-owner-redmi-debug-install.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: torrent-tv-p4-owner-debug-install-pr120
+  cancel-in-progress: false
+
+jobs:
+  install:
+    # Disarmed for all later heads; existing run #43341784632 remains independent.
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.number == 120 &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/p4-native-auto-sub-g2-20261111' &&
+      github.event.pull_request.base.ref == 'feature/g2-refresh-vietsub-inplace-20261111' &&
+      false
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact owner-controlled P4 head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Parse both owner-guarded scripts before any build or ADB action
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($p in @('poc\p4-auto-sub\build-composed-on-runner.ps1',
+                           'poc\p4-auto-sub\install-debug-on-owner-redmi.ps1',
+                           'poc\p4-auto-sub\cert-parser.ps1',
+                           'poc\p4-auto-sub\test-cert-parser.ps1')) {
+            $f = Join-Path $env:GITHUB_WORKSPACE $p
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+                $f,[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors.Count -ne 0) {
+              foreach ($e in $errors) {
+                Write-Host ('P4_INSTALL_PARSER_ERROR_ID=' + $e.ErrorId + ' LINE=' + $e.Extent.StartLineNumber)
+              }
+              throw 'P4_INSTALL_STOP_POWERSHELL_PARSE_FAILED'
+            }
+          }
+          $installSource = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\install-debug-on-owner-redmi.ps1') -Raw
+          if (([regex]::Matches($installSource,'P4_INSTALL_DEBUG_ARM32_PASS_NOT_LAN_OR_SUBTITLE_E2E')).Count -ne 1 -or
+              ([regex]::Matches($installSource,'\$global:LASTEXITCODE=0')).Count -ne 1) {
+            throw 'P4_INSTALL_STOP_DUPLICATED_INSTALL_SCRIPT_TAIL'
+          }
+          Write-Host 'P4_INSTALL_SCRIPT_SINGLE_TAIL_PASS'
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\test-cert-parser.ps1')
+          if (-not $?) { throw 'P4_INSTALL_STOP_SIGNER_PARSER_TESTS_FAILED' }
+          Write-Host 'P4_INSTALL_SIGNER_PARSER_TESTS_PASS'
+          Write-Host 'P4_INSTALL_POWERSHELL_GUARD_PARSE_PASS'
+
+      - name: Build pinned OMP G1 G2 P4 Debug ARM32 on dedicated Windows runner
+        shell: powershell
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\build-composed-on-runner.ps1') `
+            -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PR_HEAD
+          if ($LASTEXITCODE -ne 0 -or -not $?) {
+            throw 'P4_INSTALL_STOP_COMPOSED_SOURCE_BUILD_FAILED'
+          }
+
+      - name: Signature-gated replacement of existing OMP Debug APK (preserve data)
+        shell: powershell
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # This is a new runner step: the builder's process-local JAVA_HOME
+          # does not carry across steps. Set an existing dedicated JDK for apksigner.
+          $jdk = @(Get-ChildItem -LiteralPath 'C:\Program Files\Eclipse Adoptium' -Directory |
+            Where-Object { $_.Name -like 'jdk-21*' -and
+              (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\java.exe')) } |
+            Sort-Object Name -Descending | Select-Object -First 1)
+          if ($jdk.Count -ne 1) { throw 'P4_INSTALL_STOP_JDK21_UNAVAILABLE' }
+          $env:JAVA_HOME = $jdk[0].FullName
+          $env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
+          & (Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\install-debug-on-owner-redmi.ps1') `
+            -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PR_HEAD
+          if ($LASTEXITCODE -ne 0 -or -not $?) {
+            throw 'P4_INSTALL_STOP_SIGNATURE_OR_REPLACE_OR_READBACK_FAILED'
+          }
+
+      - name: Scope receipt
+        if: success()
+        shell: powershell
+        run: |
+          Write-Host 'P4_OWNER_DEBUG_UPGRADE_RECEIPT_SIGNER_PIN_AND_READBACK_PASS'
+          Write-Host 'P4_NO_UNINSTALL_NO_DATA_CLEAR_NO_RELEASE_NO_APK_UPLOAD'

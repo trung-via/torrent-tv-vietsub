@@ -16,7 +16,7 @@ permissions:
 jobs:
   g1-prod:
     name: G1 Production source guard plus Debug/unit tests (dedicated runner)
-    if: github.event.repository.private == true && github.repository == 'trung-via/torrent-tv-vietsub' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'BUILD_G1_PROD_DEBUG_ONCE'
+    if: github.repository == 'trung-via/torrent-tv-vietsub' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'BUILD_G1_PROD_DEBUG_ONCE'
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 90
     steps:
@@ -43,13 +43,5 @@ jobs:
             -SourceCommit '9a3d22967209761396c93d03df5ce71d4be06324'
           if (-not $?) { throw 'STOP: G1 Production build did not pass' }
 
-      - name: Upload Debug APK SHA256 and build proof (private repo only, 7 days)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned v4.6.2
-        with:
-          name: g1-production-debug-apk
-          path: |
-            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/*.apk
-            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/SHA256SUMS-G1PROD.txt
-            ${{ runner.temp }}/p1-g1-prod-${{ github.run_id }}-${{ github.run_attempt }}/android/app/build/outputs/apk/debug/G1PROD-BUILD-EVIDENCE.txt
-          if-no-files-found: error
-          retention-days: 7
+      # The reviewed build script already writes local SHA256/build proof. Do not
+      # publish historical debug APKs as artifacts of this PUBLIC repository.
