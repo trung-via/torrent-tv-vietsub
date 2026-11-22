@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-ts-ebml-owner-readonly",
-  "category": "diagnostics",
+  "operation": "owner-agy-flat-preflight",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-ts-ebml-owner-readonly.ps1",
-  "script_sha256": "0e1a902abafd3c688bd0c14a28b9b76d6f075958e3fb62b48d9ca93b956df404",
+  "script_path": "hostops/laptop-ops/operations/owner-agy-flat-install.ps1",
+  "script_sha256": "d0c8d146ced6acb63c080c9d15a73d9eb6b2bdbe521fa9214418be9e65f19e9b",
   "arguments": []
 }
