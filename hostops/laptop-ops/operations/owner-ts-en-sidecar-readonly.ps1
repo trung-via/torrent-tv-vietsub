@@ -1,4 +1,5 @@
-# Owner-interactive audit of a previously authorized selected torrent movie.
+# Owner-interactive audit of the screenshot-pinned Spider-Man Brand New Day
+# selected torrent; no other movie is accepted in this diagnostic run.
 # Read-only /torrents + /subs; optional <=256 KiB EN sidecar fetch from peers.
 # No torrent add, media stream, OpenSubtitles, Gemini, P2 replay or TV action.
 Set-StrictMode -Version Latest
@@ -78,6 +79,8 @@ try:
             or not isinstance(event_id,str)
             or not re.fullmatch('[0-9a-f]{32}',event_id)
             or path.name!='event-'+event_id+path.suffix): continue
+        if 'spidermanbrandnewday' not in re.sub('[^a-z0-9]','',name.casefold()):
+            continue
         historical.append((name,fp))
         attested=event.get('authorized_selection')
         if not isinstance(attested,dict) or set(attested)!={'server_id','torrent_hash','file_index'}:
@@ -132,6 +135,7 @@ try:
         if chosen_event is None:
             out['state']='SELECTED_EVENT_NOT_IN_TORRSERVER';finish()
     tor,index,name=chosen_event
+    server=profile
     state,raw=call(base+'/torrents','POST',
         json.dumps({'action':'get','hash':tor}).encode(),cap=524288)
     if state!='OK': out['metadata']='UNAVAILABLE';out['state']='TORRENT_METADATA_UNAVAILABLE';finish()

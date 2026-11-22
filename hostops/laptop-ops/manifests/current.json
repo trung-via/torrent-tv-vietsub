@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-ts-en-sidecar-readonly.ps1",
-  "script_sha256": "b963fbed4f1cd77f51de2fcb290370db3ab70258f1977952553eecba0b3304a5",
+  "script_sha256": "a2ecfd8fd03ea3ea8fc36d7ca90db96595b7f096c51ac52335852ca2afce891f",
   "arguments": []
 }
