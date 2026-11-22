@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+from threading import Lock
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -366,19 +367,26 @@ class OpenSubtitles:
         self._transport = transport
         self._manual_post_attempted = False
         self._allow_dual_downloads = allow_dual_downloads
-        self._attempted_languages: set[str] = set()
+        self._attempted_languages: set[tuple[tuple[str, str, int], str]] = set()
+        self._manual_post_lock = Lock()
 
-    def _reserve_manual_post(self, language: str) -> None:
+    def _reserve_manual_post(self, language: str,
+                             media_key: tuple[str, str, int]) -> None:
         # Legacy trial contract allows ONE POST per client. Dual owner mode
-        # permits at most ONE distinct source per language, independently.
-        if self._allow_dual_downloads:
-            if language in self._attempted_languages:
-                raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
-            self._attempted_languages.add(language)
-        else:
-            if self._manual_post_attempted:
-                raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
-            self._manual_post_attempted = True
+        # permits ONE per exact film+language. This singleton Owner client is
+        # shared by three concurrent film threads: a language-wide latch
+        # would block film B after film A spent its quota. Reserve atomically
+        # BEFORE any POST; failure must not replay the same paid operation.
+        with self._manual_post_lock:
+            if self._allow_dual_downloads:
+                key = (media_key, language)
+                if key in self._attempted_languages:
+                    raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
+                self._attempted_languages.add(key)
+            else:
+                if self._manual_post_attempted:
+                    raise SubtitleApiError("MANUAL_DOWNLOAD_ALREADY_ATTEMPTED")
+                self._manual_post_attempted = True
 
     def _request(self, method: str, url: str, *, api: bool,
                  payload: dict | None = None,
@@ -471,7 +479,7 @@ class OpenSubtitles:
             raise SubtitleApiError("NO_APPROVED_MANUAL_CANDIDATE")
         # Latch BEFORE POST: a provider/network/QA failure never silently
         # triggers another quota-bearing request for this client session.
-        self._reserve_manual_post("vi")
+        self._reserve_manual_post("vi", media.key)
         # Request exactly one SRT output. The source file extension is only a
         # hint and cannot certify the returned byte stream or synchronization.
         response = _json(self._request("POST", BASE_URL + "/download", api=True,
@@ -508,7 +516,7 @@ class OpenSubtitles:
         if len(matching) != 1:
             raise SubtitleApiError("NO_CONFIDENT_EN_CANDIDATE")
         # Set latch before the first quota-bearing POST, including failures.
-        self._reserve_manual_post("en")
+        self._reserve_manual_post("en", media.key)
         response = _json(self._request("POST", BASE_URL + "/download", api=True,
                                        payload={"file_id": file_id,
                                                 "sub_format": "srt"}))
@@ -544,7 +552,7 @@ class OpenSubtitles:
                     if c.file_id == file_id and c.subtitle.language == "vi"]
         if len(matching) != 1:
             raise SubtitleApiError("CANDIDATE_BINDING_MISMATCH")
-        self._reserve_manual_post("vi")
+        self._reserve_manual_post("vi", media.key)
         response = _json(self._request(
             "POST", BASE_URL + "/download", api=True,
             payload={"file_id": file_id, "sub_format": "srt"}))

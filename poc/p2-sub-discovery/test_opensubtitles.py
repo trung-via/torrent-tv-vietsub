@@ -1,8 +1,10 @@
 """Offline contract tests for D2: never contact provider or TV."""
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 from pathlib import Path
 import tempfile
+from threading import Barrier
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
@@ -56,6 +58,45 @@ class FakeTransport:
 
 
 class D2Tests(unittest.TestCase):
+    def test_dual_owner_client_downloads_distinct_films_and_blocks_same_film_retry(self):
+        fake = FakeTransport(search=response(row(81, language="en")))
+        client = OpenSubtitles(api_key="synthetic", transport=fake,
+                               allow_dual_downloads=True)
+        a, b = media(0), media(1)
+        en_a = client.search(a, language="en")
+        en_b = client.search(b, language="en")
+        self.assertEqual(client.download_manual_en(
+            a, en_a, file_id=81, authorized=True).language, "en")
+        self.assertEqual(client.download_manual_en(
+            b, en_b, file_id=81, authorized=True).language, "en")
+        with self.assertRaisesRegex(SubtitleApiError, "MANUAL_DOWNLOAD_ALREADY_ATTEMPTED"):
+            client.download_manual_en(a, en_a, file_id=81, authorized=True)
+        self.assertEqual([method for method, *_ in fake.calls].count("POST"), 2)
+
+    def test_dual_owner_client_two_films_can_post_concurrently(self):
+        both_posting = Barrier(2, timeout=3)
+        fake = FakeTransport(search=response(row(81, language="en")))
+        original = fake.__call__
+
+        def concurrent_transport(method, url, headers, body, cap):
+            if method == "POST":
+                both_posting.wait()  # Fails if client globally serializes B.
+            return original(method, url, headers, body, cap)
+
+        client = OpenSubtitles(api_key="synthetic", transport=concurrent_transport,
+                               allow_dual_downloads=True)
+        a, b = media(0), media(1)
+        en_a = client.search(a, language="en")
+        en_b = client.search(b, language="en")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            future_a = pool.submit(client.download_manual_en, a, en_a,
+                                   file_id=81, authorized=True)
+            future_b = pool.submit(client.download_manual_en, b, en_b,
+                                   file_id=81, authorized=True)
+            self.assertEqual(future_a.result(timeout=4).cues, 2)
+            self.assertEqual(future_b.result(timeout=4).cues, 2)
+        self.assertEqual([method for method, *_ in fake.calls].count("POST"), 2)
+
     def test_title_search_uses_torrent_international_alias_not_cyrillic_basename(self):
         m = Media("owner", "a" * 40, 2,
                   "Пример.2017.BDRip-HEVC.1080p.mkv",

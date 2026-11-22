@@ -60,6 +60,12 @@ checks apply to both.
   optional VI POST and one EN POST, then routes EN to existing LEAN120.
   A failing optional VI download does not block AI; a transient EN metadata
   network failure still leaves an eligible manual VI option.
+- The one Owner process schedules up to three film jobs independently. The
+  shared OpenSubtitles client reserves a POST by exact film identity plus
+  language, **not globally by language**, so A's EN/VI download cannot
+  suppress B's first EN/VI download; duplicate claims within A remain held.
+  Closing A invalidates P4 delivery only; its authorized P2 job continues,
+  checkpoints and final VI file remain stored for a later A reopening.
 - Normal V1 P4 activation remains AI-first, resolving existing EN
   checkpoints before the legacy ready source; in new dual mode a VI-only
   ready receipt **cannot** impersonate V1 AI. The explicit downloaded-VI
