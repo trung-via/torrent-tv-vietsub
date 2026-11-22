@@ -19,6 +19,7 @@ for _sibling in ("p2-aisub", "p3-vietsub-trigger"):
         sys.path.insert(0, _path)
 
 from automatic_lean120_worker import AutomaticLean120Worker
+from automatic_vietsub_flow import AutoResult
 from cached_en_direct_handoff import CachedEnReceipt, prepare_local_translation_source
 from lean120_api import load_profile
 from matcher import Media
@@ -313,6 +314,34 @@ class R2RollingTests(unittest.TestCase):
         self.assertIsNotNone(registry.resolve_progressive(MEDIA_KEY))
         self.assertIn("P2_CHECKPOINT_PENDING", statuses)
         self.assertEqual(len(self.provider.calls), 0)
+
+    def test_vi_ready_source_index_falls_through_to_verified_vi_p4(self):
+        """Real incident: VI_READY cache must not enter EN-only rolling restore."""
+        index = self.cache / (".auto-source-" + FP + ".json")
+        entry = json.loads(index.read_text())
+        entry["language"] = "vi"
+        index.write_text(json.dumps(entry))
+        self.assertEqual(self.registry.register(
+            media=MEDIA, source_fingerprint=FP, tv_session_id=SESSION,
+            flow=self.flow, result=AutoResult("VI_READY", cue_count=240)), MEDIA_KEY)
+        statuses = []
+        self.registry._on_status = statuses.append
+        reply = self.p4.activate(dict(
+            schema="TTV-P4-ACTIVATE-V1", media_key=MEDIA_KEY,
+            nonce="a" * 32, auth=activation_request_mac(KEY, MEDIA_KEY, "a" * 32)))
+        feed = self.p4.feed_for(reply["session_id"])
+        latest = decode_latest_test_only(feed)
+        self.assertEqual((latest["translated_count"], latest["total_count"]), (240, 240))
+        self.assertIn("EN_INDEX_NOT_READY", statuses)
+        self.assertEqual(len(self.provider.calls), 0)
+
+    def test_invalid_language_index_still_rejected(self):
+        index = self.cache / (".auto-source-" + FP + ".json")
+        entry = json.loads(index.read_text())
+        entry["language"] = "fr"
+        index.write_text(json.dumps(entry))
+        with self.assertRaisesRegex(P3ReadyRejected, "P4_ROLLING_SOURCE_RECEIPT_INVALID"):
+            self.registry.resolve_progressive(MEDIA_KEY)
 
     def test_p4_diagnostic_callback_cannot_block_existing_feed(self):
         def broken_sink(_code):

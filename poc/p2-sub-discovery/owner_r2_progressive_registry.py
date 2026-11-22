@@ -95,13 +95,18 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             if (not isinstance(row, dict)
                     or set(row) != {"schema", "file", "language", "sha256", "cues"}
                     or row["schema"] != "TTV-LOCAL-AUTO-SOURCE-V1"
-                    or row["language"] != "en"
+                    or row["language"] not in ("en", "vi")
                     or not isinstance(row["file"], str)
                     or re.fullmatch(r"[0-9a-f]{64}\.srt", row["file"]) is None
                     or not isinstance(row["sha256"], str)
                     or re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) is None
                     or type(row["cues"]) is not int or row["cues"] < 1):
                 raise P3ReadyRejected("P4_ROLLING_SOURCE_RECEIPT_INVALID")
+            # The same durable source index also describes an already-ready
+            # Vietnamese SRT. It is not an EN translation checkpoint: leave
+            # it to the verified-VI factory instead of rejecting activation.
+            if row["language"] == "vi":
+                return None
             handoff = prepare_local_translation_source(
                 CachedEnReceipt(root / row["file"], row["sha256"], row["cues"]),
                 private_root=root)
