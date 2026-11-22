@@ -1,18 +1,18 @@
-# Owner-interactive deployment of PR #178 bounded OpenSubtitles coverage repair.
+# Owner-interactive deployment of PR #178 OpenSubtitles SRT timeline repair.
 # Two pinned P2 source modules only; preserve all P2 jobs, caches, credentials,
 # P3/P4 state and the already-installed TV APK. No provider or playback call.
 param([switch]$PreflightOnly)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$sourceCommit = '58abad50edb58997a77617487174267602e688d8'
+$sourceCommit = '7f6b2ce0e7233267e5b9094b11e2fd93259ec67d'
 $old = [ordered]@{
-    'matcher.py' = '068ae2306e5bd02a5e90fff36c9d8005059697ec00fc11865be42ab143f75ee0'
-    'vi_en_fallback.py' = '438e855437ccbea86872cc02aec0933690eda4c806767383a4e782b8c58e7e22'
+    'opensubtitles.py' = '0e5b4e3e1593cfb4e93102a1e269014178d004a3e4a9e3a4af8e4ff07a648ecb'
+    'owner_session_bridge.py' = 'a9155193c3f79c0d5632abc9dfcd2fdfe8b4b27455f051ac2560582db81cae9f'
 }
 $new = [ordered]@{
-    'matcher.py' = 'a7ef508686cc0dfa628eed42e0f5c1a5f5d4a6ea689405275765370189e1b85f'
-    'vi_en_fallback.py' = '2c18489b2e788545ceee5ed08da155a34aabd57643353cc725ae914bf0dd396e'
+    'opensubtitles.py' = '7707da40a6463fff830065c0266725b6138e5e3c59cd67a1dd1cd2cbef6818c7'
+    'owner_session_bridge.py' = '1ced244ccc62e1ad54fe22d7eb2ff6d5a6cc2c9328a7d3f1beeeee060fa357cc'
 }
 $owner = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $installed = Join-Path $owner 'app\poc\p2-sub-discovery'
@@ -244,12 +244,12 @@ try {
         }
         $baseline.Add($digest)
     }
-    if ($baseline[0] -ceq $new['matcher.py'] -and
-        $baseline[1] -ceq $new['vi_en_fallback.py']) {
+    if ($baseline[0] -ceq $new['opensubtitles.py'] -and
+        $baseline[1] -ceq $new['owner_session_bridge.py']) {
         $code = 'ALREADY_INSTALLED'
     } else {
-        if ($baseline[0] -cne $old['matcher.py'] -or
-            $baseline[1] -cne $old['vi_en_fallback.py']) { Fail 'PARTIAL_INSTALL_NEEDS_RECONCILIATION' }
+        if ($baseline[0] -cne $old['opensubtitles.py'] -or
+            $baseline[1] -cne $old['owner_session_bridge.py']) { Fail 'PARTIAL_INSTALL_NEEDS_RECONCILIATION' }
         $stage = Join-Path $env:TEMP ('ttv-selector-' + [Guid]::NewGuid().ToString('N'))
         [IO.Directory]::CreateDirectory($stage) | Out-Null
         foreach ($name in $new.Keys) {
@@ -267,7 +267,7 @@ stage, app = (pathlib.Path(x) for x in sys.argv[1:3])
 sys.path[0:0] = [str(stage), str(app / 'poc/p2-sub-discovery'),
                 str(app / 'poc/p2-aisub'), str(app / 'poc/p3-vietsub-trigger')]
 try:
-    for name in ('matcher', 'vi_en_fallback'):
+    for name in ('opensubtitles', 'owner_session_bridge'):
         mod = importlib.import_module(name)
         if pathlib.Path(mod.__file__).resolve() != (stage / (name + '.py')).resolve():
             raise RuntimeError('WRONG_MODULE')

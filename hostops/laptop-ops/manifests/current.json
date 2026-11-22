@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-p2-block-trace-readonly",
+  "operation": "owner-p2-coverage-178-install",
   "risk": "ROUTINE",
-  "category": "diagnostics",
-  "script_path": "hostops/laptop-ops/operations/owner-p2-block-trace-readonly.ps1",
-  "script_sha256": "6440188897346373ac9b22ada4bfc53ff504f00a905e76ece1b82cb200fb068c",
+  "category": "owner-maintenance",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-coverage-178-install.ps1",
+  "script_sha256": "68d39d03ef0c844f0fd0960dfe553d5ca83b01e6d1573626201e76ddf69c1345",
   "arguments": []
 }
