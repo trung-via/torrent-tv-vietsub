@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 
 SCRIPT = Path(__file__).parent / "operations" / "owner-ts-ebml-range-readonly.py"
@@ -76,6 +77,32 @@ class OwnerBoundProbeTests(unittest.TestCase):
         self.assertEqual(kind, 0xA3)
         self.assertEqual(content, payload)
         self.assertEqual(reader.calls, 1)
+
+    def test_distant_cues_get_one_bounded_timeout_not_indefinite_retry(self):
+        reader = PROBE.Ranges("a" * 40, 0)
+        with patch.object(PROBE.OPENER, "open", side_effect=TimeoutError) as opening:
+            with self.assertRaises(PROBE.DiagnosticStop) as caught:
+                reader.read(1_000_000, 16)
+        self.assertEqual(caught.exception.code, "RANGE_TIMEOUT")
+        self.assertEqual(reader.requests, 1)
+        self.assertEqual(opening.call_args.kwargs["timeout"], 10)
+
+    def test_range_http_error_keeps_status_without_private_url(self):
+        reader = PROBE.Ranges("b" * 40, 0)
+        error = HTTPError("http://invalid.test", 416, "range unsatisfiable", {}, None)
+        with patch.object(PROBE.OPENER, "open", side_effect=error):
+            with self.assertRaises(PROBE.DiagnosticStop) as caught:
+                reader.read(1_000_000, 16)
+        self.assertEqual(caught.exception.code, "RANGE_HTTP_416")
+
+    def test_header_uses_short_timeout_and_remote_failure_is_classified(self):
+        reader = PROBE.Ranges("c" * 40, 0)
+        error = URLError(ConnectionRefusedError())
+        with patch.object(PROBE.OPENER, "open", side_effect=error) as opening:
+            with self.assertRaises(PROBE.DiagnosticStop) as caught:
+                reader.read(0, 16)
+        self.assertEqual(caught.exception.code, "RANGE_CONNECTION_ERROR")
+        self.assertEqual(opening.call_args.kwargs["timeout"], 3)
 
 
 if __name__ == "__main__":

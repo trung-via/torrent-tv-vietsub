@@ -214,8 +214,12 @@ class Ranges:
             "Cache-Control": "no-store"
         })
         self.requests += 1
+        # The first MKV header is usually cached locally. A distant SeekHead
+        # target (often Cues near EOF) may require fresh torrent pieces;
+        # allow one bounded 10-second wait without retrying the same effect.
+        timeout = 10 if at >= 262144 else 3
         try:
-            with OPENER.open(request, timeout=3) as response:
+            with OPENER.open(request, timeout=timeout) as response:
                 if response.status != 206:
                     raise DiagnosticStop("RANGE_NOT_206")
                 value = response.headers.get("Content-Range", "")
@@ -231,8 +235,20 @@ class Ranges:
                     raise DiagnosticStop("RANGE_SHORT_READ")
                 self.bytes += len(content)
                 return content
-        except (HTTPError, URLError, TimeoutError, OSError):
-            raise DiagnosticStop("RANGE_UNAVAILABLE") from None
+        except HTTPError as exc:
+            code = exc.code
+            if code in (400, 401, 403, 404, 408, 416, 429,
+                        500, 502, 503, 504):
+                raise DiagnosticStop("RANGE_HTTP_" + str(code)) from None
+            raise DiagnosticStop("RANGE_HTTP_OTHER") from None
+        except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise DiagnosticStop("RANGE_TIMEOUT") from None
+            raise DiagnosticStop("RANGE_CONNECTION_ERROR") from None
+        except TimeoutError:
+            raise DiagnosticStop("RANGE_TIMEOUT") from None
+        except OSError:
+            raise DiagnosticStop("RANGE_IO_ERROR") from None
 
     def element(self, at, maximum):
         header = self.read(at, 16)
