@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-safe-resume-180",
+  "operation": "owner-p2-b11-quarantine",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-safe-resume-after-failed-install.ps1",
-  "script_sha256": "0f12e2ad5f3e27668123aa18f661d92c2ffc42a4339cb77b6d7a11530be3470e",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-b11-quarantine.ps1",
+  "script_sha256": "15727c90d6e45d4f30052a12b64a4666b3430407ed6a6f24fe01c01eb7ec8e2e",
   "arguments": []
 }
