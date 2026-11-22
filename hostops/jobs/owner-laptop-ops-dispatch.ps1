@@ -340,6 +340,39 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($receipt.operation -ceq 'owner-p2-selector-install-diagnostic') {
+        $summaryFile = Join-Path $outbox 'selector-diag.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 512 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $expected = @('schema','nonce','flow','matcher','backup','task',
+                    'health','p2_busy','failure')
+                if ($summary.schema -ceq 'TTV-OWNER-SELECTOR-DIAG-V1' -and
+                    $summary.nonce -ceq $nonce -and
+                    (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($expected | Sort-Object) -join ',') -and
+                    $summary.flow -cin @('OLD','NEW','MISSING_OR_OTHER') -and
+                    $summary.matcher -cin @('OLD','NEW','MISSING_OR_OTHER') -and
+                    $summary.backup -cin @('NOT_OBSERVED','INCOMPLETE','ORIGINAL_TWO_MATCH') -and
+                    $summary.task -cin @('Running','Ready','Disabled','OTHER') -and
+                    $summary.health -cin @('NOT_PROVEN','STALE','READY_PID_SID_MATCH') -and
+                    $summary.p2_busy -cin @('YES','NO','UNKNOWN') -and
+                    $summary.failure -cin @('NOT_OBSERVED','ROLLBACK_UNCERTAIN',
+                        'FAILED_BEFORE_STOP','ROLLED_BACK','FILE_REPLACE_ERROR',
+                        'OWNER_FAILURE_UNCLASSIFIED','PRIVATE_LOG_MISSING')) {
+                    Write-Output ('HOSTOPS_SELECTOR_DIAG_FLOW=' + $summary.flow)
+                    Write-Output ('HOSTOPS_SELECTOR_DIAG_MATCHER=' + $summary.matcher)
+                    Write-Output ('HOSTOPS_SELECTOR_DIAG_BACKUP=' + $summary.backup)
+                    Write-Output ('HOSTOPS_SELECTOR_DIAG_TASK=' + $summary.task)
+                    Write-Output ('HOSTOPS_SELECTOR_DIAG_HEALTH=' + $summary.health)
+                    Write-Output ('HOSTOPS_SELECTOR_DIAG_P2_BUSY=' + $summary.p2_busy)
+                    Write-Output ('HOSTOPS_SELECTOR_DIAG_FAILURE=' + $summary.failure)
+                }
+            }
+        }
+    }
     return
 }
 throw 'HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY'
