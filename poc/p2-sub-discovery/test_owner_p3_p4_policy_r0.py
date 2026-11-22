@@ -35,15 +35,22 @@ class R0PolicySingleReadTests(unittest.TestCase):
             "private_media_root": str(self.media), "media": [],
         }))
         self.ts_reads = 0
+        self.track_probe_calls = 0
         def transport(url, payload, timeout):
             self.ts_reads += 1
-            return json.dumps({"hash": HASH, "file_stats": [{
-                "id": 2, "path": PATH, "length": 1000}]}).encode()
+            selected_hash = json.loads(payload)["hash"]
+            selected_path = ("Fixture/Second.Movie.2026.1080p.mkv"
+                             if selected_hash == "b" * 40 else PATH)
+            return json.dumps({"hash": selected_hash, "file_stats": [{
+                "id": 2, "path": selected_path, "length": 1000}]}).encode()
         reader = OwnerTorrServerReader(
             OwnerLocalTorrServer("fixture", 8090), transport=transport)
+        def track_probe(*_):
+            self.track_probe_calls += 1
+            return "UNKNOWN"
         self.policy = R0PrivateP3P4Policy(
             manifest=manifest, owner_root=self.owner, private_media_root=self.media,
-            torrserver=reader, stream_probe=lambda *_: "ABSENT")
+            torrserver=reader, stream_probe=track_probe)
         cache = SignedRedmiStateCache(KEY)
         cache.receive(sign_synthetic_state(
             KEY, boot_id="1" * 32, sequence=1,
@@ -65,6 +72,39 @@ class R0PolicySingleReadTests(unittest.TestCase):
         self.assertEqual(self.ts_reads, 1)
         self.current.read_v3()
         self.assertEqual(self.ts_reads, 2)
+        self.assertEqual(self.track_probe_calls, 0)
+
+    def test_switch_to_new_film_works_even_when_embedded_tracks_unavailable(self):
+        # The previous code returned WAIT/CHECK_LOCAL_VI_TRACKS here because
+        # the /ffp probe returned UNKNOWN for the newly selected torrent.
+        from activation_gate import evaluate_playback
+        state = self.current.read_playback()
+        self.assertEqual(evaluate_playback(state).status, "DISPATCH")
+        self.assertEqual(self.track_probe_calls, 0)
+
+    def test_existing_vi_tracks_do_not_suppress_explicit_ai_request(self):
+        from activation_gate import evaluate_playback
+        self.policy._stream_probe = lambda *_: "PRESENT"
+        state = self.current.read_playback()
+        self.assertEqual(state.local_vi_state, "ABSENT")
+        self.assertEqual(evaluate_playback(state).status, "DISPATCH")
+
+    def test_a_to_b_new_signed_session_can_dispatch_while_a_stays_cached(self):
+        from activation_gate import ActivationDeduplicator
+        gate = ActivationDeduplicator()
+        a = self.current.read_playback()
+        self.assertEqual(gate.consider(a).status, "DISPATCH")
+        self.current._cache.receive(sign_synthetic_state(
+            KEY, boot_id="1" * 32, sequence=2,
+            kind="PLAY_REQUEST_ACCEPTED", tv_session_id="4" * 32,
+            torrent_hash="b" * 40, file_index=2, active=True,
+            subtitle_choice="REQUESTED", sent_at_ms=int(time.time() * 1000),
+            nonce="5" * 32))
+        b = self.current.read_playback()
+        self.assertEqual(b.video_name, "Second.Movie.2026.1080p.mkv")
+        self.assertNotEqual(a.torrent_hash, b.torrent_hash)
+        self.assertEqual(gate.consider(b).status, "DISPATCH")
+        self.assertEqual(self.track_probe_calls, 0)
 
     def test_invalid_file_record_cannot_grant_rights(self):
         rights, vi = self.policy.inspect_verified_file(

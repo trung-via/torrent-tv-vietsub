@@ -1,10 +1,15 @@
-"""Single-read inspection for the new Owner; immutable installed policy stays pinned."""
+"""Single-read selected-file eligibility for external Vietsub discovery.
+
+The explicit AI request is independent of embedded MKV subtitle inventory.
+P3/P4 use ``ABSENT`` to mean there is no *blocking* local-VI reuse on this
+external-discovery path, not that the torrent has no Vietnamese subtitle track.
+"""
 from __future__ import annotations
 
 from pathlib import Path
 
 from owner_p3_p4_private_policy import (
-    PrivateP3P4Policy, _VIDEO_EXTENSIONS, _VI_SIDECARS, _inside,
+    PrivateP3P4Policy, _VIDEO_EXTENSIONS, _inside,
 )
 from owner_selected_file_resolver import TorrServerSelectedFile, _one_basename
 
@@ -12,10 +17,12 @@ from owner_selected_file_resolver import TorrServerSelectedFile, _one_basename
 class R0PrivateP3P4Policy(PrivateP3P4Policy):
     def inspect_verified_file(self, profile: str, infohash: str, index: int,
                               selected: TorrServerSelectedFile) -> tuple[bool, str]:
-        """One independently verified metadata read for both rights and VI.
+        """One independently verified metadata read for external subtitle work.
 
         Never accept a TV-supplied path. The selected metadata is obtained by
         OwnerCurrentRedmiReader from its owner-configured localhost reader.
+        Existing embedded/local Vietnamese tracks must not suppress an
+        explicit AI translation or the separate downloaded-VI candidate.
         """
         if (not self._enabled or profile != self._profile
                 or not isinstance(selected, TorrServerSelectedFile)
@@ -29,7 +36,7 @@ class R0PrivateP3P4Policy(PrivateP3P4Policy):
         if self._personal_stream_mode:
             if Path(name).suffix.lower() not in _VIDEO_EXTENSIONS:
                 return False, "UNKNOWN"
-            return True, self._stream_vi(profile, infohash, index)
+            return True, "ABSENT"
         pin = self._pins.get((infohash, index))
         if (pin is None or not pin.rights_approved
                 or selected.path != pin.torrserver_path):
@@ -43,25 +50,8 @@ class R0PrivateP3P4Policy(PrivateP3P4Policy):
                 return False, "UNKNOWN"
         except OSError:
             return False, "UNKNOWN"
-        if pin.stream_only:
-            return True, self._stream_vi(profile, infohash, index)
-        if pin.video_path is None:
-            return True, "UNKNOWN"
-        stem = pin.video_path.stem
-        for suffix in _VI_SIDECARS:
-            candidate = pin.video_path.parent / (stem + suffix)
-            if candidate.is_symlink():
-                return True, "UNKNOWN"
-            if candidate.is_file():
-                return True, "PRESENT"
-        result = self._probe(pin.video_path)
-        return True, result if result in ("PRESENT", "ABSENT") else "UNKNOWN"
-
-    def _stream_vi(self, profile: str, infohash: str, index: int) -> str:
-        if self._stream_probe is None:
-            return "UNKNOWN"
-        try:
-            result = self._stream_probe(profile, infohash, index)
-        except Exception:
-            return "UNKNOWN"
-        return result if result in ("PRESENT", "ABSENT") else "UNKNOWN"
+        # This branch is about *external* candidates, not local-sub reuse.
+        # Never block P3 on an /ffp track probe, a bundled MKV track, or a
+        # sidecar left by an older playback session. P4's per-media revision
+        # and P2's source checkpoint remain independent of this gate.
+        return True, "ABSENT"
