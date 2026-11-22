@@ -203,7 +203,7 @@ class Ranges:
         self.requests = 0
         self.bytes = 0
 
-    def read(self, at, length):
+    def read(self, at, length, *, retried=False):
         if (time.monotonic() > LIMIT or self.requests >= MAX_RANGE_REQUESTS
                 or self.bytes + length > MAX_RANGE_BYTES or
                 at < 0 or not 0 < length <= 262144):
@@ -214,10 +214,9 @@ class Ranges:
             "Cache-Control": "no-store"
         })
         self.requests += 1
-        # The first MKV header is usually cached locally. A distant SeekHead
-        # target (often Cues near EOF) may require fresh torrent pieces;
-        # allow one bounded 10-second wait without retrying the same effect.
-        timeout = 10 if at >= 262144 else 3
+        # A transient cross-offset reader race is documented upstream. Give
+        # the distant Cues seek one short attempt and one bounded retry only.
+        timeout = 8 if retried else 3
         try:
             with OPENER.open(request, timeout=timeout) as response:
                 if response.status != 206:
@@ -243,12 +242,20 @@ class Ranges:
             raise DiagnosticStop("RANGE_HTTP_OTHER") from None
         except URLError as exc:
             if isinstance(exc.reason, TimeoutError):
-                raise DiagnosticStop("RANGE_TIMEOUT") from None
+                return self._retry_timeout(at, length, retried)
             raise DiagnosticStop("RANGE_CONNECTION_ERROR") from None
         except TimeoutError:
-            raise DiagnosticStop("RANGE_TIMEOUT") from None
+            return self._retry_timeout(at, length, retried)
         except OSError:
             raise DiagnosticStop("RANGE_IO_ERROR") from None
+
+    def _retry_timeout(self, at, length, retried):
+        # No retry on the initial header, HTTP rejection or identity drift.
+        # This costs at most two Range requests and 3 + 8 seconds of I/O.
+        if at >= 262144 and not retried and time.monotonic() + 1 < LIMIT:
+            time.sleep(0.35)
+            return self.read(at, length, retried=True)
+        raise DiagnosticStop("RANGE_TIMEOUT") from None
 
     def element(self, at, maximum):
         header = self.read(at, 16)

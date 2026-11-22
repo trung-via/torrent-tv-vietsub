@@ -78,14 +78,41 @@ class OwnerBoundProbeTests(unittest.TestCase):
         self.assertEqual(content, payload)
         self.assertEqual(reader.calls, 1)
 
-    def test_distant_cues_get_one_bounded_timeout_not_indefinite_retry(self):
+    def test_distant_cues_get_two_bounded_attempts_not_indefinite_retry(self):
         reader = PROBE.Ranges("a" * 40, 0)
         with patch.object(PROBE.OPENER, "open", side_effect=TimeoutError) as opening:
-            with self.assertRaises(PROBE.DiagnosticStop) as caught:
-                reader.read(1_000_000, 16)
+            with patch.object(PROBE.time, "sleep") as sleeping:
+                with self.assertRaises(PROBE.DiagnosticStop) as caught:
+                    reader.read(1_000_000, 16)
         self.assertEqual(caught.exception.code, "RANGE_TIMEOUT")
-        self.assertEqual(reader.requests, 1)
-        self.assertEqual(opening.call_args.kwargs["timeout"], 10)
+        self.assertEqual(reader.requests, 2)
+        self.assertEqual([call.kwargs["timeout"] for call in opening.call_args_list],
+                         [3, 8])
+        sleeping.assert_called_once_with(0.35)
+
+    def test_sparse_timeout_can_recover_without_new_media_identity(self):
+        reader = PROBE.Ranges("a" * 40, 0)
+
+        class Response:
+            status = 206
+            headers = {"Content-Range": "bytes 1000000-1000007/1000010"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self, maximum):
+                self_max = 8
+                return b"x" * min(maximum, self_max)
+
+        with patch.object(PROBE.OPENER, "open", side_effect=[TimeoutError(), Response()]):
+            with patch.object(PROBE.time, "sleep"):
+                self.assertEqual(reader.read(1_000_000, 8), b"x" * 8)
+        self.assertEqual(reader.requests, 2)
+        self.assertEqual(reader.bytes, 8)
+        self.assertEqual(reader.total, 1000010)
 
     def test_range_http_error_keeps_status_without_private_url(self):
         reader = PROBE.Ranges("b" * 40, 0)
@@ -94,6 +121,7 @@ class OwnerBoundProbeTests(unittest.TestCase):
             with self.assertRaises(PROBE.DiagnosticStop) as caught:
                 reader.read(1_000_000, 16)
         self.assertEqual(caught.exception.code, "RANGE_HTTP_416")
+        self.assertEqual(reader.requests, 1)
 
     def test_header_uses_short_timeout_and_remote_failure_is_classified(self):
         reader = PROBE.Ranges("c" * 40, 0)
