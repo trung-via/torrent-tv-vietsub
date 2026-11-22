@@ -61,7 +61,8 @@ checks apply to both.
   A failing optional VI download does not block AI; a transient EN metadata
   network failure still leaves an eligible manual VI option.
 - Normal V1 P4 activation remains AI-first, resolving existing EN
-  checkpoints before the legacy ready source. The explicit downloaded-VI
+  checkpoints before the legacy ready source; in new dual mode a VI-only
+  ready receipt **cannot** impersonate V1 AI. The explicit downloaded-VI
   command alone uses `TTV-P4-ACTIVATE-V2`, with a variant-bound device HMAC,
   exact current-film check and separate signed source SHA/session. The OMP
   swaps sessions only *after* a new authenticated activation response.

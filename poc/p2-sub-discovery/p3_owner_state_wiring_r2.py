@@ -54,7 +54,7 @@ def compose_owner_redmi_status(**kwargs) -> R2OwnerP3StatusComposition:
         on_status=lambda code: owner_full_trace("P4_ROLLING_STATUS", code=code))
     gateway = PairedActivation(
         device_secret=secret, supplied={},
-        authenticated_vietsub_factory=registry.resolve,
+        authenticated_vietsub_factory=registry.resolve_ai_default,
         authenticated_progressive_factory=registry.resolve_progressive,
         authenticated_variant_factory=registry.resolve_variant)
     handler = make_p3_p4_handler_r0(

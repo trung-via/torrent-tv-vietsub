@@ -82,6 +82,18 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                 raise P3ReadyRejected("P4_ROLLING_FLOW_CHANGED")
             self._flow = flow
 
+    def resolve_ai_default(self, media_key: str) -> VerifiedVietsubReady | None:
+        """V1 is the AI choice in dual mode, never a downloaded VI alias."""
+        with self._lock:
+            flow = self._flow
+            receipt = self._ready.get(media_key)
+            if (getattr(flow, "dual_mode", False) is True
+                    and receipt is not None and receipt.origin == "vi"):
+                # The separately signed V2 source remains available for the
+                # manual VI command; do not mislabel it as AI in the UI.
+                return None
+        return self.resolve(media_key)
+
     def resolve_variant(self, media_key: str, variant: str) -> VerifiedVietsubReady | None:
         """Explicitly selected VI option; never auto-replace the AI P4 feed.
 

@@ -45,6 +45,35 @@ MEDIA_KEY = p4_media_key(MEDIA, vlc_selected=True)
 
 
 class R2RollingTests(unittest.TestCase):
+    def test_vi_only_dual_ready_is_never_mislabelled_as_v1_ai(self):
+        raw = synthetic_source_srt().replace(b"_EN_", b"_VI_")
+        asset = Asset(55, "vi", "srt", raw, hashlib.sha256(raw).hexdigest(), 240)
+        file = write_private_cache(self.cache, MEDIA, asset)
+        DualSubtitleCatalog(self.cache).record(
+            MEDIA, FP, "downloaded_vi", asset, file, release_matched=False)
+        self.flow.dual_mode = True
+        self.registry.register(
+            media=MEDIA, source_fingerprint=FP, tv_session_id=SESSION,
+            flow=self.flow, result=AutoResult("VI_READY", cue_count=240))
+        self.assertIsNone(self.registry.resolve_ai_default(MEDIA_KEY))
+        self.assertEqual(self.registry.resolve(MEDIA_KEY).source_language, "vi")
+        gateway = PairedActivation(
+            device_secret=KEY, supplied={},
+            authenticated_vietsub_factory=self.registry.resolve_ai_default,
+            authenticated_variant_factory=self.registry.resolve_variant)
+        with self.assertRaisesRegex(ValueError, "P4_ASSUMED_SOURCE_MISSING"):
+            gateway.activate(dict(
+                schema="TTV-P4-ACTIVATE-V1", media_key=MEDIA_KEY,
+                nonce="5" * 32,
+                auth=activation_request_mac(KEY, MEDIA_KEY, "5" * 32)))
+        vi = gateway.activate(dict(
+            schema="TTV-P4-ACTIVATE-V2", media_key=MEDIA_KEY,
+            variant="downloaded_vi", nonce="6" * 32,
+            auth=variant_activation_request_mac(KEY, MEDIA_KEY, "6" * 32,
+                                               "downloaded_vi")))
+        self.assertEqual(decode_latest_test_only(
+            gateway.feed_for(vi["session_id"]))["translated_count"], 240)
+
     def test_opt_in_vi_option_is_independent_of_ai_progressive_feed(self):
         raw = synthetic_source_srt().replace(b"_EN_", b"_VI_")
         asset = Asset(55, "vi", "srt", raw, hashlib.sha256(raw).hexdigest(), 240)

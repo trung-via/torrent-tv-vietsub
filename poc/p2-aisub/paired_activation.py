@@ -258,11 +258,12 @@ class PairedActivation:
                 # VI_FAST or EN→LEAN120 completion, never by a bare Play.
                 # It independently rechecks the CURRENT signed TV session.
                 candidate = self.__vietsub_factory(media)
-                if (not isinstance(candidate, VerifiedVietsubReady)
-                        or candidate.media_key != media):
-                    raise ValueError("P4_READY_FACTORY_MEDIA_MISMATCH")
-                candidate.as_final_revision()  # strict hash/cues/timeline
-                ready = candidate
+                if candidate is not None:
+                    if (not isinstance(candidate, VerifiedVietsubReady)
+                            or candidate.media_key != media):
+                        raise ValueError("P4_READY_FACTORY_MEDIA_MISMATCH")
+                    candidate.as_final_revision()  # strict hash/cues/timeline
+                    ready = candidate
             if variant_mode and self.__variant_factory is not None:
                 candidate = self.__variant_factory(media, variant)
                 if candidate is not None:
