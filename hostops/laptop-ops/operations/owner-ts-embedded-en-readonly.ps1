@@ -1,5 +1,5 @@
-# Read-only inventory of MKV-embedded subtitle streams for the latest
-# previously selected Owner media. No /subs, /play, ffmpeg demux or provider.
+# Read-only, bounded probe of embedded EN tracks and /play first-byte delivery
+# for latest verified Owner media. No subtitle payload logging or provider.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
@@ -18,7 +18,10 @@ result=dict(schema='TTV-OWNER-EMBEDDED-EN-V1',state='NOT_RUN',metadata='NOT_RUN'
             ffp='NOT_RUN',en_text=0,en_bitmap=0,unlabeled_text=0,
             other_subs=0,elapsed_ms=0,ffmpeg='NOT_CHECKED',en_default=0,
             track_choice='NOT_RUN',prefix_result='NOT_RUN',
-            prefix_cues=0,prefix_elapsed_ms=0,prefix_bytes=0)
+            prefix_cues=0,prefix_elapsed_ms=0,prefix_bytes=0,
+            en_forced=0,gst_status='NOT_RUN',play_status='NOT_RUN',
+            play_elapsed_ms=0,play_bytes=0,prefix_error='NONE',
+            prefix_exit='NOT_RUN',prefix_progress_s=0)
 def finish():
     print(json.dumps(result,separators=(',',':'),ensure_ascii=True));sys.exit(0)
 class NoRedirect(HTTPRedirectHandler):
@@ -133,8 +136,10 @@ try:
             if text_codec and type(stream_idx) is int and 0<=stream_idx<128:
                 disp=s.get('disposition')
                 default=(isinstance(disp,dict) and disp.get('default')==1)
-                en_candidates.append((stream_idx,default))
+                forced=(isinstance(disp,dict) and disp.get('forced')==1)
+                en_candidates.append((stream_idx,default,forced))
                 if default:result['en_default']+=1
+                if forced:result['en_forced']+=1
         elif text_codec and lang in ('','und'):
             result['unlabeled_text']+=1
         else:result['other_subs']+=1
@@ -143,22 +148,50 @@ try:
                      'EN_BITMAP_ONLY' if result['en_bitmap'] else
                      'UNLABELED_TEXT_PRESENT' if result['unlabeled_text'] else
                      'NO_EN_SUBTITLE_TRACK')
+    gst,raw=request(base+'/gst/settings',cap=16384,timeout=3)
+    if gst=='OK':
+        try:
+            config=json.loads(raw.decode('utf-8'))
+            result['gst_status']='BUILT_IN' if config.get('built_in') is True else 'STANDARD' if config.get('built_in') is False else 'UNKNOWN'
+        except (ValueError,AttributeError,UnicodeError):result['gst_status']='UNKNOWN'
+    else:result['gst_status']='NOT_AVAILABLE'
     if not en_candidates or result['ffmpeg']!='AVAILABLE':finish()
-    defaults=[i for i,d in en_candidates if d]
+    defaults=[i for i,d,f in en_candidates if d]
+    nonforced=[i for i,d,f in en_candidates if not f]
     if len(defaults)==1:
         stream_idx=defaults[0];result['track_choice']='UNIQUE_DEFAULT'
+    elif len(nonforced)==1:
+        stream_idx=nonforced[0];result['track_choice']='UNIQUE_NONFORCED'
     else:
         # Sampling one stream is NOT a production selection or translation.
-        stream_idx=min(i for i,_ in en_candidates)
+        stream_idx=min(nonforced or [i for i,_,_ in en_candidates])
         result['track_choice']='SAMPLE_ONLY'
-    args=['ffmpeg','-nostdin','-hide_banner','-loglevel','error',
-          '-i',base+'/play/'+tor+'/'+str(idx),'-map','0:'+str(stream_idx),
+    play_url=base+'/play/'+tor+'/'+str(idx)
+    started=time.monotonic()
+    probe=Request(play_url,headers={'Cache-Control':'no-store',
+                                    'Range':'bytes=0-4095','Connection':'close'})
+    try:
+        with opener.open(probe,timeout=9) as response:
+            if response.status in (200,206):
+                result['play_status']='HTTP_'+str(response.status)
+                try:result['play_bytes']=min(4096,len(response.read(4096)))
+                except (OSError,TimeoutError):result['play_status']='READ_TIMEOUT'
+            else:result['play_status']='HTTP_OTHER'
+    except HTTPError as e:
+        result['play_status']='HTTP_'+str(e.code) if 400<=e.code<=599 else 'HTTP_OTHER'
+    except (URLError,OSError,TimeoutError):
+        result['play_status']='UNAVAILABLE'
+    result['play_elapsed_ms']=min(120000,int((time.monotonic()-started)*1000))
+    if result['play_bytes']==0:finish()
+    args=['ffmpeg','-nostdin','-hide_banner','-loglevel','warning',
+          '-stats_period','2','-progress','pipe:2','-rw_timeout','10000000',
+          '-i',play_url,'-map','0:'+str(stream_idx),
           '-vn','-an','-dn','-c:s','srt','-t','1800',
           '-flush_packets','1','-f','srt','pipe:1']
     try:
         started=time.monotonic()
         proc=subprocess.Popen(args,stdin=subprocess.DEVNULL,
-                              stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+                              stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     except OSError:
         result['prefix_result']='FFMPEG_LAUNCH_FAILED';finish()
     lines=queue.Queue(maxsize=256)
@@ -168,7 +201,25 @@ try:
                 lines.put(line,timeout=1)
         except (ValueError,OSError,queue.Full):pass
     threading.Thread(target=read_lines,daemon=True).start()
-    limit=started+40.0
+    def read_errors():
+        try:
+            for line in proc.stderr:
+                msg=line.strip().lower()[:2048]
+                if msg.startswith(b'out_time_us='):
+                    try:result['prefix_progress_s']=min(86400,max(result['prefix_progress_s'],int(msg.split(b'=',1)[1])//1000000))
+                    except ValueError:pass
+                elif b'403' in msg or b'401' in msg:result['prefix_error']='HTTP_AUTH'
+                elif b'404' in msg:result['prefix_error']='HTTP_NOT_FOUND'
+                elif b'timed out' in msg:result['prefix_error']='TIMEOUT'
+                elif b'matches no streams' in msg:result['prefix_error']='STREAM_MAP_INVALID'
+                elif b'invalid data found' in msg:result['prefix_error']='INVALID_MEDIA'
+                elif b'connection refused' in msg:result['prefix_error']='CONNECTION_REFUSED'
+                elif b'error opening input' in msg and result['prefix_error']=='NONE':result['prefix_error']='INPUT_OPEN_FAILED'
+                elif b'error' in msg and result['prefix_error']=='NONE':result['prefix_error']='OTHER_FFMPEG_ERROR'
+        except (OSError,ValueError):pass
+    stderr_reader=threading.Thread(target=read_errors,daemon=True)
+    stderr_reader.start()
+    limit=started+30.0
     total_bytes=0
     try:
         while time.monotonic()<limit and result['prefix_cues']<120:
@@ -188,9 +239,13 @@ try:
     finally:
         result['prefix_elapsed_ms']=min(120000,int((time.monotonic()-started)*1000))
         result['prefix_bytes']=min(total_bytes,262144)
-        if proc.poll() is None:proc.kill()
+        if proc.poll() is None:
+            result['prefix_exit']='KILLED_AT_LIMIT';proc.kill()
         try:proc.wait(timeout=3)
         except subprocess.TimeoutExpired:pass
+        stderr_reader.join(timeout=1)
+        if result['prefix_exit']=='NOT_RUN':
+            result['prefix_exit']='ZERO' if proc.returncode==0 else 'NONZERO'
 except Exception:
     result['state']='LOCAL_DIAGNOSTIC_ERROR'
 finish()
@@ -200,7 +255,9 @@ if ($LASTEXITCODE -ne 0 -or $rows.Count -ne 1) { throw 'EMBEDDED_PROBE_FAILED' }
 $summary = [string]$rows[0] | ConvertFrom-Json
 $fields = @('schema','state','metadata','ffp','en_text','en_bitmap',
             'unlabeled_text','other_subs','elapsed_ms','ffmpeg','en_default',
-            'track_choice','prefix_result','prefix_cues','prefix_elapsed_ms','prefix_bytes')
+            'track_choice','prefix_result','prefix_cues','prefix_elapsed_ms','prefix_bytes',
+            'en_forced','gst_status','play_status','play_elapsed_ms','play_bytes',
+            'prefix_error','prefix_exit','prefix_progress_s')
 if ($summary.schema -cne 'TTV-OWNER-EMBEDDED-EN-V1' -or
     (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -cne
         (@($fields | Sort-Object) -join ',') -or
@@ -208,18 +265,27 @@ if ($summary.schema -cne 'TTV-OWNER-EMBEDDED-EN-V1' -or
     $summary.metadata -cnotin @('NOT_RUN','MATCH') -or
     [string]$summary.ffp -cnotmatch '^[A-Z0-9_]{3,30}$' -or
     $summary.ffmpeg -cnotin @('NOT_CHECKED','AVAILABLE','MISSING') -or
-    $summary.track_choice -cnotin @('NOT_RUN','UNIQUE_DEFAULT','SAMPLE_ONLY') -or
+    $summary.track_choice -cnotin @('NOT_RUN','UNIQUE_DEFAULT','UNIQUE_NONFORCED','SAMPLE_ONLY') -or
+    $summary.gst_status -cnotin @('NOT_RUN','BUILT_IN','STANDARD','UNKNOWN','NOT_AVAILABLE') -or
+    [string]$summary.play_status -cnotmatch '^(NOT_RUN|HTTP_[0-9]{3}|HTTP_OTHER|READ_TIMEOUT|UNAVAILABLE)$' -or
+    $summary.prefix_error -cnotin @('NONE','HTTP_AUTH','HTTP_NOT_FOUND','TIMEOUT',
+                                    'STREAM_MAP_INVALID','INVALID_MEDIA','CONNECTION_REFUSED',
+                                    'INPUT_OPEN_FAILED','OTHER_FFMPEG_ERROR') -or
+    $summary.prefix_exit -cnotin @('NOT_RUN','KILLED_AT_LIMIT','ZERO','NONZERO') -or
     $summary.prefix_result -cnotin @('NOT_RUN','FFMPEG_LAUNCH_FAILED',
                                     'CUES_120_REACHED','PARTIAL_CUES',
                                     'NO_CUES_BEFORE_DEADLINE','OUTPUT_CAP_REACHED')) {
     throw 'EMBEDDED_PROBE_SCHEMA_INVALID'
 }
 foreach ($field in @('en_text','en_bitmap','unlabeled_text','other_subs','elapsed_ms',
-                     'en_default','prefix_cues','prefix_elapsed_ms','prefix_bytes')) {
+                     'en_default','en_forced','play_elapsed_ms','play_bytes','prefix_progress_s',
+                     'prefix_cues','prefix_elapsed_ms','prefix_bytes')) {
     $value = $summary.$field
     if ($value -isnot [ValueType] -or [int]$value -lt 0 -or
-        [int]$value -gt $(if ($field -in @('elapsed_ms','prefix_elapsed_ms')) {120000}
-                          elseif ($field -eq 'prefix_bytes') {262144} else {128})) {
+        [int]$value -gt $(if ($field -in @('elapsed_ms','prefix_elapsed_ms','play_elapsed_ms')) {120000}
+                          elseif ($field -eq 'prefix_bytes') {262144}
+                          elseif ($field -eq 'play_bytes') {4096}
+                          elseif ($field -eq 'prefix_progress_s') {86400} else {128})) {
         throw 'EMBEDDED_PROBE_COUNT_INVALID'
     }
 }

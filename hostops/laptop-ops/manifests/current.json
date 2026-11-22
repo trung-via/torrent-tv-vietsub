@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-ts-embedded-en-readonly.ps1",
-  "script_sha256": "131a82aa5ced4b83af82cceb40d0d7beb46f82dc41cab4c95db8f26bf4fc6d60",
+  "script_sha256": "7bc196bf164f1d14477f3573c1b67be6dba8086e272c7eef0eb5fe3c600ebce5",
   "arguments": []
 }

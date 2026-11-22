@@ -241,7 +241,9 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 $required = @('schema','nonce','state','metadata','ffp','en_text',
                               'en_bitmap','unlabeled_text','other_subs','elapsed_ms','ffmpeg',
                               'en_default','track_choice','prefix_result','prefix_cues',
-                              'prefix_elapsed_ms','prefix_bytes')
+                              'prefix_elapsed_ms','prefix_bytes','en_forced','gst_status',
+                              'play_status','play_elapsed_ms','play_bytes',
+                              'prefix_error','prefix_exit','prefix_progress_s')
                 if ($row.schema -ceq 'TTV-OWNER-EMBEDDED-EN-V1' -and
                     $row.nonce -ceq $nonce -and
                     (@($row.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
@@ -250,7 +252,13 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     $row.metadata -cin @('NOT_RUN','MATCH') -and
                     [string]$row.ffp -cmatch '^[A-Z0-9_]{3,30}$' -and
                     $row.ffmpeg -cin @('NOT_CHECKED','AVAILABLE','MISSING') -and
-                    $row.track_choice -cin @('NOT_RUN','UNIQUE_DEFAULT','SAMPLE_ONLY') -and
+                    $row.track_choice -cin @('NOT_RUN','UNIQUE_DEFAULT','UNIQUE_NONFORCED','SAMPLE_ONLY') -and
+                    $row.gst_status -cin @('NOT_RUN','BUILT_IN','STANDARD','UNKNOWN','NOT_AVAILABLE') -and
+                    [string]$row.play_status -cmatch '^(NOT_RUN|HTTP_[0-9]{3}|HTTP_OTHER|READ_TIMEOUT|UNAVAILABLE)$' -and
+                    $row.prefix_error -cin @('NONE','HTTP_AUTH','HTTP_NOT_FOUND','TIMEOUT',
+                                            'STREAM_MAP_INVALID','INVALID_MEDIA','CONNECTION_REFUSED',
+                                            'INPUT_OPEN_FAILED','OTHER_FFMPEG_ERROR') -and
+                    $row.prefix_exit -cin @('NOT_RUN','KILLED_AT_LIMIT','ZERO','NONZERO') -and
                     $row.prefix_result -cin @('NOT_RUN','FFMPEG_LAUNCH_FAILED',
                                                'CUES_120_REACHED','PARTIAL_CUES',
                                                'NO_CUES_BEFORE_DEADLINE','OUTPUT_CAP_REACHED') -and
@@ -271,12 +279,22 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     $row.prefix_elapsed_ms -is [ValueType] -and [int]$row.prefix_elapsed_ms -ge 0 -and
                     [int]$row.prefix_elapsed_ms -le 120000 -and
                     $row.prefix_bytes -is [ValueType] -and [int]$row.prefix_bytes -ge 0 -and
-                    [int]$row.prefix_bytes -le 262144) {
+                    [int]$row.prefix_bytes -le 262144 -and
+                    $row.en_forced -is [ValueType] -and [int]$row.en_forced -ge 0 -and
+                    [int]$row.en_forced -le 128 -and
+                    $row.play_elapsed_ms -is [ValueType] -and [int]$row.play_elapsed_ms -ge 0 -and
+                    [int]$row.play_elapsed_ms -le 120000 -and
+                    $row.play_bytes -is [ValueType] -and [int]$row.play_bytes -ge 0 -and
+                    [int]$row.play_bytes -le 4096 -and
+                    $row.prefix_progress_s -is [ValueType] -and [int]$row.prefix_progress_s -ge 0 -and
+                    [int]$row.prefix_progress_s -le 86400) {
                     foreach ($field in @('state','metadata','ffp','en_text',
                                          'en_bitmap','unlabeled_text','other_subs',
                                          'elapsed_ms','ffmpeg','en_default',
                                          'track_choice','prefix_result','prefix_cues',
-                                         'prefix_elapsed_ms','prefix_bytes')) {
+                                         'prefix_elapsed_ms','prefix_bytes','en_forced',
+                                         'gst_status','play_status','play_elapsed_ms',
+                                         'play_bytes','prefix_error','prefix_exit','prefix_progress_s')) {
                         Write-Output ('HOSTOPS_EMBEDDED_' + $field.ToUpperInvariant() +
                                       '=' + $row.$field)
                     }
