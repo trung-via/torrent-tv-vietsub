@@ -238,6 +238,16 @@ class LaptopOpsContractTests(unittest.TestCase):
                           "OwnerBridge\\pairing", "OwnerBridge\\secrets"):
             self.assertNotIn(forbidden, script)
 
+    def test_block_trace_distinguishes_new_opensubtitles_406_errors(self):
+        script = (ROOT / "hostops/laptop-ops/operations/owner-p2-block-trace-readonly.ps1").read_text()
+        for code in ("API_DOWNLOAD_INVALID_FILE_ID_406", "API_DOWNLOAD_QUOTA_406",
+                     "API_DOWNLOAD_REJECTED_406"):
+            self.assertIn("'" + code + "'", script)
+        self.assertIn("Get-Content -LiteralPath", script)
+        self.assertNotIn("Invoke-WebRequest", script)
+        self.assertNotIn("Invoke-RestMethod", script)
+        self.assertNotIn("Start-ScheduledTask", script)
+
 
 if __name__ == "__main__":
     unittest.main()
