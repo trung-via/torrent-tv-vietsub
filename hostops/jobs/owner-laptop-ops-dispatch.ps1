@@ -198,6 +198,49 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-ts-gst-isolated-test') {
+        $summaryFile = Join-Path $outbox 'owner-ts-gst-trial.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $row = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $fields = @('schema','nonce','state','identity','binary','sidecar','gst',
+                            'echo','main_before','main_after','master','en_playlists',
+                            'vtt','cues','first_cue_ms','probe_ms','cleanup')
+                if ($row.schema -ceq 'TTV-OWNER-GST-TRIAL-V1' -and
+                    $row.nonce -ceq $nonce -and
+                    (@($row.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($fields | Sort-Object) -join ',') -and
+                    [string]$row.state -cmatch '^[A-Z0-9_]{3,50}$' -and
+                    $row.identity -cin @('NOT_RUN','MATCH') -and
+                    $row.binary -cin @('NOT_RUN','VERIFIED','HASH_MISMATCH','DOWNLOAD_FAILED') -and
+                    $row.sidecar -cin @('NOT_RUN','READY') -and
+                    $row.gst -cin @('NOT_RUN','BUILT_IN','NOT_BUILT','SCHEMA_ERROR',
+                                   'HTTP_OTHER','TOO_LARGE','UNAVAILABLE','HTTP_404') -and
+                    [string]$row.echo -cmatch '^[A-Z0-9_]{3,30}$' -and
+                    [string]$row.main_before -cmatch '^[A-Z0-9_]{3,30}$' -and
+                    [string]$row.main_after -cmatch '^[A-Z0-9_]{3,30}$' -and
+                    [string]$row.master -cmatch '^[A-Z0-9_]{3,30}$' -and
+                    [string]$row.vtt -cmatch '^[A-Z0-9_]{3,30}$' -and
+                    $row.cleanup -cin @('NO_PROCESS','STOPPED','STILL_RUNNING','FILES_LEFT') -and
+                    $row.en_playlists -is [ValueType] -and
+                    [int]$row.en_playlists -ge 0 -and [int]$row.en_playlists -le 16 -and
+                    $row.cues -is [ValueType] -and
+                    [int]$row.cues -ge 0 -and [int]$row.cues -le 120 -and
+                    $row.first_cue_ms -is [ValueType] -and
+                    [int]$row.first_cue_ms -ge 0 -and [int]$row.first_cue_ms -le 180000 -and
+                    $row.probe_ms -is [ValueType] -and
+                    [int]$row.probe_ms -ge 0 -and [int]$row.probe_ms -le 180000) {
+                    foreach ($field in @('state','identity','binary','sidecar','gst','echo',
+                                         'main_before','main_after','master','en_playlists',
+                                         'vtt','cues','first_cue_ms','probe_ms','cleanup')) {
+                        Write-Output ('HOSTOPS_GST_' + $field.ToUpperInvariant() + '=' + $row.$field)
+                    }
+                }
+            }
+        }
+    }
     if ($receipt.operation -ceq 'owner-ts-en-sidecar-readonly') {
         $summaryFile = Join-Path $outbox 'owner-ts-en-sidecar.json'
         if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {

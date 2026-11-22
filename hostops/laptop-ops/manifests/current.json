@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-ts-embedded-en-readonly",
-  "category": "diagnostics",
+  "operation": "owner-ts-gst-isolated-test",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-ts-embedded-en-readonly.ps1",
-  "script_sha256": "5e444c9e18a47e921bd1be45ba1bdb29294eec8b90eb0c97c897900529a26a8c",
+  "script_path": "hostops/laptop-ops/operations/owner-ts-gst-isolated-test.ps1",
+  "script_sha256": "dd160fd7a962ac6cf881d071d041b80dcd8ff82a1638cb25df59bb0e2eaf2654",
   "arguments": []
 }
