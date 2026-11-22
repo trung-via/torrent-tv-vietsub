@@ -66,6 +66,23 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertIn("Copy-Item -LiteralPath $receiptFile -Destination $oldReceiptArchive", dispatcher)
         self.assertNotIn("Move-Item -LiteralPath $receiptFile", dispatcher)
 
+    def test_retire_only_exact_owner_gst_trial_without_touching_main_server(self):
+        dispatcher = (ROOT / "hostops/jobs/owner-laptop-ops-dispatch.ps1").read_text()
+        operation = (ROOT / "hostops/laptop-ops/operations/owner-ts-retire-gst-trial.ps1").read_text()
+        self.assertIn("0df6d98b2ca56739273af0e75f1c2ac066b06978", dispatcher)
+        self.assertIn("HOSTOPS_GST_RETIRE_ARCHIVE_HASH_MISMATCH", dispatcher)
+        self.assertIn("HOSTOPS_GST_RETIRE_OLD_SPOOL=ARCHIVED_INDEPENDENTLY", dispatcher)
+        self.assertIn("Copy-Item -LiteralPath $receiptFile -Destination $orphanArchive", dispatcher)
+        self.assertNotIn("Remove-Item -LiteralPath $receiptFile", dispatcher)
+        self.assertIn("fe8542cf3ebbad4c8a612fda285c795a02abd7e4383b26df63e538d1c89d9ab8", operation)
+        self.assertIn("GetOwnerSid", operation)
+        self.assertIn("--port 18191", operation)
+        self.assertIn("--ip 127.0.0.1", operation)
+        self.assertIn("Remove-Item -LiteralPath $dir.FullName", operation)
+        self.assertNotIn("Stop-ScheduledTask", operation)
+        self.assertNotIn("Stop-Process -Name", operation)
+        self.assertNotIn("Remove-Item -LiteralPath $ownerRoot", operation)
+
     def test_first_operation_installer_pin(self):
         operation = (ROOT / "hostops/laptop-ops/operations/owner-full-diagnostics-install.ps1").read_text()
         self.assertIn("b92926714199fa986c29b48202460d903a518025", operation)

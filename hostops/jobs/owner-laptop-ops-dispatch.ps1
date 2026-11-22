@@ -226,6 +226,62 @@ foreach ($dir in @($inbox,$outbox)) {
 $requestFile = Join-Path $inbox 'request.json'
 $receiptFile = Join-Path $outbox 'receipt.json'
 $history = Join-Path $spool 'History'
+if ($manifest.operation -ceq 'owner-ts-retire-gst-trial') {
+    # An abandoned 2026-11-21 isolated trial has a terminal receipt with an
+    # unrelated nonce. Only this exact source-pinned retirement may reconcile
+    # the old spool. Preserve both records independently before proceeding.
+    if ($manifest.script_path -cne
+            'hostops/laptop-ops/operations/owner-ts-retire-gst-trial.ps1' -or
+        $manifest.category -cne 'owner-maintenance' -or
+        $manifest.arguments.Count -ne 0 -or
+        -not (Test-Path -LiteralPath $requestFile -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) {
+        throw 'HOSTOPS_GST_RETIRE_EXACT_SPOOL_REQUIRED'
+    }
+    foreach ($file in @($requestFile,$receiptFile)) {
+        $item = Get-Item -LiteralPath $file -Force -ErrorAction Stop
+        if ($item.Length -le 0 -or $item.Length -gt 1024 -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'HOSTOPS_GST_RETIRE_UNTRUSTED_RECORD'
+        }
+    }
+    $obsolete = Get-Content -LiteralPath $requestFile -Raw | ConvertFrom-Json
+    $orphan = Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
+    if ($obsolete.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or
+        [string]$obsolete.nonce -cnotmatch '\A[0-9a-f]{32}\z' -or
+        $obsolete.source_commit -cne '0df6d98b2ca56739273af0e75f1c2ac066b06978' -or
+        $obsolete.manifest_path -cne 'hostops/laptop-ops/manifests/current.json' -or
+        $obsolete.manifest_sha256 -cne
+            '31b810d98351d8851cdbd4bd94d41cd1fcab5aade6ce4289f31e5e5691504827' -or
+        $orphan.schema -cne 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -or
+        [string]$orphan.nonce -cnotmatch '\A[0-9a-f]{32}\z' -or
+        [string]$orphan.source_commit -cnotmatch '\A[0-9a-f]{40}\z' -or
+        $orphan.result -cnotin @('SUCCESS','FAILED_NO_RETRY') -or
+        $obsolete.nonce -ceq $orphan.nonce) {
+        throw 'HOSTOPS_GST_RETIRE_OLD_SPOOL_IDENTITY_DRIFT'
+    }
+    if (-not (Test-Path -LiteralPath $history -PathType Container)) {
+        New-Item -ItemType Directory -Path $history -ErrorAction Stop | Out-Null
+    }
+    $oldRequestArchive = Join-Path $history ('retired-gst-request-' + $obsolete.nonce + '.json')
+    $orphanArchive = Join-Path $history ('retired-gst-orphan-receipt-' + $orphan.nonce + '.json')
+    if ((Test-Path -LiteralPath $oldRequestArchive) -or
+        (Test-Path -LiteralPath $orphanArchive)) {
+        throw 'HOSTOPS_GST_RETIRE_ARCHIVE_ALREADY_EXISTS'
+    }
+    Copy-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
+    Copy-Item -LiteralPath $receiptFile -Destination $orphanArchive -ErrorAction Stop
+    if ((Get-FileHash -LiteralPath $requestFile -Algorithm SHA256).Hash -cne
+            (Get-FileHash -LiteralPath $oldRequestArchive -Algorithm SHA256).Hash -or
+        (Get-FileHash -LiteralPath $receiptFile -Algorithm SHA256).Hash -cne
+            (Get-FileHash -LiteralPath $orphanArchive -Algorithm SHA256).Hash) {
+        throw 'HOSTOPS_GST_RETIRE_ARCHIVE_HASH_MISMATCH'
+    }
+    # NETWORK_SERVICE owns request.json; the Owner owns receipt.json. Never
+    # delete the receipt from this service session; the helper replaces it.
+    Remove-Item -LiteralPath $requestFile -ErrorAction Stop
+    Write-Output 'HOSTOPS_GST_RETIRE_OLD_SPOOL=ARCHIVED_INDEPENDENTLY'
+}
 if (Test-Path -LiteralPath $requestFile) {
     if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) {
         throw 'HOSTOPS_OWNER_OPS_UNRESOLVED_PREVIOUS_REQUEST'
@@ -247,7 +303,8 @@ if (Test-Path -LiteralPath $requestFile) {
     }
     Move-Item -LiteralPath $requestFile -Destination $oldRequestArchive -ErrorAction Stop
 }
-if (Test-Path -LiteralPath $receiptFile) {
+if ((Test-Path -LiteralPath $receiptFile) -and
+    $manifest.operation -cne 'owner-ts-retire-gst-trial') {
     # Also recover the interrupted state where the prior request was moved
     # but moving its Owner-owned receipt was denied. Never erase that proof.
     $item = Get-Item -LiteralPath $receiptFile -Force -ErrorAction Stop
@@ -320,6 +377,28 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-ts-retire-gst-trial') {
+        $summaryFile = Join-Path $outbox ('owner-gst-retire-' + $nonce + '.json')
+        $item = Get-Item -LiteralPath $summaryFile -Force -ErrorAction Stop
+        if ($item.Length -le 0 -or $item.Length -gt 512 -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'HOSTOPS_GST_RETIRE_SUMMARY_UNTRUSTED'
+        }
+        $result = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+        if ($result.schema -cne 'TTV-OWNER-GST-RETIRE-V1' -or
+            $result.nonce -cne $nonce -or
+            $result.status -cne 'RETIRED_PROJECT_TRIAL_ONLY') {
+            throw 'HOSTOPS_GST_RETIRE_SUMMARY_INVALID'
+        }
+        foreach ($field in @('removed_dirs','stopped_processes','unrelated_processes')) {
+            if ($result.$field -isnot [ValueType] -or
+                [int]$result.$field -lt 0 -or [int]$result.$field -gt 12) {
+                throw 'HOSTOPS_GST_RETIRE_COUNTER_INVALID'
+            }
+            Write-Output ('HOSTOPS_GST_RETIRE_' + $field.ToUpperInvariant() + '=' + $result.$field)
+        }
+        Write-Output 'HOSTOPS_GST_RETIRE=PROJECT_TRIAL_RETIRED'
+    }
     if ($receipt.operation -ceq 'owner-ts-ebml-owner-readonly') {
         $summaryFile = Join-Path $outbox ('owner-ebml-cues-' + $nonce + '.json')
         if (-not (Test-Path -LiteralPath $summaryFile -PathType Leaf)) {
