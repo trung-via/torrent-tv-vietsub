@@ -237,7 +237,21 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 $summary = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
                 $expected = @('schema','nonce','scope','title_source','search',
-                    'route','download','cached','en_source','p2_outcome')
+                    'route','download','cached','en_source','p2_outcome','p4_reject')
+                $safeP4Rejects = @('NOT_OBSERVED','OTHER','UNCLASSIFIED',
+                    'P4_ACTIVATE_SCHEMA_INVALID','P4_ACTIVATE_AUTH_INVALID',
+                    'P4_ACTIVATE_REPLAY','P4_TOO_MANY_SESSIONS',
+                    'P4_ASSUMED_SOURCE_MISSING','P4_PROGRESSIVE_FEED_BIND_FAILED',
+                    'P4_READY_FEED_PUBLISH_FAILED','P4_TRANSLATION_START_FAILED',
+                    'P3_READY_NO_CURRENT_ACCEPTED_SOURCE',
+                    'P3_READY_CURRENT_MEDIA_OR_CONSENT_CHANGED',
+                    'P3_READY_PRIVATE_SOURCE_NOT_READY',
+                    'P4_ROLLING_CURRENT_TV_UNAVAILABLE','P4_ROLLING_TV_SESSION_CHANGED',
+                    'P4_ROLLING_CHECKPOINT_INVALID','P4_ROLLING_CHECKPOINT_NOT_VERIFIED',
+                    'P4_ROLLING_CHECKPOINT_HASH_CHANGED','P4_ROLLING_CHECKPOINT_GAP',
+                    'P4_ROLLING_SOURCE_NOT_VERIFIED','P4_ROLLING_SOURCE_RECEIPT_INVALID',
+                    'P4_ROLLING_SOURCE_INDEX_INVALID','P4_ROLLING_ABANDONED_JOB_HOLD',
+                    'P4_ROLLING_SOURCE_CHANGED','P4_ROLLING_REVISION_IDENTITY_INVALID')
                 if ($summary.schema -ceq 'TTV-OWNER-SOURCE-TRACE-V1' -and
                     $summary.nonce -ceq $nonce -and
                     (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
@@ -253,7 +267,8 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     $summary.en_source -cin @('NOT_OBSERVED','LOCAL_DIRECT',
                         'TORRENT_SIDECAR','CACHED') -and
                     $summary.p2_outcome -cin @('NOT_OBSERVED','VI_READY',
-                        'VIETSUB_READY','REVIEW_REQUIRED')) {
+                        'VIETSUB_READY','REVIEW_REQUIRED') -and
+                    $summary.p4_reject -cin $safeP4Rejects) {
                     Write-Output ('HOSTOPS_OWNER_SOURCE_SCOPE=' + $summary.scope)
                     Write-Output ('HOSTOPS_OWNER_SOURCE_TITLE=' + $summary.title_source)
                     Write-Output ('HOSTOPS_OWNER_SOURCE_SEARCH=' + $summary.search)
@@ -262,6 +277,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                     Write-Output ('HOSTOPS_OWNER_SOURCE_CACHED=' + $summary.cached)
                     Write-Output ('HOSTOPS_OWNER_SOURCE_EN_SOURCE=' + $summary.en_source)
                     Write-Output ('HOSTOPS_OWNER_SOURCE_P2_OUTCOME=' + $summary.p2_outcome)
+                    Write-Output ('HOSTOPS_OWNER_SOURCE_P4_REJECT=' + $summary.p4_reject)
                 }
             }
         }

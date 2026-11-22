@@ -22,6 +22,22 @@ $download = 'NO'
 $cached = 'NO'
 $enSource = 'NOT_OBSERVED'
 $outcome = 'NOT_OBSERVED'
+$p4Reject = 'NOT_OBSERVED'
+$safeP4Reasons = @(
+    'UNCLASSIFIED', 'P4_ACTIVATE_SCHEMA_INVALID', 'P4_ACTIVATE_AUTH_INVALID',
+    'P4_ACTIVATE_REPLAY', 'P4_TOO_MANY_SESSIONS',
+    'P4_ASSUMED_SOURCE_MISSING', 'P4_PROGRESSIVE_FEED_BIND_FAILED',
+    'P4_READY_FEED_PUBLISH_FAILED', 'P4_TRANSLATION_START_FAILED',
+    'P3_READY_NO_CURRENT_ACCEPTED_SOURCE',
+    'P3_READY_CURRENT_MEDIA_OR_CONSENT_CHANGED',
+    'P3_READY_PRIVATE_SOURCE_NOT_READY',
+    'P4_ROLLING_CURRENT_TV_UNAVAILABLE', 'P4_ROLLING_TV_SESSION_CHANGED',
+    'P4_ROLLING_CHECKPOINT_INVALID', 'P4_ROLLING_CHECKPOINT_NOT_VERIFIED',
+    'P4_ROLLING_CHECKPOINT_HASH_CHANGED', 'P4_ROLLING_CHECKPOINT_GAP',
+    'P4_ROLLING_SOURCE_NOT_VERIFIED', 'P4_ROLLING_SOURCE_RECEIPT_INVALID',
+    'P4_ROLLING_SOURCE_INDEX_INVALID', 'P4_ROLLING_ABANDONED_JOB_HOLD',
+    'P4_ROLLING_SOURCE_CHANGED', 'P4_ROLLING_REVISION_IDENTITY_INVALID'
+)
 
 if ((Test-Path -LiteralPath $healthPath -PathType Leaf) -and
     (Test-Path -LiteralPath $logPath -PathType Leaf)) {
@@ -98,6 +114,11 @@ if ((Test-Path -LiteralPath $healthPath -PathType Leaf) -and
                         } elseif ($line.Contains("OWNER_FULL_TRACE 'P2_EVENT_FINISHED'") -and
                                   $line -cmatch "'result': '(VI_READY|VIETSUB_READY|REVIEW_REQUIRED)'") {
                             $outcome = $Matches[1]
+                        } elseif ($line.Contains("OWNER_FULL_TRACE 'P4_DELIVERY_STATUS'") -and
+                                  $line -cmatch "'code': 'P4_ACTIVATE_REJECTED_([A-Z0-9_]{3,100})'") {
+                            $p4Reject = if ($Matches[1] -cin $safeP4Reasons) {
+                                $Matches[1]
+                            } else { 'OTHER' }
                         }
                     }
                 }
@@ -112,7 +133,7 @@ $data = [ordered]@{
     schema = 'TTV-OWNER-SOURCE-TRACE-V1'; nonce = $request.nonce
     scope = $scope; title_source = $titleSource; search = $search
     route = $route; download = $download; cached = $cached
-    en_source = $enSource; p2_outcome = $outcome
+    en_source = $enSource; p2_outcome = $outcome; p4_reject = $p4Reject
 }
 $payload = $data | ConvertTo-Json -Compress
 if ([Text.Encoding]::UTF8.GetByteCount($payload) -gt 512) {
