@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-p2-block-trace-readonly",
-  "category": "diagnostics",
+  "operation": "owner-subtitle-cache-purge-all",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-p2-block-trace-readonly.ps1",
-  "script_sha256": "6440188897346373ac9b22ada4bfc53ff504f00a905e76ece1b82cb200fb068c",
+  "script_path": "hostops/laptop-ops/operations/owner-subtitle-cache-purge-all.ps1",
+  "script_sha256": "21cc2e6bd4c6514ccc5352be3cf05ef5106a8ce83b36b7b629247331b42940ce",
   "arguments": []
 }

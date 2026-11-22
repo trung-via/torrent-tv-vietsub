@@ -221,6 +221,23 @@ class LaptopOpsContractTests(unittest.TestCase):
         self.assertNotIn("Invoke-WebRequest", script)
         self.assertNotIn("Invoke-RestMethod", script)
 
+    def test_purge_all_old_subtitle_caches_but_not_owner_identity(self):
+        script = (ROOT / "hostops/laptop-ops/operations/owner-subtitle-cache-purge-all.ps1").read_text()
+        self.assertIn("'subtitle-trials'", script)
+        self.assertIn("'P2\\auto-lean120-state'", script)
+        self.assertIn("'CacheArchives'", script)
+        self.assertIn("OWNER_CACHE_PURGE=ACTIVE_SUBTITLE_AND_TRANSLATION_CACHE_EMPTY", script)
+        self.assertIn("OWNER_CACHE_PURGE=COMPLETE_FRESH_OWNER_RUNNING", script)
+        self.assertIn("AssertIdle", script)
+        self.assertIn("StopVerifiedWorkers", script)
+        self.assertIn("GetOwnerSid", script)
+        self.assertIn("StartOwner $oldPid", script)
+        self.assertEqual(script.count("Move-Item -LiteralPath"), 2)
+        for forbidden in ("Remove-Item", "Invoke-WebRequest", "Invoke-RestMethod",
+                          "download_manual_en", "generateContent", "OwnerBridge\\app",
+                          "OwnerBridge\\pairing", "OwnerBridge\\secrets"):
+            self.assertNotIn(forbidden, script)
+
 
 if __name__ == "__main__":
     unittest.main()
