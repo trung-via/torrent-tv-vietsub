@@ -320,6 +320,42 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-ts-ebml-owner-readonly') {
+        $summaryFile = Join-Path $outbox ('owner-ebml-cues-' + $nonce + '.json')
+        if (-not (Test-Path -LiteralPath $summaryFile -PathType Leaf)) {
+            throw 'HOSTOPS_OWNER_EBML_SUMMARY_MISSING'
+        }
+        $summaryItem = Get-Item -LiteralPath $summaryFile -Force
+        if ($summaryItem.Length -le 0 -or $summaryItem.Length -gt 512 -or
+            ($summaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'HOSTOPS_OWNER_EBML_SUMMARY_INVALID'
+        }
+        $row = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+        $metrics = @('state','identity','en_ffp','en_mkv','cues_indexed',
+                     'cues_relative','cues_verified','bytes','requests','ms','first_ten_ms')
+        $expected = @('schema','nonce') + $metrics
+        if ($row.schema -cne 'TTV-OWNER-EBML-CUES-V1' -or
+            $row.nonce -cne $nonce -or
+            (@($row.PSObject.Properties.Name | Sort-Object) -join ',') -cne
+                (@($expected | Sort-Object) -join ',') -or
+            [string]$row.state -cnotmatch '^[A-Z0-9_]{3,50}$' -or
+            $row.identity -cnotin @('UNVERIFIED','OWNER_EVENT_MATCH')) {
+            throw 'HOSTOPS_OWNER_EBML_FIELDS_INVALID'
+        }
+        $maxima = @{en_ffp=128;en_mkv=128;cues_indexed=30000;
+                    cues_relative=30000;cues_verified=120;bytes=8388608;
+                    requests=300;ms=160000;first_ten_ms=160000}
+        foreach ($field in @($metrics | Where-Object { $_ -notin @('state','identity') })) {
+            if ($row.$field -isnot [ValueType] -or
+                [long]$row.$field -lt 0 -or [long]$row.$field -gt $maxima[$field]) {
+                throw 'HOSTOPS_OWNER_EBML_COUNTER_INVALID'
+            }
+        }
+        foreach ($field in $metrics) {
+            Write-Output ('HOSTOPS_OWNER_EBML_' + $field.ToUpperInvariant() + '=' + $row.$field)
+        }
+        Write-Output 'HOSTOPS_OWNER_EBML_READONLY_PASS'
+    }
     if ($receipt.operation -ceq 'owner-ts-gst-isolated-test') {
         $summaryFile = Join-Path $outbox 'owner-ts-gst-trial.json'
         if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {

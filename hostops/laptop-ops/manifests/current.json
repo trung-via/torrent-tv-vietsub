@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-ts-gst-status-readonly",
+  "operation": "owner-ts-ebml-owner-readonly",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-ts-gst-status-readonly.ps1",
-  "script_sha256": "1d1a5ccefaa533e41827b6d35e395b6c5e946571e171a83052b506b5e4bb21a1",
+  "script_path": "hostops/laptop-ops/operations/owner-ts-ebml-owner-readonly.ps1",
+  "script_sha256": "758650e4c3466ca655ecf093409744dca100b204592fb7946e1f226ae3cf8f29",
   "arguments": []
 }

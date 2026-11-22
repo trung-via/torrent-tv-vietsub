@@ -13,6 +13,12 @@ SPEC.loader.exec_module(PROBE)
 
 
 class OwnerBoundProbeTests(unittest.TestCase):
+    def test_owner_interactive_wrapper_pins_the_python_source(self):
+        wrapper = (SCRIPT.parent / "owner-ts-ebml-owner-readonly.ps1").read_text("utf-8")
+        source_hash = hashlib.sha256(SCRIPT.read_bytes()).hexdigest()
+        self.assertIn("'" + source_hash + "'", wrapper)
+        self.assertIn("TTV-OWNER-EBML-CUES-V1", wrapper)
+
     def test_only_matching_owner_event_is_selected(self):
         profile, wanted = "owner_test", "video-b.mkv"
         fingerprint = hashlib.sha256(
