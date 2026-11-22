@@ -374,7 +374,8 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
-    if ($receipt.operation -ceq 'owner-p2-selector-178-install') {
+    if ($receipt.operation -cin @('owner-p2-selector-178-install',
+                                 'owner-p2-coverage-178-install')) {
         $summaryFile = Join-Path $outbox 'selector-install.json'
         if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
             $item = Get-Item -LiteralPath $summaryFile -Force
