@@ -116,13 +116,21 @@ try:
                 if (type(idx) is not int or not 0<=idx<4096
                     or not isinstance(file_path,str)): continue
                 digest=hashlib.sha256('\0'.join((profile,th,str(idx))).encode()).hexdigest()
-                if any(n==file_path.replace('\\','/').rsplit('/',1)[-1] and f==digest
-                       for n,f in historical):
-                    recovered.append((th,idx,file_path.replace('\\','/').rsplit('/',1)[-1]))
-        if len(set(recovered))!=1:
-            out['state']=('SELECTED_EVENT_NOT_IN_TORRSERVER' if not recovered
-                          else 'SELECTED_EVENT_AMBIGUOUS');finish()
-        chosen_event=recovered[0]
+                basename=file_path.replace('\\','/').rsplit('/',1)[-1]
+                if any(n==basename and f==digest for n,f in historical):
+                    recovered.append((th,idx,basename,digest))
+        # Several playback events can legitimately point to different movies.
+        # Select the latest event that has ONE exact match, not an arbitrary
+        # torrent or the entire week's combined match set.
+        for n,f in historical:
+            matches={(th,idx,basename) for th,idx,basename,digest in recovered
+                     if basename==n and digest==f}
+            if len(matches)>1:
+                out['state']='SELECTED_EVENT_AMBIGUOUS';finish()
+            if len(matches)==1:
+                chosen_event=next(iter(matches));break
+        if chosen_event is None:
+            out['state']='SELECTED_EVENT_NOT_IN_TORRSERVER';finish()
     tor,index,name=chosen_event
     state,raw=call(base+'/torrents','POST',
         json.dumps({'action':'get','hash':tor}).encode(),cap=524288)
