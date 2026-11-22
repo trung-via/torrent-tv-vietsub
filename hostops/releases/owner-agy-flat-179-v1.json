@@ -1,0 +1,132 @@
+{
+  "schema": "TTV-OWNER-RELEASE-STAGE-V1",
+  "release_id": "agy-flat-179-r1",
+  "source_tree": "47726ef48719d3e807e764c3454dea44c2887ff0",
+  "mode": "STAGE_ONLY",
+  "files": [
+    {
+      "path": "poc/p2-aisub/automatic_lean120_worker.py",
+      "sha256": "ec7ee0d3b9733e17077c0d2a49af3de2db044afac71940234615b220bfa8d980"
+    },
+    {
+      "path": "poc/p2-aisub/paired_activation.py",
+      "sha256": "605330ccccaa5092cf97fdcaf3a75dd349cc1ed23eeb2852e3a03259b3dcda85"
+    },
+    {
+      "path": "poc/p2-aisub/translator_gateway.py",
+      "sha256": "d63c468a6417fab87d6c9e56e6dd319ddc28289f7c95eb064eaf9684d5774fc3"
+    },
+    {
+      "path": "poc/p2-sub-discovery/agy_opensubtitles_acquisition.py",
+      "sha256": "8c1fe0b20867c14915f4320fe5dc3694ece12f89415e2ba1ea15d1c38288e8b2"
+    },
+    {
+      "path": "poc/p2-sub-discovery/automatic_vietsub_flow.py",
+      "sha256": "9723a343121ac0ca20c7b178a8ff59f793882c7e0a6c60f6fb40b65e46f71df2"
+    },
+    {
+      "path": "poc/p2-sub-discovery/dual_subtitle_catalog.py",
+      "sha256": "13ceb5859cfb1a9013177b373d81338a6492151983a90e07fbc761ad647d8206"
+    },
+    {
+      "path": "poc/p2-sub-discovery/local_en_direct.py",
+      "sha256": "35443c58d3d9fa25ff22fdf9840f41e7607eae84ad6dae9f715395c7d091d153"
+    },
+    {
+      "path": "poc/p2-sub-discovery/matcher.py",
+      "sha256": "18df6d45786caff6d5c97a11f6d463afeb21820f5766a4d944c3e2f6a1418b83"
+    },
+    {
+      "path": "poc/p2-sub-discovery/opensubtitles.py",
+      "sha256": "3711dab1d40de9751d17cb3b5d9fbe485c644e6e2488b05e7d248cf5bb93a3f0"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_en_single_trial.py",
+      "sha256": "d2a47ae5b42080634adb8ed804db9564f34f69f57944f411b37ca31cc1ae5052"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_full_flow_snapshot_v4.py",
+      "sha256": "c08127a43657a83966307ee7901ea333cd81aac71625f35a539a70375a275fdc"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_p3_p4_entrypoint.py",
+      "sha256": "acaa545be25d397b4ab85276516e92fdc99316f58063f69fcd620b8af0198c2c"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_p3_p4_policy_r0.py",
+      "sha256": "8ab15096e0e1dbd2c28ee2b6d12620150b5d17966e27e89ec73b0a398f32fc46"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_p3_p4_runtime.py",
+      "sha256": "e0f2f4011b0dfabc31855cc351214224128b8a852345d687a9a227b8e28c3116"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_r2_progressive_registry.py",
+      "sha256": "d155a5513605e76b676294b6333ec9dac79061761e74426e373a465f58a67710"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_r2_verified_processor.py",
+      "sha256": "24d653ebe39dcf73c4b80b6b93872cd3af4c1ee4a27973bbae5b4d21031e433f"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_selected_file_resolver.py",
+      "sha256": "93ab4f62eded98bfad3c3b8322536fe0547ee80ac0b206c24f735499577b4247"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_session_bridge.py",
+      "sha256": "e7924b6aaa1597e61eb23f9822dec348023f25ed252a1c6ad74366502d1c2406"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_torrserver_embedded_en.py",
+      "sha256": "ebcba613d964229ef39235f5c3deda905fec6ef09653c30b644601efe519e110"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_torrserver_readonly.py",
+      "sha256": "2add8bfec22afa5a4644d1dfb9228438736301c56968c1015c815e08c3964e07"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_torrserver_subs.py",
+      "sha256": "553525523f7a020233e0e62dd6499e0f46c593dc29f4f57a87c59708a565f5a0"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_owner_current_redmi.py",
+      "sha256": "69f4da5b2cdc94781b672c9858d4adf2b03837580d78045becf768ec42fb96a0"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_owner_state_wiring.py",
+      "sha256": "b00de9fd23ed7aabf47022bc50c9fa6cf71c6333f643d3e0db79954d00adc9e7"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_owner_state_wiring_r2.py",
+      "sha256": "ee39b7a2a1a04734aa387ba333b2bd4f0e299ac7333f321e5292e2934180578d"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_p4_media_key.py",
+      "sha256": "7d1367b055934b4e6e0f7e40e5383ff57f2e44528c7f3d1ec66e630814ee92e4"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_p4_ready_registry.py",
+      "sha256": "d06fb93bc186788c553253e7e1c47bdb5e11f4e091b9a945f36cc2638e444375"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_p4_shared_https_route_r0.py",
+      "sha256": "7358cfafa901fa0a74743450302d99cb7ee370561c28fa336a73535498a7dadf"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_redmi_current_state.py",
+      "sha256": "e62de5235486d2a604b37122a93b1de56adbf124530cbe8b37531cd0f3da0ac2"
+    },
+    {
+      "path": "poc/p2-sub-discovery/trusted_playback_to_owner.py",
+      "sha256": "7e8bb7d86d5395d9d3f40feb7ada3813cb7802d4e9995fc50607076728412c47"
+    },
+    {
+      "path": "poc/p2-sub-discovery/verified_v3_processor.py",
+      "sha256": "7f7e9ae7922b5bb2e7439565c0bb69387e1c073fa8ce45182884877b52ca5906"
+    },
+    {
+      "path": "poc/p2-sub-discovery/vi_en_fallback.py",
+      "sha256": "ce7323bb3ad2c1e19213be8ef6b43fb27de3a8a87f92d5b2b045380e37f85500"
+    }
+  ]
+}
