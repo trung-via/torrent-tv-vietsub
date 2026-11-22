@@ -277,7 +277,18 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
                          and reference.group == proposed.group)))
         )
     )
-    confident = not hash_conflict and (exact_hash or same_release)
+    # A VI upload may be perfectly intelligible while drifting against a
+    # different video cut. Title/year/source/resolution/codec alone identify
+    # a *film*, not necessarily its exact edit. Never auto-promote this to a
+    # matched Vietnamese track without a real moviehash or matching scene
+    # group. Such candidates remain rankable for a separate VI option.
+    vi_release_provenance = (
+        reference.group is not None and reference.group == proposed.group
+        and same_release
+    )
+    confident = not hash_conflict and (
+        exact_hash or (vi_release_provenance if lang == "vi" else same_release)
+    )
     return Ranked(candidate.subtitle_id, lang, score, confident, tuple(evidence))
 
 

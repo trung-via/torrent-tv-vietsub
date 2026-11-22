@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from matcher import Media
 from opensubtitles import OpenSubtitles, SubtitleApiError
-from vi_en_fallback import select_vi_then_en
+from vi_en_fallback import discover_dual_candidates, select_vi_then_en
 
 FILM = "Example.Film.2017.1080p.BluRay.x265-GROUP.mkv"
 SAME = "Example.Film.2017.1080p.BluRay.x265-GROUP"
@@ -40,6 +40,50 @@ def run(table, *, policy="VI_FAST"):
 
 
 class RouteTests(unittest.TestCase):
+    def test_dual_route_ai_default_even_with_confident_vi(self):
+        fake = Fake({
+            ("vi", 1): ([make_row(7, SAME, "vi")], 1),
+            ("en", 1): ([make_row(5, SAME, "en")], 1),
+        })
+        media = Media("profile", "hash", 0, FILM)
+        dual = discover_dual_candidates(
+            OpenSubtitles(api_key="TEST", transport=fake), media)
+        self.assertEqual(dual.default_source, "AI")
+        self.assertEqual((dual.ai_file_id, dual.vi_option_file_id), (5, 7))
+        self.assertTrue(dual.vi_release_matched)
+        self.assertEqual(fake.calls, [("GET", "vi", 1), ("GET", "en", 1)])
+
+    def test_near_vi_is_not_auto_matched_but_remains_labelled_option(self):
+        media = Media("profile", "hash", 0,
+                      "Example.Film.2017.1080p.BDRip.HEVC.mkv")
+        fake = Fake({
+            ("vi", 1): ([make_row(7, "Example.Film.2017.1080p.BluRay.HEVC.vi.srt", "vi")], 1),
+            ("en", 1): ([make_row(5, "Example.Film.2017.1080p.BluRay.HEVC.eng.srt", "en")], 1),
+        })
+        dual = discover_dual_candidates(OpenSubtitles(api_key="TEST", transport=fake), media)
+        self.assertEqual(dual.default_source, "AI")
+        self.assertEqual(dual.ai_file_id, 5)
+        self.assertEqual(dual.vi_option_file_id, 7)
+        self.assertFalse(dual.vi_release_matched)
+
+    def test_dual_route_does_not_offer_explicitly_mismatched_vi(self):
+        media = Media("profile", "hash", 0, FILM)
+        fake = Fake({
+            ("vi", 1): ([make_row(7, WEAK, "vi")], 1),
+            ("en", 1): ([make_row(5, SAME, "en")], 1),
+        })
+        dual = discover_dual_candidates(OpenSubtitles(api_key="TEST", transport=fake), media)
+        self.assertIsNone(dual.vi_option_file_id)
+        self.assertEqual(dual.ai_file_id, 5)
+
+    def test_dual_route_vi_only_when_english_missing(self):
+        fake = Fake({("vi", 1): ([make_row(7, SAME, "vi")], 1)})
+        media = Media("profile", "hash", 0, FILM)
+        dual = discover_dual_candidates(OpenSubtitles(api_key="TEST", transport=fake), media)
+        self.assertEqual(dual.default_source, "VI_OPTION")
+        self.assertIsNone(dual.ai_file_id)
+        self.assertEqual(dual.vi_option_file_id, 7)
+
     def test_confident_vi_stops_before_en(self):
         route, calls = run({("vi", 1): ([make_row(7, SAME, "vi")], 1)})
         self.assertEqual(route.status, "VI_READY")

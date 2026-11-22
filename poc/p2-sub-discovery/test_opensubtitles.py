@@ -67,7 +67,9 @@ class D2Tests(unittest.TestCase):
         params = parse_qs(urlsplit(fake.calls[0][1]).query)
         self.assertEqual(params["query"], ["example film"])
         self.assertEqual(params["year"], ["2017"])
-        self.assertEqual(found.decision.status, "VI_MATCH")
+        # Without an exact moviehash or scene group, a matching film title
+        # does not establish that this Vietnamese file fits the video cut.
+        self.assertEqual(found.decision.status, "REVIEW_REQUIRED")
         self.assertEqual(found.media_key, m.key)
 
     def test_free_first_query_and_headers(self):

@@ -23,7 +23,8 @@ class MatcherTests(unittest.TestCase):
                           selected.resolution, selected.codec),
                          ("example film", 2017, "bluray", "1080p", "hevc"))
         winner = Subtitle("vi", "Example.Film.2017.1080p.BluRay.HEVC.vi.srt", "vi")
-        self.assertEqual(choose(media, batch(media, winner)).status, "VI_MATCH")
+        # The bilingual alias identifies the film, not the exact VI cut.
+        self.assertEqual(choose(media, batch(media, winner)).status, "REVIEW_REQUIRED")
         self.assertEqual(media.key, ("home", "torrent", 4))
         self.assertEqual(media.filename, name)
 
@@ -151,6 +152,23 @@ class MatcherTests(unittest.TestCase):
         vi = Subtitle("vi1", "Sample.Film.2017.1080p.BluRay.x265-TEAM.srt", "vi")
         en = Subtitle("en1", "Sample.Film.2017.1080p.BluRay.x265-TEAM.srt", "en")
         self.assertEqual(choose(media, batch(media, en, vi)).winner.subtitle_id, "vi1")
+
+    def test_vi_without_matching_group_is_only_option_not_verified_match(self):
+        media = Media("home", "torrent", 0,
+                      "Sample.Film.2017.1080p.BDRip.HEVC.mkv")
+        plausible_vi = Subtitle("vi-near", "Sample.Film.2017.1080p.BluRay.HEVC.vi.srt", "vi")
+        good_en = Subtitle("en", "Sample.Film.2017.1080p.BluRay.HEVC.eng.srt", "en")
+        result = choose(media, batch(media, plausible_vi, good_en))
+        self.assertEqual(result.status, "EN_TRANSLATE")
+        self.assertEqual(result.winner.subtitle_id, "en")
+        self.assertFalse(next(r for r in result.ranked if r.language == "vi").confident)
+
+    def test_vi_with_exact_moviehash_can_match_even_without_scene_group(self):
+        media = Media("home", "torrent", 0,
+                      "Sample.Film.2017.1080p.BDRip.HEVC.mkv", "0102030405060708")
+        vi = Subtitle("hash", "Sample.Film.2017.1080p.BluRay.HEVC.vi.srt", "vi",
+                      movie_hash="0102030405060708")
+        self.assertEqual(choose(media, batch(media, vi)).status, "VI_MATCH")
 
     def test_wrong_title_and_year_rejected_even_with_hash(self):
         media = film("0102030405060708")

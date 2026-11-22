@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from time import monotonic
 
-from matcher import Media, SearchResults, choose
+from matcher import Media, Ranked, SearchResults, choose, parse_release, preferred_media_release
 from opensubtitles import Candidate, Discovery, OpenSubtitles, SubtitleApiError
 
 SEARCH_POLICIES = ("VI_FAST", "EN_DIRECT", "VI_FULL")
@@ -30,6 +30,87 @@ class Route:
     vi_probe_status: str = "UNKNOWN"
     vi_elapsed_ms: int = 0
     en_elapsed_ms: int = 0
+
+
+@dataclass(frozen=True)
+class DualCandidates:
+    """Separate EN→AI default from a non-authoritative VI option.
+
+    A search candidate is NOT evidence that its timestamps fit the video.
+    The consumer must label the VI alternative accordingly and must not
+    substitute it silently for the AI track. No download happens here.
+    """
+    ai_file_id: int | None
+    vi_option_file_id: int | None
+    vi_release_matched: bool
+    vi: Discovery
+    en: Discovery
+    get_requests: int
+    default_source: str  # AI | VI_OPTION | NONE
+
+
+def _vi_option(media: Media, discovery: Discovery) -> Ranked | None:
+    """Offer likely same-film VI even if exact video-cut sync is unproven.
+
+    A missing group is acceptable only for a clearly labelled manual option;
+    a *conflicting* group, source, resolution, codec, hash or year is not.
+    Title + year + two matching release properties are required, so a broad
+    film-title search cannot pollute the TV subtitle menu.
+    """
+    expected = preferred_media_release(media)
+    candidates = {c.subtitle.subtitle_id: c.subtitle for c in discovery.candidates}
+    for ranked in discovery.decision.ranked:
+        if ranked.language != "vi" or "year" not in ranked.evidence:
+            continue
+        sub = candidates.get(ranked.subtitle_id)
+        if sub is None or "different_moviehash" in ranked.evidence:
+            continue
+        actual = parse_release(sub.release_name)
+        if any(getattr(expected, field) is not None
+               and getattr(actual, field) is not None
+               and getattr(expected, field) != getattr(actual, field)
+               for field in ("source", "resolution", "codec", "group")):
+            continue
+        if ranked.confident or sum(
+                clue in ranked.evidence
+                for clue in ("source", "resolution", "codec", "group")) >= 2:
+            return ranked
+    return None
+
+
+def discover_dual_candidates(client: OpenSubtitles, media: Media, *,
+                             imdb_id: str | None = None,
+                             vi_timeout_seconds: float = VI_FAST_SOCKET_TIMEOUT_SECONDS
+                             ) -> DualCandidates:
+    """Always discover EN for AI and VI for a separate fallback option.
+
+    Search is non-mutating. It does not spend download quota, translate, or
+    publish a P4 revision; those remain independently authorized consumers.
+    """
+    if type(vi_timeout_seconds) not in (int, float) or not 1 <= vi_timeout_seconds <= 15:
+        raise SubtitleApiError("INVALID_SEARCH_TIMEOUT")
+    vi = _empty_discovery(media)
+    vi_gets = 0
+    try:
+        vi, _complete, vi_gets = _discover_complete(
+            client, media, language="vi", imdb_id=imdb_id,
+            max_pages=1, timeout_seconds=float(vi_timeout_seconds))
+    except SubtitleApiError as error:
+        if str(error) != "API_NETWORK_ERROR":
+            raise
+        vi_gets = 1  # One failed bounded GET; do not retry.
+    en, _complete, en_gets = _discover_complete(
+        client, media, language="en", imdb_id=imdb_id, max_pages=2)
+    ai = en.decision.winner if en.decision.status == "EN_TRANSLATE" else None
+    option = _vi_option(media, vi)
+    return DualCandidates(
+        ai_file_id=int(ai.subtitle_id) if ai is not None else None,
+        vi_option_file_id=int(option.subtitle_id) if option is not None else None,
+        vi_release_matched=option.confident if option is not None else False,
+        vi=vi, en=en, get_requests=vi_gets + en_gets,
+        default_source="AI" if ai is not None else (
+            "VI_OPTION" if option is not None else "NONE"),
+    )
 
 
 def _empty_discovery(media: Media) -> Discovery:
