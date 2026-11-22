@@ -231,6 +231,43 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($receipt.operation -ceq 'owner-ts-embedded-en-readonly') {
+        $summaryFile = Join-Path $outbox 'owner-ts-embedded-en.json'
+        if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+            $item = Get-Item -LiteralPath $summaryFile -Force
+            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $row = Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json
+                $required = @('schema','nonce','state','metadata','ffp','en_text',
+                              'en_bitmap','unlabeled_text','other_subs','elapsed_ms','ffmpeg')
+                if ($row.schema -ceq 'TTV-OWNER-EMBEDDED-EN-V1' -and
+                    $row.nonce -ceq $nonce -and
+                    (@($row.PSObject.Properties.Name | Sort-Object) -join ',') -ceq
+                        (@($required | Sort-Object) -join ',') -and
+                    [string]$row.state -cmatch '^[A-Z0-9_]{3,60}$' -and
+                    $row.metadata -cin @('NOT_RUN','MATCH') -and
+                    [string]$row.ffp -cmatch '^[A-Z0-9_]{3,30}$' -and
+                    $row.ffmpeg -cin @('NOT_CHECKED','AVAILABLE','MISSING') -and
+                    $row.en_text -is [ValueType] -and [int]$row.en_text -ge 0 -and
+                    [int]$row.en_text -le 128 -and
+                    $row.en_bitmap -is [ValueType] -and [int]$row.en_bitmap -ge 0 -and
+                    [int]$row.en_bitmap -le 128 -and
+                    $row.unlabeled_text -is [ValueType] -and [int]$row.unlabeled_text -ge 0 -and
+                    [int]$row.unlabeled_text -le 128 -and
+                    $row.other_subs -is [ValueType] -and [int]$row.other_subs -ge 0 -and
+                    [int]$row.other_subs -le 128 -and
+                    $row.elapsed_ms -is [ValueType] -and [int]$row.elapsed_ms -ge 0 -and
+                    [int]$row.elapsed_ms -le 120000) {
+                    foreach ($field in @('state','metadata','ffp','en_text',
+                                         'en_bitmap','unlabeled_text','other_subs',
+                                         'elapsed_ms','ffmpeg')) {
+                        Write-Output ('HOSTOPS_EMBEDDED_' + $field.ToUpperInvariant() +
+                                      '=' + $row.$field)
+                    }
+                }
+            }
+        }
+    }
     if ($receipt.operation -ceq 'owner-en406-recovery-diagnostic') {
         $summaryFile = Join-Path $outbox 'en406-recovery-diag.json'
         if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
