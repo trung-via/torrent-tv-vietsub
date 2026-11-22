@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 
 $sourceCommit = 'b4525845c4f78e8cef5714af947bd28c3691c679'
 $old = [ordered]@{
-    'owner_r2_progressive_registry.py' = '627b94d995f09731b40bc16c993fbcc19bfb95775340586bbedd8db5eb1036cb'
+    'owner_r2_progressive_registry.py' = 'ec514c8a0fe5afe503cede91c713124d8287e1ef0219e730c2c1cf83517377d0'
 }
 $new = [ordered]@{
     'owner_r2_progressive_registry.py' = 'c6006e3d2c047ae86a7630bcf772a1c15187b232b19e14024cec8d15a62d8592'
