@@ -26,6 +26,7 @@ from paired_activation import PairedActivation
 from owner_selected_file_resolver import OwnerPinnedFiles
 from owner_torrserver_readonly import OwnerTorrServerReader
 from owner_torrserver_subs import OwnerTorrServerSubtitleReader
+from owner_torrserver_embedded_en import OwnerTorrServerEmbeddedEnglishReader
 from automatic_vietsub_flow import AutomaticVietsubFlow
 from verified_v3_processor import VerifiedV3Processor
 from p3_redmi_current_state import SignedRedmiStateCache
@@ -61,9 +62,12 @@ class OwnerP3StatusComposition:
         """
         if isinstance(existing_flow, AutomaticVietsubFlow):
             # A single Owner process shares its already-configured localhost
-            # TorrServer profile. No TV-supplied URL, new job or MKV demux.
+            # TorrServer profile. A verified current-media event alone may
+            # demux an embedded text EN track from the exact localhost /play.
             existing_flow.set_torrent_sidecars(
                 OwnerTorrServerSubtitleReader(self.current._ts.config))
+            existing_flow.set_torrent_embedded_en(
+                OwnerTorrServerEmbeddedEnglishReader(self.current._ts.config))
         return VerifiedV3Processor(
             flow=existing_flow,
             private_media_root=self.private_media_root,

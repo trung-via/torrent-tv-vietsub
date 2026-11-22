@@ -1,9 +1,8 @@
 """Automatic selected-media subtitle source -> existing P2 LEAN120, no prompts.
 
 This is a *callable integration component* for the owner-local TV workflow.
-The caller configures bounded provider/model permissions and credentials
-ONCE when starting the owner-local process; selecting a media file then
-performs its full VI_FAST -> selected subtitle -> EN translation in-process.
+The verified Owner path uses cached/local EN, torrent-embedded EN then a
+same-torrent EN sidecar, without OpenSubtitles search/download requests.
 No new translator, queue, background timer, public GitHub upload or TV claims.
 """
 from __future__ import annotations
@@ -21,6 +20,9 @@ from local_en_direct import LocalMediaSelection, find_local_english
 from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
 from owner_torrserver_subs import (
     OwnerTorrServerSubtitleReader, SidecarInventory, TorrServerSubsUnavailable,
+)
+from owner_torrserver_embedded_en import (
+    OwnerTorrServerEmbeddedEnglishReader, EmbeddedEnglishUnavailable,
 )
 from owner_en_single_trial import _claim_one_post, _preflight_cache
 from owner_vietsub_pipeline import (
@@ -77,12 +79,19 @@ class AutomaticVietsubFlow:
         self._model_ready = False
         self.dual_mode = dual_mode
         self.torrent_sidecars: OwnerTorrServerSubtitleReader | None = None
+        self.torrent_embedded_en: OwnerTorrServerEmbeddedEnglishReader | None = None
 
     def set_torrent_sidecars(self, reader: OwnerTorrServerSubtitleReader) -> None:
         """Install one Owner-pinned localhost source, never from TV JSON."""
         if not isinstance(reader, OwnerTorrServerSubtitleReader):
             raise ValueError("AUTO_TORRENT_SIDECAR_READER_INVALID")
         self.torrent_sidecars = reader
+
+    def set_torrent_embedded_en(self, reader: OwnerTorrServerEmbeddedEnglishReader) -> None:
+        """Use only the Owner-pinned localhost profile after V3 identity checks."""
+        if not isinstance(reader, OwnerTorrServerEmbeddedEnglishReader):
+            raise ValueError("AUTO_TORRENT_EMBEDDED_READER_INVALID")
+        self.torrent_embedded_en = reader
 
     def _ensure_en_model_ready(self) -> None:
         # Only a source that actually needs EN->VI invokes this no-content
@@ -251,20 +260,19 @@ class AutomaticVietsubFlow:
 
     def _selected_media_dual(self, media: Media, fingerprint: str,
                              local: object | None) -> AutoResult:
-        """One user request; two cached sources, AI primary, VI optional.
+        """EN-only Owner mode: no OpenSubtitles GET/POST and no VI lookup.
 
-        No second translator, owner queue or receiver. Retains original
-        index while importing it into the additive per-variant catalog.
+        The older catalog's ai_en kind is deliberately preserved for P4 and
+        already finished LEAN120 checkpoints. Old downloaded_vi cache items
+        may still exist, but this path never fetches or selects them.
         """
         catalog = DualSubtitleCatalog(self.cache_root)
         ai = catalog.read(media, fingerprint, "ai_en")
-        vi = catalog.read(media, fingerprint, "downloaded_vi")
-        if ai is None or vi is None:
-            imported = catalog.import_legacy(media, fingerprint)
-            if imported is not None:
-                if imported.kind == "ai_en": ai = ai or imported
-                else: vi = vi or imported
-        if ai is not None and vi is not None:
+        if ai is None:
+            imported = catalog.import_legacy(media, fingerprint, only_en=True)
+            if imported is not None and imported.kind == "ai_en":
+                ai = imported
+        if ai is not None:
             data = ai.file.read_bytes()
             source = Asset(0, "en", "srt", data, ai.sha256, ai.cues)
             translated = self._reuse_finished_translation(source, ai.file)
@@ -273,130 +281,43 @@ class AutomaticVietsubFlow:
             self.emit("AUTO_DUAL_AI_CACHED_REUSED=YES")
             return AutoResult("VIETSUB_READY", cue_count=ai.cues,
                               translated_cues=translated.translated_cues)
-
-        inventory: SidecarInventory | None = None
-        if self.torrent_sidecars is not None:
+        en_asset: Asset | None = None
+        source_label: str | None = None
+        if local is not None:
+            en_asset = local.asset
+            source_label = "LOCAL_DIRECT"
+        if en_asset is None and self.torrent_embedded_en is not None:
+            try:
+                en_asset = self.torrent_embedded_en.extract(
+                    media, private_root=self.cache_root)
+                source_label = "TORRENT_EMBEDDED"
+            except EmbeddedEnglishUnavailable as exc:
+                self.emit("AUTO_EN_EMBEDDED=" + str(exc))
+        if en_asset is None and self.torrent_sidecars is not None:
             try:
                 inventory = self.torrent_sidecars.list_for_media(media)
-            except TorrServerSubsUnavailable:
-                self.emit("AUTO_TORRENT_SIDECARS=UNAVAILABLE_FALLBACK")
-        route = None
-        if preferred_media_release(media).title:
-            route = discover_dual_candidates(self.client, media)
-            self.emit(f"AUTO_DUAL_PROVIDER_GET_REQUESTS={route.get_requests}")
-            self.emit(f"AUTO_DUAL_AI_ELIGIBLE={'YES' if route.ai_file_id else 'NO'}")
-            self.emit(f"AUTO_DUAL_VI_OPTION_ELIGIBLE={'YES' if route.vi_option_file_id else 'NO'}")
-        gets = route.get_requests if route is not None else 0
-        posts = 0
-        en_asset = None
-        en_file = None
-        if ai is None:
-            # AI is the owner's default. Reserve its English quota POST
-            # BEFORE downloading the optional Vietnamese track. A daily
-            # allowance exhausted by the optional track must not starve AI.
-            if local is not None:
-                en_asset, en_file = local.asset, local.private_cache_file
-            elif inventory is not None and inventory.en is not None:
-                try:
+                if inventory.en is not None:
                     en_asset = self.torrent_sidecars.download(inventory, inventory.en)
-                except TorrServerSubsUnavailable:
-                    self.emit("AUTO_TORRENT_EN=UNAVAILABLE_FALLBACK")
-            if en_asset is None and route is not None and route.ai_file_id is not None:
-                match = next((c for c in route.en.candidates
-                              if c.file_id == route.ai_file_id), None)
-                if match is not None:
-                    try:
-                        self._ensure_en_model_ready()
-                    except (RuntimeError, ValueError, OSError):
-                        # A model unavailable BEFORE any paid call must not
-                        # prevent the separately labelled VI-only choice.
-                        if (vi is None and (route.vi_option_file_id is None)
-                                and (inventory is None or inventory.vi is None)):
-                            raise
-                        self.emit("AUTO_DUAL_AI_PREFLIGHT_UNAVAILABLE_VI_OPTION=YES")
-                    else:
-                        _preflight_cache(self.cache_root)
-                        _claim_one_post(self.cache_root, fingerprint,
-                                        match.subtitle.release_name)
-                        en_asset = self.client.download_manual_en(
-                            media, route.en, file_id=route.ai_file_id,
-                            authorized=True)
-                        posts += 1
-            if en_asset is not None:
-                en_file = en_file or write_private_cache(
-                    self.cache_root, media, en_asset)
-                ai = catalog.record(media, fingerprint, "ai_en",
-                                    en_asset, en_file, release_matched=True)
-                # V1 owner/P4 source binding remains compatible; an old VI
-                # index is never overwritten or deleted by this repair.
-                if not self._cache_index(
-                        media.filename, source_fingerprint=fingerprint).exists():
-                    self._remember_source(media.filename, en_file, en_asset,
-                                          source_fingerprint=fingerprint)
-
-        if vi is None:
-            vi_asset = None
-            matched_release = False
-            if inventory is not None and inventory.vi is not None:
-                try:
-                    vi_asset = self.torrent_sidecars.download(inventory, inventory.vi)
-                    matched_release = True  # Same-torrent sidecar provenance.
-                except TorrServerSubsUnavailable:
-                    self.emit("AUTO_TORRENT_VI=UNAVAILABLE_FALLBACK")
-            if (vi_asset is None and route is not None
-                    and route.vi_option_file_id is not None):
-                match = next((c for c in route.vi.candidates
-                              if c.file_id == route.vi_option_file_id), None)
-                if match is not None:
-                    try:
-                        _preflight_cache(self.cache_root)
-                        _claim_one_post(self.cache_root, fingerprint,
-                                        match.subtitle.release_name,
-                                        marker_prefix=".vi-option-once-")
-                        self.emit("AUTO_DUAL_VI_OPTION_POST_ATTEMPTED=YES")
-                        vi_asset = self.client.download_optional_vi(
-                            media, route.vi, file_id=route.vi_option_file_id)
-                        posts += 1
-                        matched_release = route.vi_release_matched
-                    except SubtitleApiError:
-                        # A broken optional VI download must not stall EN→AI.
-                        # The durable claim still prohibits an uncertain retry.
-                        self.emit("AUTO_DUAL_VI_OPTION_DOWNLOAD=UNAVAILABLE")
-            if vi_asset is not None:
-                file = write_private_cache(self.cache_root, media, vi_asset)
-                vi = catalog.record(media, fingerprint, "downloaded_vi",
-                                    vi_asset, file,
-                                    release_matched=matched_release)
-                self.emit("AUTO_DUAL_VI_OPTION_CACHED=YES")
-
-        if ai is not None and en_asset is None:
-            # Old EN-only receipts deserve the VI option on the next
-            # selection, but never another EN POST or another completed
-            # translation. The VI attempt above is independently bounded.
-            data = ai.file.read_bytes()
-            source = Asset(0, "en", "srt", data, ai.sha256, ai.cues)
-            translated = self._reuse_finished_translation(source, ai.file)
-            if translated is None:
-                translated = self.after_en_cached(source, ai.file)
-            self.emit("AUTO_DUAL_AI_CACHED_REUSED=YES")
-            return AutoResult("VIETSUB_READY", cue_count=ai.cues,
-                              translated_cues=translated.translated_cues,
-                              get_requests=gets, download_posts=posts)
-
-        if en_asset is not None:
-            translated = self.after_en_cached(en_asset, en_file)
-            if not translated.translation_complete:
-                raise ValueError("AUTO_DUAL_EN_INCOMPLETE_TRANSLATION")
-            return AutoResult("VIETSUB_READY", cue_count=en_asset.cues,
-                              translated_cues=translated.translated_cues,
-                              get_requests=gets, download_posts=posts)
-        if vi is not None:
-            # Only one fallback source exists; keep the variant separate.
-            # Do not pretend the downloaded VI was translated by AI.
-            self.emit("AUTO_DUAL_AI_UNAVAILABLE_VI_OPTION_ONLY=YES")
-            return AutoResult("VI_READY", cue_count=vi.cues,
-                              get_requests=gets, download_posts=posts)
-        return AutoResult("REVIEW_REQUIRED", get_requests=gets, download_posts=posts)
+                    source_label = "TORRENT_SIDECAR"
+            except TorrServerSubsUnavailable:
+                self.emit("AUTO_TORRENT_EN=UNAVAILABLE")
+        if en_asset is None:
+            self.emit("AUTO_EN_SOURCE=UNAVAILABLE_NO_PROVIDER_FALLBACK")
+            return AutoResult("REVIEW_REQUIRED")
+        en_file = (local.private_cache_file if local is not None
+                   else write_private_cache(self.cache_root, media, en_asset))
+        catalog.record(media, fingerprint, "ai_en", en_asset, en_file,
+                       release_matched=(source_label != "LOCAL_DIRECT"))
+        if not self._cache_index(
+                media.filename, source_fingerprint=fingerprint).exists():
+            self._remember_source(media.filename, en_file, en_asset,
+                                  source_fingerprint=fingerprint)
+        translated = self.after_en_cached(en_asset, en_file)
+        if not translated.translation_complete:
+            raise ValueError("AUTO_TORRENT_EN_INCOMPLETE_TRANSLATION")
+        self.emit("AUTO_EN_SOURCE=" + source_label)
+        return AutoResult("VIETSUB_READY", cue_count=en_asset.cues,
+                          translated_cues=translated.translated_cues)
 
     def selected_media(self, video_name: str, *,
                        source_fingerprint: str | None = None,
@@ -673,9 +594,6 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
             or not isinstance(state_root, Path) or not state_root.is_absolute()
             or cache_root.is_symlink() or state_root.is_symlink()):
         raise ValueError("AUTO_VIETSUB_PRIVATE_ROOT_REQUIRED")
-    open_key = os.environ.get("OPENSUBTITLES_API_KEY", "")
-    if not open_key.strip() or any(ch in open_key for ch in "\r\n"):
-        raise ValueError("AUTO_VIETSUB_OPENSUB_KEY_NOT_PROVISIONED")
     from automatic_lean120_worker import AutomaticLean120Worker
     from lean120_api import load_profile
     from owner_vietsub_pipeline import _P2
@@ -691,8 +609,17 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     worker = AutomaticLean120Worker(
         state_root=state_root, profile=profile, glossary={},
     )
+
+    def provider_disabled(*_args: object) -> bytes:
+        # Keep the older OpenSubtitles client shape for existing callers,
+        # but make accidental network regression impossible in Owner mode.
+        raise SubtitleApiError("AUTO_PROVIDER_SEARCH_DISABLED")
+
     return AutomaticVietsubFlow(
-        client=OpenSubtitles(api_key=open_key, allow_dual_downloads=True),
+        # The active verified Owner path never calls this compatibility
+        # client; an OpenSubtitles credential is no longer required.
+        client=OpenSubtitles(api_key="owner-torrent-only",
+                             transport=provider_disabled),
         worker=worker, cache_root=cache_root,
         permissions=AutoPermissions(
             auto_download=True, auto_translate_en=True),

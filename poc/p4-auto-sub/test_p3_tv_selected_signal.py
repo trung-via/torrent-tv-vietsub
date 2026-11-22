@@ -221,10 +221,10 @@ class P3TvSourceContractTests(unittest.TestCase):
             "private fun switchP4SubtitleSource(", 1)[0]
         self.assertNotIn("startP4LanSession(", retry)
 
-    def test_explicit_ai_and_downloaded_vi_source_menu(self):
+    def test_ai_only_source_menu_does_not_offer_vi_download(self):
         self.assertIn('"Vietsub AI (mặc định)"', self.patched)
-        self.assertIn('"Vietsub có sẵn (có thể lệch)"', self.patched)
-        self.assertIn('P4ActivationClient.activateDownloadedVi(', self.patched)
+        self.assertNotIn('add("Vietsub có sẵn (có thể lệch)"', self.patched)
+        self.assertIn('switchP4SubtitleSource(downloadedVi = false)', self.patched)
         self.assertIn('P4ActivationClient.activate(', self.patched)
         self.assertIn("if (result == null)", self.patched)
         self.assertIn("if (same) {", self.patched)

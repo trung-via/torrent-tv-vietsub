@@ -123,7 +123,8 @@ class DualSubtitleCatalog:
             os.fsync(handle.fileno())
         return receipt
 
-    def import_legacy(self, media: Media, fingerprint: str) -> SourceReceipt | None:
+    def import_legacy(self, media: Media, fingerprint: str, *,
+                      only_en: bool = False) -> SourceReceipt | None:
         """Non-destructive import of one verified legacy VI/EN source index."""
         self._verify_binding(media, fingerprint)
         old = self.root / (".auto-source-" + fingerprint + ".json")
@@ -144,6 +145,8 @@ class DualSubtitleCatalog:
                 or type(row["cues"]) is not int or row["cues"] < 1):
             raise SubtitleApiError("DUAL_LEGACY_INDEX_INVALID")
         kind = "ai_en" if row["language"] == "en" else "downloaded_vi"
+        if only_en and kind != "ai_en":
+            return None
         receipt = self._file({**row, "schema": _SCHEMA, "kind": kind,
                               "release_matched": False}, kind)
         raw = receipt.file.read_bytes()

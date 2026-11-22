@@ -109,9 +109,6 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
 P4_SOURCE_MENU = """        add("Vietsub AI (mặc định)", "AD01.14") {
             switchP4SubtitleSource(downloadedVi = false)
         }
-        add("Vietsub có sẵn (có thể lệch)", "AD01.15") {
-            switchP4SubtitleSource(downloadedVi = true)
-        }
 """
 
 P4_SWITCH_SOURCE = """    /** Switch only after a new source-specific, signed P4 activation. */

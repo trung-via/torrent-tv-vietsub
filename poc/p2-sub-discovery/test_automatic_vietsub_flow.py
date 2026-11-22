@@ -84,7 +84,7 @@ class AutomaticFlowTests(unittest.TestCase):
             permissions=AutoPermissions(True, True), dual_mode=True,
             emit=self.events.append)
 
-    def test_ai_default_with_independent_vi_option_two_provider_posts(self):
+    def test_en_torrent_only_never_uses_vi_or_en_provider(self):
         self.provider.vi = (row(8, VI, "vi"),)
         media = Media("owner", "a" * 40, 2, VIDEO)
         fp = hashlib.sha256("\x00".join((
@@ -93,27 +93,22 @@ class AutomaticFlowTests(unittest.TestCase):
         dual = self._dual()
         result = dual.selected_media(VIDEO, verified_media=media,
                                      source_fingerprint=fp)
-        self.assertEqual(result.status, "VIETSUB_READY")
-        self.assertEqual((result.get_requests, result.download_posts), (2, 2))
-        self.assertEqual([x[0] for x in self.provider.calls],
-                         ["GET", "GET", "POST", "GET_BINARY", "POST", "GET_BINARY"])
-        # The AI default consumes EN quota before the downloaded-VI option.
-        self.assertEqual(self.provider.post_ids, [10, 8])
-        self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
+        self.assertEqual(result.status, "REVIEW_REQUIRED")
+        self.assertEqual((result.get_requests, result.download_posts), (0, 0))
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
         catalog = DualSubtitleCatalog(self.cache)
-        vi = catalog.read(media, fp, "downloaded_vi")
-        ai = catalog.read(media, fp, "ai_en")
-        self.assertIsNotNone(vi)
-        self.assertIsNotNone(ai)
-        self.assertNotEqual(vi.file, ai.file)
+        self.assertIsNone(catalog.read(media, fp, "downloaded_vi"))
+        self.assertIsNone(catalog.read(media, fp, "ai_en"))
+        self.assertIn("AUTO_EN_SOURCE=UNAVAILABLE_NO_PROVIDER_FALLBACK", self.events)
         before = list(self.provider.calls)
         again = self._dual().selected_media(
             VIDEO, verified_media=media, source_fingerprint=fp)
-        self.assertEqual(again.status, "VIETSUB_READY")
+        self.assertEqual(again.status, "REVIEW_REQUIRED")
         self.assertEqual(self.provider.calls, before)
-        self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
+        self.assertEqual(self.gemini.calls, [])
 
-    def test_existing_vi_source_is_preserved_when_ai_is_added(self):
+    def test_legacy_vi_source_not_promoted_to_ai_and_no_provider_lookup(self):
         self.provider.vi = (row(8, VI, "vi"),)
         media = Media("owner", "a" * 40, 2, VIDEO)
         fp = hashlib.sha256("\x00".join((
@@ -127,14 +122,14 @@ class AutomaticFlowTests(unittest.TestCase):
         self.provider.calls.clear()
         new = self._dual().selected_media(
             VIDEO, verified_media=media, source_fingerprint=fp)
-        self.assertEqual(new.status, "VIETSUB_READY")
+        self.assertEqual(new.status, "REVIEW_REQUIRED")
         self.assertEqual(old_index.read_bytes(), prior)
         catalog = DualSubtitleCatalog(self.cache)
-        self.assertIsNotNone(catalog.read(media, fp, "downloaded_vi"))
-        self.assertIsNotNone(catalog.read(media, fp, "ai_en"))
-        self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 1)
+        self.assertIsNone(catalog.read(media, fp, "downloaded_vi"))
+        self.assertIsNone(catalog.read(media, fp, "ai_en"))
+        self.assertEqual(self.provider.calls, [])
 
-    def test_existing_ai_source_adds_vi_option_without_retranslating(self):
+    def test_existing_ai_source_reused_without_new_vi_download(self):
         media = Media("owner", "a" * 40, 2, VIDEO)
         fp = hashlib.sha256("\x00".join((
             media.server_profile_id, media.torrent_hash,
@@ -150,14 +145,14 @@ class AutomaticFlowTests(unittest.TestCase):
             VIDEO, verified_media=media, source_fingerprint=fp)
         self.assertEqual(upgraded.status, "VIETSUB_READY")
         self.assertEqual(len(self.gemini.calls), model_calls)
-        self.assertEqual([m for m, _ in self.provider.calls].count("POST"), 1)
+        self.assertEqual(self.provider.calls, [])
         catalog = DualSubtitleCatalog(self.cache)
         self.assertIsNotNone(catalog.read(media, fp, "ai_en"))
-        self.assertIsNotNone(catalog.read(media, fp, "downloaded_vi"))
+        self.assertIsNone(catalog.read(media, fp, "downloaded_vi"))
         self.assertEqual(self.flow._cache_index(VIDEO, source_fingerprint=fp).read_bytes(),
                          legacy)
 
-    def test_optional_vi_post_failure_does_not_block_ai_translation(self):
+    def test_vi_download_failure_unreachable_in_torrent_only_mode(self):
         self.provider.vi = (row(8, VI, "vi"),)
         original = self.provider.__call__
         class ViOnlyFailure:
@@ -174,12 +169,12 @@ class AutomaticFlowTests(unittest.TestCase):
         dual.client._transport = ViOnlyFailure()
         result = dual.selected_media(
             VIDEO, verified_media=media, source_fingerprint=fp)
-        self.assertEqual(result.status, "VIETSUB_READY")
-        self.assertEqual([x[0] for x in self.provider.calls].count("POST"), 2)
-        self.assertIn("AUTO_DUAL_VI_OPTION_DOWNLOAD=UNAVAILABLE", self.events)
-        self.assertEqual([len(c) for c in self.gemini.calls], [120, 5])
+        self.assertEqual(result.status, "REVIEW_REQUIRED")
+        self.assertEqual(self.provider.calls, [])
+        self.assertNotIn("AUTO_DUAL_VI_OPTION_DOWNLOAD=UNAVAILABLE", self.events)
+        self.assertEqual(self.gemini.calls, [])
 
-    def test_en_406_blocks_without_spending_optional_vi_download(self):
+    def test_en_quota_406_unreachable_without_subtitle_api(self):
         self.provider.vi = (row(8, VI, "vi"),)
         original = self.provider.__call__
 
@@ -196,16 +191,16 @@ class AutomaticFlowTests(unittest.TestCase):
             str(media.file_index))).encode()).hexdigest()
         dual = self._dual()
         dual.client._transport = EnQuotaRejected()
-        with self.assertRaisesRegex(SubtitleApiError, "API_DOWNLOAD_QUOTA_406"):
-            dual.selected_media(VIDEO, verified_media=media,
-                                source_fingerprint=fp)
-        self.assertEqual([method for method, _ in self.provider.calls].count("POST"), 1)
+        result = dual.selected_media(VIDEO, verified_media=media,
+                                     source_fingerprint=fp)
+        self.assertEqual(result.status, "REVIEW_REQUIRED")
+        self.assertEqual(self.provider.calls, [])
         self.assertNotIn("AUTO_DUAL_VI_OPTION_POST_ATTEMPTED=YES", self.events)
         self.assertIsNone(DualSubtitleCatalog(self.cache).read(
             media, fp, "downloaded_vi"))
         self.assertEqual(len(self.gemini.calls), 0)
 
-    def test_dual_unavailable_ai_preflight_preserves_optional_vi(self):
+    def test_no_en_source_skips_model_preflight_and_vi_provider(self):
         self.provider.vi = (row(8, VI, "vi"),)
         media = Media("owner", "a" * 40, 2, VIDEO)
         fp = hashlib.sha256("\x00".join((
@@ -221,11 +216,11 @@ class AutomaticFlowTests(unittest.TestCase):
             emit=self.events.append)
         result = dual.selected_media(VIDEO, verified_media=media,
                                      source_fingerprint=fp)
-        self.assertEqual(result.status, "VI_READY")
-        self.assertEqual(self.provider.post_ids, [8])
-        self.assertIsNotNone(DualSubtitleCatalog(self.cache).read(
+        self.assertEqual(result.status, "REVIEW_REQUIRED")
+        self.assertEqual(self.provider.post_ids, [])
+        self.assertIsNone(DualSubtitleCatalog(self.cache).read(
             media, fp, "downloaded_vi"))
-        self.assertIn("AUTO_DUAL_AI_PREFLIGHT_UNAVAILABLE_VI_OPTION=YES", self.events)
+        self.assertNotIn("AUTO_DUAL_AI_PREFLIGHT_UNAVAILABLE_VI_OPTION=YES", self.events)
         self.assertEqual(len(self.gemini.calls), 0)
 
     def test_cyrillic_video_uses_verified_torrent_title_and_reuses_cache(self):
@@ -471,7 +466,7 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual(self.gemini.calls, [])
         self.assertFalse(self.cache.exists())
 
-    def test_owner_bootstrap_disabled_or_missing_key_fails_without_io(self):
+    def test_owner_bootstrap_disabled_but_opensub_key_not_required(self):
         with mock.patch.dict("os.environ", {
             "CI": "", "GITHUB_ACTIONS": "",
             "OPENSUBTITLES_API_KEY": "", "GEMINI_API_KEY": "",
@@ -480,10 +475,10 @@ class AutomaticFlowTests(unittest.TestCase):
                 build_owner_auto_flow(
                     enabled=False, cache_root=self.cache,
                     state_root=self.root / "owner-state")
-            with self.assertRaisesRegex(ValueError, "OPENSUB_KEY_NOT_PROVISIONED"):
-                build_owner_auto_flow(
-                    enabled=True, cache_root=self.cache,
-                    state_root=self.root / "owner-state")
+            owner = build_owner_auto_flow(
+                enabled=True, cache_root=self.cache,
+                state_root=self.root / "owner-state")
+            self.assertTrue(owner.dual_mode)
         self.assertFalse(self.cache.exists())
 
     def test_owner_bootstrap_model_unavailable_does_not_stop_agent(self):
