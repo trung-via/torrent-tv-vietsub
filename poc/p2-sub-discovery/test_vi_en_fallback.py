@@ -72,11 +72,11 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(route.get_requests, 3)
         self.assertEqual(calls[-1], ("GET", "en", 2))
 
-    def test_ambiguous_en_requires_review(self):
+    def test_equal_rank_en_uses_stable_provider_id(self):
         route, calls = run({("en", 1): ([
-            make_row(10, SAME, "en"), make_row(11, SAME, "en")], 2)})
-        self.assertEqual(route.status, "REVIEW_REQUIRED")
-        self.assertIsNone(route.selected_file_id)
+            make_row(11, SAME, "en"), make_row(10, SAME, "en")], 2)})
+        self.assertEqual(route.status, "EN_TRANSLATE")
+        self.assertEqual(route.selected_file_id, 10)
         self.assertEqual(route.get_requests, 2)
 
     def test_no_match(self):
@@ -85,15 +85,16 @@ class RouteTests(unittest.TestCase):
         self.assertIsNone(route.language)
         self.assertEqual(route.get_requests, 2)
 
-    def test_partial_vi_blocks_en_preemption(self):
+    def test_vi_full_uses_confident_observed_second_page(self):
         first = [make_row(i, WEAK, "vi") for i in range(1, 51)]
         route, calls = run({
             ("vi", 1): (first, 110),
             ("vi", 2): ([make_row(60, SAME, "vi")], 110),
             ("en", 1): ([make_row(80, SAME, "en")], 1),
         }, policy="VI_FULL")
-        self.assertEqual(route.status, "REVIEW_REQUIRED")
-        self.assertEqual(route.reason, "VI_COVERAGE_INCOMPLETE")
+        self.assertEqual(route.status, "VI_READY")
+        self.assertEqual(route.selected_file_id, 60)
+        self.assertEqual(route.vi_probe_status, "INCOMPLETE")
         self.assertNotIn(("GET", "en", 1), calls)
 
     def test_vi_fast_one_get_then_en_on_incomplete_vi(self):
@@ -109,16 +110,18 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(calls, [("GET", "vi", 1), ("GET", "en", 1)])
         self.assertEqual(route.get_requests, 2)
 
-    def test_fast_does_not_promote_vi_winner_from_partial_page(self):
+    def test_vi_fast_uses_confident_first_page_without_total_count_gate(self):
         vi_rows = [make_row(i, WEAK, "vi") for i in range(1, 50)]
         vi_rows.append(make_row(99, SAME, "vi"))
         route, calls = run({
             ("vi", 1): (vi_rows, 60),
             ("en", 1): ([make_row(90, SAME, "en")], 1)
         })
-        self.assertEqual(route.status, "EN_TRANSLATE")
-        self.assertEqual(route.language, "en")
+        self.assertEqual(route.status, "VI_READY")
+        self.assertEqual(route.selected_file_id, 99)
+        self.assertEqual(route.language, "vi")
         self.assertEqual(route.vi_probe_status, "INCOMPLETE")
+        self.assertEqual(calls, [("GET", "vi", 1)])
 
     def test_en_direct_skips_vi_network_entirely(self):
         route, calls = run({
@@ -193,13 +196,33 @@ class RouteTests(unittest.TestCase):
         with self.assertRaisesRegex(SubtitleApiError, "CONFLICTING_PROVIDER_CANDIDATE"):
             run({("en", 1): (first, 51), ("en", 2): ([second], 51)})
 
-    def test_partial_en_never_auto_downloadable(self):
+    def test_partial_en_accepts_confident_observed_winner(self):
         first = [make_row(i, WEAK, "en") for i in range(1, 50)]
         first.append(make_row(50, SAME, "en"))
         route, _ = run({("en", 1): (first, 110),
                         ("en", 2): ([make_row(51, WEAK, "en")], 110)})
-        self.assertEqual(route.status, "REVIEW_REQUIRED")
-        self.assertEqual(route.reason, "EN_COVERAGE_INCOMPLETE")
+        self.assertEqual(route.status, "EN_TRANSLATE")
+        self.assertEqual(route.selected_file_id, 50)
+        self.assertEqual(route.en.raw_rows, 51)
+        self.assertEqual(route.en.api_total, 110)
+
+    def test_owner_shaped_provider_volume_does_not_block_best_effort_en(self):
+        # 100 of 1,493 rows observed, nine confident same-release uploads.
+        # Release confidence + stable ID, not provider total_count, decides.
+        page1 = [make_row(i, WEAK, "en") for i in range(1, 51)]
+        page2 = [make_row(i, WEAK, "en") for i in range(51, 92)]
+        page2 += [make_row(i, SAME, "en") for i in range(100, 109)]
+        route, calls = run({
+            ("en", 1): (page1, 1493),
+            ("en", 2): (page2, 1493),
+        })
+        self.assertEqual(route.status, "EN_TRANSLATE")
+        self.assertEqual(route.selected_file_id, 100)
+        self.assertEqual(route.en.raw_rows, 100)
+        self.assertEqual(route.en.api_total, 1493)
+        self.assertEqual(len([r for r in route.en.decision.ranked if r.confident]), 9)
+        self.assertEqual(calls, [("GET", "vi", 1), ("GET", "en", 1),
+                                 ("GET", "en", 2)])
 
     def test_only_metadata_get_no_secrets_in_selection(self):
         route, calls = run({("en", 1): ([make_row(7, SAME, "en")], 1)})

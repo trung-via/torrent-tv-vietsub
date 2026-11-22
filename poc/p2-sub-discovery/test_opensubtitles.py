@@ -187,7 +187,7 @@ class D2Tests(unittest.TestCase):
         reasons = dict(d.parse_rejections)
         self.assertEqual(reasons["unsupported_extension"], 0)
         self.assertEqual(reasons["missing_files"], 1)
-        self.assertEqual(d.decision.status, "REVIEW_REQUIRED")
+        self.assertEqual(d.decision.status, "VI_MATCH")
 
     def test_release_group_from_provider_filename_without_release_attribute(self):
         payload = response({"attributes": {

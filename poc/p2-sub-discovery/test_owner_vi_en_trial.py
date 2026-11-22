@@ -78,14 +78,16 @@ class TrialTests(unittest.TestCase):
             self.assertEqual(list(Path(root).glob("*.srt"))[0].read_bytes(), SRT)
             self.assertNotIn("private-key", "\n".join(lines))
 
-    def test_ambiguous_en_reviewer_no_download(self):
+    def test_equal_release_en_uses_stable_candidate_one_download(self):
         fake = Fake(en=[row(7, "en", SAME), row(8, "en", SAME)])
         with tempfile.TemporaryDirectory() as root:
             code, lines = run(fake, "DOWNLOAD ONE", Path(root))
             self.assertEqual(code, 0)
-            self.assertIn("ROUTE=REVIEW_REQUIRED", lines)
-            self.assertEqual([x[0] for x in fake.calls], ["GET", "GET"])
-            self.assertIn("DOWNLOAD_POST_ATTEMPTS=0", lines)
+            self.assertIn("ROUTE=EN_TRANSLATE", lines)
+            self.assertEqual([x[0] for x in fake.calls],
+                             ["GET", "GET", "POST", "GET_BINARY"])
+            self.assertIn("DOWNLOAD_POST_ATTEMPTS=1", lines)
+            self.assertIn("DOWNLOAD_SRT_QA=PASS", lines)
 
     def test_no_match_does_not_download(self):
         fake = Fake()

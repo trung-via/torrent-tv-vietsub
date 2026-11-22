@@ -86,10 +86,10 @@ def select_vi_then_en(client: OpenSubtitles, media: Media, *,
                       external_en_available: bool = False) -> Route:
     """VI_FAST limits VI to one GET; EN_DIRECT skips it; VI_FULL is legacy.
 
-    No mode ever treats title/year/1080p alone as sync evidence. A single
-    confident VI must be from a complete *observed* VI page set. For VI_FAST,
-    a partial page moves to EN instead of blocking progress. EN remains
-    conservative: pagination incomplete or ambiguous means manual review.
+    No mode ever treats title/year/1080p alone as sync evidence. Select the
+    strongest confidently matched release from the bounded *observed* rows;
+    provider total_count is a pagination hint, never a prerequisite for using
+    a winner. This avoids stalling on thousands of unrelated uploads.
     """
     if policy not in SEARCH_POLICIES:
         raise SubtitleApiError("UNSUPPORTED_SEARCH_POLICY")
@@ -118,12 +118,7 @@ def select_vi_then_en(client: OpenSubtitles, media: Media, *,
             # silently trigger more provider calls.
             vi_gets, complete, vi_probe = 1, False, "NETWORK_ERROR_FALLBACK"
         vi_ms = round((monotonic() - start) * 1000)
-        if not complete and policy == "VI_FULL":
-            return Route("REVIEW_REQUIRED", "VI_COVERAGE_INCOMPLETE",
-                         None, None, vi, None, vi_gets,
-                         search_policy=policy, vi_probe_status=vi_probe,
-                         vi_elapsed_ms=vi_ms)
-        if complete and vi.decision.status == "VI_MATCH" and vi.decision.winner is not None:
+        if vi.decision.status == "VI_MATCH" and vi.decision.winner is not None:
             return Route("VI_READY", "CONFIDENT_VI_RELEASE", "vi",
                          int(vi.decision.winner.subtitle_id), vi, None, vi_gets,
                          search_policy=policy, vi_probe_status=vi_probe,
@@ -139,15 +134,12 @@ def select_vi_then_en(client: OpenSubtitles, media: Media, *,
                      vi_probe_status=vi_probe, vi_elapsed_ms=vi_ms)
 
     start_en = monotonic()
-    en, en_complete, en_gets = _discover_complete(
+    en, _en_complete, en_gets = _discover_complete(
         client, media, language="en", imdb_id=imdb_id, max_pages=2)
     en_ms = round((monotonic() - start_en) * 1000)
     common = dict(search_policy=policy, vi_probe_status=vi_probe,
                   vi_elapsed_ms=vi_ms, en_elapsed_ms=en_ms)
     count = vi_gets + en_gets
-    if not en_complete:
-        return Route("REVIEW_REQUIRED", "EN_COVERAGE_INCOMPLETE",
-                     None, None, vi, en, count, **common)
     if en.decision.status == "EN_TRANSLATE" and en.decision.winner is not None:
         return Route("EN_TRANSLATE", "CONFIDENT_EN_RELEASE", "en",
                      int(en.decision.winner.subtitle_id), vi, en, count, **common)

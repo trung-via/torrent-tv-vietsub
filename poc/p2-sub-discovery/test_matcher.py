@@ -83,13 +83,15 @@ class MatcherTests(unittest.TestCase):
         self.assertTrue(all("group" in r.evidence for r in selected.ranked))
         self.assertIn("sdh_variant", selected.ranked[1].evidence)
 
-    def test_sdh_only_eligible_but_duplicate_plain_still_review(self):
+    def test_sdh_only_eligible_and_duplicate_plain_uses_stable_id(self):
         media = film()
         sdh = Subtitle("sdh", "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng SDH", "en")
         self.assertEqual(choose(media, batch(media, sdh)).status, "EN_TRANSLATE")
         a = Subtitle("a", "Sample.Film.2017.1080p.BluRay.x265-TEAM_eng", "en")
         b = Subtitle("b", "Sample.Film.2017.1080p.BluRay.x265-TEAM.english.srt", "en")
-        self.assertEqual(choose(media, batch(media, a, b)).status, "REVIEW_REQUIRED")
+        selected = choose(media, batch(media, b, a))
+        self.assertEqual(selected.status, "EN_TRANSLATE")
+        self.assertEqual(selected.winner.subtitle_id, "a")
 
     def test_no_false_release_group_for_web_dl(self):
         r = parse_release("Sample.Film.2017.1080p.WEB-DL.srt")
@@ -178,11 +180,13 @@ class MatcherTests(unittest.TestCase):
         en = Subtitle("enstrong", "Sample.Film.2017.1080p.BluRay.x265-TEAM.srt", "en")
         self.assertEqual(choose(media, batch(media, vi, en)).status, "EN_TRANSLATE")
 
-    def test_ambiguous_same_release_requires_review(self):
+    def test_equal_release_vi_prefers_stable_id(self):
         media = film()
         a = Subtitle("a", "Sample.Film.2017.1080p.BluRay.x265-TEAM.srt", "vi")
         b = Subtitle("b", "Sample.Film.2017.1080p.BluRay.x265-TEAM.srt", "vi")
-        self.assertEqual(choose(media, batch(media, a, b)).status, "REVIEW_REQUIRED")
+        selected = choose(media, batch(media, b, a))
+        self.assertEqual(selected.status, "VI_MATCH")
+        self.assertEqual(selected.winner.subtitle_id, "a")
 
     def test_file_binding(self):
         media = film(file_index=2)

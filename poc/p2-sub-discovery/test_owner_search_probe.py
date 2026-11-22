@@ -50,7 +50,8 @@ class SmokeTests(unittest.TestCase):
 
     def test_fast_vi_one_get_and_en_page2_eight_rows(self):
         # Replica of the previous owner-facing 6-VI and 58-EN page counts.
-        vi = [row(i, WEAK, "vi") for i in range(1, 7)]
+        # Keep VI genuinely incompatible so this case exercises EN pagination.
+        vi = [row(i, ALTERNATE, "vi") for i in range(1, 7)]
         en1 = [row(i, ALTERNATE, "en") for i in range(10, 60)]
         en2 = [row(i, WEAK, "en") for i in range(60, 68)]
         output, calls = self.probe({
@@ -65,7 +66,7 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("EN_RAW_ROWS=58", output)
         self.assertIn("SEARCH_GET_REQUESTS=3", output)
         self.assertIn("DOWNLOAD_POST_REQUESTS=0", output)
-        self.assertIn("ROUTE=REVIEW_REQUIRED", output)
+        self.assertIn("ROUTE=EN_TRANSLATE", output)
         self.assertIn("VIDEO_RELEASE_GROUP=grp", output)
         text = "\n".join(output)
         self.assertNotIn("OWNER_SECRET_NEVER_PRINT", text)

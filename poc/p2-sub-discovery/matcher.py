@@ -282,7 +282,7 @@ def _rank(media: Media, candidate: Subtitle) -> Ranked | None:
 
 
 def choose(media: Media, results: SearchResults) -> Decision:
-    """Prefer confidently matched VI, then EN; ambiguous/weak -> human review.
+    """Prefer confidently matched VI, then EN; weak -> human review.
 
     A search response for another TorrServer file cannot be reused across titles,
     even if the displayed filenames are identical.
@@ -303,6 +303,9 @@ def choose(media: Media, results: SearchResults) -> Decision:
         # not a plausible runner-up and must not veto a confident candidate.
         choices = [item for item in ranked
                    if item.language == language and item.confident]
-        if choices and (len(choices) == 1 or choices[0].score - choices[1].score >= 10):
+        # Ties share the same observed release evidence. The ranking above
+        # already orders by score and then stable provider subtitle_id, so
+        # an arbitrary number of other uploads cannot stall the film.
+        if choices:
             return Decision(status, choices[0], ranked)
     return Decision("REVIEW_REQUIRED", None, ranked)
