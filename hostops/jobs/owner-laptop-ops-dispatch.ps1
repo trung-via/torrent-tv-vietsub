@@ -62,6 +62,104 @@ foreach ($arg in $manifest.arguments) {
 
 $name = 'TorrentTV-Vietsub-Laptop-HostOps'
 $task = Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
+if ($manifest.operation -ceq 'owner-ts-gst-status-readonly') {
+    # Recovery after a timeout is observation only. Do not require the Owner
+    # task to be Ready, touch the spool, or trigger another Owner operation.
+    if ($null -eq $task) {
+        Write-Output 'HOSTOPS_GST_RECOVERY_OWNER_TASK=NOT_FOUND'
+    } else {
+        $state = [string]$task.State
+        if ($state -cnotmatch '\A[A-Za-z]{2,25}\z') { $state = 'UNKNOWN' }
+        Write-Output ('HOSTOPS_GST_RECOVERY_OWNER_TASK=' + $state.ToUpperInvariant())
+        $taskInfo = Get-ScheduledTaskInfo -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
+        if ($null -ne $taskInfo) {
+            Write-Output ('HOSTOPS_GST_RECOVERY_LAST_RESULT=' + [long]$taskInfo.LastTaskResult)
+        }
+    }
+    $trialProcesses = @(Get-Process -Name 'TorrServer-gst-windows-amd64' -ErrorAction SilentlyContinue)
+    Write-Output ('HOSTOPS_GST_RECOVERY_GST_PROCESS_COUNT=' + $trialProcesses.Count)
+    $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
+    $requestFile = Join-Path $spool 'Requests\request.json'
+    $receiptFile = Join-Path $spool 'Receipts\receipt.json'
+    $summaryFile = Join-Path $spool 'Receipts\owner-ts-gst-trial.json'
+    $requestNonce = ''
+    $requestState = 'MISSING'
+    if (Test-Path -LiteralPath $requestFile -PathType Leaf) {
+        $requestState = 'INVALID'
+        try {
+            $item = Get-Item -LiteralPath $requestFile -Force -ErrorAction Stop
+            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $req = Get-Content -LiteralPath $requestFile -Raw -ErrorAction Stop | ConvertFrom-Json
+                if ([string]$req.nonce -cmatch '\A[0-9a-f]{32}\z' -and
+                    [string]$req.source_commit -cmatch '\A[0-9a-f]{40}\z') {
+                    $requestNonce = [string]$req.nonce
+                    $requestState = if ($req.source_commit -ceq '0df6d98b2ca56739273af0e75f1c2ac066b06978') {
+                        'GST_TRIAL'
+                    } else { 'OTHER' }
+                }
+            }
+        } catch { $requestState = 'UNREADABLE' }
+    }
+    Write-Output ('HOSTOPS_GST_RECOVERY_REQUEST=' + $requestState)
+    $receiptState = 'MISSING'
+    if (Test-Path -LiteralPath $receiptFile -PathType Leaf) {
+        $receiptState = 'INVALID'
+        try {
+            $item = Get-Item -LiteralPath $receiptFile -Force -ErrorAction Stop
+            if ($item.Length -gt 0 -and $item.Length -le 512 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $rec = Get-Content -LiteralPath $receiptFile -Raw -ErrorAction Stop | ConvertFrom-Json
+                if ($rec.schema -ceq 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -and
+                    [string]$rec.nonce -cmatch '\A[0-9a-f]{32}\z' -and
+                    $rec.result -cin @('SUCCESS','FAILED_NO_RETRY')) {
+                    $receiptState = if ($requestNonce -ne '' -and $rec.nonce -ceq $requestNonce) {
+                        'MATCHED_' + $rec.result
+                    } else { 'UNMATCHED_TERMINAL' }
+                }
+            }
+        } catch { $receiptState = 'UNREADABLE' }
+    }
+    Write-Output ('HOSTOPS_GST_RECOVERY_RECEIPT=' + $receiptState)
+    $summaryState = 'MISSING'
+    if (Test-Path -LiteralPath $summaryFile -PathType Leaf) {
+        $summaryState = 'INVALID'
+        try {
+            $item = Get-Item -LiteralPath $summaryFile -Force -ErrorAction Stop
+            if ($item.Length -gt 0 -and $item.Length -le 1024 -and
+                -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $row = Get-Content -LiteralPath $summaryFile -Raw -ErrorAction Stop | ConvertFrom-Json
+                if ($row.schema -ceq 'TTV-OWNER-GST-TRIAL-V1' -and
+                    [string]$row.nonce -cmatch '\A[0-9a-f]{32}\z') {
+                    $summaryState = if ($requestNonce -ne '' -and $row.nonce -ceq $requestNonce) {
+                        'MATCHED'
+                    } else { 'UNMATCHED' }
+                    if ($summaryState -ceq 'MATCHED') {
+                        foreach ($field in @('state','binary','sidecar','gst','echo',
+                                             'main_before','main_after','master',
+                                             'vtt','cleanup')) {
+                            $value = [string]$row.$field
+                            if ($value -cmatch '\A[A-Z0-9_]{3,50}\z') {
+                                Write-Output ('HOSTOPS_GST_RECOVERY_' +
+                                              $field.ToUpperInvariant() + '=' + $value)
+                            }
+                        }
+                        foreach ($field in @('en_playlists','cues','first_cue_ms','probe_ms')) {
+                            $value = [string]$row.$field
+                            if ($value -cmatch '\A[0-9]{1,7}\z') {
+                                Write-Output ('HOSTOPS_GST_RECOVERY_' +
+                                              $field.ToUpperInvariant() + '=' + $value)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch { $summaryState = 'UNREADABLE' }
+    }
+    Write-Output ('HOSTOPS_GST_RECOVERY_SUMMARY=' + $summaryState)
+    Write-Output 'HOSTOPS_GST_STATUS_ONLY_PASS'
+    return
+}
 if ($null -eq $task) {
     Write-Output 'HOSTOPS_OWNER_OPS=HOSTOPS_SETUP_REQUIRED'
     throw 'HOSTOPS_OWNER_OPS_NOT_ENROLLED'
