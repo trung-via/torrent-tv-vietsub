@@ -55,15 +55,22 @@ def recent_owner_selections():
     # never publish the event, filename, profile or fingerprint.
     base = os.environ.get("LOCALAPPDATA")
     if not base:
-        raise DiagnosticStop("OWNER_CONTEXT_UNAVAILABLE")
+        own_home = os.environ.get("USERPROFILE")
+        if not own_home:
+            raise DiagnosticStop("OWNER_ENV_UNAVAILABLE")
+        base = str(Path(own_home) / "AppData" / "Local")
     owner = Path(base) / "TorrentTVVietsub" / "OwnerBridge"
     try:
+        if not (owner / "p3-p4-policy.json").is_file():
+            raise DiagnosticStop("OWNER_POLICY_MISSING")
         policy = json.loads((owner / "p3-p4-policy.json").read_text("utf-8"))
         profile = policy.get("profile_id")
         if (policy.get("enabled") is not True or not isinstance(profile, str)
                 or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", profile)):
             raise DiagnosticStop("OWNER_POLICY_UNAVAILABLE")
         inbox = owner / "inbox"
+        if not inbox.is_dir():
+            raise DiagnosticStop("OWNER_INBOX_MISSING")
         events = [p for suffix in ("blocked", "done", "review", "pending", "json")
                   for p in inbox.glob("event-*." + suffix)
                   if p.is_file() and not p.is_symlink()
@@ -90,8 +97,10 @@ def recent_owner_selections():
         if not selection:
             raise DiagnosticStop("OWNER_EVENT_UNAVAILABLE")
         return profile, selection
+    except PermissionError:
+        raise DiagnosticStop("OWNER_CONTEXT_DENIED") from None
     except (OSError, ValueError, TypeError):
-        raise DiagnosticStop("OWNER_CONTEXT_UNAVAILABLE") from None
+        raise DiagnosticStop("OWNER_CONTEXT_INVALID") from None
 
 
 def candidate():
