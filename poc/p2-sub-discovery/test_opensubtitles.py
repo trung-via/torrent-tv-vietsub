@@ -100,7 +100,8 @@ class D2Tests(unittest.TestCase):
         disc = client.search(m, language="vi")
         asset = client.download_selected(m, disc)
         self.assertEqual([x[0] for x in mock.calls], ["GET", "POST", "GET_BINARY"])
-        self.assertEqual(json.loads(mock.calls[1][3]), {"file_id": 81})
+        self.assertEqual(json.loads(mock.calls[1][3]),
+                         {"file_id": 81, "sub_format": "srt"})
         self.assertNotIn("Api-Key", mock.calls[2][2])
         self.assertEqual((asset.language, asset.cues, asset.contents), ("vi", 2, SRT))
 
@@ -223,6 +224,48 @@ class D2Tests(unittest.TestCase):
             cli.download_selected(m, disc)
         self.assertEqual(json.loads(mock.calls[1][3]),
                          {"file_id": 99, "sub_format": "srt"})
+
+    def test_provider_reorders_out_of_order_srt_without_changing_dialogue(self):
+        unsorted = (b"2\n00:00:03,000 --> 00:00:04,000\nWorld\n\n"
+                    b"1\n00:00:01,000 --> 00:00:02,500\nHello\n")
+        mock = FakeTransport(content=unsorted)
+        m = media()
+        cli = OpenSubtitles(api_key="x", transport=mock)
+        asset = cli.download_selected(m, cli.search(m, language="vi"))
+        self.assertEqual(asset.contents, SRT)
+        self.assertEqual((asset.fmt, asset.cues), ("srt", 2))
+        self.assertEqual([call[0] for call in mock.calls], ["GET", "POST", "GET_BINARY"])
+
+    def test_provider_omits_one_zero_duration_cue_in_long_release(self):
+        blocks = [f"{i}\n00:00:{i:02d},000 --> 00:00:{i:02d},800\nCue {i}"
+                  for i in range(1, 21)]
+        blocks[9] = "10\n00:00:10,000 --> 00:00:10,000\nBad zero duration"
+        mock = FakeTransport(content=("\n\n".join(blocks) + "\n").encode())
+        m = media()
+        cli = OpenSubtitles(api_key="x", transport=mock)
+        asset = cli.download_selected(m, cli.search(m, language="vi"))
+        self.assertEqual(asset.cues, 19)
+        self.assertNotIn(b"Bad zero duration", asset.contents)
+        self.assertIn(b"Cue 20", asset.contents)
+
+    def test_provider_rejects_widespread_bad_timeline_without_cache(self):
+        broken = (b"1\n00:00:01,000 --> 00:00:01,000\nBad\n\n"
+                  b"2\n00:00:02,000 --> 00:00:03,000\nGood\n")
+        mock = FakeTransport(content=broken)
+        m = media()
+        cli = OpenSubtitles(api_key="x", transport=mock)
+        with self.assertRaisesRegex(SubtitleApiError, "BAD_SUBTITLE_TIMELINE"):
+            cli.download_selected(m, cli.search(m, language="vi"))
+        self.assertEqual([call[0] for call in mock.calls], ["GET", "POST", "GET_BINARY"])
+
+    def test_provider_requests_srt_for_vtt_named_file(self):
+        mock = FakeTransport(search=response(row(90, name="sample.vtt")))
+        m = media()
+        cli = OpenSubtitles(api_key="x", transport=mock)
+        asset = cli.download_selected(m, cli.search(m, language="vi"))
+        self.assertEqual((asset.fmt, asset.contents), ("srt", SRT))
+        self.assertEqual(json.loads(mock.calls[1][3]),
+                         {"file_id": 90, "sub_format": "srt"})
 
     def test_binary_archives_remain_rejected(self):
         d = parse_search_response(media(), response(

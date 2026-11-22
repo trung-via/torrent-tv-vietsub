@@ -271,6 +271,56 @@ def validate_timed_text(contents: bytes, fmt: str) -> int:
     return count
 
 
+def _repair_provider_srt(contents: bytes) -> bytes:
+    """Canonicalize sparse timing defects in provider SRT, never raw/AI captions.
+
+    A release can contain out-of-order SRT blocks or a few blank/zero-length
+    cues. Sort the intact cues and omit only isolated invalid ones. Timestamp
+    syntax, unsafe markup, and substantially damaged releases still fail the
+    strict validator; no extra provider request is made here.
+    """
+    if not contents or len(contents) > MAX_SUBTITLE_BYTES:
+        return contents
+    try:
+        raw = contents.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return contents
+    if "\0" in raw or "<script" in raw.lower() or "<!doctype" in raw.lower():
+        return contents
+    blocks = re.split(r"\n[ \t]*\n", raw.replace("\r\n", "\n").replace("\r", "\n").strip())
+    valid: list[tuple[int, int, str, list[str]]] = []
+    skipped = 0
+    for block in blocks:
+        lines = block.split("\n")
+        timing = next((i for i, line in enumerate(lines[:2]) if "-->" in line), -1)
+        if timing < 0 or timing + 1 >= len(lines):
+            return contents
+        parts = lines[timing].split("-->")
+        if len(parts) != 2:
+            return contents
+        try:
+            start = _milliseconds(parts[0].strip(), "srt")
+            end = _milliseconds(parts[1].strip().split(" ", 1)[0], "srt")
+        except SubtitleApiError:
+            return contents
+        caption = lines[timing + 1:]
+        if end <= start or not any(line.strip() for line in caption):
+            skipped += 1
+            continue
+        valid.append((start, end, lines[timing].strip(), caption))
+    # Missing most cues, or one bad cue in a tiny release, is not repairable.
+    if not valid or skipped * 10 > len(blocks):
+        return contents
+    if skipped == 0 and all(valid[i][0] >= valid[i - 1][0]
+                            for i in range(1, len(valid))):
+        return contents
+    valid.sort(key=lambda item: item[0])
+    repaired = "\n\n".join("\n".join((str(i), timing, *caption))
+                             for i, (_, _, timing, caption) in enumerate(valid, 1))
+    repaired_bytes = (repaired + "\n").encode("utf-8")
+    return repaired_bytes if len(repaired_bytes) <= MAX_SUBTITLE_BYTES else contents
+
+
 def write_private_cache(directory: Path, media: Media, asset: Asset) -> Path:
     """On-demand file write only, keyed by *actual* video and subtitle provenance."""
     if asset.sha256 != hashlib.sha256(asset.contents).hexdigest():
@@ -416,6 +466,7 @@ class OpenSubtitles:
             raise SubtitleApiError("BAD_DOWNLOAD_SCHEMA")
         _safe_https(link, api=False)
         contents = self._request("GET_BINARY", link, api=False)
+        contents = _repair_provider_srt(contents)
         count = validate_timed_text(contents, "srt")
         return Asset(file_id, "vi", "srt", contents,
                      hashlib.sha256(contents).hexdigest(), count)
@@ -453,6 +504,7 @@ class OpenSubtitles:
             raise SubtitleApiError("BAD_DOWNLOAD_SCHEMA")
         _safe_https(link, api=False)
         contents = self._request("GET_BINARY", link, api=False)
+        contents = _repair_provider_srt(contents)
         cues = validate_timed_text(contents, "srt")
         return Asset(file_id, "en", "srt", contents,
                      hashlib.sha256(contents).hexdigest(), cues)
@@ -468,12 +520,9 @@ class OpenSubtitles:
         matching = [c for c in discovery.candidates if c.subtitle.subtitle_id == winner.subtitle_id]
         if len(matching) != 1 or str(matching[0].file_id) != winner.subtitle_id:
             raise SubtitleApiError("CANDIDATE_BINDING_MISMATCH")
-        source_fmt = matching[0].subtitle.fmt
-        # Unknown source extension is not SRT evidence. Ask provider to
-        # convert specifically to SRT and still validate the actual bytes.
-        payload = {"file_id": matching[0].file_id}
-        if source_fmt == "provider":
-            payload["sub_format"] = "srt"
+        # The file extension is only a hint. Explicitly request the same SRT
+        # format that the validator/cache expects, including .srt inputs.
+        payload = {"file_id": matching[0].file_id, "sub_format": "srt"}
         response = _json(self._request("POST", BASE_URL + "/download", api=True,
                                        payload=payload))
         link = response.get("link")
@@ -481,7 +530,8 @@ class OpenSubtitles:
             raise SubtitleApiError("BAD_DOWNLOAD_SCHEMA")
         _safe_https(link, api=False)
         contents = self._request("GET_BINARY", link, api=False)
-        fmt = "srt" if source_fmt == "provider" else source_fmt
+        fmt = "srt"
+        contents = _repair_provider_srt(contents)
         count = validate_timed_text(contents, fmt)
         return Asset(matching[0].file_id, winner.language, fmt, contents,
                      hashlib.sha256(contents).hexdigest(), count)
