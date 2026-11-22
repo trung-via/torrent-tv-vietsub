@@ -160,7 +160,7 @@ class OwnerBoundProbeTests(unittest.TestCase):
         base["Hash"] = "c" * 40
         with patch.object(PROBE, "api", return_value=base):
             self.assertEqual(PROBE.cached_cues_piece(fingerprint, 5_000_000, True),
-                             "UNVERIFIED")
+                             "UNAVAILABLE")
 
     def test_cues_cache_unavailable_does_not_hide_original_timeout(self):
         with patch.object(PROBE, "api", side_effect=PROBE.DiagnosticStop("API_SIZE")):
@@ -190,6 +190,29 @@ class OwnerBoundProbeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "RANGE_TIMEOUT")
         self.assertEqual(reader.timeout_at, 1000000)
         self.assertEqual(reader.timeout_phase, "BODY")
+
+    def test_unique_new_reader_identifies_cache_piece_in_multifile_torrent(self):
+        reader = PROBE.Ranges("a" * 40, 1)
+        before = {"Readers": [{"Reader": 8}], "PiecesCount": 10000}
+        during = {"Readers": [{"Reader": 8}, {"Reader": 932}],
+                  "PiecesCount": 10000,
+                  "Pieces": {"932": {"Id": 932, "Completed": False}}}
+        with patch.object(PROBE, "cache_state", return_value=during):
+            with patch.object(PROBE.time, "sleep"):
+                reader._watch_cues(before)
+        self.assertEqual(reader.observed_cues, "ACTIVE_PARTIAL")
+        self.assertEqual(PROBE.cached_cues_piece("a" * 40, 8_000_000, False,
+                                                 reader.observed_cues), "ACTIVE_PARTIAL")
+
+    def test_reader_position_change_is_not_a_new_reader(self):
+        reader = PROBE.Ranges("a" * 40, 1)
+        before = {"Readers": [{"Reader": 8}], "PiecesCount": 10000}
+        during = {"Readers": [{"Reader": 932}], "PiecesCount": 10000,
+                  "Pieces": {}}
+        with patch.object(PROBE, "cache_state", return_value=during):
+            with patch.object(PROBE.time, "sleep"):
+                reader._watch_cues(before)
+        self.assertIsNone(reader.observed_cues)
 
 
 if __name__ == "__main__":

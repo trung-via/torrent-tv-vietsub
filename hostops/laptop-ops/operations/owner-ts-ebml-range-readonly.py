@@ -8,7 +8,9 @@ import json
 import os
 import re
 import sys
+import threading
 import time
+from collections import Counter
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -201,12 +203,48 @@ def number(data):
 
 class Ranges:
     def __init__(self, hashval, index):
+        self.hashval = hashval
         self.path = "/play/" + hashval + "/" + str(index)
         self.total = None
         self.requests = 0
         self.bytes = 0
         self.timeout_at = None
         self.timeout_phase = None
+        self.observe_at = None
+        self.observed_cues = None
+
+    def _watch_cues(self, before):
+        # Inspect an already-open, blocked HTTP reader while its Range request
+        # is in flight. No file IDs, raw offsets or cache contents are logged.
+        time.sleep(0.6)
+        after = cache_state(self.hashval)
+        if before is None or after is None:
+            return
+        def current(readers):
+            positions = []
+            if not isinstance(readers, list) or len(readers) > 128:
+                return None
+            for row in readers:
+                if not isinstance(row, dict) or type(row.get("Reader")) is not int:
+                    return None
+                positions.append(row["Reader"])
+            return Counter(positions)
+        prior, present = current(before.get("Readers")), current(after.get("Readers"))
+        if prior is None or present is None:
+            return
+        if sum(present.values()) != sum(prior.values()) + 1:
+            return
+        added = present - prior
+        if sum(added.values()) != 1:
+            return
+        target = next(iter(added))
+        if not 0 <= target < after["PiecesCount"]:
+            return
+        item = after["Pieces"].get(str(target))
+        if item is None:
+            self.observed_cues = "ACTIVE_MISS"
+        elif isinstance(item, dict) and item.get("Id") == target:
+            self.observed_cues = "ACTIVE_READY" if item.get("Completed") is True else "ACTIVE_PARTIAL"
 
     def read(self, at, length, *, retried=False):
         if (time.monotonic() > LIMIT or self.requests >= MAX_RANGE_REQUESTS
@@ -223,6 +261,12 @@ class Ranges:
         # the distant Cues seek one short attempt and one bounded retry only.
         timeout = 8 if retried else 3
         phase = "HEADERS"
+        observer = None
+        if not retried and at == self.observe_at:
+            baseline = cache_state(self.hashval)
+            if baseline is not None:
+                observer = threading.Thread(target=self._watch_cues, args=(baseline,), daemon=True)
+                observer.start()
         try:
             with OPENER.open(request, timeout=timeout) as response:
                 if response.status != 206:
@@ -255,6 +299,9 @@ class Ranges:
             return self._retry_timeout(at, length, retried, phase)
         except OSError:
             raise DiagnosticStop("RANGE_IO_ERROR") from None
+        finally:
+            if observer is not None:
+                observer.join(timeout=0.1)
 
     def _retry_timeout(self, at, length, retried, phase):
         # No retry on the initial header, HTTP rejection or identity drift.
@@ -299,29 +346,40 @@ class Ranges:
         return eid, bytes(remainder)
 
 
-def cached_cues_piece(hashval, offset, single_file):
-    """Observe one already-active piece; never request a preload or cache edit.
-
-    TorrServer's cache state indexes the *entire torrent*. FileStats IDs are
-    sorted for display, not byte offsets, so multi-file mappings are unsafe.
-    """
-    if offset is None or offset < 262144:
-        return "UNVERIFIED"
-    if not single_file:
-        return "MULTIFILE"
+def cache_state(hashval):
+    """Get bounded, in-memory TorrServer cache metadata; no cache modification."""
     try:
         state = api("/cache", json.dumps({"action": "get", "hash": hashval},
                                          separators=(",", ":")).encode(), cap=1048576)
     except DiagnosticStop:
-        return "UNAVAILABLE"
+        return None
     if not isinstance(state, dict) or state.get("Hash") != hashval:
-        return "UNVERIFIED"
+        return None
     size, count, pieces = (state.get("PiecesLength"), state.get("PiecesCount"),
                            state.get("Pieces"))
     if (type(size) is not int or not 0 < size <= 64 * 1024 * 1024
             or type(count) is not int or not 0 < count <= 1000000
             or not isinstance(pieces, dict)):
+        return None
+    return state
+
+
+def cached_cues_piece(hashval, offset, single_file, observed=None):
+    """Classify Cues availability without inventing multi-file byte offsets.
+
+    CacheState indexes the *entire torrent*, not one file. For multi-file
+    torrents we require a unique newly registered HTTP reader observation.
+    """
+    if observed in ("ACTIVE_MISS", "ACTIVE_PARTIAL", "ACTIVE_READY"):
+        return observed
+    if offset is None or offset < 262144:
         return "UNVERIFIED"
+    if not single_file:
+        return "MULTIFILE"
+    state = cache_state(hashval)
+    if state is None:
+        return "UNAVAILABLE"
+    size, count, pieces = state["PiecesLength"], state["PiecesCount"], state["Pieces"]
     idx = offset // size
     if idx >= count:
         return "UNVERIFIED"
@@ -469,6 +527,7 @@ def main():
         row["en_ffp"] = count
         reader = Ranges(hashval, idx)
         seeks = parse_root(reader)
+        reader.observe_at = seeks[0x1C53BB6B]
         selected, found = parse_track(reader, seeks)
         row["en_mkv"] = found
         cues = parse_cues(reader, seeks, selected[0])
@@ -494,7 +553,8 @@ def main():
     except DiagnosticStop as exc:
         row["state"] = exc.code
         if exc.code == "RANGE_TIMEOUT" and reader is not None:
-            cache = cached_cues_piece(hashval, reader.timeout_at, single_file)
+            cache = cached_cues_piece(hashval, reader.timeout_at, single_file,
+                                       reader.observed_cues)
             phase = reader.timeout_phase if reader.timeout_phase in ("HEADERS", "BODY") else "UNKNOWN"
             row["state"] = "RANGE_TIMEOUT_" + phase + "_" + cache
     except (ValueError, UnicodeError, KeyError, TypeError):
