@@ -15,7 +15,7 @@ from typing import Sequence
 from cue_pipeline import parse_cues
 from progressive_handoff import SubtitleRevision
 
-_VOICE = re.compile(r"[a-zA-Z0-9_-]{1,64}\\Z")
+_VOICE = re.compile(r"[a-zA-Z0-9_-]{1,64}\Z")
 
 
 @dataclass(frozen=True)
