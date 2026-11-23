@@ -221,6 +221,50 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'agy-website-srt-diagnostic') {
+        $summaryFile = Join-Path $outbox ('agy-website-diag-' + $nonce + '.json')
+        if (-not (Test-Path -LiteralPath $summaryFile -PathType Leaf)) {
+            throw 'HOSTOPS_AGY_WEBSITE_DIAG_SUMMARY_MISSING'
+        }
+        $summaryItem = Get-Item -LiteralPath $summaryFile -Force
+        if ($summaryItem.Length -le 0 -or $summaryItem.Length -gt 1024 -or
+            ($summaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'HOSTOPS_AGY_WEBSITE_DIAG_SUMMARY_INVALID'
+        }
+        $summary = Get-Content -LiteralPath $summaryFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $fields = @('schema','nonce','prior','owner_log','error','agy_output',
+                    'srt','bytes','cues','sha_match')
+        $allowedErrors = @('UNDETERMINED','OWNER_OPS_OPERATION_EXIT',
+            'OWNER_OPS_PINNED_SOURCE_FAILURE',
+            'AGY_WEBSITE_SMOKE_CLI_NOT_AVAILABLE',
+            'AGY_WEBSITE_SMOKE_NOT_STARTED','AGY_WEBSITE_SMOKE_TIMEOUT',
+            'AGY_WEBSITE_SMOKE_COMMAND_FAILED',
+            'AGY_WEBSITE_SMOKE_SRT_NOT_SAVED',
+            'AGY_WEBSITE_SMOKE_SRT_SIZE_INVALID',
+            'AGY_WEBSITE_SMOKE_NOT_SRT','AGY_WEBSITE_SMOKE_DIFFERENT_BYTES')
+        if ($summary.schema -cne 'TTV-AGY-WEBSITE-DIAG-V1' -or
+            $summary.nonce -cne $nonce -or
+            (@($summary.PSObject.Properties.Name | Sort-Object) -join ',') -cne
+                (@($fields | Sort-Object) -join ',') -or
+            $summary.prior -cnotin @('NOT_FOUND','FAILED_NO_RETRY','OTHER') -or
+            $summary.owner_log -cnotin @('FOUND','NOT_FOUND') -or
+            $summary.error -cnotin $allowedErrors -or
+            $summary.agy_output -cnotin @('PRESENT','EMPTY','NOT_FOUND') -or
+            $summary.srt -cnotin @('NOT_FOUND','EXACT_VALID_SRT',
+                'VALID_DIFFERENT_HASH','INVALID_SRT','INVALID_SIZE_OR_LINK') -or
+            $summary.sha_match -cnotin @('UNKNOWN','YES','NO') -or
+            $summary.bytes -isnot [ValueType] -or
+            [int]$summary.bytes -lt 0 -or [int]$summary.bytes -gt 2000000 -or
+            $summary.cues -isnot [ValueType] -or
+            [int]$summary.cues -lt 0 -or [int]$summary.cues -gt 50000) {
+            throw 'HOSTOPS_AGY_WEBSITE_DIAG_CONTRACT_INVALID'
+        }
+        foreach ($field in @('prior','owner_log','error','agy_output',
+                             'srt','bytes','cues','sha_match')) {
+            $value = [string]$summary.PSObject.Properties[$field].Value
+            Write-Output ('AGY_WEBSITE_DIAG_' + $field.ToUpperInvariant() + '=' + $value)
+        }
+    }
     if ($receipt.operation -ceq 'owner-ts-ebml-owner-readonly') {
         $summaryFile = Join-Path $outbox ('owner-ebml-cues-' + $nonce + '.json')
         if (-not (Test-Path -LiteralPath $summaryFile -PathType Leaf)) {
