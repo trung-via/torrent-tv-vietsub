@@ -41,6 +41,76 @@ class NativeVoiceoverContract(unittest.TestCase):
                 "P4_VOICEOVER_NATIVE_HMAC_AND_SESSION_PASS_NOT_TV_AUDIO",
                 result.stdout)
 
+    def test_voiceover_timeline_native_seek_pause_buffer(self):
+        compiler = shutil.which("kotlinc")
+        runtime = shutil.which("kotlin")
+        self.assertIsNotNone(compiler, "KOTLINC_REQUIRED_FOR_VOICE_GATE")
+        self.assertIsNotNone(runtime, "KOTLIN_REQUIRED_FOR_VOICE_GATE")
+        with tempfile.TemporaryDirectory(prefix="ttv-voice-clock-") as work:
+            classes = Path(work) / "classes"
+            result = subprocess.run([
+                compiler, str(ROOT / "P4VoiceoverTimeline.kt"),
+                str(ROOT / "P4VoiceoverTimelineSmoke.kt"),
+                "-d", str(classes),
+            ], capture_output=True, text=True, timeout=90)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            result = subprocess.run([
+                runtime, "-classpath", str(classes),
+                "com.spacesarmat.omp.player.P4VoiceoverTimelineSmokeKt",
+            ], capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            self.assertIn(
+                "P4_VOICEOVER_VLC_CLOCK_SEEK_PAUSE_BUFFER_PASS_NOT_TV_AUDIO",
+                result.stdout)
+
+    def test_player_activity_voice_source_is_injected_and_scoped(self):
+        import importlib.util
+        from test_p4_overlay import fake_g2_activity
+        spec = importlib.util.spec_from_file_location(
+            "voice_activity_patch", ROOT / "activity_patch.py")
+        assert spec is not None and spec.loader is not None
+        patch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(patch)
+        activity = patch.patch_activity(fake_g2_activity())
+        for expected in (
+            "private val p4VoiceTick = object : Runnable",
+            "p4VoiceController?.close()",
+            "handler.removeCallbacks(p4VoiceTick)",
+            "P4VoiceoverController(",
+            "setP4VoiceMode(\"VOICE\")",
+            "setP4VoiceMode(\"BOTH\")",
+            "setP4VoiceMode(\"ORIGINAL\")",
+            "p4VoiceoverDuck(audible)",
+            "engine.positionMs",
+            "engine.isBuffering",
+            "session.firstFrame",
+            "engine.selectSubtitle(null)",
+            "p4VoiceSubHidden = false",
+        ):
+            self.assertIn(expected, activity)
+        self.assertNotIn("ServerSocket", activity)
+        self.assertEqual(activity.count("private val p4VoiceTick"), 1)
+
+    def test_pcm_renderer_prepares_off_main_and_releases_on_switch(self):
+        src = (ROOT / "P4VoiceoverAudioTrack.kt").read_text("utf-8")
+        controller = (ROOT / "P4VoiceoverController.kt").read_text("utf-8")
+        composer = (ROOT / "apply.py").read_text("utf-8")
+        for item in ("AudioTrack.MODE_STATIC", "CHANNEL_OUT_MONO",
+                     "ENCODING_PCM_16BIT", "AudioTrack.WRITE_BLOCKING",
+                     "P4VoiceoverTimeline.decision", "internal fun reset()"):
+            self.assertIn(item, src)
+        for item in ("receiver.verify(offer, sid, mediaKey)",
+                     "P4VoiceoverLanClient.wav(", "Prepared.fromWav",
+                     "P4VoiceoverTimeline.discontinuity",
+                     "receiver.resetForSeek(", "secret.fill(0)",
+                     "player.close()"):
+            self.assertIn(item, controller)
+        for file in ("VOICE_AUDIO_FILE", "VOICE_CLOCK_FILE",
+                     "VOICE_CONTROLLER_FILE"):
+            self.assertIn(file, composer)
+        self.assertIn("private fun setAudio(es: Int)", composer)
+        self.assertIn("mp.volume = if (on) 30 else 100", composer)
+
     def test_android_client_is_composed_into_original_omp_player_only(self):
         client = (ROOT / "P4VoiceoverLanClient.kt").read_text("utf-8")
         composer = (ROOT / "apply.py").read_text("utf-8")
