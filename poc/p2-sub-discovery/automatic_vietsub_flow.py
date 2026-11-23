@@ -105,7 +105,28 @@ class AutomaticVietsubFlow:
         if self._model_ready:
             return
         if self._model_preflight is not None:
-            self._model_preflight()
+            try:
+                self._model_preflight()
+            except ValueError as exc:
+                # Strictly local account/CLI checks have not contacted AGY.
+                # Preserve the P3 event for the bounded pre-provider retry;
+                # never classify an arbitrary model error as retry-safe.
+                retry_safe = {
+                    "AGY_OWNER_HOME_UNAVAILABLE",
+                    "AGY_CLI_NOT_INSTALLED_FOR_OWNER",
+                    "AGY_ACCOUNT_SETTINGS_UNREADABLE",
+                    "AGY_ACCOUNT_SETTINGS_INVALID",
+                    "AGY_ACCOUNT_REQUIRED_API_KEY_MODE_REFUSED",
+                    "AGY_PERSONAL_ACCOUNT_MODE_REQUIRED",
+                    "AGY_APP_ACCOUNT_SETTINGS_UNREADABLE",
+                    "AGY_APP_ACCOUNT_SETTINGS_INVALID",
+                    "AGY_ACCOUNT_REQUIRED_ADC_MODE_REFUSED",
+                }
+                if exc.args and exc.args[0] in retry_safe:
+                    from owner_session_bridge import PreProviderTransient
+                    raise PreProviderTransient(
+                        "AGY_OWNER_PREFLIGHT_UNAVAILABLE") from None
+                raise
         self._model_ready = True
         self.emit("AUTO_TRANSLATION_PROVIDER_AVAILABLE=YES")
 
