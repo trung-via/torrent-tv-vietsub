@@ -127,7 +127,8 @@ names = ("brain_english_inbox", "automatic_vietsub_flow",
 for name in names:
     try:
         mod = importlib.import_module(name)
-        if not str(mod.__file__).lower().startswith(str(stage).lower()):
+        expected_root = app if name == "owner_p3_p4_entrypoint" else stage
+        if not str(mod.__file__).lower().startswith(str(expected_root).lower()):
             print("TTV_R2_IMPORT=FAIL:" + name + ":WRONG_IMPORT_PATH:NONE")
             sys.exit(0)
     except Exception as error:
