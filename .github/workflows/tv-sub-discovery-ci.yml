@@ -26,4 +26,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -v
+          PYTHONPATH=poc/p2-aisub:poc/p2-sub-discovery python3 -m unittest discover -s poc/p2-sub-discovery -p 'test_*.py' -v
