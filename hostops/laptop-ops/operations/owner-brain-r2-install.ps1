@@ -180,6 +180,13 @@ if (-not (VerifiedHeartbeat -1 0)) { Hold 'OWNER_HEARTBEAT_NOT_VERIFIED' }
 $oldHealth = Get-Content -LiteralPath $healthPath -Raw | ConvertFrom-Json
 $oldPid = [long]$oldHealth.pid
 
+# Entrypoint is intentionally NOT part of the 14-file patch; the exact
+# installed version is already the reviewed candidate and must stay so.
+$entry = Join-Path $app 'owner_p3_p4_entrypoint.py'
+RegularFile $entry
+if ((Hash $entry) -cne 'acaa545be25d397b4ab85276516e92fdc99316f58063f69fcd620b8af0198c2c') {
+    Hold 'INSTALLED_ENTRYPOINT_SHA_DRIFT'
+}
 foreach ($name in $expected.Keys) {
     $src = Join-Path $stage ('poc\p2-sub-discovery\' + $name)
     RegularFile $src
@@ -199,7 +206,8 @@ for name in ("brain_english_inbox", "automatic_vietsub_flow",
              "p3_signed_signal_to_owner", "owner_session_bridge",
              "owner_p3_p4_entrypoint"):
     module = importlib.import_module(name)
-    assert str(module.__file__).lower().startswith(str(stage).lower()), name
+    expected_root = app if name == "owner_p3_p4_entrypoint" else stage
+    assert str(module.__file__).lower().startswith(str(expected_root).lower()), name
 print("OWNER_BRAIN_R2_STAGED_OVERLAY=PASS")
 '@
 $import = @(& py -3 -I -B -c $overlay $stage (Join-Path $root 'app') 2>&1)
