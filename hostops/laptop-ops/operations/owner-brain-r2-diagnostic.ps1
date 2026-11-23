@@ -107,58 +107,6 @@ $names = @(
     'p3_owner_current_redmi.py',
     'owner_r2_verified_processor.py'
 )
-# One discriminating offline import probe of the identical staged overlay.
-# Python prints only fixed source module and exception categories; no media/AGY.
-$overlayStatus = 'NO_PYTHON_RESULT'
-$overlayAt = 'NONE'
-$overlayMissing = 'NONE'
-$overlayError = 'NONE'
-$probePython = @'
-import importlib, pathlib, sys, re
-stage, app = (pathlib.Path(p) for p in sys.argv[1:3])
-sys.path[:0] = [str(stage / "poc/p2-sub-discovery"),
-                str(app / "poc/p2-sub-discovery"),
-                str(app / "poc/p2-aisub"),
-                str(app / "poc/p3-vietsub-trigger")]
-names = ("brain_english_inbox", "automatic_vietsub_flow",
-         "owner_p3_p4_runtime", "owner_r2_progressive_registry",
-         "p3_signed_signal_to_owner", "owner_session_bridge",
-         "owner_p3_p4_entrypoint")
-for name in names:
-    try:
-        mod = importlib.import_module(name)
-        expected_root = app if name == "owner_p3_p4_entrypoint" else stage
-        if not str(mod.__file__).lower().startswith(str(expected_root).lower()):
-            print("TTV_R2_IMPORT=FAIL:" + name + ":WRONG_IMPORT_PATH:NONE")
-            sys.exit(0)
-    except Exception as error:
-        typ = type(error).__name__
-        if typ not in ("ModuleNotFoundError", "ImportError", "SyntaxError",
-                       "AttributeError", "TypeError", "ValueError",
-                       "AssertionError", "RuntimeError"):
-            typ = "OTHER"
-        missing = getattr(error, "name", None) or name
-        if not re.fullmatch(r"[a-zA-Z0-9_]{1,80}", str(missing)):
-            missing = "OTHER"
-        print("TTV_R2_IMPORT=FAIL:" + name + ":" + typ + ":" + str(missing))
-        sys.exit(0)
-print("TTV_R2_IMPORT=PASS:NONE:NONE:NONE")
-'@
-try {
-    $stageRoot = Split-Path (Split-Path $stage -Parent) -Parent
-    $out = @(& py -3 -I -B -c $probePython $stageRoot (Join-Path $ownerRoot 'app') 2>&1)
-    $hits = @($out | ForEach-Object {
-        if ([string]$_ -match '^TTV_R2_IMPORT=(PASS|FAIL):([A-Za-z0-9_]{2,80}):([A-Za-z0-9_]{2,80}):([A-Za-z0-9_]{2,80})$') {
-            @($Matches[1],$Matches[2],$Matches[3],$Matches[4]) -join ':'
-        }
-    } | Select-Object -Last 1)
-    if ($hits.Count -eq 1) {
-        $parts = ([string]$hits[0]).Split(':')
-        $overlayStatus,$overlayAt,$overlayError,$overlayMissing = $parts
-    }
-} catch {
-    $overlayStatus = 'PYTHON_LAUNCH_FAILED'
-}
 $matched = 0
 $missing = 0
 $invalid = 0
@@ -205,10 +153,10 @@ $record = [ordered]@{
     phase = $phase
     error_kind = $errorKind
     source_line = $sourceLine
-    overlay_status = $overlayStatus
-    overlay_at = $overlayAt
-    overlay_error = $overlayError
-    overlay_missing = $overlayMissing
+    overlay_status = 'NO_PYTHON_RESULT'
+    overlay_at = 'NONE'
+    overlay_error = 'NONE'
+    overlay_missing = 'NONE'
     task = $task
     heartbeat = $heartbeat
     matched = $matched
