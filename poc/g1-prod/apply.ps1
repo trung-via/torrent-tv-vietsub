@@ -86,7 +86,7 @@ if (-not (Test-Path -LiteralPath $helper -PathType Leaf) -or (Test-Path -Literal
     throw 'STOP: production source helper absent or duplicate'
 }
 $helperHash = (& git -C $AppRepoRoot hash-object -- $helper | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $helperHash -cne '2732405d5b9ac2523e2b531815e6783803e14b7c') {
+if ($LASTEXITCODE -ne 0 -or $helperHash -cne '431d162f6365b319356e61a200f2852b7aa8aad0') {
     throw 'STOP: source helper blob pin incorrect'
 }
 $testHash = (& git -C $AppRepoRoot hash-object -- $test | Out-String).Trim()

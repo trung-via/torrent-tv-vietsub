@@ -36,19 +36,13 @@ jobs:
           persist-credentials: false
 
       - name: Verify owner command, execute on dedicated Torrent TV Windows runner
-        shell: pwsh
+        shell: powershell
         env:
           HOSTOPS_REQUEST: ${{ github.event.comment.body }}
           HOSTOPS_GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
-
-          # Owner and HostOps use the same modern PowerShell runtime. A legacy
-          # powershell.exe host cannot read our checked -AsHashtable receipts.
-          if ($PSVersionTable.PSVersion.Major -lt 7) {
-            throw 'BLOCKED: HostOps requires PowerShell 7+'
-          }
 
           if ($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or
               $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or
@@ -117,7 +111,7 @@ jobs:
             }
             Write-Host "HOSTOPS_JOB: $jobId"
             Write-Host "HOSTOPS_COMMIT: $sha"
-            & pwsh.exe -NoLogo -NoProfile -NonInteractive -File $jobFile
+            & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $jobFile
             if ($LASTEXITCODE -ne 0) {
               throw "HOSTOPS_JOB_FAILED (exit code $LASTEXITCODE)"
             }

@@ -1,0 +1,518 @@
+"""V3 event -> exact verified media -> existing D1/D2/LOCAL_EN/LEAN120.
+
+All sources below are synthetic, user-private temp fixtures. No real LAN,
+subtitles/provider traffic, Windows owner task, TV, or credentials.
+"""
+from __future__ import annotations
+
+from dataclasses import replace
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+from matcher import Media, preferred_media_release
+from owner_selected_file_resolver import (
+    CurrentPlaying, TorrServerSelectedFile, OwnerPinnedFiles, _fingerprint,
+)
+from owner_session_bridge import (
+    enqueue_selected_media, poll_private_events, _parse_event,
+    PreProviderTransient,
+)
+from verified_v3_processor import VerifiedV3Processor, V3IdentityError
+from owner_r2_verified_processor import R2VerifiedV3Processor
+from owner_r2_progressive_registry import R2OwnerProgressiveRegistry
+from owner_r2_progressive_worker import R2ProgressiveWorker
+from paired_activation import PairedActivation, activation_request_mac
+from p3_p4_media_key import p4_media_key
+from synthetic_mock_feed import decode_latest_test_only
+from automatic_vietsub_flow import AutomaticVietsubFlow, AutoPermissions, AutoResult, select_vi_then_en
+from automatic_lean120_worker import AutomaticLean120Worker
+from lean120_api import ModelProfile
+from opensubtitles import OpenSubtitles
+from test_automatic_vietsub_flow import FakeProvider, FakeGemini, srt
+
+
+VIDEO = "Example.Film.2017.1080p.BluRay.x265-GRP.mkv"
+HASH = "a" * 40
+SERVER = "trusted-windows-torrserver"
+SESSION = "trusted-tv-session-1"
+
+
+class CapturingFlow:
+    def __init__(self):
+        self.calls = []
+
+    def selected_media(self, name, *, source_fingerprint=None,
+                       verified_media=None, local_source=None):
+        self.calls.append((name, source_fingerprint,
+                           verified_media, local_source))
+        return AutoResult("VI_READY")
+
+
+class LegacyOwnerBridgeCompatibilityTests(unittest.TestCase):
+    def test_v3_import_and_exact_identity_when_old_bridge_lacks_validator(self):
+        # A separate interpreter models the installed V2-R0 bridge without
+        # mutating the test runner's imported Owner module.
+        probe = """
+import owner_session_bridge as bridge
+if hasattr(bridge, '_authorized_selection'):
+    del bridge._authorized_selection
+import verified_v3_processor as v3
+from owner_selected_file_resolver import _fingerprint
+record = {'server_id':'srv','torrent_hash':'a'*40,'file_index':1}
+valid = _fingerprint('srv','a'*40,1)
+assert v3._authorized_selection(record, valid, 'tv-session') == record
+try:
+    v3._authorized_selection(record, 'b'*64, 'tv-session')
+except ValueError:
+    pass
+else:
+    raise AssertionError('foreign fingerprint accepted')
+"""
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", probe], cwd=Path(__file__).parent,
+            capture_output=True, text=True, timeout=12, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class V3CompositionTests(unittest.TestCase):
+    def test_verified_torrent_title_reaches_provider_without_changing_media_identity(self):
+        label = "Пример / Example Film (2017) BDRip-HEVC 1080p | P | Voice"
+        self.record = replace(self.record, torrent_title=label)
+        self.processor().selected_media(
+            VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        self.assertEqual(len(self.capture.calls), 1)
+        _, _, media, _ = self.capture.calls[0]
+        self.assertEqual(media.filename, VIDEO)
+        self.assertEqual(media.key, (SERVER, HASH, 5))
+        self.assertEqual(media.torrent_title, label)
+        # The chosen torrent label changes discovery hints, not the TV file.
+        self.assertEqual(preferred_media_release(media).title, "example film")
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.media = self.root / "private-media"
+        self.media.mkdir()
+        self.video = self.media / VIDEO
+        self.video.write_bytes(b"synthetic movie placeholder")
+        self.side = self.media / (Path(VIDEO).stem + ".en.srt")
+        self.side.write_bytes(srt(125))
+        self.owner = self.root / "owner"
+        self.state = CurrentPlaying(
+            kind="PLAY_REQUEST_ACCEPTED", attested=True, active=True,
+            server_id=SERVER, tv_session_id=SESSION,
+            torrent_hash=HASH, file_index=5, video_name=VIDEO,
+            owner_auto_enabled=True, viewer_choice="ON",
+            media_rights_approved=True, local_vi_state="ABSENT")
+        self.record = TorrServerSelectedFile(
+            id=5, path="Authorized/" + VIDEO, length=self.video.stat().st_size)
+        self.mapping = OwnerPinnedFiles(
+            video_path=self.video, english_sidecar_path=self.side,
+            video_file_complete=True)
+        self.counter = 0
+        self.read_calls = []
+        self.capture = CapturingFlow()
+
+    def read_tv(self):
+        self.counter += 1
+        self.read_calls.append("TV")
+        return self.state
+
+    def read_file(self, server, infohash, file_index):
+        self.read_calls.append("SERVER")
+        self.assertEqual((server, infohash, file_index), (SERVER, HASH, 5))
+        return self.record
+
+    def map_local(self, server, infohash, file_index, path):
+        self.read_calls.append("OWNER")
+        self.assertEqual((server, infohash, file_index, path),
+                         (SERVER, HASH, 5, self.record.path))
+        return self.mapping
+
+    def processor(self, flow=None, read_tv=None):
+        return VerifiedV3Processor(
+            flow=flow or self.capture,
+            private_media_root=self.media,
+            read_verified_current_playback=read_tv or self.read_tv,
+            read_verified_torrserver_file=self.read_file,
+            locate_owner_pinned_files=self.map_local)
+
+    def dispatch(self, processor=None):
+        enqueue_selected_media(
+            VIDEO, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        lines = []
+        count = poll_private_events(
+            owner_root=self.owner, processor=processor or self.processor(),
+            emit=lines.append)
+        return count, lines
+
+    def test_v3_event_payload_exactly_contains_private_session_and_media_key(self):
+        enqueue_selected_media(
+            VIDEO, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        event_file, = list((self.owner / "inbox").glob("event-*.json"))
+        raw = json.loads(event_file.read_text())
+        self.assertEqual(raw["schema"], "TTV-OWNER-VIDEO-EVENT-V3")
+        self.assertEqual(set(raw), {
+            "schema", "event_id", "selected_video_filename",
+            "source_fingerprint", "tv_session_id"})
+        self.assertEqual(_parse_event(event_file).tv_session_id, SESSION)
+        self.assertNotIn(HASH, event_file.read_text())
+        self.assertNotIn("owner-private-media", event_file.read_text())
+
+    def test_authorized_film_keeps_processing_after_tv_switches(self):
+        """Only P4 becomes unavailable; signed A's translation job survives."""
+        self.mapping = None
+        event_id = enqueue_selected_media(
+            VIDEO, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION,
+            authorized_selection={"server_id": SERVER,
+                                  "torrent_hash": HASH, "file_index": 5})
+        published = []
+        def no_longer_watching_a():
+            raise OSError("TV now on B")
+        processor = VerifiedV3Processor(
+            flow=self.capture, private_media_root=self.media,
+            read_verified_current_playback=no_longer_watching_a,
+            read_verified_torrserver_file=self.read_file,
+            locate_owner_pinned_files=self.map_local,
+            on_vietsub_ready=lambda **_: published.append("P4") or
+                (_ for _ in ()).throw(ValueError("OLD_TV_SESSION")))
+        emitted = []
+        self.assertEqual(poll_private_events(
+            owner_root=self.owner, processor=processor,
+            emit=emitted.append), 1)
+        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_COMPLETE"])
+        self.assertEqual(len(self.capture.calls), 1)
+        self.assertEqual(published, ["P4"])
+        self.assertTrue((self.owner / "inbox" /
+                         ("event-" + event_id + ".done")).exists())
+
+    def test_untrusted_background_coordinates_never_enqueue(self):
+        with self.assertRaisesRegex(ValueError, "BACKGROUND_SELECTION_INVALID"):
+            enqueue_selected_media(
+                VIDEO, owner_root=self.owner,
+                source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION,
+                authorized_selection={"server_id": SERVER,
+                                      "torrent_hash": "b" * 40,
+                                      "file_index": 5})
+        self.assertFalse(list((self.owner / "inbox").glob("event-*.json")))
+
+    def test_one_v3_event_feeds_same_verified_media_to_d1_and_local_route(self):
+        processed, messages = self.dispatch()
+        self.assertEqual(processed, 1)
+        self.assertEqual(messages, ["OWNER_BRIDGE_EVENT_COMPLETE"])
+        self.assertEqual(self.read_calls, ["TV", "SERVER", "OWNER", "TV"])
+        self.assertEqual(len(self.capture.calls), 1)
+        name, fp, media, local = self.capture.calls[0]
+        self.assertEqual(name, VIDEO)
+        self.assertEqual(fp, _fingerprint(SERVER, HASH, 5))
+        self.assertEqual(media, Media(SERVER, HASH, 5, VIDEO))
+        self.assertEqual(local.file_index, media.file_index)
+        self.assertEqual(local.torrent_hash, media.torrent_hash)
+        self.assertEqual(local.en_sidecar_path, self.side)
+
+    def test_agent_only_flow_never_probes_incomplete_mkv_or_local_sidecar(self):
+        class AgentOnlyCapture(CapturingFlow):
+            dual_mode = True
+            source_acquirer = staticmethod(lambda *_: None)
+
+        agent = AgentOnlyCapture()
+
+        def local_mapping_must_not_run(*_args):
+            raise AssertionError("AGY_EXTERNAL_ROUTE_MUST_NOT_SCAN_LOCAL_FILES")
+
+        processor = VerifiedV3Processor(
+            flow=agent, private_media_root=self.media,
+            read_verified_current_playback=self.read_tv,
+            read_verified_torrserver_file=self.read_file,
+            locate_owner_pinned_files=local_mapping_must_not_run)
+        result = processor.selected_media(
+            VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        self.assertEqual(result.status, "VI_READY")  # capturing fixture only
+        self.assertEqual(self.read_calls, ["TV", "SERVER", "TV"])
+        self.assertEqual(len(agent.calls), 1)
+        self.assertIsNone(agent.calls[0][3])
+        self.assertEqual(agent.calls[0][2].key, (SERVER, HASH, 5))
+
+    def test_owner_private_event_same_filename_different_session_is_blocked(self):
+        enqueue_selected_media(
+            VIDEO, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id="stale-previous-tv-session")
+        emitted = []
+        count = poll_private_events(
+            owner_root=self.owner, processor=self.processor(),
+            emit=emitted.append)
+        self.assertEqual(count, 1)
+        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                   "OWNER_BRIDGE_BLOCK_REASON=RESOLVER_TV_SESSION_MISMATCH"])
+        self.assertEqual(self.capture.calls, [])
+        self.assertFalse(list((self.owner / "inbox").glob("event-*.json")))
+
+    def test_v3_unavailable_reader_is_typed_preprovider_and_never_calls_flow(self):
+        def unavailable():
+            raise OSError("synthetic offline TV")
+        with self.assertRaisesRegex(PreProviderTransient, "V3_TV_READER_UNAVAILABLE"):
+            self.processor(read_tv=unavailable).selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
+        self.assertEqual(self.read_calls, [])
+
+    def test_v3_identity_mismatch_stays_non_retryable(self):
+        with self.assertRaises(V3IdentityError):
+            self.processor().selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, "b" * 40, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
+
+    def test_different_torrent_with_same_video_name_never_reuses_fingerprint(self):
+        enqueue_selected_media(
+            VIDEO, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, "b" * 40, 5),
+            tv_session_id=SESSION)
+        processed, emitted = self._consume()
+        self.assertEqual(processed, 1)
+        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY",
+                                   "OWNER_BRIDGE_BLOCK_REASON=V3_CURRENT_SOURCE_MISMATCH"])
+        self.assertEqual(self.read_calls, ["TV"])
+        self.assertEqual(self.capture.calls, [])
+
+    def _consume(self, flow=None):
+        emitted = []
+        count = poll_private_events(
+            owner_root=self.owner, processor=self.processor(flow=flow),
+            emit=emitted.append)
+        return count, emitted
+
+    def test_owner_off_other_missing_vi_unknown_blocks_before_provider(self):
+        original = self.state
+        for patch in ({"viewer_choice": "OFF"}, {"viewer_choice": "OTHER"},
+                      {"owner_auto_enabled": False},
+                      {"local_vi_state": "PRESENT"},
+                      {"local_vi_state": "UNKNOWN"},
+                      {"active": False},
+                      {"media_rights_approved": False}):
+            with self.subTest(patch=patch):
+                self.state = replace(self.state, **patch)
+                with self.assertRaises(Exception):
+                    self.processor().selected_media(
+                        VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                        tv_session_id=SESSION)
+                self.assertEqual(self.capture.calls, [])
+                self.state = original
+
+    def test_playback_changed_on_final_read_is_not_dispatched(self):
+        def changes():
+            self.counter += 1
+            return (self.state if self.counter == 1 else
+                    replace(self.state, tv_session_id="next-tv-session"))
+        with self.assertRaisesRegex(V3IdentityError, "TV_SELECTION_CHANGED"):
+            self.processor(read_tv=changes).selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
+
+    def test_requested_to_on_same_tv_session_does_not_false_block(self):
+        # The Android control may settle from REQUESTED to ON during the
+        # two Owner reads; this is still the same selected TV/media session.
+        self.state = replace(self.state, viewer_choice="REQUESTED")
+        def settles():
+            self.counter += 1
+            return (self.state if self.counter == 1 else
+                    replace(self.state, viewer_choice="ON"))
+        result = self.processor(read_tv=settles).selected_media(
+            VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        self.assertEqual(result.status, "VI_READY")
+        self.assertEqual(len(self.capture.calls), 1)
+
+    def test_temporary_vi_probe_unknown_on_refresh_is_retryable(self):
+        def transient_probe():
+            self.counter += 1
+            return (self.state if self.counter == 1 else
+                    replace(self.state, local_vi_state="UNKNOWN"))
+        with self.assertRaisesRegex(PreProviderTransient, "V3_TV_REFRESH_UNAVAILABLE"):
+            self.processor(read_tv=transient_probe).selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
+
+    def test_no_local_movie_falls_back_to_exact_d1_d2_identity(self):
+        self.mapping = None
+        processed, emitted = self.dispatch()
+        self.assertEqual(processed, 1)
+        self.assertEqual(emitted, ["OWNER_BRIDGE_EVENT_COMPLETE"])
+        _, _, media, source = self.capture.calls[0]
+        self.assertEqual(media, Media(SERVER, HASH, 5, VIDEO))
+        self.assertIsNone(source)
+
+    def test_unparseable_release_is_review_not_permanent_identity_block(self):
+        # The TV, selected TorrServer index and signed session all agree.
+        # Missing release metadata should produce a review outcome without
+        # an OpenSubtitles request or an irreversible .blocked event.
+        name = "2017.mkv"
+        self.state = replace(self.state, video_name=name)
+        self.record = replace(self.record, path="Authorized/" + name)
+        self.mapping = None
+        provider = FakeProvider()
+        flow = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic", transport=provider),
+            worker=mock.Mock(), cache_root=self.root / "cache",
+            permissions=AutoPermissions(True, True))
+        event_id = enqueue_selected_media(
+            name, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, HASH, 5),
+            tv_session_id=SESSION)
+        lines = []
+        self.assertEqual(poll_private_events(
+            owner_root=self.owner, processor=self.processor(flow=flow),
+            emit=lines.append), 1)
+        self.assertEqual(lines, ["OWNER_BRIDGE_EVENT_NEEDS_REVIEW"])
+        self.assertTrue((self.owner / "inbox" / ("event-" + event_id + ".review")).exists())
+        self.assertEqual(provider.calls, [])
+
+    def test_bad_episode_metadata_and_local_map_hold(self):
+        self.record = replace(self.record, id=6)
+        with self.assertRaises(Exception):
+            self.processor().selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
+
+    def test_real_existing_lean120_worker_with_fake_gemini_zero_provider_get_post(self):
+        gemini = FakeGemini()
+        provider = FakeProvider()
+        worker = AutomaticLean120Worker(
+            state_root=self.root / "work",
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini)
+        flow = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic", transport=provider),
+            worker=worker, cache_root=self.root / "cache",
+            permissions=AutoPermissions(True, True))
+        with mock.patch("builtins.input", side_effect=AssertionError("NO_HUMAN_PROMPT")):
+            processed, emitted = self.dispatch(processor=self.processor(flow=flow))
+        self.assertEqual((processed, emitted),
+                         (1, ["OWNER_BRIDGE_EVENT_COMPLETE"]))
+        self.assertEqual(provider.calls, [])
+        self.assertEqual([len(part) for part in gemini.calls], [120, 5])
+
+    def test_r2_actual_v3_local_en_first_120_reaches_p4_before_complete(self):
+        """The real V3→local EN→pinned worker call now emits P4 v1, v2."""
+        gemini = FakeGemini()
+        provider = FakeProvider()
+        worker = R2ProgressiveWorker(existing=AutomaticLean120Worker(
+            state_root=self.root / "work-r2",
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini))
+        flow = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic", transport=provider),
+            worker=worker, cache_root=self.root / "cache-r2",
+            permissions=AutoPermissions(True, True))
+        registry = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=self.read_tv)
+        p4 = PairedActivation(
+            device_secret=bytes(range(32)), supplied={},
+            authenticated_vietsub_factory=registry.resolve,
+            authenticated_progressive_factory=registry.resolve_progressive)
+        seen = []
+        original = registry.publish_worker_revision
+        def capture_first(**kwargs):
+            original(**kwargs)
+            if not seen:
+                key = p4_media_key(Media(SERVER, HASH, 5, VIDEO), vlc_selected=True)
+                nonce = "1" * 32
+                response = p4.activate(dict(
+                    schema="TTV-P4-ACTIVATE-V1", media_key=key,
+                    nonce=nonce,
+                    auth=activation_request_mac(bytes(range(32)), key, nonce)))
+                feed = p4.feed_for(response["session_id"])
+                self.assertEqual(decode_latest_test_only(feed)["translated_count"], 120)
+                seen.append(feed)
+        with mock.patch.object(registry, "publish_worker_revision",
+                               side_effect=capture_first):
+            r2 = R2VerifiedV3Processor(
+                progressive_registry=registry,
+                flow=flow, private_media_root=self.media,
+                read_verified_current_playback=self.read_tv,
+                read_verified_torrserver_file=self.read_file,
+                locate_owner_pinned_files=self.map_local,
+                on_vietsub_ready=registry.register)
+            self.dispatch(processor=r2)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(decode_latest_test_only(seen[0])["translated_count"], 125)
+        self.assertEqual(len(gemini.calls), 2)
+        self.assertEqual(provider.calls, [])
+
+    def test_no_local_source_sends_exact_verified_media_to_real_d1_d2_router(self):
+        # The release filename, torrent and *selected episode/file index* are
+        # the search origin, not an unverified UI title or synthetic hash.
+        self.mapping = None
+        provider = FakeProvider()
+        gemini = FakeGemini()
+        worker = AutomaticLean120Worker(
+            state_root=self.root / "work-d1",
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
+            glossary={}, runner=gemini)
+        flow = AutomaticVietsubFlow(
+            client=OpenSubtitles(api_key="synthetic", transport=provider),
+            worker=worker, cache_root=self.root / "cache-d1",
+            permissions=AutoPermissions(True, True))
+        with mock.patch(
+            "automatic_vietsub_flow.select_vi_then_en",
+            wraps=select_vi_then_en,
+        ) as router:
+            processed, emitted = self.dispatch(processor=self.processor(flow=flow))
+        self.assertEqual((processed, emitted),
+                         (1, ["OWNER_BRIDGE_EVENT_COMPLETE"]))
+        self.assertEqual(router.call_count, 1)
+        self.assertEqual(router.call_args.args[1],
+                         Media(SERVER, HASH, 5, VIDEO))
+        self.assertEqual([method for method, _ in provider.calls],
+                         ["GET", "GET", "POST", "GET_BINARY"])
+        self.assertEqual([len(part) for part in gemini.calls], [120, 5])
+
+    def test_wrong_or_ambiguous_en_sidecar_prevents_provider_or_model(self):
+        self.mapping = replace(self.mapping, english_sidecar_path=self.media / "Missing.en.srt")
+        with self.assertRaises(Exception):
+            self.processor().selected_media(
+                VIDEO, source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id=SESSION)
+        self.assertEqual(self.capture.calls, [])
+
+    def test_legacy_v1_v2_events_do_not_claim_v3_current_session(self):
+        enqueue_selected_media(
+            VIDEO, owner_root=self.owner,
+            source_fingerprint=_fingerprint(SERVER, HASH, 5))
+        payload, = list((self.owner / "inbox").glob("event-*.json"))
+        self.assertEqual(_parse_event(payload).tv_session_id, None)
+        # No accidental upgrade of an old filename-only local envelope.
+        self.assertEqual(_parse_event(payload).source_fingerprint,
+                         _fingerprint(SERVER, HASH, 5))
+
+    def test_invalid_v3_session_refused_prior_to_private_inbox_create(self):
+        with self.assertRaisesRegex(ValueError, "V3_SESSION_INVALID"):
+            enqueue_selected_media(
+                VIDEO, owner_root=self.owner,
+                source_fingerprint=_fingerprint(SERVER, HASH, 5),
+                tv_session_id="../fake-session")
+        self.assertFalse(self.owner.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
