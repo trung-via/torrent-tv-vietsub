@@ -125,10 +125,17 @@ class DualSubtitleVoiceConsumer:
 class VieNeuBatchConsumer:
     """Owner-local sink: resume committed WAV cues and synthesize only missing."""
 
-    def __init__(self, *, wav_store: object, tts: object, voice_id: str):
+    def __init__(self, *, wav_store: object, tts: object, voice_id: str,
+                 on_audio_ready: Callable[[TranslationRevision, object, object],
+                                          object] | None = None):
+        if on_audio_ready is not None and not callable(on_audio_ready):
+            raise ValueError("VOICEOVER_AUDIO_SINK_INVALID")
         self.wav_store = wav_store
         self.tts = tts
         self.voice_id = voice_id
+        # Optional *already session-gated* consumer; no LAN or TV listener
+        # is installed by this class.
+        self.on_audio_ready = on_audio_ready
 
     def __call__(self, revision: TranslationRevision) -> tuple[object, ...]:
         full = plan_voiceover(revision, voice_id=self.voice_id)
@@ -142,6 +149,14 @@ class VieNeuBatchConsumer:
                 present, _ = self.wav_store.synthesize(cue, self.tts.stream(cue))
             receipts.append(present)
             keys.append(cue.tts_key)
+            # Release each verified cue as soon as its WAV is committed,
+            # without waiting for the complete 50/120-cue batch.
+            # Sink failures never discard successful audio or rerun AGY.
+            if self.on_audio_ready is not None:
+                try:
+                    self.on_audio_ready(revision, cue, present)
+                except Exception:
+                    pass
         # Verification of all receipts is mandatory before claiming coverage.
         done = plan_voiceover(revision, voice_id=self.voice_id,
                               completed_keys=tuple(keys))
