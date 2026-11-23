@@ -89,6 +89,7 @@ def _sign(offer: SignedVoiceoverOffer, secret: bytes) -> str:
 def sign_voiceover_offer(
     *, revision: TranslationRevision, receipt: AudioReceipt,
     voice_id: str, session_id: str, pairing_secret: bytes,
+    delivery_media_key: str | None = None,
 ) -> SignedVoiceoverOffer:
     """The source is a real committed subtitle revision and matching WAV."""
     if not isinstance(receipt, AudioReceipt):
@@ -99,8 +100,11 @@ def sign_voiceover_offer(
             or receipt.end_ms != cue.end_ms
             or receipt.sample_rate != 48_000):
         raise ValueError("P4_VOICE_CUE_OR_SOURCE_MISMATCH")
+    delivered = revision.media_key if delivery_media_key is None else delivery_media_key
+    if not isinstance(delivered, str) or not _MEDIA.fullmatch(delivered):
+        raise ValueError("P4_VOICE_DELIVERY_MEDIA_KEY_INVALID")
     unsigned = SignedVoiceoverOffer(
-        schema=_SCHEMA, session_id=session_id, media_key=revision.media_key,
+        schema=_SCHEMA, session_id=session_id, media_key=delivered,
         source_sha256=revision.source_sha256, subtitle_version=revision.version,
         voice_id=voice_id, cue_number=cue.number, start_ms=cue.start_ms,
         end_ms=cue.end_ms, tts_key=cue.tts_key,
