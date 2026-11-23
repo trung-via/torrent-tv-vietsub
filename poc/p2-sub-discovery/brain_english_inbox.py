@@ -167,10 +167,10 @@ def acquire_brain_english(media: Media, cache_root: Path) -> Asset:
         })
     except BrainEnglishUnavailable:
         raise
-    except (OSError, ValueError, TypeError, KeyError, UnicodeError):
-        raise BrainEnglishUnavailable("BRAIN_EN_RECEIPT_INVALID") from None
     except AgyEnglishUnavailable:
         raise BrainEnglishUnavailable("BRAIN_EN_RELEASE_MISMATCH") from None
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError):
+        raise BrainEnglishUnavailable("BRAIN_EN_RECEIPT_INVALID") from None
     return Asset(0, "en", "srt", contents, digest, count)
 
 
