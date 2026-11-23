@@ -18,6 +18,7 @@ EVENTS = frozenset((
     "selection_rejected_enqueue",
     "selection_rejected_http_format",
     "selection_rejected_unknown",
+    "selection_rejected_brain_source_pending",
     "state_rejected_auth", "state_rejected_clock",
     "state_rejected_replay", "state_rejected_format",
     "state_rejected_other",
