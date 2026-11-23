@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "agy-website-srt-smoke",
-  "category": "development",
+  "operation": "agy-website-srt-diagnostic",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/agy-website-srt-smoke.ps1",
-  "script_sha256": "3904a1b12de8ec870b03b83ac3c86e17a10cc9e1ac58c5a9ed13b043f280c868",
+  "script_path": "hostops/laptop-ops/operations/agy-website-srt-diagnostic.ps1",
+  "script_sha256": "31c16533123e2389fc14b8dd4b73c2d29074c91136faa26a69d74fff117b291a",
   "arguments": []
 }
