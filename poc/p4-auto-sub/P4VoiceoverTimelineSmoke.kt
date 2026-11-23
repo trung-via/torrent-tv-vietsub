@@ -13,6 +13,8 @@ fun main() {
     check(!c.discontinuity(null, 1000))
     check(!c.discontinuity(1000, 1450))
     check(c.discontinuity(4000, 300))
+    check(c.discontinuity(2000, 1200)) // small reverse seek must re-arm
+    check(!c.discontinuity(2000, 1700)) // tolerate clock jitter
     check(c.discontinuity(1000, 6000))
     println("P4_VOICEOVER_VLC_CLOCK_SEEK_PAUSE_BUFFER_PASS_NOT_TV_AUDIO")
 }
