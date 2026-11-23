@@ -9,11 +9,17 @@ from typing import Callable, Iterable
 
 from voiceover_revision import NarrationCue
 
+# Owner-selected preset, verified in upstream v3 Turbo's curated voices list.
+# The ASCII identity is for deterministic WAV receipts; the SDK must receive
+# the accented upstream preset name, not this identity.
+DEFAULT_VOICE_PRESET = "Ngọc Linh"
+DEFAULT_VOICE_CACHE_ID = "ngoc_linh_v3turbo_onnx"
+
 
 class VieNeuOnnxSession:
     """One reusable local TTS object, rather than one model load per cue."""
 
-    def __init__(self, *, voice: str,
+    def __init__(self, *, voice: str = DEFAULT_VOICE_PRESET,
                  factory: Callable[[], object] | None = None) -> None:
         if not isinstance(voice, str) or not voice.strip():
             raise ValueError("VIENEU_VOICE_REQUIRED")
@@ -31,7 +37,7 @@ class VieNeuOnnxSession:
                 # Optional dependency: do not import, download or allocate GPU
                 # in normal Owner startup, subtitle pipeline or offline CI.
                 from vieneu import Vieneu
-                self._engine = Vieneu(backend="onnx")
+                self._engine = Vieneu(mode="v3turbo", backend="onnx")
         return self._engine
 
     def stream(self, cue: NarrationCue) -> Iterable[object]:
