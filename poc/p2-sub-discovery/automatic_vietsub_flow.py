@@ -122,7 +122,8 @@ class AutomaticVietsubFlow:
                     "AGY_APP_ACCOUNT_SETTINGS_INVALID",
                     "AGY_ACCOUNT_REQUIRED_ADC_MODE_REFUSED",
                 }
-                if exc.args and exc.args[0] in retry_safe:
+                if (len(exc.args) == 1 and isinstance(exc.args[0], str)
+                        and exc.args[0] in retry_safe):
                     from owner_session_bridge import PreProviderTransient
                     raise PreProviderTransient(
                         "AGY_OWNER_PREFLIGHT_UNAVAILABLE") from None
