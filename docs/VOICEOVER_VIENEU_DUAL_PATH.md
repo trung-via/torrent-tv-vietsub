@@ -1,3 +1,12 @@
+## Giọng thuyết minh mặc định — quyết định Human 2026-11-23
+
+**Chốt: Ngọc Linh** — preset chính xác `Ngọc Linh` trong `voices_v3_turbo.json` của upstream VieNeu-TTS, **nữ, miền Bắc, phong cách đọc truyện** (`doc_truyen`). Đây là quyết định chọn giọng của Owner, **không phải bằng chứng VieNeu đã được cài hoặc thuyết minh đã phát trên Redmi**.
+
+- SDK: `Vieneu(mode="v3turbo", backend="onnx")`, `voice="Ngọc Linh"`; mặc định này chỉ khởi tạo khi tác vụ TTS được kích hoạt có chủ đích.
+- Cache receipt / TTS identity dùng ASCII `ngoc_linh_v3turbo_onnx` (không truyền chuỗi ASCII này làm tên preset SDK). Khi thay model weights, revision, backend hoặc profile âm thanh ảnh hưởng chất lượng, nâng version voice-cache identity để không tái sử dụng WAV sai.
+- Mẫu giọng tham khảo: https://raw.githubusercontent.com/sonlovinbot-team/vieneu-audio-studio/main/webapp/static/previews/ngoc-linh.mp3 (nghe thử, không thay thế benchmark giọng trên laptop Owner).
+- Duy trì lựa chọn khác trong tương lai; không thay đổi cache phim, Owner Windows, AGY job hoặc OMP/TV tại thời điểm ghi quyết định.
+
 # Vietsub + thuyết minh AI song song — VieNeu R0 contract (2026-11-23)
 
 **Authority:** Human request 2026-11-23; #170 one Owner / one OMP; #180 G1 rolling 50/120; #179 existing AGY/LEAN120 revision contract; #181 G3 roadmap. **Status:** SOURCE PROTOTYPE ONLY. Not a deployed renderer, provider benchmark, audio LAN endpoint, verified TV feature or model selection.
