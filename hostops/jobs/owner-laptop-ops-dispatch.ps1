@@ -246,9 +246,9 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                                      'UNCLASSIFIED_PRIVATE_FAILURE')) -or
             $result.task -cnotin @('Running','Ready','Disabled') -or
             $result.heartbeat -cnotin @('FRESH_PID_BOUND','NOT_VERIFIED') -or
-            $result.matched -isnot [int] -or
-            $result.missing -isnot [int] -or
-            $result.invalid -isnot [int]) {
+            ($result.matched -isnot [int] -and $result.matched -isnot [long]) -or
+            ($result.missing -isnot [int] -and $result.missing -isnot [long]) -or
+            ($result.invalid -isnot [int] -and $result.invalid -isnot [long])) {
             throw 'HOSTOPS_BRAIN_DIAG_SCHEMA_INVALID'
         }
         $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -
