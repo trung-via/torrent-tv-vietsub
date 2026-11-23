@@ -37,7 +37,7 @@ $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
 if ($hash -cne $manifest.script_sha256) {
     throw 'OWNER_BRAIN_R2_SOURCE_HASH_MISMATCH'
 }
-if (($text -split '\n' | Where-Object { $_ -match "^    '[a-z0-9_]+\.py' = '[0-9a-f]{64}'$" }).Count -ne 14 -or
+if (($lf -split '\n' | Where-Object { $_ -match "^    '[a-z0-9_]+\.py' = '[0-9a-f]{64}'$" }).Count -ne 14 -or
     -not $text.Contains("OWNER_BRAIN_R2_RECOVERY=ORIGINAL_OWNER_RESTORED") -or
     -not $text.Contains("P2_INFLIGHT_OR_ACTIVE_LOCK") -or
     -not $text.Contains("STAGED_OVERLAY_IMPORT_FAILED_OWNER_UNCHANGED")) {
