@@ -45,8 +45,6 @@ _SELECTION_REASONS = {
     "NO_VERIFIED_VIEWER_REQUEST": "owner_policy",
     "VI_TRACK_STATUS_INVALID": "owner_policy",
     "OWNER_PLAYBACK_PRIVATE_ENQUEUE_FAILED": "enqueue",
-    "BRAIN_EN_NOT_STAGED": "brain_source_pending",
-    "BRAIN_EN_INVALID": "brain_source_pending",
 }
 
 
