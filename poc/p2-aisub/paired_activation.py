@@ -373,9 +373,12 @@ class PairedActivation:
                 raise ValueError("P4_VOICE_SESSION_NOT_PAIRED")
             key = derive_session_secret(
                 self.__key, feed.session_id, feed.media_key, feed.source_sha256)
+        if getattr(revision, "source_sha256", None) != feed.source_sha256:
+            raise ValueError("P4_VOICE_DELIVERY_SOURCE_MISMATCH")
         return sign_voiceover_offer(
             revision=revision, receipt=receipt, voice_id=voice_id,
-            session_id=feed.session_id, pairing_secret=key)
+            session_id=feed.session_id, pairing_secret=key,
+            delivery_media_key=feed.media_key)
 
     def feed_for(self, session_id: str) -> SessionRevisionFeed | None:
         with self.__lock:return self.__feeds.get(session_id)
