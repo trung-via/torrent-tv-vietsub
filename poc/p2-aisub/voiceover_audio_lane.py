@@ -64,9 +64,10 @@ class VoiceoverAudioLane:
                 raise ValueError("P4_VOICE_CATALOG_FULL")
             self._entries[key] = (revision, cue, receipt)
 
-    def manifest(self, feed: SessionRevisionFeed, *, after_cue: int = 0) -> bytes:
-        if not isinstance(feed, SessionRevisionFeed) or type(after_cue) is not int \
-                or not 0 <= after_cue <= 100_000:
+    def manifest(self, feed: SessionRevisionFeed, *, signer,
+                 after_cue: int = 0) -> bytes:
+        if not isinstance(feed, SessionRevisionFeed) or not callable(signer) \
+                or type(after_cue) is not int or not 0 <= after_cue <= 100_000:
             raise ValueError("P4_VOICE_MANIFEST_REQUEST_INVALID")
         with self._lock:
             rows = sorted(
@@ -78,7 +79,7 @@ class VoiceoverAudioLane:
             page = rows[:_PAGE]
         # Signed per-cue envelopes use exactly the EXISTING paired secret.
         offers = [
-            vars(feed.sign_voiceover_offer(rev, receipt, self.voice_id))
+            vars(signer(feed, rev, receipt, self.voice_id))
             for _number, (rev, _cue, receipt) in page
         ]
         document = {
