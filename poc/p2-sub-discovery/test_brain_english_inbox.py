@@ -121,6 +121,32 @@ class BrainInboxTests(unittest.TestCase):
             source_fingerprint=self.fp).status, "VIETSUB_READY")
         self.assertEqual([len(ids) for ids in translated.calls], [50, 75])
 
+    def test_p4_final_ready_ai_cannot_bypass_brain_staged_source(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from owner_r2_progressive_registry import R2OwnerProgressiveRegistry
+        from p3_p4_ready_registry import P3ReadyRejected
+        flow = self._flow(FakeAntigravity())
+        registry = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=lambda: None)
+        registry.bind_existing_flow(flow)
+        registry._ready["media"] = SimpleNamespace(
+            origin="en", media=MEDIA, source_sha256="0" * 64,
+            total_cues=125)
+        with self.assertRaisesRegex(P3ReadyRejected, "P4_BRAIN_EN_NOT_READY"):
+            registry.resolve_ai_default("media")
+        self.stage()
+        with self.assertRaisesRegex(P3ReadyRejected, "P4_BRAIN_EN_CACHE_CONFLICT"):
+            registry.resolve_ai_default("media")
+        registry._ready["media"].source_sha256 = hashlib.sha256(srt()).hexdigest()
+        with patch.object(registry, "resolve", return_value="READY") as resolved:
+            self.assertEqual(registry.resolve_ai_default("media"), "READY")
+            resolved.assert_called_once_with("media")
+        registry._ready["media"].origin = "vi"
+        with patch.object(registry, "resolve") as resolved:
+            self.assertIsNone(registry.resolve_ai_default("media"))
+            resolved.assert_not_called()
+
     def test_stage_requires_verified_local_input(self):
         with self.assertRaisesRegex(BrainEnglishUnavailable, "FINGERPRINT_INVALID"):
             stage_brain_english(
