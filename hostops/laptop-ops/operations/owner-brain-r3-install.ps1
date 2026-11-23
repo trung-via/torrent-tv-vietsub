@@ -34,13 +34,13 @@ $expected = [ordered]@{
 $p2Names = @('automatic_lean120_worker.py','progressive_handoff.py')
 function StageFile([string]$name) {
     if ($name -in $p2Names) {
-        return Join-Path $stage ('poc\p2-aisub\' + $name)
+        return (Join-Path $stage ('poc\p2-aisub\' + $name))
     }
-    return Join-Path $stage ('poc\p2-sub-discovery\' + $name)
+    return (Join-Path $stage ('poc\p2-sub-discovery\' + $name))
 }
 function InstalledFile([string]$name) {
-    if ($name -in $p2Names) { return Join-Path $p2App $name }
-    return Join-Path $app $name
+    if ($name -in $p2Names) { return (Join-Path $p2App $name) }
+    return (Join-Path $app $name)
 }
 function Hold([string]$reason) {
     Write-Output ('OWNER_BRAIN_R3=HOLD_' + $reason)
@@ -343,7 +343,7 @@ try {
             if ((Hash $saved) -cne $old) { Hold 'ROLLBACK_BACKUP_DRIFT' }
             if ((Hash $file) -cne $old) {
                 if ((Hash $file) -cne $new) { Hold 'ROLLBACK_INSTALLED_DRIFT' }
-                $temp = Join-Path $app ('.brain-rollback-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+                $temp = Join-Path (Split-Path -Parent $file) ('.brain-rollback-' + [Guid]::NewGuid().ToString('N') + '.tmp')
                 [IO.File]::Copy($saved,$temp,$false)
                 $displaced = Join-Path $backup ('failed-' + $name)
                 [IO.File]::Replace($temp,$file,$displaced)
