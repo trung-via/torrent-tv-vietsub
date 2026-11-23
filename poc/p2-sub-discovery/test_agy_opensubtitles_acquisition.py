@@ -98,6 +98,18 @@ class AgyAcquisitionTests(unittest.TestCase):
         with self.assertRaisesRegex(AgyEnglishUnavailable, "SOURCE_UNVERIFIED"):
             self.acquire(runner)
 
+    def test_matching_opensubtitles_org_page_is_accepted(self):
+        runner = FakeAgent(stdout=outcome(
+            source_page="https://www.opensubtitles.org/en/subtitles/14190981/the-odyssey-en"))
+        asset = self.acquire(runner)
+        self.assertEqual(asset.cues, 125)
+
+    def test_lookalike_opensubtitles_domain_is_rejected(self):
+        runner = FakeAgent(stdout=outcome(
+            source_page="https://fake-opensubtitles.org/en/subtitles/14190981"))
+        with self.assertRaisesRegex(AgyEnglishUnavailable, "SOURCE_UNVERIFIED"):
+            self.acquire(runner)
+
     def test_no_match_cannot_fabricate_english(self):
         runner = FakeAgent(stdout=outcome(
             status="NOT_FOUND", language="", release_name="",
