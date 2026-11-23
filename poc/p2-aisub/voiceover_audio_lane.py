@@ -34,10 +34,34 @@ class VoiceoverAudioLane:
         self.store = store
         self.voice_id = voice_id
         self._lock = Lock()
+        # Native P4 media key and P2 worker media key differ in the R2 flow.
+        # Bind only an already-verified film/source mapping, never by SHA alone.
+        self._aliases: dict[tuple[str, str], str] = {}
         # TV session is deliberately NOT part of cache identity. Revisit A
         # reuses its WAV, but a stale session can never obtain its bytes.
         self._entries: dict[tuple[str, str, int],
                             tuple[TranslationRevision, NarrationCue, AudioReceipt]] = {}
+
+    def bind_verified_media(self, *, worker_media_key: str,
+                            tv_media_key: str, source_sha256: str) -> None:
+        """Bind an R2-verified P2 film to the native P4 media identity.
+
+        TTS WAV cache stays keyed by the worker's original media identity,
+        preserving A→B→A reuse. TV offers are re-signed to the native key.
+        """
+        if (not isinstance(worker_media_key, str)
+                or not re.fullmatch(r"media\.[0-9a-f]{64}", worker_media_key)
+                or not isinstance(tv_media_key, str)
+                or not re.fullmatch(r"media\.[0-9a-f]{64}", tv_media_key)
+                or not isinstance(source_sha256, str)
+                or not _KEY.fullmatch(source_sha256)):
+            raise ValueError("P4_VOICE_MEDIA_BINDING_INVALID")
+        key = (tv_media_key, source_sha256)
+        with self._lock:
+            old = self._aliases.get(key)
+            if old is not None and old != worker_media_key:
+                raise ValueError("P4_VOICE_MEDIA_BINDING_COLLISION")
+            self._aliases[key] = worker_media_key
 
     def on_audio_ready(self, revision: TranslationRevision,
                        cue: NarrationCue, receipt: AudioReceipt) -> None:
@@ -70,10 +94,12 @@ class VoiceoverAudioLane:
                 or type(after_cue) is not int or not 0 <= after_cue <= 100_000:
             raise ValueError("P4_VOICE_MANIFEST_REQUEST_INVALID")
         with self._lock:
+            worker_key = self._aliases.get(
+                (feed.media_key, feed.source_sha256), feed.media_key)
             rows = sorted(
                 (number, entry)
                 for (media, source, number), entry in self._entries.items()
-                if media == feed.media_key and source == feed.source_sha256
+                if media == worker_key and source == feed.source_sha256
                 and number > after_cue
             )
             page = rows[:_PAGE]
@@ -105,9 +131,11 @@ class VoiceoverAudioLane:
                 or not _KEY.fullmatch(tts_key):
             return None
         with self._lock:
+            worker_key = self._aliases.get(
+                (feed.media_key, feed.source_sha256), feed.media_key)
             selected = next(
                 (entry for (media, source, _n), entry in self._entries.items()
-                 if media == feed.media_key and source == feed.source_sha256
+                 if media == worker_key and source == feed.source_sha256
                  and entry[1].tts_key == tts_key),
                 None
             )
