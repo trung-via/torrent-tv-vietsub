@@ -500,10 +500,10 @@ P4_MENU_ROWS = """        add(if (p4LanScope != null || p4ActivationInFlight)
             }
         }
         if (p4LanScope != null) {
-            add("Vietsub AI (phụ đề)", "AD01.13") { setP4VoiceMode("SUBS") }
-            add("Thuyết minh Ngọc Linh", "AD01.14") { setP4VoiceMode("VOICE") }
-            add("Vietsub AI + thuyết minh", "AD01.15") { setP4VoiceMode("BOTH") }
-            add("Chỉ âm gốc (tắt AI)", "AD01.16") { setP4VoiceMode("ORIGINAL") }
+            add("Vietsub AI (phụ đề)", "AD01.20") { setP4VoiceMode("SUBS") }
+            add("Thuyết minh Ngọc Linh", "AD01.21") { setP4VoiceMode("VOICE") }
+            add("Vietsub AI + thuyết minh", "AD01.22") { setP4VoiceMode("BOTH") }
+            add("Chỉ âm gốc (tắt AI)", "AD01.23") { setP4VoiceMode("ORIGINAL") }
         }
         // Explicit device-level revocation is an optional advanced action,
         // never a prerequisite for enabling Vietsub on the current movie.
