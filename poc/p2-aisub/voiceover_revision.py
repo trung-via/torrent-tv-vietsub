@@ -1,7 +1,7 @@
 """Offline contract for one AGY translation revision -> incremental voice-over cues.
 
 This module NEVER downloads subtitles, calls AGY/VieNeu, starts a service,
-modifies the TV or publishes to LAN. The existing TranslationRevision is the sole
+modifies the TV or publishes to LAN. The existing SubtitleRevision contract is the sole
 translated source for both subtitle delivery and the optional TTS consumer.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from cue_pipeline import parse_cues
 
 @runtime_checkable
 class TranslationRevision(Protocol):
-    """Structural contract of #179 TranslationRevision without importing Draft code."""
+    """Structural contract of #179 SubtitleRevision without importing Draft code."""
     version: int
     media_key: str
     source_sha256: str
