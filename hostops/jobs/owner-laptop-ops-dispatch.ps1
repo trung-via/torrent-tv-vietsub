@@ -221,6 +221,47 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-brain-r2-startup-trace') {
+        $file = Join-Path $outbox ('owner-brain-startup-' + $nonce + '.json')
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+            throw 'HOSTOPS_BRAIN_STARTUP_RECEIPT_MISSING'
+        }
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Length -le 0 -or $item.Length -gt 768 -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'HOSTOPS_BRAIN_STARTUP_RECEIPT_INVALID'
+        }
+        $diag = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
+        $fields = @('schema','nonce','observed_utc_epoch','status',
+                    'stage','kind','code','boots','failures')
+        if ($diag.schema -cne 'TTV-OWNER-BRAIN-R2-STARTUP-DIAG-V1' -or
+            $diag.nonce -cne $nonce -or
+            (@($diag.PSObject.Properties.Name | Sort-Object) -join ',') -cne
+                (@($fields | Sort-Object) -join ',') -or
+            $diag.status -cnotin @('NO_MATCHING_STARTUP','LOG_MISSING',
+                'LOG_NOT_READABLE','BOOT_OBSERVED',
+                'FAILURE_TRACE_OBSERVED','BOUNDS_INVALID') -or
+            $diag.stage -cnotmatch '^[A-Z][A-Z0-9_]{2,75}$' -or
+            $diag.kind -cnotmatch '^[A-Za-z][A-Za-z0-9_]{2,50}$' -or
+            $diag.code -cnotmatch '^[A-Z][A-Z0-9_]{2,90}$' -or
+            ($diag.boots -isnot [int] -and $diag.boots -isnot [long]) -or
+            ($diag.failures -isnot [int] -and $diag.failures -isnot [long])) {
+            throw 'HOSTOPS_BRAIN_STARTUP_SCHEMA_INVALID'
+        }
+        $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -
+            [long]$diag.observed_utc_epoch
+        if ($age -lt 0 -or $age -gt 180 -or
+            $diag.boots -lt 0 -or $diag.boots -gt 20 -or
+            $diag.failures -lt 0 -or $diag.failures -gt 20) {
+            throw 'HOSTOPS_BRAIN_STARTUP_BOUNDS_INVALID'
+        }
+        Write-Output ('HOSTOPS_BRAIN_STARTUP_STATUS=' + $diag.status)
+        Write-Output ('HOSTOPS_BRAIN_STARTUP_STAGE=' + $diag.stage)
+        Write-Output ('HOSTOPS_BRAIN_STARTUP_KIND=' + $diag.kind)
+        Write-Output ('HOSTOPS_BRAIN_STARTUP_CODE=' + $diag.code)
+        Write-Output ('HOSTOPS_BRAIN_STARTUP_BOOT_COUNT=' + $diag.boots)
+        Write-Output ('HOSTOPS_BRAIN_STARTUP_FAILURE_COUNT=' + $diag.failures)
+    }
     if ($receipt.operation -ceq 'owner-brain-r2-diagnostic') {
         $path = Join-Path $outbox ('owner-brain-r2-diagnostic-' + $nonce + '.json')
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
