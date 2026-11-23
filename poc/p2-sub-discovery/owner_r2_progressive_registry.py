@@ -139,8 +139,23 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                          ) -> AssumedEnglishSubtitle | None:
         """Trust only the existing private source receipt and its EN bytes."""
         root = cls._root(getattr(flow, "cache_root", None))
+        staged = None
+        # P4 must not bypass the temporary Brain source gate by resurrecting
+        # a prior dual/legacy AI cache before the new film's staged SRT exists.
+        if media is not None:
+            from brain_english_inbox import (
+                BrainEnglishUnavailable, acquire_brain_english,
+            )
+            if getattr(flow, "source_acquirer", None) is acquire_brain_english:
+                try:
+                    staged = acquire_brain_english(media, root)
+                except BrainEnglishUnavailable:
+                    raise P3ReadyRejected("P4_BRAIN_EN_NOT_READY") from None
         if media is not None:
             dual = DualSubtitleCatalog(root).read(media, fingerprint, "ai_en")
+            if dual is not None and staged is not None and (
+                    dual.sha256 != staged.sha256 or dual.cues != staged.cues):
+                raise P3ReadyRejected("P4_BRAIN_EN_CACHE_CONFLICT")
             if dual is not None:
                 handoff = prepare_local_translation_source(
                     CachedEnReceipt(dual.file, dual.sha256, dual.cues),
@@ -169,6 +184,10 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             # it to the verified-VI factory instead of rejecting activation.
             if row["language"] == "vi":
                 return None
+            if staged is not None and (
+                    row["sha256"] != staged.sha256
+                    or row["cues"] != staged.cues):
+                raise P3ReadyRejected("P4_BRAIN_EN_CACHE_CONFLICT")
             handoff = prepare_local_translation_source(
                 CachedEnReceipt(root / row["file"], row["sha256"], row["cues"]),
                 private_root=root)
