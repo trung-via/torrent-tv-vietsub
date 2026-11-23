@@ -10,6 +10,7 @@ from threading import Lock
 from typing import Type
 
 from paired_activation import PairedActivation, make_paired_handler
+from voiceover_audio_lane import VoiceoverAudioLane
 from p3_signed_signal_to_owner import SignedP3ToOwner
 from p3_signed_playback_signal import MAX_WIRE_BYTES
 from p3_redmi_current_state import RedmiStateRejected, SignedRedmiStateCache, WIRE_MAX
@@ -24,6 +25,7 @@ def make_p3_p4_handler_r0(
     controller: PairedActivation, p3: SignedP3ToOwner,
     state_cache: SignedRedmiStateCache | None = None,
     ingress: P3IngressTelemetry | None = None,
+    voiceover_lane: VoiceoverAudioLane | None = None,
 ) -> Type[BaseHTTPRequestHandler]:
     if (not isinstance(controller, PairedActivation)
             or not isinstance(p3, SignedP3ToOwner)
@@ -33,7 +35,7 @@ def make_p3_p4_handler_r0(
                 and not isinstance(ingress, P3IngressTelemetry))):
         raise ValueError("P3_R0_VERIFIED_COMPOSITION_REQUIRED")
     P4Handler = make_paired_handler(
-        controller,
+        controller, voiceover_lane=voiceover_lane,
         on_event=lambda code: owner_full_trace("P4_DELIVERY_STATUS", code=code))
     # ThreadingHTTPServer must not weaken the old single-threaded replay and
     # enqueue contract. Serialize selections separately from signed status:
