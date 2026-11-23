@@ -1,0 +1,72 @@
+{
+  "schema": "TTV-OWNER-RELEASE-STAGE-V1",
+  "release_id": "brain-en-182-r3-20261123",
+  "source_tree": "4215726ea0ecae24bbac4fb94b75817c3e984e0f",
+  "mode": "STAGE_ONLY",
+  "files": [
+    {
+      "path": "poc/p2-sub-discovery/automatic_vietsub_flow.py",
+      "sha256": "86423538c3c04a37e02d308a26edea07666693b4eae2e43281229fecd3661e27"
+    },
+    {
+      "path": "poc/p2-sub-discovery/brain_english_inbox.py",
+      "sha256": "61d64d3c170b325f587d82220b2e2b23aee196496a24d655fd3dae9b34f3f2fb"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_p3_p4_runtime.py",
+      "sha256": "a8af95433fc256082636440e74fa3343912f56b4a45b483948af00a9ce4898e3"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_r2_progressive_registry.py",
+      "sha256": "91278b64505c7dc88acc93f76240290f873243ffeff4c2901c07ec6d7fa9d963"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_session_bridge.py",
+      "sha256": "636e91b671527730a9ce59a937768d254b865ee8be8557d823af9424c3e5b0a8"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_p4_shared_https_route_r0.py",
+      "sha256": "1e700b3f0788ce91265a627b99baff9f3874d91102d5b87088e974531f67e8e6"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_signed_signal_to_owner.py",
+      "sha256": "842a900b1b0fc9ea6e670774685e47b3f02f9309c3a1f6f95bd09772f2fd4108"
+    },
+    {
+      "path": "poc/p2-sub-discovery/agy_opensubtitles_acquisition.py",
+      "sha256": "dcf4282926067dce8e1e05f9be9d36aa1e96443bbe2710c134b0eaedec9debce"
+    },
+    {
+      "path": "poc/p2-sub-discovery/matcher.py",
+      "sha256": "18df6d45786caff6d5c97a11f6d463afeb21820f5766a4d944c3e2f6a1418b83"
+    },
+    {
+      "path": "poc/p2-sub-discovery/opensubtitles.py",
+      "sha256": "3711dab1d40de9751d17cb3b5d9fbe485c644e6e2488b05e7d248cf5bb93a3f0"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_selected_file_resolver.py",
+      "sha256": "93ab4f62eded98bfad3c3b8322536fe0547ee80ac0b206c24f735499577b4247"
+    },
+    {
+      "path": "poc/p2-sub-discovery/trusted_playback_to_owner.py",
+      "sha256": "7e8bb7d86d5395d9d3f40feb7ada3813cb7802d4e9995fc50607076728412c47"
+    },
+    {
+      "path": "poc/p2-sub-discovery/p3_owner_current_redmi.py",
+      "sha256": "69f4da5b2cdc94781b672c9858d4adf2b03837580d78045becf768ec42fb96a0"
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_r2_verified_processor.py",
+      "sha256": "24d653ebe39dcf73c4b80b6b93872cd3af4c1ee4a27973bbae5b4d21031e433f"
+    },
+    {
+      "path": "poc/p2-aisub/automatic_lean120_worker.py",
+      "sha256": "4eb92f5d8e8ef6191cab8ac8d68df99ff1d791ae800607d3c8f01bd02fc707dd"
+    },
+    {
+      "path": "poc/p2-aisub/progressive_handoff.py",
+      "sha256": "782b4ac8b7d993405bbab37a6e1e2109ff2250c5efefb1d0da3a1b035c954cf3"
+    }
+  ]
+}
