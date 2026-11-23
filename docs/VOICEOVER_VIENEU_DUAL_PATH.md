@@ -1,3 +1,20 @@
+## G3 — source implementation checkpoint (2026-11-23)
+
+**Current code path:** Existing R2 P2 verified checkpoint → original P4 subtitle publication **first** → one bounded VieNeu TTS consumer (Ngọc Linh, Vieneu(mode="v3turbo", backend="onnx")) → verified 48 kHz WAV cache → VoiceoverAudioLane → **same P3/P4 pinned HTTPS listener**. No new AGY call, Windows service, TV app or external HTTP server is introduced.
+
+Opt-in Owner bootstrap (only for the single trusted owner process):
+- Existing owner_p3_p4_entrypoint.py --start-lan --owner-root ... --cache-root ... --state-root ... remains subtitle-only by default.
+- Add --enable-vieneu-voiceover on an explicitly approved startup to enable the local Owner TTS callback. It never downloads/loads the VieNeu model during import, composition or preflight. First actual committed VI cue may require SDK/model weights and CPU time.
+- The --preflight-only path does not synthesize, activate TTS, or open LAN even if the voice flag is provided.
+- WAV receipts remain under the configured private cache root, in vieneu-ngoc-linh-wav/, scoped by deterministic film/source/voice/cue key. A failed ambiguous TTS stream remains held for reconciliation rather than blindly rerun.
+
+Read protocol (on existing pinned P4 HTTPS host/port):
+- GET /p4/voice/{sessionId} with X-P4-After-Cue: N (default 0) returns up to 32 per-cue HMAC-signed metadata offers for that exact source/session (204 when none); the request MAC is HMAC-SHA256(sessionKey, "TTV-P4-VOICE-READ-V1\n{sessionId}\nmanifest:{N}\n{nonce}").
+- GET /p4/audio/{sessionId}/{ttsKey} returns only previously verified 48-kHz PCM16 WAV bytes, Content-Type: audio/wav, X-P4-Audio-Sha256; the request MAC uses the separate scope audio:{ttsKey}. Both require the usual P4 nonce headers, session/read authorization and recheck of currently verified TV media/consent. Duplicate nonces and cross-route MAC reuse are rejected. An unregistered or mismatched media/source key is never read.
+- Offers are metadata, **not** audio bytes inside P4 subtitle JSON. TV must verify offer signature and WAV digest; it must never play on OFF/OTHER or stale session. TV client/AudioTrack/VLC synchronization **is not yet implemented** by this source change.
+
+**Source-only boundary:** CI proves endpoint/callback/offline contracts, not successful VieNeu model installation, real signed Redmi audio GET or audible TV output. Before deployed runtime, verify current Owner's installed files/task/checkpoint and Windows model benchmark; do not replace a running Owner or clear film cache. Before claiming REAL_REDMi_PASS, implement and test OMP audio polling/overlay and SPDIF behavior, pause, seek, A→B→A. Source note only; independent Brain PASS and merge still follow #42.
+
 ## Giọng thuyết minh mặc định — quyết định Human 2026-11-23
 
 **Chốt: Ngọc Linh** — preset chính xác `Ngọc Linh` trong `voices_v3_turbo.json` của upstream VieNeu-TTS, **nữ, miền Bắc, phong cách đọc truyện** (`doc_truyen`). Đây là quyết định chọn giọng của Owner, **không phải bằng chứng VieNeu đã được cài hoặc thuyết minh đã phát trên Redmi**.
