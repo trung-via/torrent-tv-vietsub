@@ -20,6 +20,20 @@ class FakeEngine:
 
 
 class VieNeuAdapterTests(unittest.TestCase):
+    def test_owner_selected_ngoc_linh_is_default_and_lazy(self):
+        from voiceover_vieneu import DEFAULT_VOICE_CACHE_ID, DEFAULT_VOICE_PRESET
+        from voiceover_revision import plan_voiceover
+        self.assertEqual(DEFAULT_VOICE_PRESET, "Ngọc Linh")
+        self.assertEqual(DEFAULT_VOICE_CACHE_ID, "ngoc_linh_v3turbo_onnx")
+        session = VieNeuOnnxSession(factory=FakeEngine)
+        self.assertEqual(session.voice, "Ngọc Linh")
+        self.assertIsNone(session._engine)
+        cue = NarrationCue(1, 0, 1500, "Thuyết minh phim", "a" * 64)
+        self.assertEqual(len(list(session.stream(cue))), 2)
+        self.assertEqual(session._engine.calls,
+                         [("Thuyết minh phim", "Ngọc Linh")])
+        session.close()
+
     def test_one_local_engine_reused_across_cues(self):
         engines = []
 
