@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-brain-r2-diagnostic.ps1",
-  "script_sha256": "33f3d5c300b4da90ae42cff74cd2b1a7132716e56fbe89818d9292078f46d55a",
+  "script_sha256": "ee59e37ce2e22134a735245b9541e8c26a73728d362bffac1d12f3923ceec566",
   "arguments": []
 }
