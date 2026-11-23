@@ -221,6 +221,53 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-brain-r2-diagnostic') {
+        $path = Join-Path $outbox ('owner-brain-r2-diagnostic-' + $nonce + '.json')
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw 'HOSTOPS_BRAIN_DIAG_MISSING'
+        }
+        $item = Get-Item -LiteralPath $path -Force
+        if ($item.Length -le 0 -or $item.Length -gt 768 -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'HOSTOPS_BRAIN_DIAG_RECEIPT_INVALID'
+        }
+        $result = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $fields = @('schema','nonce','observed_utc_epoch','prior_log',
+                    'reason','task','heartbeat','matched','missing','invalid')
+        $reasonCode = [string]$result.reason
+        if ($result.schema -cne 'TTV-OWNER-BRAIN-R2-DIAG-V1' -or
+            $result.nonce -cne $nonce -or
+            (@($result.PSObject.Properties.Name | Sort-Object) -join ',') -cne
+                (@($fields | Sort-Object) -join ',') -or
+            $result.prior_log -isnot [bool] -or
+            ($reasonCode -cnotmatch '^HOLD_[A-Z0-9_]{3,75}$' -and
+                $reasonCode -cnotin @('NO_PRIOR_BRAIN_INSTALL_LOG',
+                                     'FAILED_ROLLED_BACK','INSTALL_SUCCEEDED_IN_LOG',
+                                     'UNCLASSIFIED_PRIVATE_FAILURE')) -or
+            $result.task -cnotin @('Running','Ready','Disabled') -or
+            $result.heartbeat -cnotin @('FRESH_PID_BOUND','NOT_VERIFIED') -or
+            $result.matched -isnot [int] -or
+            $result.missing -isnot [int] -or
+            $result.invalid -isnot [int]) {
+            throw 'HOSTOPS_BRAIN_DIAG_SCHEMA_INVALID'
+        }
+        $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -
+            [long]$result.observed_utc_epoch
+        if ($age -lt 0 -or $age -gt 180 -or
+            $result.matched -lt 0 -or $result.matched -gt 14 -or
+            $result.missing -lt 0 -or $result.missing -gt 14 -or
+            $result.invalid -lt 0 -or $result.invalid -gt 14 -or
+            $result.matched + $result.missing + $result.invalid -gt 14) {
+            throw 'HOSTOPS_BRAIN_DIAG_BOUNDS_INVALID'
+        }
+        Write-Output ('HOSTOPS_BRAIN_R2_PRIOR_LOG=' + [string]$result.prior_log)
+        Write-Output ('HOSTOPS_BRAIN_R2_REASON=' + $reasonCode)
+        Write-Output ('HOSTOPS_BRAIN_R2_TASK=' + $result.task)
+        Write-Output ('HOSTOPS_BRAIN_R2_HEARTBEAT=' + $result.heartbeat)
+        Write-Output ('HOSTOPS_BRAIN_R2_INSTALLED_MATCH=' + $result.matched)
+        Write-Output ('HOSTOPS_BRAIN_R2_INSTALLED_MISSING=' + $result.missing)
+        Write-Output ('HOSTOPS_BRAIN_R2_INSTALLED_INVALID=' + $result.invalid)
+    }
     if ($receipt.operation -ceq 'owner-runtime-audit') {
         $auditPath = Join-Path $outbox ('owner-runtime-' + $nonce + '.json')
         if (-not (Test-Path -LiteralPath $auditPath -PathType Leaf)) {
