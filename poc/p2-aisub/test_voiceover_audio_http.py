@@ -170,6 +170,48 @@ class PairedAudioLaneTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertFalse(wav)
 
+    def test_worker_key_is_not_native_tv_key_but_signed_audio_stays_correct(self):
+        # Production R2 uses different P2 worker and native P4 media keys.
+        # Its English source SHA must match, but cache cannot silently borrow
+        # a movie only because subtitles happen to have the same bytes.
+        worker_revision = Revision(OTHER_MEDIA, self.source_sha)
+        worker_cue = plan_voiceover(
+            worker_revision, voice_id=DEFAULT_VOICE_CACHE_ID).new_cues[0]
+        worker_receipt, _ = self.store.synthesize(
+            worker_cue, [[0.1] * 192])
+        lane = VoiceoverAudioLane(store=self.store)
+        lane.on_audio_ready(worker_revision, worker_cue, worker_receipt)
+        path = "/p4/voice/" + self.sid
+        self.assertEqual(self._get(
+            path, self._auth("manifest:0", "f" * 32), lane=lane)[0], 204)
+        lane.bind_verified_media(
+            worker_media_key=OTHER_MEDIA, tv_media_key=MEDIA,
+            source_sha256=self.source_sha)
+        code, _headers, body = self._get(
+            path, self._auth("manifest:0", "0" * 32), lane=lane)
+        self.assertEqual(code, 200)
+        offer = SignedVoiceoverOffer(**json.loads(body)["offers"][0])
+        self.assertEqual(offer.media_key, MEDIA)
+        self.assertEqual(offer.tts_key, worker_cue.tts_key)
+        self.assertNotEqual(offer.tts_key, self.cue.tts_key)
+        receiver = PairedVoiceoverReceiver(
+            session_id=self.sid, media_key=MEDIA,
+            source_sha256=self.source_sha, pairing_secret=self.secret)
+        self.assertEqual(receiver.receive(
+            offer, active_session=self.sid, active_media_key=MEDIA,
+            presentation_mode="BOTH", on_native_audio=lambda _o: True),
+            "AUDIO_MANIFEST_ACCEPTED")
+        wav = "/p4/audio/" + self.sid + "/" + worker_cue.tts_key
+        code, _headers, payload = self._get(
+            wav, self._auth("audio:" + worker_cue.tts_key, "a" * 32), lane=lane)
+        self.assertEqual(code, 200)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(),
+                         worker_receipt.wav_sha256)
+        with self.assertRaisesRegex(ValueError, "BINDING_COLLISION"):
+            lane.bind_verified_media(
+                worker_media_key=MEDIA, tv_media_key=MEDIA,
+                source_sha256=self.source_sha)
+
     def test_corrupted_wav_is_never_served(self):
         with (self.store.root / self.receipt.filename).open("ab") as stream:
             stream.write(b"corruption")
