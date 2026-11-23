@@ -121,6 +121,48 @@ class SessionRevisionFeed:
         with self.__lock:
             return None if self.__current is None else self.__current.wire
 
+    def sign_voiceover_offer(self, revision: object, receipt: object,
+                             voice_id: str) -> object:
+        """Sign a committed voice cue with this exact P4 session secret."""
+        from voiceover_signed_offer import sign_voiceover_offer
+        return sign_voiceover_offer(
+            revision=revision, receipt=receipt, voice_id=voice_id,
+            session_id=self.session_id, pairing_secret=self.__secret)
+
+    def authorize_voice_read(self, nonce: str | None,
+                             signature: str | None, scope: str) -> bool:
+        """Separate HMAC domain for manifest/audio, binding the exact cursor/key.
+
+        A valid subtitle GET MAC cannot be replayed against a WAV endpoint.
+        Reuse the one session's nonce ledger, so replay across audio requests
+        also fails without creating any parallel session/auth service.
+        """
+        if (not isinstance(scope, str)
+                or not re.fullmatch(r"(manifest:[0-9]{1,6}|audio:[0-9a-f]{64})", scope)
+                or not isinstance(nonce, str)
+                or not re.fullmatch(r"[0-9a-f]{32}", nonce)
+                or not isinstance(signature, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", signature)):
+            return False
+        expected = hmac.new(
+            self.__secret,
+            ("TTV-P4-VOICE-READ-V1\n" + self.session_id + "\n"
+             + scope + "\n" + nonce).encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            return False
+        now = time.monotonic()
+        with self.__lock:
+            self.__used_read_nonces = {
+                n: ts for n, ts in self.__used_read_nonces.items()
+                if now - ts < 600.0
+            }
+            if nonce in self.__used_read_nonces or len(self.__used_read_nonces) >= 1024:
+                return False
+            self.__used_read_nonces[nonce] = now
+        return True
+
     def authorize_read(self, nonce: str | None, signature: str | None) -> bool:
         """Authenticated, unique GET request; no reply to unpaired LAN clients."""
         if (not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}",nonce) or
