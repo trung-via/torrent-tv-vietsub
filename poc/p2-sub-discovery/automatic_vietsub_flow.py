@@ -221,8 +221,7 @@ class AutomaticVietsubFlow:
         payload = final.read_bytes()
         if len(payload) > 256 * 1024:
             raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
-        number = len(ProgressiveSubtitleSession(
-            source.source_bytes, source.fmt, source.media_key).windows)
+        number = len(self.worker.progressive_session(source).windows)
         last = folder / f"batch-{number:04d}.json"
         try:
             row = json.loads(last.read_bytes())
@@ -644,6 +643,7 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     preflight = model_preflight or (lambda: preflight_provider(profile))
     worker = AutomaticLean120Worker(
         state_root=state_root, profile=profile, glossary={},
+        first_window_cues=50,
     )
 
     def provider_disabled(*_args: object) -> bytes:

@@ -197,8 +197,13 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             return None
         if any(folder.glob("batch-*.abandoned.json")):
             raise P3ReadyRejected("P4_ROLLING_ABANDONED_JOB_HOLD")
-        session = ProgressiveSubtitleSession(
-            handoff.source_bytes, handoff.fmt, handoff.media_key)
+        # Before the first commit, P4 is simply pending. A legitimate AGY
+        # in-flight call has not yet recorded whether this is a 50-first or
+        # a legacy 120-first job; only the worker may resolve/reconcile that
+        # ambiguity before another provider invocation.
+        if not (folder / "batch-0001.json").exists():
+            return None
+        session = worker.progressive_session(handoff)
         latest = None
         try:
             for window in session.windows:

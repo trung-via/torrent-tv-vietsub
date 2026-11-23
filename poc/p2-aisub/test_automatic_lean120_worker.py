@@ -88,10 +88,51 @@ class AutoLean120WorkerTests(unittest.TestCase):
             profile=kwargs.pop("profile", PROFILE),
             glossary=kwargs.pop("glossary", {"Fictional": "Hư cấu"}),
             runner=kwargs.pop("runner", self.provider),
+            first_window_cues=kwargs.pop("first_window_cues", None),
         )
 
     def folders(self):
         return list(self.root.iterdir())
+
+    def test_first_50_then_120_cumulative_and_reopen_without_duplicate_model(self):
+        source = handoff(245)
+        worker = self.worker(first_window_cues=50)
+        first = worker.run(source, max_new_windows=1)
+        self.assertEqual((first.translated_count, first.complete), (50, False))
+        self.assertEqual([len(ids) for ids in self.provider.calls], [50])
+        seen = []
+        final = self.worker(first_window_cues=50).run(
+            source, on_revision=seen.append)
+        self.assertEqual([r.translated_count for r in seen], [50, 170, 245])
+        self.assertTrue(final.complete)
+        self.assertEqual([len(ids) for ids in self.provider.calls], [50, 120, 75])
+        self.worker(first_window_cues=50).run(source)
+        self.assertEqual([len(ids) for ids in self.provider.calls], [50, 120, 75])
+        self.assertEqual(len(self.folders()), 1)
+
+    def test_prior_120_cue_checkpoint_resumes_with_no_duplicate_paid_batch(self):
+        source = handoff(245)
+        legacy = self.worker().run(source, max_new_windows=1)
+        self.assertEqual(legacy.translated_count, 120)
+        next_worker = self.worker(first_window_cues=50)
+        resumed = []
+        final = next_worker.run(source, on_revision=resumed.append)
+        self.assertEqual([r.translated_count for r in resumed], [120, 240, 245])
+        self.assertTrue(final.complete)
+        self.assertEqual([len(ids) for ids in self.provider.calls], [120, 120, 5])
+        self.assertEqual(len(self.folders()), 1)
+
+    def test_prior_uncertain_batch_holds_before_any_new_model_invocation(self):
+        from automatic_lean120_worker import _job_fingerprint
+        source = handoff(245)
+        worker = self.worker(first_window_cues=50)
+        folder = self.root / _job_fingerprint(source, PROFILE, worker.glossary)
+        folder.mkdir(parents=True)
+        (folder / "batch-0001.inflight").write_text("synthetic unknown")
+        with self.assertRaisesRegex(ValueError, "WINDOW_PLAN_UNCERTAIN"):
+            worker.run(source)
+        self.assertFalse(self.provider.calls)
+        self.assertTrue((folder / "batch-0001.inflight").exists())
 
     def test_first_window_pilot_never_translates_second_window_on_rerun(self):
         source = handoff(242)

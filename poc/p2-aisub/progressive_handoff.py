@@ -52,13 +52,16 @@ class SubtitleRevision:
 def _windows(
     cues: tuple[Cue, ...], source_hash: str, key: str,
     max_cues: int, max_chars: int, context: int,
+    first_window_cues: int | None,
 ) -> tuple[TranslationWindow, ...]:
     windows: list[TranslationWindow] = []
     start = 0
     while start < len(cues):
         end = start
         size = 0
-        while end < len(cues) and end - start < max_cues:
+        window_limit = (first_window_cues if start == 0 and
+                        first_window_cues is not None else max_cues)
+        while end < len(cues) and end - start < window_limit:
             length = len(cues[end].text)
             if size + length > max_chars:
                 break
@@ -94,6 +97,7 @@ class ProgressiveSubtitleSession:
         max_cues: int = MAX_TARGET_CUES,
         max_chars: int = MAX_TARGET_CHARS,
         context: int = CONTEXT_CUES,
+        first_window_cues: int | None = None,
     ) -> None:
         if not isinstance(media_key, str) or not MEDIA_KEY.fullmatch(media_key):
             raise ValueError("MEDIA_IDENTITY_REQUIRED")
@@ -103,6 +107,10 @@ class ProgressiveSubtitleSession:
             raise ValueError("BATCH_CHAR_LIMIT_INVALID")
         if type(context) is not int or not 0 <= context <= CONTEXT_CUES:
             raise ValueError("CONTEXT_LIMIT_INVALID")
+        if first_window_cues is not None and (
+                type(first_window_cues) is not int
+                or not 1 <= first_window_cues <= max_cues):
+            raise ValueError("FIRST_WINDOW_CUE_LIMIT_INVALID")
         if not isinstance(source, bytes):
             raise ValueError("SOURCE_BYTES_REQUIRED")
         self._cues = parse_cues(source, fmt)
@@ -110,7 +118,8 @@ class ProgressiveSubtitleSession:
         self._fmt = fmt
         self._key = media_key
         self._windows = _windows(
-            self._cues, self._hash, media_key, max_cues, max_chars, context
+            self._cues, self._hash, media_key, max_cues, max_chars, context,
+            first_window_cues,
         )
         self._translated: dict[str, str] = {}
         self._revision: SubtitleRevision | None = None

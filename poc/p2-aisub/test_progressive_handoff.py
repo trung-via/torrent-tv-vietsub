@@ -45,6 +45,23 @@ def commit_next(session: ProgressiveSubtitleSession, version: int):
 
 
 class OfflineProgressiveTests(unittest.TestCase):
+    def test_optional_50_first_window_then_120_preserves_exact_timeline(self):
+        src = srt(245)
+        session = ProgressiveSubtitleSession(
+            src, "srt", KEY_A, first_window_cues=50)
+        self.assertEqual([len(w.ids) for w in session.windows],
+                         [50, 120, 75])
+        self.assertEqual(session.windows[1].ids[:2], (51, 52))
+        self.assertEqual([c.number for c in session.windows[1].before],
+                         [47, 48, 49, 50])
+        self.assertEqual([commit_next(session, version).translated_count
+                          for version in range(3)], [50, 170, 245])
+        self.assertTrue(session.revision.complete)
+        self.assertEqual(
+            [(c.start_ms, c.end_ms) for c in parse_cues(src, "srt")],
+            [(c.start_ms, c.end_ms) for c in
+             parse_cues(session.revision.payload, "srt")])
+
     def test_120_then_240_cumulative_and_original_timeline(self):
         src = srt(245)
         session = ProgressiveSubtitleSession(src, "srt", KEY_A)
@@ -179,7 +196,10 @@ class OfflineProgressiveTests(unittest.TestCase):
 
     def test_invalid_session_inputs_and_horizon(self):
         for args in [{"max_cues":121},{"max_cues":True},{"max_chars":6501},
-                     {"context":-1},{"context":True}]:
+                     {"context":-1},{"context":True},
+                     {"first_window_cues":0}, {"first_window_cues":121},
+                     {"first_window_cues":True},
+                     {"max_cues":30,"first_window_cues":50}]:
             with self.subTest(args=args),self.assertRaises(ValueError):
                 ProgressiveSubtitleSession(srt(2),"srt",KEY_A,**args)
         for bad in ["", "film X", KEY_A.upper(), "media." + "xyz"]:

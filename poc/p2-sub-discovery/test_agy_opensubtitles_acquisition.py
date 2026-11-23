@@ -117,7 +117,7 @@ class AgyAcquisitionTests(unittest.TestCase):
         worker = AutomaticLean120Worker(
             state_root=self.root / "state",
             profile=ModelProfile("antigravity", "gemini-4-hydrogen-high", "high"),
-            glossary={}, runner=translator)
+            glossary={}, runner=translator, first_window_cues=50)
         acquisitions = []
         source = srt()
         asset = Asset(0, "en", "srt", source,
@@ -144,7 +144,7 @@ class AgyAcquisitionTests(unittest.TestCase):
                          ("VIETSUB_READY", "VIETSUB_READY"))
         self.assertEqual((first.cue_count, second.cue_count), (125, 125))
         self.assertEqual(len(acquisitions), 1)
-        self.assertEqual([len(ids) for ids in translator.calls], [120, 5])
+        self.assertEqual([len(ids) for ids in translator.calls], [50, 75])
         receipt = DualSubtitleCatalog(cache).read(MEDIA, fp, "ai_en")
         self.assertTrue(receipt.release_matched)
         self.assertTrue(list((self.root / "state").rglob("vi-final.srt")))

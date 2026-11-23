@@ -77,7 +77,8 @@ class AutomaticLean120Worker:
 
     def __init__(self, *, state_root: Path, profile: ModelProfile,
                  glossary: Mapping[str, str],
-                 runner: Runner | None = None) -> None:
+                 runner: Runner | None = None,
+                 first_window_cues: int | None = None) -> None:
         if not isinstance(state_root, Path) or not state_root.is_absolute():
             raise ValueError("AUTO_LEAN120_ABSOLUTE_PRIVATE_STATE_REQUIRED")
         if not provider_enabled(profile.provider):
@@ -86,10 +87,59 @@ class AutomaticLean120Worker:
             raise ValueError("LEAN120_GLOSSARY_INVALID")
         if runner is not None and not callable(runner):
             raise ValueError("AUTO_LEAN120_RUNNER_INVALID")
+        if first_window_cues is not None and (
+                type(first_window_cues) is not int
+                or not 1 <= first_window_cues <= 120):
+            raise ValueError("AUTO_LEAN120_FIRST_WINDOW_CUE_LIMIT_INVALID")
         self.state_root = state_root
         self.profile = profile
         self.glossary = dict(glossary)
         self.runner = runner
+        self.first_window_cues = first_window_cues
+
+    def progressive_session(self, source: AssumedEnglishSubtitle
+                            ) -> ProgressiveSubtitleSession:
+        """Use 50-first for new jobs; continue an existing 120-first job.
+
+        The fingerprint stays unchanged, so old completed/uncertain work is
+        never treated as an unrelated job eligible for a second provider call.
+        A committed first batch identifies its original window layout. A
+        pre-commit inflight marker leaves the prior plan unknown: HOLD it.
+        """
+        session = ProgressiveSubtitleSession(
+            source.source_bytes, source.fmt, source.media_key,
+            first_window_cues=self.first_window_cues)
+        if self.first_window_cues is None:
+            return session
+        legacy = ProgressiveSubtitleSession(
+            source.source_bytes, source.fmt, source.media_key)
+        if session.windows[0].ids == legacy.windows[0].ids:
+            return session
+        folder = self.state_root / _job_fingerprint(
+            source, self.profile, self.glossary)
+        first = folder / "batch-0001.json"
+        inflight = folder / "batch-0001.inflight"
+        if first.is_symlink() or inflight.is_symlink():
+            raise ValueError("AUTO_LEAN120_WINDOW_PLAN_UNVERIFIED")
+        if not first.exists():
+            if inflight.exists():
+                raise ValueError("AUTO_LEAN120_WINDOW_PLAN_UNCERTAIN")
+            return session
+        try:
+            if not first.is_file() or first.stat().st_size > 256 * 1024:
+                raise ValueError("INVALID")
+            record = json.loads(first.read_bytes())
+            if not isinstance(record, dict) or not isinstance(
+                    record.get("translations"), list):
+                raise ValueError("INVALID")
+            count = len(record["translations"])
+        except (OSError, ValueError, UnicodeError):
+            raise ValueError("AUTO_LEAN120_WINDOW_PLAN_UNVERIFIED") from None
+        if count == len(legacy.windows[0].ids):
+            return legacy
+        if count == len(session.windows[0].ids):
+            return session
+        raise ValueError("AUTO_LEAN120_WINDOW_PLAN_UNVERIFIED")
 
     def run(self, handoff: AssumedEnglishSubtitle, *,
             on_revision: Callable[[SubtitleRevision], object] | None = None,
@@ -110,8 +160,7 @@ class AutomaticLean120Worker:
         if (source.source_sha256 != handoff.source_sha256 or
             source.cue_count != handoff.cue_count):
             raise ValueError("AUTO_LEAN120_SOURCE_CHANGED")
-        session = ProgressiveSubtitleSession(
-            source.source_bytes, source.fmt, source.media_key)
+        session = self.progressive_session(source)
         # Validate ALL windows and the configured glossary BEFORE any on-disk
         # in-flight marker or potentially billable call.
         for window in session.windows:

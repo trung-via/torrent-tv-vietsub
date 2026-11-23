@@ -184,6 +184,43 @@ class R2RollingTests(unittest.TestCase):
         self.assertEqual(len(list(self.state.rglob("vi-final.srt"))), 1)
         self.assertFalse(list(self.state.rglob("batch-*.inflight")))
 
+    def test_new_50_cue_first_checkpoint_recovers_into_p4_after_restart(self):
+        self.worker = R2ProgressiveWorker(existing=AutomaticLean120Worker(
+            state_root=self.state, profile=self.worker.profile, glossary={},
+            runner=self.provider, first_window_cues=50))
+        self.flow.worker = self.worker
+        pending = self.activate("0" * 32)
+        first = self.run_worker(max_new_windows=1)
+        self.assertEqual(first.translated_count, 50)
+        self.assertEqual(decode_latest_test_only(pending)["translated_count"], 50)
+        fresh = R2OwnerProgressiveRegistry(
+            read_verified_current_playback=lambda: self.current)
+        fresh.bind_existing_flow(self.flow)
+        gateway = PairedActivation(
+            device_secret=KEY, supplied={},
+            authenticated_progressive_factory=fresh.resolve_progressive)
+        nonce = "9" * 32
+        reply = gateway.activate(dict(
+            schema="TTV-P4-ACTIVATE-V1", media_key=MEDIA_KEY,
+            nonce=nonce, auth=activation_request_mac(KEY, MEDIA_KEY, nonce)))
+        self.assertEqual(decode_latest_test_only(
+            gateway.feed_for(reply["session_id"]))["translated_count"], 50)
+        self.assertEqual(len(self.provider.calls), 1)
+
+    def test_new_first_window_inflight_is_pending_not_false_p4_failure(self):
+        from automatic_lean120_worker import _job_fingerprint
+        self.worker = R2ProgressiveWorker(existing=AutomaticLean120Worker(
+            state_root=self.state, profile=self.worker.profile, glossary={},
+            runner=self.provider, first_window_cues=50))
+        self.flow.worker = self.worker
+        digest = _job_fingerprint(
+            self.handoff, self.worker.profile, self.worker.glossary)
+        folder = self.state / digest
+        folder.mkdir()
+        (folder / "batch-0001.inflight").write_text("synthetic active")
+        self.assertIsNone(self.activate("a" * 32).latest())
+        self.assertEqual(self.provider.calls, [])
+
     def test_signed_tv_native_key_overrides_different_owner_profile(self):
         """A P3 request can translate yet P4 fail when aliases differ."""
         tv_media = Media("tv-profile-alias", MEDIA.torrent_hash,

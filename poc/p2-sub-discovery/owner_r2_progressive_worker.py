@@ -23,7 +23,8 @@ class R2ProgressiveWorker(AutomaticLean120Worker):
             raise ValueError("OWNER_R2_EXISTING_WORKER_REQUIRED")
         super().__init__(
             state_root=existing.state_root, profile=existing.profile,
-            glossary=existing.glossary, runner=existing.runner)
+            glossary=existing.glossary, runner=existing.runner,
+            first_window_cues=existing.first_window_cues)
         self._scoped = local()
         self._emit = emit
 
