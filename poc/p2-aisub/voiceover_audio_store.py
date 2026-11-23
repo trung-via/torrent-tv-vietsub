@@ -84,7 +84,7 @@ class VoiceoverWavStore:
                     or row["sample_rate"] != self.rate
                     or type(row["samples"]) is not int
                     or not 0 < row["samples"] <= _MAX_SAMPLES
-                    or row["duration_ms"] != (row["samples"] * 1000 + self.rate // 2) // self.rate
+                    or row["duration_ms"] != max(1, (row["samples"] * 1000 + self.rate // 2) // self.rate)
                     or row["start_ms"] != cue.start_ms
                     or row["end_ms"] != cue.end_ms
                     or not isinstance(row["wav_sha256"], str)
@@ -166,7 +166,7 @@ class VoiceoverWavStore:
                 raise ValueError("VOICEOVER_AUDIO_TOO_LARGE")
             digest = hashlib.sha256(payload).hexdigest()
             os.link(temp_name, wav_path)  # never overwrite an earlier success
-            duration = (samples * 1000 + self.rate // 2) // self.rate
+            duration = max(1, (samples * 1000 + self.rate // 2) // self.rate)
             row = {
                 "schema": _SCHEMA, "tts_key": cue.tts_key,
                 "wav_sha256": digest, "sample_rate": self.rate,
