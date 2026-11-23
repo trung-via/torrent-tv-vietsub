@@ -18,11 +18,15 @@ from verified_v3_processor import (
 
 class R2VerifiedV3Processor(VerifiedV3Processor):
     def __init__(self, *, progressive_registry: R2OwnerProgressiveRegistry,
-                 **kwargs):
+                 voiceover_consumer: object | None = None, **kwargs):
         if not isinstance(progressive_registry, R2OwnerProgressiveRegistry):
             raise ValueError("P4_ROLLING_REGISTRY_REQUIRED")
+        if (voiceover_consumer is not None
+                and not callable(getattr(voiceover_consumer, "offer", None))):
+            raise ValueError("P4_VOICEOVER_OPTIONAL_CONSUMER_INVALID")
         super().__init__(**kwargs)
         self.progressive_registry = progressive_registry
+        self.voiceover_consumer = voiceover_consumer
 
     def selected_media(self, video_filename: str, *,
                        source_fingerprint: str | None = None,
@@ -58,7 +62,22 @@ class R2VerifiedV3Processor(VerifiedV3Processor):
                 tv_session_id=tv_session_id, flow=self.flow,
                 handoff=handoff, revision=revision)
 
-        with worker.bind(publish_verified):
+        def publish_and_offer(handoff, revision) -> None:
+            # P4 must be attempted synchronously before the optional TTS path.
+            # On a stale TV session P4 rejects delivery; that does NOT cancel
+            # the already-committed film A translation or its local narration.
+            try:
+                publish_verified(handoff, revision)
+            finally:
+                if self.voiceover_consumer is not None:
+                    try:
+                        self.voiceover_consumer.offer(revision)
+                    except Exception:
+                        # The Owner keeps its normal P2/P4 independent of TTS.
+                        # A failed TTS offer never asks AGY to translate twice.
+                        pass
+
+        with worker.bind(publish_and_offer):
             return super().selected_media(
                 video_filename, source_fingerprint=source_fingerprint,
                 tv_session_id=tv_session_id,
