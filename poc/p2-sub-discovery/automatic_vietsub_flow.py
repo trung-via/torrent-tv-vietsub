@@ -267,12 +267,30 @@ class AutomaticVietsubFlow:
         The older catalog's ai_en kind is deliberately preserved for P4 and
         already finished LEAN120 checkpoints. No automatic VI source selection.
         """
+        from brain_english_inbox import (
+            BrainEnglishUnavailable, acquire_brain_english,
+        )
+        # Temporary Brain-inbox mode always verifies a staged file first.
+        # A legacy AI cache without the matching staged EN cannot win merely
+        # because its film key matches. Never silently use stale subtitles.
+        staged = None
+        if self.source_acquirer is acquire_brain_english:
+            try:
+                staged = acquire_brain_english(media, self.cache_root)
+            except BrainEnglishUnavailable as exc:
+                if str(exc) == "BRAIN_EN_NOT_STAGED":
+                    self.emit("AUTO_EN_SOURCE=BRAIN_EN_NOT_STAGED")
+                    return AutoResult("REVIEW_REQUIRED")
+                raise
         catalog = DualSubtitleCatalog(self.cache_root)
         ai = catalog.read(media, fingerprint, "ai_en")
-        if ai is None:
+        if ai is None and staged is None:
             imported = catalog.import_legacy(media, fingerprint, only_en=True)
             if imported is not None and imported.kind == "ai_en":
                 ai = imported
+        if ai is not None and staged is not None and ai.sha256 != staged.sha256:
+            self.emit("AUTO_EN_SOURCE=BRAIN_EN_CACHE_CONFLICT")
+            return AutoResult("REVIEW_REQUIRED")
         if ai is not None:
             data = ai.file.read_bytes()
             source = Asset(0, "en", "srt", data, ai.sha256, ai.cues)
@@ -291,7 +309,8 @@ class AutomaticVietsubFlow:
             from agy_opensubtitles_acquisition import AgyEnglishUnavailable
             from brain_english_inbox import BrainEnglishUnavailable
             try:
-                en_asset = self.source_acquirer(media, self.cache_root)
+                en_asset = staged if staged is not None else self.source_acquirer(
+                    media, self.cache_root)
             except BrainEnglishUnavailable as exc:
                 if str(exc) == "BRAIN_EN_NOT_STAGED":
                     self.emit("AUTO_EN_SOURCE=BRAIN_EN_NOT_STAGED")
