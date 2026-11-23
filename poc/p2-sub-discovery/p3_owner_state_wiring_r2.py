@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from automatic_lean120_worker import AutomaticLean120Worker
 from paired_activation import PairedActivation
+from voiceover_audio_lane import VoiceoverAudioLane
 from owner_r2_progressive_registry import R2OwnerProgressiveRegistry
 from owner_r2_progressive_worker import R2ProgressiveWorker
 from owner_r2_verified_processor import R2VerifiedV3Processor
@@ -24,6 +25,7 @@ class R2OwnerP3StatusComposition(OwnerP3StatusComposition):
     # Injected only by the explicitly authorized Owner, not at import or
     # by background CI. The default remains subtitle-only.
     voiceover_consumer: object | None = None
+    voiceover_lane: VoiceoverAudioLane | None = None
 
     def trusted_v3_factory(self, existing_flow: object):
         registry = self.ready_registry
@@ -51,6 +53,9 @@ class R2OwnerP3StatusComposition(OwnerP3StatusComposition):
 
 def compose_owner_redmi_status(**kwargs) -> R2OwnerP3StatusComposition:
     voiceover_consumer = kwargs.pop("voiceover_consumer", None)
+    voiceover_lane = kwargs.pop("voiceover_lane", None)
+    if voiceover_lane is not None and not isinstance(voiceover_lane, VoiceoverAudioLane):
+        raise ValueError("OWNER_R2_VOICEOVER_LANE_INVALID")
     if (voiceover_consumer is not None
             and not callable(getattr(voiceover_consumer, "offer", None))):
         raise ValueError("OWNER_R2_VOICEOVER_CONSUMER_INVALID")
@@ -67,8 +72,10 @@ def compose_owner_redmi_status(**kwargs) -> R2OwnerP3StatusComposition:
         authenticated_progressive_factory=registry.resolve_progressive,
         authenticated_variant_factory=registry.resolve_variant)
     handler = make_p3_p4_handler_r0(
-        gateway, wiring.signal, wiring.cache, wiring.ingress)
+        gateway, wiring.signal, wiring.cache, wiring.ingress,
+        voiceover_lane=voiceover_lane)
     fields = vars(wiring).copy()
     fields.update(handler=handler, p4_gateway=gateway, ready_registry=registry,
-                  voiceover_consumer=voiceover_consumer)
+                  voiceover_consumer=voiceover_consumer,
+                  voiceover_lane=voiceover_lane)
     return R2OwnerP3StatusComposition(**fields)
