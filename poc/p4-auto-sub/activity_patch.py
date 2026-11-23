@@ -169,8 +169,9 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         if (p4VoiceMode == "VOICE" && next != "VOICE" && p4VoiceSubHidden) {
             val options = engine.subtitleTracks()
             val remembered = p4VoiceRestoreSub
+            // Never replace AI captions with an arbitrary downloaded VI file:
+            // only restore the exact track that VOICE mode hid.
             val restored = options.firstOrNull { it.id == remembered }?.id
-                ?: options.lastOrNull { it.external != null }?.id
             if (restored != null) engine.selectSubtitle(restored)
             p4VoiceSubHidden = false
             p4VoiceRestoreSub = null
