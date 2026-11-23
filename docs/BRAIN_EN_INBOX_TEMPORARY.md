@@ -28,11 +28,15 @@ must never launch an OpenSubtitles search/download or a second source fallback.
    then invokes the **existing** Antigravity CLI LEAN120 worker in
    50/120-cue windows and **existing** P4/G2 revision delivery. No added
    translator, queue, receiver, APK or GStreamer.
-6. Missing staged SRT → `REVIEW_REQUIRED` /
-   `AUTO_EN_SOURCE=BRAIN_EN_NOT_STAGED`, **zero OpenSubtitles API calls and
-   zero AGY translation calls**. A stale legacy AI cache with no staged EN
-   cannot override it. A mismatched staged source/cache stops with a reason;
-   no automatic deletion/retry.
+6. Missing staged SRT at signed TV tap → **P3 `WAIT/BRAIN_EN_NOT_STAGED`
+   before enqueue/claim**. The already-authorized TV retry can dispatch
+   exactly once after the SRT is staged. An unconfigured stand-alone
+   `AutomaticVietsubFlow` still returns `REVIEW_REQUIRED` when called
+   directly without a source. Both make **zero OpenSubtitles API calls and
+   zero AGY translation calls** while EN is missing. P4 independently checks
+   the staged EN digest before reusing old AI checkpoints/feeds.
+   A mismatched staged source/cache stops with a reason; no automatic
+   deletion/retry.
 
 ## Staging command (Windows Owner context after file transfer)
 
@@ -66,7 +70,15 @@ Do not claim the end-to-end transfer is automated until a real receipt exists.
 ## Acceptance / rollback
 
 - Offline: staged, wrong-media, wrong-release, corrupted SRT, duplicate/conflict,
-  missing file, and source→LEAN120 cache tests.
+  missing file → P3 WAIT → staged source → signed retry DISPATCH exactly once,
+  cached-P4 fail-closed and source→LEAN120 cache tests.
+- Recoverable AGY CLI/account preflight errors are typed as **pre-provider** and
+  use bounded OwnerBridge retry without a model call or deletion of durable
+  unknown-effect state. Arbitrary provider exceptions remain blocked.
+- For a changed SRT under the same film fingerprint, preserve prior EN,
+  translation and active P4 receipts; do not overwrite `ai_en` while an
+  existing job may be running. Full versioned source migration remains a
+  separate explicit operation, not a silent cache deletion.
 - Windows: observed installed source SHA / loaded PID; trusted exact P3
   fingerprint and private receipt; validate staged SRT without any GET/POST.
 - AGY: one real EN→VI first-50 cue checkpoint and subsequent 120-cue revisions;
