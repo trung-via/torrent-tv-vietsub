@@ -11,13 +11,14 @@ from threading import Lock
 from typing import Callable
 
 from voiceover_revision import TranslationRevision, plan_voiceover, assess_voice_fit
+from voiceover_vieneu import DEFAULT_VOICE_CACHE_ID
 
 
 class DualSubtitleVoiceConsumer:
     def __init__(
         self, *, subtitle_sink: Callable[[object, TranslationRevision], object],
         voice_sink: Callable[[TranslationRevision], object] | None = None,
-        voice_id: str = "v3turbo_onnx_default",
+        voice_id: str = DEFAULT_VOICE_CACHE_ID,
         max_waiting_films: int = 4,
         status: Callable[[str], object] | None = None,
     ) -> None:
@@ -132,7 +133,8 @@ class DualSubtitleVoiceConsumer:
 class VieNeuBatchConsumer:
     """Owner-local sink: resume committed WAV cues and synthesize only missing."""
 
-    def __init__(self, *, wav_store: object, tts: object, voice_id: str,
+    def __init__(self, *, wav_store: object, tts: object,
+                 voice_id: str = DEFAULT_VOICE_CACHE_ID,
                  on_audio_ready: Callable[[TranslationRevision, object, object],
                                           object] | None = None):
         if on_audio_ready is not None and not callable(on_audio_ready):
