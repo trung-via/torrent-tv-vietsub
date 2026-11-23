@@ -38,7 +38,7 @@ $child = @'
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $promptText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'prompt.txt') -Raw -Encoding UTF8
-& agy -p $promptText --output-format json *> (Join-Path $PSScriptRoot 'agy-private-output.txt')
+& agy -p $promptText --output-format json --mode auto --sandbox *> (Join-Path $PSScriptRoot 'agy-private-output.txt')
 if ($LASTEXITCODE -ne 0) { exit 1 }
 exit 0
 '@
