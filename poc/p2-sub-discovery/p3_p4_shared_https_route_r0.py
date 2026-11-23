@@ -140,6 +140,10 @@ def make_p3_p4_handler_r0(
                 return
 
             if not is_state and status not in ("DISPATCH", "SKIP"):
+                # The old pinned HostOps telemetry schema has no Brain-EN
+                # bucket. Keep it intact; record a fixed, private reason here.
+                if reason in ("BRAIN_EN_NOT_STAGED", "BRAIN_EN_INVALID"):
+                    owner_full_trace("P3_BRAIN_EN_GATE", reason=reason)
                 # WAIT/CHECK_LOCAL_VI_TRACKS is a real reader/probe HOLD,
                 # never an unexplained rejection or an Owner policy refusal.
                 reason_bucket = (
