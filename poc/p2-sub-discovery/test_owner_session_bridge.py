@@ -570,17 +570,26 @@ class OwnerSessionBridgeTests(unittest.TestCase):
     def test_owner_health_continues_during_long_p2_event(self):
         """The event worker may block on an AGY window without stale P3."""
         import os
-        import time
+        import threading
         ready_ticks = []
+        event_started = threading.Event()
+        tick_during_event = threading.Event()
 
         class EndSyntheticJob(Exception):
             pass
 
         def long_running_event(**_kwargs):
-            time.sleep(0.16)
+            event_started.set()
+            self.assertTrue(tick_during_event.wait(timeout=3),
+                            "Owner health ticker did not run during P2")
             self.assertEqual(read_owner_agent_health(owner_root=self.root),
                              "READY")
             raise EndSyntheticJob()
+
+        def observe_tick(state):
+            ready_ticks.append(state)
+            if state == "READY" and event_started.is_set():
+                tick_during_event.set()
 
         with (mock.patch.dict(os.environ,
                               {"CI": "false", "GITHUB_ACTIONS": "false"}),
@@ -594,8 +603,9 @@ class OwnerSessionBridgeTests(unittest.TestCase):
                     private_root=self.root, cache_root=self.root / "cache",
                     state_root=self.root / "state", interval_seconds=0.5,
                     emit=lambda _line: None,
-                    diagnostic_tick=ready_ticks.append)
-        self.assertGreaterEqual(ready_ticks.count("READY"), 2)
+                    diagnostic_tick=observe_tick)
+        self.assertTrue(tick_during_event.is_set())
+        self.assertGreaterEqual(ready_ticks.count("READY"), 1)
         self.assertEqual(read_owner_agent_health(owner_root=self.root),
                          "STOPPED")
 
