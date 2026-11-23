@@ -1,12 +1,25 @@
 """Offline regressions for subtitle->voice fan-out; no provider or TV."""
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import unittest
 
 from cue_pipeline import Cue, render
-from progressive_handoff import SubtitleRevision
 from voiceover_revision import plan_voiceover, assess_voice_fit
+
+
+@dataclass(frozen=True)
+class SubtitleRevision:
+    """Test-shaped #179 revision until the candidate merges into main."""
+    version: int
+    source_sha256: str
+    media_key: str
+    fmt: str
+    translated_count: int
+    total_count: int
+    last_end_ms: int
+    sha256: str
+    payload: bytes
 
 
 A = "media." + "a" * 64
