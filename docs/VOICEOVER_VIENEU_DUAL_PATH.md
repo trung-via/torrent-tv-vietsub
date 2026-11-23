@@ -22,7 +22,7 @@ Redmi OMP signed current-film request
 
 `poc/p2-aisub/voiceover_revision.py` consumes the actual existing `SubtitleRevision`, validates its payload hash, cue count and horizon, and yields only unsynthesized cue IDs for a specified voice. A local TTS-success receipt is represented by the exact deterministic `tts_key` for a contiguous prefix of cues. `tts_key` includes exact media identity, source hash, voice ID, cue number, text and timeline. This supports A -> B -> A without re-synthesizing A, while a new voice or rewritten translation generates different keys.
 
-The module makes no network/model call, does not mark unproduced audio as successful and cannot send to a TV. Real durable receipt storage, VieNeu adapter, output files, LAN manifest and native playback are next implementation units; they must be integrated with the current #179/#182 candidate, not deployed from this prototype in isolation.
+The module makes no network/model call, does not mark unproduced audio as successful and cannot send to a TV. An opt-in lazy VieNeu v3 Turbo ONNX/CPU streaming adapter now exists in `voiceover_vieneu.py` and is tested with an injected fake engine. It is not invoked by Owner and does not install model weights. Real durable receipt storage, output WAV/PCM encoding, LAN manifest and native playback remain next implementation units; integrate with the current #179/#182 candidate rather than deploying this prototype in isolation.
 
 ## VieNeu R1 adapter and local audio receipt
 
