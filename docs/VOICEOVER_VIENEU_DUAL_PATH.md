@@ -51,3 +51,22 @@ Remote options in existing OMP UI: `Vietsub AI` (text), `Thuyết minh AI` (voic
 **Rollback:** disable narration consumer/TV option and delete only explicitly generated TTS trial data after matching identities; leave existing EN/VI checkpoints, Owner and P4 G2 untouched. No owner restart, paid provider replay, cache deletion, APK install or media transfer is authorized by this source prototype.
 
 Related: #170, #179, #180, #181, #182.
+
+
+## Implementation checkpoint — 2026-11-23 R1 (Draft PR #183)
+
+1. PR #183 has been integrated **as a stacked merge commit** on exact #179 HEAD `efeff245c98f2100164d037e8fe9e77798ea28cf`, with base `fix/p2-dual-candidates-20261122`. This avoids copying 351 unmerged AGY/P4 files or claiming the merge of #179 is complete. If #179 changes, refresh exact base and rerun changed-path tests before Brain review.
+2. `owner_r2_verified_processor.py` now attempts the **existing verified** P4 publisher before offering the same committed revision to a separately injected optional voiceover consumer. If P4 rejects an outdated TV session, the already paid P2 batch can still be voiced locally, but no P4 revision is delivered to the stale session. The original R2 checkpoint worker and provider invocation remain unchanged.
+3. `p3_owner_state_wiring_r2.py` accepts an **optional** `voiceover_consumer` injection. Default remains `None`: no VieNeu activation on an existing Windows Owner simply because this PR exists. The Owner entrypoint does **not** yet construct or opt in a production VieNeu consumer; there is no boot-time model download or new task.
+4. `voiceover_fanout.py`: one bounded local audio scheduling slot, coalescing cumulative revisions, P4 priority, separate film keys; `VieNeuBatchConsumer` emits each finished cue to an optional callback without waiting for the full 50/120-cue batch. This callback is a narrow seam for future **authorized** session-gated transport, not a live TV route.
+5. `voiceover_audio_store.py`: 48 kHz mono PCM16 `.wav` under private absolute root, hashed success receipts, no-clobber creation, durable `.inflight` unknown-effect stop, and reuse for the exact text/timeline/voice/film. It does not store subtitle or audio in GitHub artifacts.
+6. `voiceover_signed_offer.py`: signed **metadata** offer, scoped to paired P4 session, media key, English source, subtitle revision, TTS cue key and verified WAV hash. Pure receiver contract rejects stale session, wrong media, OFF and tampering, without asserting Android audio apply. It deliberately does **not** put binary WAV in the existing `SignedSubtitleOffer` envelope.
+
+**Current status / explicit missing consumers:** source-only CIs pass for this prototype, but Windows VieNeu runtime, actual pinned source/APK, a same-listener authenticated audio-GET route, PCM/AudioTrack overlay on native OMP/VLC, SPDIF mix, pause/seek/volume ducking and real Redmi audio ACK are **NOT EXECUTED**. No actual audio has been delivered to or heard on Redmi. Model license and private weight installation need a separate recorded benchmark. An HMAC-valid audio manifest is not proof of an Android receiver.
+
+### Future deployment boundary
+
+- First pin the installed Owner/AGY source to the accepted #179 + #183 combined tree, verify no uncertain P2 call is in flight, and check the target TV/Owner session; do not restart an active translation.
+- Provision VieNeu only under Owner-private Windows runtime, with explicit, selected voice and model/weight license verified. For a local preview, instantiate `VieNeuBatchConsumer(VoiceoverWavStore(private_root), VieNeuOnnxSession(voice=...), voice_id="v3turbo_onnx_<pinned_weight_revision>")`, then inject `DualSubtitleVoiceConsumer(..., voice_sink=..., voice_id=same)` into `compose_owner_redmi_status`. The `subtitle_sink` on that class is not used if the integrated R2 processor calls its `offer` method; existing P4 remains authoritative.
+- Audio segment/manifest HTTP must be added to the **existing P3/P4 HTTPS listener**, not a second server, and gated on the current signed TV session and viewer's audio choice. No unauthenticated LAN audio URLs or public GitHub binary transfer.
+- A small actual OMP audio-overlay proof on the user's Redmi + SPDIF is required before automatically enabling voice. If native separate audio is impossible, benchmark FFmpeg segment mix with direct video-copy, not GStreamer. An audio TTS job should never block the P4 subtitle hot reload.
