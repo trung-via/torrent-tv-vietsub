@@ -19,10 +19,21 @@ internal class P4VoiceoverAudioTrack {
     internal class Prepared private constructor(
         val offer: P4VoiceoverOffer, private val player: AudioTrack,
     ) {
-        internal fun play() { player.play() }
-        internal fun pause() { player.pause() }
+        private var running = false
+        internal fun play() {
+            if (!running) {
+                player.play()
+                running = true
+            }
+        }
+        internal fun pause() {
+            if (running) {
+                player.pause()
+                running = false
+            }
+        }
         internal fun close() {
-            try { player.pause() } catch (_: Exception) {}
+            try { pause() } catch (_: Exception) {}
             try { player.flush() } catch (_: Exception) {}
             player.release()
         }
