@@ -59,9 +59,7 @@ class VoiceOfferTests(unittest.TestCase):
         self.assertEqual(self.receive(), "DUPLICATE_NOOP")
 
     def test_wrong_film_source_or_voice_never_reuses_wav(self):
-        for bad in (
-            replace(self.rev, media_key="media."+"c"*64) if False else Revision("media."+"c"*64),
-        ):
+        for bad in (Revision("media." + "c"*64),):
             with self.assertRaisesRegex(ValueError, "CUE_OR_SOURCE_MISMATCH"):
                 sign_voiceover_offer(
                     revision=bad, receipt=self.receipt,
