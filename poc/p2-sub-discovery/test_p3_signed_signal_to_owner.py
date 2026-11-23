@@ -73,7 +73,7 @@ class SignedIngressTests(unittest.TestCase):
             self.adapter.bind_brain_english_inbox(self.cache)
         staged = self.root.parent / "source.srt"
         staged.write_text(
-            "1\\n00:00:00,000 --> 00:00:02,000\\nSample English\\n",
+            "1\n00:00:00,000 --> 00:00:02,000\nSample English\n",
             encoding="utf-8")
         stage_brain_english(
             cache_root=self.cache,
@@ -101,7 +101,7 @@ class SignedIngressTests(unittest.TestCase):
         self.adapter.bind_brain_english_inbox(cache)
         file = self.root.parent / "other.srt"
         file.write_text(
-            "1\\n00:00:00,000 --> 00:00:02,000\\nSample\\n",
+            "1\n00:00:00,000 --> 00:00:02,000\nSample\n",
             encoding="utf-8")
         stage_brain_english(
             cache_root=cache,
