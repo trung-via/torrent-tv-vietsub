@@ -268,7 +268,8 @@ try {
     }
     Push-Location -LiteralPath $app
     try {
-        $verify = @(& py -3 -I -B -c 'import owner_p3_p4_entrypoint, brain_english_inbox; print("OWNER_BRAIN_R2_IMPORT_PASS")' 2>&1)
+        $installedCheck = 'import sys;sys.path.insert(0,sys.argv[1]);import owner_p3_p4_entrypoint,brain_english_inbox;print("OWNER_BRAIN_R2_IMPORT_PASS")'
+        $verify = @(& py -3 -I -B -c $installedCheck $app 2>&1)
         if ($LASTEXITCODE -ne 0 -or
             @($verify | Where-Object { [string]$_ -ceq 'OWNER_BRAIN_R2_IMPORT_PASS' }).Count -ne 1) {
             Hold 'OFFLINE_IMPORT_FAILED'
@@ -283,8 +284,15 @@ try {
     $failure = $_
     Write-Output 'OWNER_BRAIN_R2_RECOVERY=ATTEMPTING_PRIVATE_ROLLBACK'
     if (-not $stopped) {
-        # Task may have been disabled while waiting for a residual worker.
-        # With no changed files we do not force a second effect/restart.
+        # No source files were changed. Restore availability only if the
+        # previous owner worker has exited and the queue remains untouched.
+        if (@(Workers).Count -eq 0 -and
+            [string](CheckTask).State -ceq 'Disabled') {
+            NoOpenWork
+            if (StartOwner $oldPid) {
+                Write-Output 'OWNER_BRAIN_R2_RECOVERY=NO_FILES_CHANGED_OLD_OWNER_RUNNING'
+            }
+        }
         throw
     }
     StopOwner
