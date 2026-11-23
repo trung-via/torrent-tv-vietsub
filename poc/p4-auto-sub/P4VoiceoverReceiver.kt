@@ -63,16 +63,7 @@ internal class P4VoiceoverReceiver(
         engine: String,
         onNativeAudio: (P4VoiceoverOffer) -> Boolean,
     ): String {
-        validate(offer)
-        val expected = hmacHex(canonical(offer), secret)
-        if (!MessageDigest.isEqual(hexBytes(expected), hexBytes(offer.signature))) {
-            throw IllegalArgumentException("P4_VOICE_SIGNATURE_INVALID")
-        }
-        if (offer.sessionId != sessionId || offer.mediaKey != mediaKey ||
-            offer.sourceSha256 != sourceSha256 || activeSession != sessionId ||
-            activeMedia != mediaKey) {
-            throw IllegalArgumentException("P4_VOICE_STALE_SESSION_OR_MEDIA")
-        }
+        verify(offer, activeSession, activeMedia)
         if (presentationMode != "BOTH" && presentationMode != "VOICE") {
             return "P4_VOICE_DEFERRED_USER_CHOICE"
         }
@@ -86,6 +77,23 @@ internal class P4VoiceoverReceiver(
         if (!accepted) return "P4_VOICE_NOT_QUEUED"
         heard[offer.ttsKey] = offer.wavSha256
         return "P4_VOICE_QUEUED_NOT_AUDIBLE_PROOF"
+    }
+
+    /** Verify before downloading WAV. No ACK or playback side effect. */
+    @Synchronized
+    fun verify(
+        offer: P4VoiceoverOffer, activeSession: String, activeMedia: String,
+    ) {
+        validate(offer)
+        val expected = hmacHex(canonical(offer), secret)
+        if (!MessageDigest.isEqual(hexBytes(expected), hexBytes(offer.signature))) {
+            throw IllegalArgumentException("P4_VOICE_SIGNATURE_INVALID")
+        }
+        if (offer.sessionId != sessionId || offer.mediaKey != mediaKey ||
+            offer.sourceSha256 != sourceSha256 || activeSession != sessionId ||
+            activeMedia != mediaKey) {
+            throw IllegalArgumentException("P4_VOICE_STALE_SESSION_OR_MEDIA")
+        }
     }
 
     @Synchronized
