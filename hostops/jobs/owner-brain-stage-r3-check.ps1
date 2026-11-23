@@ -19,14 +19,14 @@ $manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 |
     ConvertFrom-Json
 if ($manifest.schema -cne 'TTV-OWNER-RELEASE-STAGE-V1' -or
     $manifest.release_id -cne 'brain-en-182-r3-20261123' -or
-    $manifest.source_tree -cne '76b890227324fc650d84f93b658c8873f9955297' -or
+    $manifest.source_tree -cne '4215726ea0ecae24bbac4fb94b75817c3e984e0f' -or
     $manifest.mode -cne 'STAGE_ONLY' -or
     @($manifest.files).Count -ne 16) {
     throw 'OWNER_BRAIN_STAGE_MANIFEST_INVALID'
 }
 $seen = @{}
 foreach ($row in $manifest.files) {
-    if ($row.path -cnotmatch '^poc/p2-sub-discovery/[a-z0-9_]+[.]py$' -or
+    if ($row.path -cnotmatch '^poc/(p2-sub-discovery|p2-aisub)/[a-z0-9_]+[.]py$' -or
         $row.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
         $seen.ContainsKey([string]$row.path)) {
         throw 'OWNER_BRAIN_STAGE_MANIFEST_ENTRY_INVALID'
@@ -42,6 +42,6 @@ foreach ($row in $manifest.files) {
         throw 'OWNER_BRAIN_STAGE_SOURCE_HASH_MISMATCH'
     }
 }
-Write-Output 'OWNER_BRAIN_STAGE_SOURCE=PASS_PARSE_14_HASHES'
+Write-Output 'OWNER_BRAIN_STAGE_SOURCE=PASS_PARSE_16_HASHES'
 Write-Output 'OWNER_BRAIN_STAGE_OWNER=NOT_ACCESSED'
 Write-Output 'OWNER_BRAIN_STAGE_PROVIDER_TV=NOT_RUN'
