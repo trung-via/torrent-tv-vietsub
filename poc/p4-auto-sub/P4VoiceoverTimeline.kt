@@ -9,7 +9,8 @@ import kotlin.math.abs
  */
 internal object P4VoiceoverTimeline {
     fun discontinuity(previousMs: Long?, currentMs: Long): Boolean =
-        previousMs != null && abs(currentMs - previousMs) > 2_500L
+        previousMs != null &&
+        (currentMs + 500L < previousMs || currentMs - previousMs > 2_500L)
 
     fun decision(
         positionMs: Long, startMs: Long, endMs: Long,
