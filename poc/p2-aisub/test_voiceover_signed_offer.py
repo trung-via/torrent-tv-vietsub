@@ -82,6 +82,16 @@ class VoiceOfferTests(unittest.TestCase):
             self.receive(replace(self.offer, end_ms=9999))
         self.assertEqual(self.receive(), "AUDIO_MANIFEST_ACCEPTED")
 
+    def test_seek_rearms_only_same_active_session(self):
+        self.assertEqual(self.receive(), "AUDIO_MANIFEST_ACCEPTED")
+        self.assertEqual(self.receive(), "DUPLICATE_NOOP")
+        with self.assertRaisesRegex(ValueError, "SEEK_WRONG_SESSION"):
+            self.receiver.reset_for_seek(
+                active_session="wrong", active_media_key=self.rev.media_key)
+        self.receiver.reset_for_seek(
+            active_session=self.session, active_media_key=self.rev.media_key)
+        self.assertEqual(self.receive(), "AUDIO_MANIFEST_ACCEPTED")
+
     def test_applier_failure_no_ack_and_later_retry(self):
         self.assertEqual(self.receive(on_native_audio=lambda x: False),
                          "AUDIO_APPLY_FAILED_NO_ACK")
