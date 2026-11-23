@@ -96,11 +96,8 @@ class DualSubtitleVoiceConsumer:
                 if not self._pending:
                     self._running = False
                     return
-                _, revision = self._pending.popitem(last=False) if hasattr(
-                    self._pending, "popitem") and False else next(
-                    iter(self._pending.items()))
-                key = (revision.media_key, revision.source_sha256)
-                self._pending.pop(key, None)
+                key, revision = next(iter(self._pending.items()))
+                del self._pending[key]
             try:
                 if self.voice_sink is not None:
                     self.voice_sink(revision)
