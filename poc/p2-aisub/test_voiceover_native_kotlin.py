@@ -41,6 +41,20 @@ class NativeVoiceoverContract(unittest.TestCase):
                 "P4_VOICEOVER_NATIVE_HMAC_AND_SESSION_PASS_NOT_TV_AUDIO",
                 result.stdout)
 
+    def test_android_client_is_composed_into_original_omp_player_only(self):
+        client = (ROOT / "P4VoiceoverLanClient.kt").read_text("utf-8")
+        composer = (ROOT / "apply.py").read_text("utf-8")
+        self.assertIn('VOICE_RECEIVER_FILE = "P4VoiceoverReceiver.kt"', composer)
+        self.assertIn('VOICE_LAN_CLIENT_FILE = "P4VoiceoverLanClient.kt"', composer)
+        self.assertIn("VOICE_RECEIVER_FILE, VOICE_LAN_CLIENT_FILE", composer)
+        self.assertIn("P4PinnedTls.open", client)
+        self.assertIn("TTV-P4-VOICE-READ-V1", client)
+        self.assertIn("P4VoiceoverOffer(", client)
+        self.assertIn("P4_VOICE_WAV_HASH_INVALID", client)
+        for forbidden in ("ServerSocket", "WebView", "BroadcastReceiver",
+                          "http://", "startService(", "ACTION_VIEW"):
+            self.assertNotIn(forbidden, client)
+
     def test_no_android_socket_or_external_player_in_policy(self):
         content = (ROOT / "P4VoiceoverReceiver.kt").read_text("utf-8")
         for forbidden in ("ServerSocket", "HttpURLConnection",
