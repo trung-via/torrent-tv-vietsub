@@ -112,7 +112,8 @@ internal class P4VoiceoverAudioTrack {
         val current = active
         if (current != null) {
             val cue = current.offer
-            if (positionMs < cue.startMs - 500L || positionMs >= cue.endMs) {
+            val speechEnd = minOf(cue.endMs, cue.startMs + cue.durationMs.toLong() + 150L)
+            if (positionMs < cue.startMs - 500L || positionMs >= speechEnd) {
                 current.close()
                 active = null
             } else {
