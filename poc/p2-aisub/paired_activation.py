@@ -183,6 +183,7 @@ class PairedActivation:
         self.__sources = dict(supplied)
         self.__on_activate = on_activate
         self.__feeds: dict[str, SessionRevisionFeed] = {}
+        self.__voice_nonces: dict[tuple[str, str], float] = {}
         self.__refreshers: dict[str, Callable[[], None]] = {}
         self.__seen: dict[str,float] = {}
         self.__lock = Lock()
@@ -321,6 +322,61 @@ class PairedActivation:
             response["variant"] = variant
         return response
 
+    def authorize_voice_read(self, session_id: str, nonce: str | None,
+                             signature: str | None, scope: str) -> bool:
+        """An independent HMAC domain for the existing paired audio routes.
+
+        The historical SessionRevisionFeed and P2 offline bundle are unchanged.
+        This controller owns the key, nonce-replay ledger and source identity.
+        """
+        if (not isinstance(session_id, str)
+                or not SESSION_RX.fullmatch(session_id)
+                or not isinstance(scope, str)
+                or not re.fullmatch(r"(manifest:[0-9]{1,6}|audio:[0-9a-f]{64})", scope)
+                or not isinstance(nonce, str)
+                or not NONCE_RX.fullmatch(nonce)
+                or not isinstance(signature, str)
+                or not MAC_RX.fullmatch(signature)):
+            return False
+        with self.__lock:
+            feed = self.__feeds.get(session_id)
+            if feed is None:
+                return False
+            key = derive_session_secret(
+                self.__key, session_id, feed.media_key, feed.source_sha256)
+            expected = hmac.new(
+                key,
+                ("TTV-P4-VOICE-READ-V1\n" + session_id + "\n"
+                 + scope + "\n" + nonce).encode("ascii"),
+                hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, signature):
+                return False
+            now = time.monotonic()
+            self.__voice_nonces = {
+                k: ts for k, ts in self.__voice_nonces.items()
+                if now - ts < 600.0
+            }
+            token = (session_id, nonce)
+            if token in self.__voice_nonces or len(self.__voice_nonces) >= 1024:
+                return False
+            self.__voice_nonces[token] = now
+        return True
+
+    def sign_voiceover(self, feed: SessionRevisionFeed, revision: object,
+                       receipt: object, voice_id: str) -> object:
+        """Sign a verified cue for this controller's original active P4 key."""
+        from voiceover_signed_offer import sign_voiceover_offer
+        if not isinstance(feed, SessionRevisionFeed):
+            raise ValueError("P4_VOICE_SESSION_NOT_PAIRED")
+        with self.__lock:
+            if self.__feeds.get(feed.session_id) is not feed:
+                raise ValueError("P4_VOICE_SESSION_NOT_PAIRED")
+            key = derive_session_secret(
+                self.__key, feed.session_id, feed.media_key, feed.source_sha256)
+        return sign_voiceover_offer(
+            revision=revision, receipt=receipt, voice_id=voice_id,
+            session_id=feed.session_id, pairing_secret=key)
+
     def feed_for(self, session_id: str) -> SessionRevisionFeed | None:
         with self.__lock:return self.__feeds.get(session_id)
 
@@ -428,8 +484,8 @@ def make_paired_handler(
                 if not re.fullmatch(r"[0-9a-f]{64}", tts_key):
                     self.send_error(404); return
                 scope = "audio:" + tts_key
-            if not feed.authorize_voice_read(
-                    self.headers.get("X-P4-Nonce"),
+            if not controller.authorize_voice_read(
+                    sid, self.headers.get("X-P4-Nonce"),
                     self.headers.get("X-P4-Authorization"), scope):
                 self.send_error(401); return
             if not controller.refresh_for(sid):
@@ -437,7 +493,8 @@ def make_paired_handler(
                 self.send_error(403); return
             try:
                 if is_manifest:
-                    payload = voiceover_lane.manifest(feed, after_cue=after_cue)
+                    payload = voiceover_lane.manifest(
+                        feed, signer=controller.sign_voiceover, after_cue=after_cue)
                     has_offers = bool(json.loads(payload)["offers"])
                     if not has_offers:
                         self.send_response(204)
