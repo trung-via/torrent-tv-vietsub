@@ -58,7 +58,7 @@ def _brief(media: Media) -> str:
     return (
         "You are acquiring an EXISTING English subtitle for one explicitly "
         "owner-requested video. Find the best matching subtitle on "
-        "OpenSubtitles.com, download it into your CURRENT WORKING DIRECTORY "
+        "OpenSubtitles.com or OpenSubtitles.org, download it into your CURRENT WORKING DIRECTORY "
         "as english.srt (UTF-8 plain SRT), and report the actual release name "
         "and the original OpenSubtitles subtitle page URL. Decide your own "
         "lawful search and download method: website, permitted browser tools, "
@@ -119,8 +119,8 @@ def _validate_source(media: Media, payload: dict[str, str]) -> None:
         hostname = (url.hostname or "").lower()
         if (url.scheme != "https" or url.username or url.password or url.fragment
                 or url.port not in (None, 443)
-                or not (hostname == "opensubtitles.com"
-                        or hostname.endswith(".opensubtitles.com"))
+                or not any(hostname == domain or hostname.endswith("." + domain)
+                           for domain in ("opensubtitles.com", "opensubtitles.org"))
                 or url.path in ("", "/")):
             raise ValueError("source URL not OpenSubtitles")
     except (TypeError, ValueError):
