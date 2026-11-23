@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-brain-r2-diagnostic",
-  "category": "diagnostics",
+  "operation": "owner-brain-r2-install",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-brain-r2-diagnostic.ps1",
-  "script_sha256": "ee59e37ce2e22134a735245b9541e8c26a73728d362bffac1d12f3923ceec566",
+  "script_path": "hostops/laptop-ops/operations/owner-brain-r2-install.ps1",
+  "script_sha256": "c80cc8433283f3bfe1b62f6bad8e2ad49c2f2d2c0e13fb8d3c8c6fc7839e8747",
   "arguments": []
 }
