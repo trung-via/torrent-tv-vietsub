@@ -21,19 +21,52 @@ if ($request.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or
 $private = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\LaptopHostOps'
 $reason = 'NO_PRIOR_BRAIN_INSTALL_LOG'
 $priorLog = $false
+$phase = 'NOT_OBSERVED'
+$errorKind = 'NONE'
+$sourceLine = 0
 if (Test-Path -LiteralPath $private -PathType Container) {
     $folders = @(Get-ChildItem -LiteralPath $private -Directory -Filter 'run-*' |
         Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 12)
     foreach ($folder in $folders) {
         if ($folder.Name -ceq ('run-' + $request.nonce)) { continue }
+        # The previous diagnostic's own log also contains OWNER_BRAIN_R2.
+        # Select the actual failed install using its Owner-private manifest,
+        # never by a broad substring match of arbitrary log text.
+        $manifestFile = Join-Path $folder.FullName 'manifest.json'
+        if (-not (Test-Path -LiteralPath $manifestFile -PathType Leaf) -or
+            (Get-Item -LiteralPath $manifestFile).Length -gt 8192) { continue }
+        try {
+            $priorManifest = Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json
+            if ($priorManifest.operation -cne 'owner-brain-r2-install') { continue }
+        } catch { continue }
         $log = Join-Path $folder.FullName 'full-owner-output.log'
         if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { continue }
         if ((Get-Item -LiteralPath $log).Length -gt 4194304) { continue }
         $tail = @(Get-Content -LiteralPath $log -Tail 300 -ErrorAction SilentlyContinue)
-        if (-not (@($tail | Where-Object {
-            [string]$_ -match 'OWNER_BRAIN_R2(?:_|=)'
-        }).Count -gt 0)) { continue }
         $priorLog = $true
+        $joined = $tail -join [string][char]10
+        if ($joined.Contains('OWNER_BRAIN_R2_BACKUP=ALL_14_ORIGINALS_RECORDED')) {
+            $phase = 'BACKUP_CREATED'
+        } elseif ($joined.Contains('OWNER_BRAIN_R2_PREFLIGHT=PASS_OWNER_RUNNING_IDLE_STAGED_IMPORT')) {
+            $phase = 'PREFLIGHT_COMPLETE'
+        } else { $phase = 'BEFORE_PREFLIGHT' }
+        if ($joined -match '(?i)owner-brain-r2-install[.]ps1:(\d{1,3})' -or
+            $joined -match '(?i)operation[.]ps1:(\d{1,3})') {
+            $sourceLine = [int]$Matches[1]
+        }
+        if ($joined -match 'PropertyNotFoundException|property.*cannot be found') {
+            $errorKind = 'PS_MISSING_PROPERTY'
+        } elseif ($joined -match 'CommandNotFoundException|term.*not recognized') {
+            $errorKind = 'PS_COMMAND_NOT_FOUND'
+        } elseif ($joined -match 'ParserError|Unexpected token') {
+            $errorKind = 'PS_PARSE'
+        } elseif ($joined -match 'ParameterBindingException|Cannot bind argument') {
+            $errorKind = 'PS_ARGUMENT'
+        } elseif ($joined -match 'FileNotFoundException|PathNotFound') {
+            $errorKind = 'FILE_NOT_FOUND'
+        } elseif ($joined -match 'OperationStopped|RuntimeException') {
+            $errorKind = 'PS_RUNTIME'
+        } else { $errorKind = 'OTHER_PRIVATE_EXCEPTION' }
         $hold = @($tail | ForEach-Object {
             if ([string]$_ -match 'OWNER_BRAIN_R2=HOLD_([A-Z0-9_]{3,75})') {
                 $Matches[1]
@@ -117,6 +150,9 @@ $record = [ordered]@{
     observed_utc_epoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     prior_log = $priorLog
     reason = $reason
+    phase = $phase
+    error_kind = $errorKind
+    source_line = $sourceLine
     task = $task
     heartbeat = $heartbeat
     matched = $matched
