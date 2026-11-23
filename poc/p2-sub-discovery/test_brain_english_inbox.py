@@ -73,6 +73,53 @@ class BrainInboxTests(unittest.TestCase):
         with self.assertRaisesRegex(BrainEnglishUnavailable, "STAGE_CONFLICT"):
             self.stage()
 
+    def test_p4_rejects_legacy_cache_without_staged_brain_english(self):
+        from owner_r2_progressive_registry import R2OwnerProgressiveRegistry
+        from p3_p4_ready_registry import P3ReadyRejected
+        flow = self._flow(FakeAntigravity())
+        with self.assertRaisesRegex(P3ReadyRejected, "P4_BRAIN_EN_NOT_READY"):
+            R2OwnerProgressiveRegistry._recover_handoff(flow, self.fp, MEDIA)
+        self.assertFalse(list((self.root / "state").rglob("batch-*.json")))
+
+    def test_p4_rejects_old_ai_cache_for_new_brain_staged_source(self):
+        from owner_r2_progressive_registry import R2OwnerProgressiveRegistry
+        from p3_p4_ready_registry import P3ReadyRejected
+        from opensubtitles import Asset, write_private_cache
+        self.stage()
+        old = srt(124)
+        digest = hashlib.sha256(old).hexdigest()
+        old_asset = Asset(0, "en", "srt", old, digest, 124)
+        old_file = write_private_cache(self.cache, MEDIA, old_asset)
+        DualSubtitleCatalog(self.cache).record(
+            MEDIA, self.fp, "ai_en", old_asset, old_file,
+            release_matched=True)
+        flow = self._flow(FakeAntigravity())
+        with self.assertRaisesRegex(P3ReadyRejected, "P4_BRAIN_EN_CACHE_CONFLICT"):
+            R2OwnerProgressiveRegistry._recover_handoff(flow, self.fp, MEDIA)
+        self.assertEqual(flow.selected_media(
+            NAME, verified_media=MEDIA,
+            source_fingerprint=self.fp).status, "REVIEW_REQUIRED")
+
+    def test_owner_cli_preflight_failure_is_retryable_without_model_call(self):
+        from owner_session_bridge import PreProviderTransient
+        self.stage()
+        translated = FakeAntigravity()
+        flow = self._flow(translated)
+        def owner_cli_missing():
+            raise ValueError("AGY_CLI_NOT_INSTALLED_FOR_OWNER")
+        flow._model_preflight = owner_cli_missing
+        with self.assertRaisesRegex(
+                PreProviderTransient, "AGY_OWNER_PREFLIGHT_UNAVAILABLE"):
+            flow.selected_media(NAME, verified_media=MEDIA,
+                                source_fingerprint=self.fp)
+        self.assertEqual(translated.calls, [])
+        self.assertFalse(list((self.root / "state").rglob("batch-*.inflight")))
+        flow._model_preflight = lambda: None
+        self.assertEqual(flow.selected_media(
+            NAME, verified_media=MEDIA,
+            source_fingerprint=self.fp).status, "VIETSUB_READY")
+        self.assertEqual([len(ids) for ids in translated.calls], [50, 75])
+
     def test_stage_requires_verified_local_input(self):
         with self.assertRaisesRegex(BrainEnglishUnavailable, "FINGERPRINT_INVALID"):
             stage_brain_english(
