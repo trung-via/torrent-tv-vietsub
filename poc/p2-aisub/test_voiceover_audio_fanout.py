@@ -167,9 +167,14 @@ class FanoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             store = VoiceoverWavStore(Path(root))
             tts = FakeTts()
-            sink = VieNeuBatchConsumer(wav_store=store, tts=tts,
-                                      voice_id="v3turbo_test")
+            ready = []
+            sink = VieNeuBatchConsumer(
+                wav_store=store, tts=tts, voice_id="v3turbo_test",
+                on_audio_ready=lambda revision, cue, receipt:
+                    ready.append((revision.version, cue.number, receipt.tts_key)))
             self.assertEqual(len(sink(mkrev(cues=2))), 2)
+            self.assertEqual(len(ready), 2)
+            self.assertEqual([row[1] for row in ready], [1, 2])
             self.assertEqual(len(sink(mkrev(cues=2))), 2)
             self.assertEqual(tts.calls, [1, 2])
 
