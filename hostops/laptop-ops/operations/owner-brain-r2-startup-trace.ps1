@@ -78,6 +78,10 @@ if (-not (Test-Path -LiteralPath $logFile -PathType Leaf)) {
                 $kind = if ($name -in $known) { $name } else { 'OTHER' }
                 if ($value -match '^([A-Z][A-Z0-9_]{4,90})(?:$|\s)') {
                     $code = [string]$Matches[1]
+                } elseif ($name -ceq 'TypeError' -and
+                    $value.Contains('unexpected keyword argument') -and
+                    $value.Contains('first_window_cues')) {
+                    $code = 'P2_FIRST_WINDOW_CUES_REJECTED'
                 } else {
                     $code = 'UNCLASSIFIED_EXCEPTION'
                 }
@@ -94,6 +98,33 @@ if (-not (Test-Path -LiteralPath $logFile -PathType Leaf)) {
         }
     }
 }
+# Source signature only: no imports, provider calls or file mutations.
+$worker = 'MISSING'
+$progressive = 'MISSING'
+$base = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge\app\poc\p2-aisub'
+foreach ($rule in @(
+    @('automatic_lean120_worker.py','AutomaticLean120Worker','worker'),
+    @('progressive_handoff.py','ProgressiveSubtitleSession','progressive'))) {
+    $file = Join-Path $base $rule[0]
+    $result = 'MISSING'
+    if (Test-Path -LiteralPath $file -PathType Leaf) {
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Length -le 0 -or $item.Length -gt 524288 -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            $result = 'INVALID'
+        } else {
+            $body = [IO.File]::ReadAllText($file, [Text.UTF8Encoding]::new($false,$true))
+            $className = [regex]::Escape([string]$rule[1])
+            $pattern = '(?s)class\s+' + $className +
+                '\b.{0,800}?def\s+__init__\(.{0,450}?first_window_cues'
+            $result = if ([regex]::IsMatch($body,$pattern)) {
+                'SUPPORTS_FIRST50'
+            } else { 'NO_FIRST50_CONSTRUCTOR' }
+        }
+    }
+    if ($rule[2] -ceq 'worker') { $worker = $result }
+    else { $progressive = $result }
+}
 $record = [ordered]@{
     schema = 'TTV-OWNER-BRAIN-R2-STARTUP-DIAG-V1'
     nonce = [string]$request.nonce
@@ -104,6 +135,8 @@ $record = [ordered]@{
     code = $code
     boots = $bootCount
     failures = $failureCount
+    worker = $worker
+    progressive = $progressive
 }
 $out = Join-Path $spool ('Receipts\owner-brain-startup-' + $request.nonce + '.json')
 if (Test-Path -LiteralPath $out) { throw 'OWNER_STARTUP_DIAG_RECEIPT_EXISTS' }
