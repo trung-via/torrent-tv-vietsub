@@ -233,7 +233,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
         $result = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         $fields = @('schema','nonce','observed_utc_epoch','prior_log',
-                    'reason','task','heartbeat','matched','missing','invalid')
+                    'reason','phase','error_kind','source_line','task','heartbeat','matched','missing','invalid')
         $reasonCode = [string]$result.reason
         if ($result.schema -cne 'TTV-OWNER-BRAIN-R2-DIAG-V1' -or
             $result.nonce -cne $nonce -or
@@ -244,6 +244,13 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 $reasonCode -cnotin @('NO_PRIOR_BRAIN_INSTALL_LOG',
                                      'FAILED_ROLLED_BACK','INSTALL_SUCCEEDED_IN_LOG',
                                      'UNCLASSIFIED_PRIVATE_FAILURE')) -or
+            $result.phase -cnotin @('NOT_OBSERVED','BEFORE_PREFLIGHT',
+                                      'PREFLIGHT_COMPLETE','BACKUP_CREATED') -or
+            $result.error_kind -cnotin @('NONE','PS_MISSING_PROPERTY',
+                'PS_COMMAND_NOT_FOUND','PS_PARSE','PS_ARGUMENT',
+                'FILE_NOT_FOUND','PS_RUNTIME','OTHER_PRIVATE_EXCEPTION') -or
+            ($result.source_line -isnot [int] -and $result.source_line -isnot [long]) -or
+            $result.source_line -lt 0 -or $result.source_line -gt 999 -or
             $result.task -cnotin @('Running','Ready','Disabled') -or
             $result.heartbeat -cnotin @('FRESH_PID_BOUND','NOT_VERIFIED') -or
             ($result.matched -isnot [int] -and $result.matched -isnot [long]) -or
@@ -262,6 +269,9 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
         Write-Output ('HOSTOPS_BRAIN_R2_PRIOR_LOG=' + [string]$result.prior_log)
         Write-Output ('HOSTOPS_BRAIN_R2_REASON=' + $reasonCode)
+        Write-Output ('HOSTOPS_BRAIN_R2_PHASE=' + $result.phase)
+        Write-Output ('HOSTOPS_BRAIN_R2_ERROR_KIND=' + $result.error_kind)
+        Write-Output ('HOSTOPS_BRAIN_R2_SOURCE_LINE=' + $result.source_line)
         Write-Output ('HOSTOPS_BRAIN_R2_TASK=' + $result.task)
         Write-Output ('HOSTOPS_BRAIN_R2_HEARTBEAT=' + $result.heartbeat)
         Write-Output ('HOSTOPS_BRAIN_R2_INSTALLED_MATCH=' + $result.matched)
