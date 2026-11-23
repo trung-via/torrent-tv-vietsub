@@ -21,6 +21,10 @@ from owner_session_bridge import owner_full_trace
 
 @dataclass(frozen=True)
 class R2OwnerP3StatusComposition(OwnerP3StatusComposition):
+    # Injected only by the explicitly authorized Owner, not at import or
+    # by background CI. The default remains subtitle-only.
+    voiceover_consumer: object | None = None
+
     def trusted_v3_factory(self, existing_flow: object):
         registry = self.ready_registry
         worker = getattr(existing_flow, "worker", None)
@@ -36,6 +40,7 @@ class R2OwnerP3StatusComposition(OwnerP3StatusComposition):
         registry.bind_existing_flow(existing_flow)
         return R2VerifiedV3Processor(
             progressive_registry=registry,
+            voiceover_consumer=self.voiceover_consumer,
             flow=existing_flow,
             private_media_root=self.private_media_root,
             read_verified_current_playback=self.current.read_v3,
@@ -45,6 +50,10 @@ class R2OwnerP3StatusComposition(OwnerP3StatusComposition):
 
 
 def compose_owner_redmi_status(**kwargs) -> R2OwnerP3StatusComposition:
+    voiceover_consumer = kwargs.pop("voiceover_consumer", None)
+    if (voiceover_consumer is not None
+            and not callable(getattr(voiceover_consumer, "offer", None))):
+        raise ValueError("OWNER_R2_VOICEOVER_CONSUMER_INVALID")
     secret = kwargs.get("paired_device_secret")
     if kwargs.get("enable_verified_vietsub_ready") is not True:
         raise ValueError("OWNER_R2_VERIFIED_READY_REQUIRED")
@@ -60,5 +69,6 @@ def compose_owner_redmi_status(**kwargs) -> R2OwnerP3StatusComposition:
     handler = make_p3_p4_handler_r0(
         gateway, wiring.signal, wiring.cache, wiring.ingress)
     fields = vars(wiring).copy()
-    fields.update(handler=handler, p4_gateway=gateway, ready_registry=registry)
+    fields.update(handler=handler, p4_gateway=gateway, ready_registry=registry,
+                  voiceover_consumer=voiceover_consumer)
     return R2OwnerP3StatusComposition(**fields)
