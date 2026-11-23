@@ -1,0 +1,51 @@
+# One exact-PR183 build-only gate. Does not touch Owner runtime or Redmi.
+name: Torrent TV - VieNeu PR183 Android Debug CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p4-auto-sub/**'
+      - '.github/workflows/tv-vieneu-pr183-android-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: torrent-tv-vieneu-pr183-debug
+  cancel-in-progress: true
+jobs:
+  android-debug:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.number == 183 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.ref == 'feature/vieneu-voiceover-contract-20261123' &&
+      github.event.pull_request.base.ref == 'fix/p2-dual-candidates-20261122'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact PR183 HEAD, not merge ref
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Compose OMP G1/G2/P4/P3/VieNeu and build Android Debug
+        shell: powershell
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\build-vieneu-pr183-on-runner.ps1'
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -ne 0) { throw 'VIENEU_PR183_BUILD_SCRIPT_PARSE_FAIL' }
+          & $script -AppRepoRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PR_HEAD
+          if ($LASTEXITCODE -ne 0 -or -not $?) {
+            throw 'VIENEU_PR183_EXACT_HEAD_ANDROID_BUILD_FAILED'
+          }
+      - name: Source-only acceptance marker
+        if: success()
+        shell: powershell
+        run: |
+          Write-Host 'VIENEU_PR183_ANDROID_DEBUG_PASS_NO_ADB_NO_TV_NO_PROVIDER_NO_RELEASE'
