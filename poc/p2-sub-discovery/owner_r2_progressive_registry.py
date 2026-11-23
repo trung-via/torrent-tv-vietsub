@@ -51,7 +51,8 @@ class _RollingReceipt:
 
 class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
     def __init__(self, *, read_verified_current_playback: Callable,
-                 on_status: Callable[[str], None] | None = None):
+                 on_status: Callable[[str], None] | None = None,
+                 voiceover_lane: object | None = None):
         super().__init__(
             read_verified_current_playback=read_verified_current_playback)
         if on_status is not None and not callable(on_status):
@@ -59,6 +60,10 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         self._rolling: dict[str, _RollingReceipt] = {}
         self._flow: object | None = None
         self._on_status = on_status
+        if voiceover_lane is not None and not callable(
+                getattr(voiceover_lane, "bind_verified_media", None)):
+            raise P3ReadyRejected("P4_VOICE_MEDIA_BINDER_INVALID")
+        self._voiceover_lane = voiceover_lane
 
     def _status(self, code: str) -> None:
         """Only source-owned enum; status reporting cannot affect delivery."""
@@ -278,6 +283,14 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                                    current.file_index)
         self._current(media, current.tv_session_id, fingerprint)
         handoff = self._recover_handoff(flow, fingerprint, media)
+        if handoff is not None and self._voiceover_lane is not None:
+            # Current signed TV + cached English receipt have already passed
+            # their R2 checks. The worker cache key differs from P4 media key;
+            # persist this mapping in the one Owner before voice GET.
+            self._voiceover_lane.bind_verified_media(
+                worker_media_key=handoff.media_key,
+                tv_media_key=media_key,
+                source_sha256=handoff.source_sha256)
         if handoff is None:
             # May be a VI source or an early request before EN cache exists.
             # The original completed-VI factory is still allowed to resolve.
