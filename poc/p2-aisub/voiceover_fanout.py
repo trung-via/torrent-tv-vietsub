@@ -57,8 +57,17 @@ class DualSubtitleVoiceConsumer:
         try:
             return self.subtitle_sink(handoff, revision)
         finally:
-            if self.voice_sink is not None:
-                self._offer(revision)
+            self.offer(revision)
+
+    def offer(self, revision: TranslationRevision) -> None:
+        """Queue a committed revision after an already-attempted P4 callback.
+
+        This separate method lets the existing R2 processor keep its verified
+        session gate without re-registering a second subtitle sink.
+        """
+        plan_voiceover(revision, voice_id=self.voice_id)
+        if self.voice_sink is not None:
+            self._offer(revision)
 
     def _offer(self, revision: TranslationRevision) -> None:
         key = revision.media_key, revision.source_sha256
