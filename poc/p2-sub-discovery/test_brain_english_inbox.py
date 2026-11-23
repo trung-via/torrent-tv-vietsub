@@ -76,6 +76,7 @@ class BrainInboxTests(unittest.TestCase):
     def test_p4_rejects_legacy_cache_without_staged_brain_english(self):
         from owner_r2_progressive_registry import R2OwnerProgressiveRegistry
         from p3_p4_ready_registry import P3ReadyRejected
+        self.cache.mkdir(parents=True, exist_ok=True)
         flow = self._flow(FakeAntigravity())
         with self.assertRaisesRegex(P3ReadyRejected, "P4_BRAIN_EN_NOT_READY"):
             R2OwnerProgressiveRegistry._recover_handoff(flow, self.fp, MEDIA)
