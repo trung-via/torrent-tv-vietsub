@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.spacesarmat.omp.player
 
-import kotlin.math.abs
-
 /**
  * Small, JVM-testable alignment policy for VieNeu cues versus OMP's VLC clock.
  * Never infer playback position from wall time; buffering/pausing stops narration.
