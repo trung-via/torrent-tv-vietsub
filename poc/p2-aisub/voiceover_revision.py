@@ -1,7 +1,7 @@
 """Offline contract for one AGY translation revision -> incremental voice-over cues.
 
 This module NEVER downloads subtitles, calls AGY/VieNeu, starts a service,
-modifies the TV or publishes to LAN. The existing SubtitleRevision is the sole
+modifies the TV or publishes to LAN. The existing TranslationRevision is the sole
 translated source for both subtitle delivery and the optional TTS consumer.
 """
 from __future__ import annotations
@@ -10,10 +10,23 @@ from dataclasses import dataclass
 import hashlib
 import json
 import re
-from typing import Sequence
+from typing import Protocol, Sequence, runtime_checkable
 
 from cue_pipeline import parse_cues
-from progressive_handoff import SubtitleRevision
+
+
+@runtime_checkable
+class TranslationRevision(Protocol):
+    """Structural contract of #179 TranslationRevision without importing Draft code."""
+    version: int
+    media_key: str
+    source_sha256: str
+    fmt: str
+    translated_count: int
+    total_count: int
+    last_end_ms: int
+    sha256: str
+    payload: bytes
 
 _VOICE = re.compile(r"[a-zA-Z0-9_-]{1,64}\Z")
 
@@ -43,7 +56,7 @@ class VoiceoverPlan:
         return not self.new_cues
 
 
-def _audio_key(revision: SubtitleRevision, cue: object, voice_id: str) -> str:
+def _audio_key(revision: TranslationRevision, cue: object, voice_id: str) -> str:
     # Key never depends on the ephemeral TV session. Reopening A can reuse
     # audio, while only the live player session may receive/play it.
     canonical = {
@@ -62,7 +75,7 @@ def _audio_key(revision: SubtitleRevision, cue: object, voice_id: str) -> str:
 
 
 def plan_voiceover(
-    revision: SubtitleRevision, *, voice_id: str,
+    revision: TranslationRevision, *, voice_id: str,
     completed_keys: Sequence[str] = (),
 ) -> VoiceoverPlan:
     """Pure, deterministic incremental planner.
@@ -71,7 +84,7 @@ def plan_voiceover(
     contiguous cue prefix, not merely previously enqueued work. Failed,
     interrupted and ambiguous TTS outputs are never marked completed here.
     """
-    if not isinstance(revision, SubtitleRevision):
+    if not isinstance(revision, TranslationRevision):
         raise ValueError("VOICEOVER_SUBTITLE_REVISION_REQUIRED")
     if not isinstance(voice_id, str) or not _VOICE.fullmatch(voice_id):
         raise ValueError("VOICEOVER_VOICE_ID_INVALID")
