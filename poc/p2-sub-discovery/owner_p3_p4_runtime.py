@@ -119,6 +119,11 @@ def _serve_and_consume(*, server: HTTPServer, wiring: OwnerP3StatusComposition,
                        agent: Callable[..., object]) -> None:
     """Lifecycle seam tested with fake server/agent; no extra queue/worker."""
     _validate_wiring(wiring)
+    # Wire the exact Owner cache before listening: a missing Brain SRT
+    # must not be consumed into a terminal REVIEW_REQUIRED event.
+    from p3_signed_signal_to_owner import SignedP3ToOwner
+    if isinstance(getattr(wiring, "signal", None), SignedP3ToOwner):
+        wiring.signal.bind_brain_english_inbox(cache_root)
     listener = Thread(target=server.serve_forever,
                       kwargs={"poll_interval": 0.2},
                       name="torrent-tv-owner-p3-p4-https", daemon=True)
