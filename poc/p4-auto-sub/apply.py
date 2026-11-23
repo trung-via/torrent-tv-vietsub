@@ -247,8 +247,10 @@ def run(root: Path, *, apply: bool = False) -> None:
     native_sources = [Path(__file__).with_name(name) for name in
                       (RECEIVER_FILE, LAN_CLIENT_FILE, LEDGER_FILE,
                        ACTIVATION_CLIENT_FILE, PAIRING_STORE_FILE,
-                       OWNER_BOOTSTRAP_FILE, TLS_CLIENT_FILE,
-                       VOICE_RECEIVER_FILE, VOICE_LAN_CLIENT_FILE)]
+                       OWNER_BOOTSTRAP_FILE, TLS_CLIENT_FILE)]
+    # Preserve the historic P4 TLS source set and add optional narration files.
+    native_sources.extend(Path(__file__).with_name(name) for name in
+                          (VOICE_RECEIVER_FILE, VOICE_LAN_CLIENT_FILE))
     native_targets = [pkg / p.name for p in native_sources]
     if any(not p.is_file() for p in native_sources) or any(p.exists() for p in native_targets):
         raise ValueError("P4_NATIVE_SOURCE_MISSING_OR_PRESENT")
