@@ -33,10 +33,23 @@ class SignedP3ToOwner:
         self._verifier = verifier
         self._read = read_verified_current_selection
         self._active_selection: tuple[str, str, int] | None = None
+        self._brain_inbox_root: Path | None = None
         self._bridge = TrustedPlaybackToOwner(
             owner_root=owner_root,
             read_verified_current_playback=self._read,
             emit=emit)
+
+    def bind_brain_english_inbox(self, cache_root: Path) -> None:
+        """Bind the real Owner-private cache before the HTTPS listener starts.
+
+        No second queue/worker. If Brain EN is missing, keep the signed tap
+        retryable without consuming a one-shot P3 dedupe token or P2 claim.
+        """
+        if (self._brain_inbox_root is not None
+                or not isinstance(cache_root, Path)
+                or not cache_root.is_absolute() or cache_root.is_symlink()):
+            raise ValueError("P3_BRAIN_INBOX_BIND_INVALID")
+        self._brain_inbox_root = cache_root
 
     def on_wire(self, body: bytes, *, now_ms: int | None = None) -> TriggerDecision:
         """A single already scoped HTTPS request from paired TV.
@@ -77,6 +90,25 @@ class SignedP3ToOwner:
                 or current.torrent_hash.lower() != signal.torrent_hash
                 or current.file_index != signal.file_index):
             return TriggerDecision("HOLD", "TV_VIEWER_REQUEST_CURRENT_MEDIA_MISMATCH")
+        # Missing Brain EN is pre-queue WAIT, not a terminal .review/claim.
+        # The unchanged TV retry may then succeed after the file is staged.
+        # Avoid inspecting the private source at all for unauthorized media.
+        if (self._brain_inbox_root is not None
+                and current.owner_auto_enabled is True
+                and current.media_rights_approved is True
+                and current.local_vi_state == "ABSENT"):
+            from matcher import Media
+            from brain_english_inbox import (
+                BrainEnglishUnavailable, acquire_brain_english,
+            )
+            media = Media(current.server_id, current.torrent_hash,
+                          current.file_index, current.video_name)
+            try:
+                acquire_brain_english(media, self._brain_inbox_root)
+            except BrainEnglishUnavailable as exc:
+                if str(exc) == "BRAIN_EN_NOT_STAGED":
+                    return TriggerDecision("WAIT", "BRAIN_EN_NOT_STAGED")
+                return TriggerDecision("HOLD", "BRAIN_EN_INVALID")
         # The existing P3 gate still enforces owner consent, explicit REQUESTED,
         # rights, local VI and exact media. It will read the source again;
         # no trust/filename from the signed event is injected into gate.
