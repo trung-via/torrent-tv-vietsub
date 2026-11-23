@@ -83,15 +83,28 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             self._flow = flow
 
     def resolve_ai_default(self, media_key: str) -> VerifiedVietsubReady | None:
-        """V1 is the AI choice in dual mode, never a downloaded VI alias."""
+        """V1 is AI only; never return a stale completed VI source."""
         with self._lock:
             flow = self._flow
             receipt = self._ready.get(media_key)
-            if (getattr(flow, "dual_mode", False) is True
-                    and receipt is not None and receipt.origin == "vi"):
-                # The separately signed V2 source remains available for the
-                # manual VI command; do not mislabel it as AI in the UI.
+        if getattr(flow, "dual_mode", False) is True and receipt is not None:
+            if receipt.origin == "vi":
+                # Downloaded Vietnamese remains manual V2 only.
                 return None
+            from brain_english_inbox import (
+                BrainEnglishUnavailable, acquire_brain_english,
+            )
+            if getattr(flow, "source_acquirer", None) is acquire_brain_english:
+                # Completed P2 artifacts must obey the SAME verified staged
+                # Brain source as the rolling checkpoint path. No old EN
+                # cache may win through the distinct ready-vietsub factory.
+                try:
+                    staged = acquire_brain_english(receipt.media, flow.cache_root)
+                except BrainEnglishUnavailable:
+                    raise P3ReadyRejected("P4_BRAIN_EN_NOT_READY") from None
+                if (receipt.source_sha256 != staged.sha256
+                        or receipt.total_cues != staged.cues):
+                    raise P3ReadyRejected("P4_BRAIN_EN_CACHE_CONFLICT")
         return self.resolve(media_key)
 
     def resolve_variant(self, media_key: str, variant: str) -> VerifiedVietsubReady | None:
