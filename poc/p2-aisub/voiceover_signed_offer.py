@@ -121,6 +121,13 @@ class PairedVoiceoverReceiver:
         self._secret = pairing_secret
         self._seen: dict[str, str] = {}
 
+    def reset_for_seek(self, *, active_session: str,
+                       active_media_key: str) -> None:
+        """Only the same active paired player may re-arm already heard cues."""
+        if active_session != self._session or active_media_key != self._media:
+            raise ValueError("P4_VOICE_SEEK_WRONG_SESSION_OR_MEDIA")
+        self._seen.clear()
+
     def receive(self, offer: SignedVoiceoverOffer, *,
                 active_session: str, active_media_key: str,
                 presentation_mode: str, on_native_audio: Callable[
