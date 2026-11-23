@@ -233,7 +233,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
         $diag = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
         $fields = @('schema','nonce','observed_utc_epoch','status',
-                    'stage','kind','code','boots','failures')
+                    'stage','kind','code','boots','failures','worker','progressive')
         if ($diag.schema -cne 'TTV-OWNER-BRAIN-R2-STARTUP-DIAG-V1' -or
             $diag.nonce -cne $nonce -or
             (@($diag.PSObject.Properties.Name | Sort-Object) -join ',') -cne
@@ -244,6 +244,8 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             $diag.stage -cnotmatch '^[A-Z][A-Z0-9_]{2,75}$' -or
             $diag.kind -cnotmatch '^[A-Za-z][A-Za-z0-9_]{2,50}$' -or
             $diag.code -cnotmatch '^[A-Z][A-Z0-9_]{2,90}$' -or
+            $diag.worker -cnotin @('MISSING','INVALID','SUPPORTS_FIRST50','NO_FIRST50_CONSTRUCTOR') -or
+            $diag.progressive -cnotin @('MISSING','INVALID','SUPPORTS_FIRST50','NO_FIRST50_CONSTRUCTOR') -or
             ($diag.boots -isnot [int] -and $diag.boots -isnot [long]) -or
             ($diag.failures -isnot [int] -and $diag.failures -isnot [long])) {
             throw 'HOSTOPS_BRAIN_STARTUP_SCHEMA_INVALID'
@@ -261,6 +263,8 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         Write-Output ('HOSTOPS_BRAIN_STARTUP_CODE=' + $diag.code)
         Write-Output ('HOSTOPS_BRAIN_STARTUP_BOOT_COUNT=' + $diag.boots)
         Write-Output ('HOSTOPS_BRAIN_STARTUP_FAILURE_COUNT=' + $diag.failures)
+        Write-Output ('HOSTOPS_BRAIN_P2_WORKER_FIRST50=' + $diag.worker)
+        Write-Output ('HOSTOPS_BRAIN_P2_PROGRESSIVE_FIRST50=' + $diag.progressive)
     }
     if ($receipt.operation -ceq 'owner-brain-r2-diagnostic') {
         $path = Join-Path $outbox ('owner-brain-r2-diagnostic-' + $nonce + '.json')
