@@ -25,6 +25,7 @@ from typing import Callable, Type
 from assumed_source_handoff import AssumedEnglishSubtitle
 from verified_vietsub_ready import VerifiedVietsubReady
 from lan_revision_feed import SessionRevisionFeed, private_lan_ip
+from voiceover_audio_lane import VoiceoverAudioLane
 
 MEDIA_RX = re.compile(r"media\.[0-9a-f]{64}\Z")
 NONCE_RX = re.compile(r"[0-9a-f]{32}\Z")
@@ -344,11 +345,14 @@ class PairedActivation:
 
 def make_paired_handler(
         controller: PairedActivation, *,
-        on_event: Callable[[str], object] | None = None
+        on_event: Callable[[str], object] | None = None,
+        voiceover_lane: VoiceoverAudioLane | None = None,
         ) -> Type[BaseHTTPRequestHandler]:
     """Optional owner-private fixed-code telemetry; never echo errors to TV."""
     if on_event is not None and not callable(on_event):
         raise ValueError("P4_EVENT_CALLBACK_INVALID")
+    if voiceover_lane is not None and not isinstance(voiceover_lane, VoiceoverAudioLane):
+        raise ValueError("P4_VOICE_LANE_INVALID")
 
     def report(code: str) -> None:
         if on_event is not None:
@@ -393,7 +397,80 @@ def make_paired_handler(
             self.wfile.write(data)
             report("P4_ACTIVATE_HTTP_200")
 
+        def _voice_get(self) -> None:
+            # The original authenticated P4 listener handles metadata and WAV.
+            # Never call a model or accept a filesystem path from the client.
+            if voiceover_lane is None:
+                self.send_error(404); return
+            is_manifest = self.path.startswith("/p4/voice/")
+            is_audio = self.path.startswith("/p4/audio/")
+            if not is_manifest and not is_audio:
+                self.send_error(404); return
+            parts = self.path.strip("/").split("/")
+            if (len(parts) != (3 if is_manifest else 4)
+                    or parts[:2] != ["p4", "voice" if is_manifest else "audio"]):
+                self.send_error(404); return
+            sid = parts[2]
+            if not SESSION_RX.fullmatch(sid):
+                self.send_error(404); return
+            feed = controller.feed_for(sid)
+            if feed is None:
+                self.send_error(404); return
+            if is_manifest:
+                raw_cursor = self.headers.get("X-P4-After-Cue", "0")
+                if (not re.fullmatch(r"(0|[1-9][0-9]{0,5})", raw_cursor)
+                        or int(raw_cursor) > 100_000):
+                    self.send_error(400); return
+                after_cue = int(raw_cursor)
+                scope = "manifest:" + raw_cursor
+            else:
+                tts_key = parts[3]
+                if not re.fullmatch(r"[0-9a-f]{64}", tts_key):
+                    self.send_error(404); return
+                scope = "audio:" + tts_key
+            if not feed.authorize_voice_read(
+                    self.headers.get("X-P4-Nonce"),
+                    self.headers.get("X-P4-Authorization"), scope):
+                self.send_error(401); return
+            if not controller.refresh_for(sid):
+                report("P4_VOICE_CURRENT_SOURCE_HOLD")
+                self.send_error(403); return
+            try:
+                if is_manifest:
+                    payload = voiceover_lane.manifest(feed, after_cue=after_cue)
+                    has_offers = bool(json.loads(payload)["offers"])
+                    if not has_offers:
+                        self.send_response(204)
+                        self.send_header("Cache-Control", "no-store")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return
+                    kind = "application/json"
+                    digest = None
+                else:
+                    result = voiceover_lane.audio_bytes(feed, tts_key)
+                    if result is None:
+                        self.send_error(404); return
+                    payload, digest = result
+                    kind = "audio/wav"
+            except Exception:
+                report("P4_VOICE_VERIFICATION_HOLD")
+                self.send_error(403); return
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            if digest is not None:
+                self.send_header("X-P4-Audio-Sha256", digest)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            report("P4_VOICE_MANIFEST_HTTP_200" if is_manifest
+                   else "P4_VOICE_WAV_HTTP_200")
+
         def do_GET(self) -> None:
+            if self.path.startswith(("/p4/voice/", "/p4/audio/")):
+                return self._voice_get()
             prefix="/p4/revision/"
             if not self.path.startswith(prefix):
                 self.send_error(404);return
