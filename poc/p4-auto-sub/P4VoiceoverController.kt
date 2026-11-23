@@ -146,8 +146,12 @@ internal class P4VoiceoverController(
                                     selected, sid, mediaKey, mode, "VLC") {
                                     player.enqueue(prepared)
                                 }
-                                if (outcome == "P4_VOICE_QUEUED_NOT_AUDIBLE_PROOF" ||
-                                    outcome == "P4_VOICE_DUPLICATE") {
+                                if (outcome == "P4_VOICE_QUEUED_NOT_AUDIBLE_PROOF") {
+                                    cursor = selected.cueNumber
+                                } else if (outcome == "P4_VOICE_DUPLICATE") {
+                                    // Receiver did not call enqueue: release the
+                                    // newly prepared track, then skip this cue.
+                                    prepared.close()
                                     cursor = selected.cueNumber
                                 } else if (outcome != "P4_VOICE_NOT_QUEUED") {
                                     prepared.close()
