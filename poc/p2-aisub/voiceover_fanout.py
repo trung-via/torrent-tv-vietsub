@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from typing import Callable
 
-from voiceover_revision import TranslationRevision, plan_voiceover
+from voiceover_revision import TranslationRevision, plan_voiceover, assess_voice_fit
 
 
 class DualSubtitleVoiceConsumer:
@@ -34,6 +34,7 @@ class DualSubtitleVoiceConsumer:
         self._pending: dict[tuple[str, str], TranslationRevision] = {}
         self._seen: dict[tuple[str, str], tuple[int, str]] = {}
         self._running = False
+        self._active_key: tuple[str, str] | None = None
         self._closed = False
         self._executor: ThreadPoolExecutor | None = None
 
@@ -82,10 +83,14 @@ class DualSubtitleVoiceConsumer:
                     self._note("VOICEOVER_STALE_REVISION_NOOP")
                     return
                 if revision.version == version:
-                    if revision.sha256 == digest:
+                    if revision.sha256 != digest:
+                        self._note("VOICEOVER_REVISION_COLLISION_HOLD")
                         return
-                    self._note("VOICEOVER_REVISION_COLLISION_HOLD")
-                    return
+                    # Reoffering an unchanged revision after an earlier TTS
+                    # failure must be possible. The WAV receipt/inflight
+                    # check (not _seen) decides whether a provider call is safe.
+                    if key in self._pending or key == self._active_key:
+                        return
             if key not in self._pending and len(self._pending) >= self.max_waiting_films:
                 self._note("VOICEOVER_BACKLOG_FULL_SUBTITLE_UNAFFECTED")
                 return
@@ -104,9 +109,11 @@ class DualSubtitleVoiceConsumer:
             with self._lock:
                 if not self._pending:
                     self._running = False
+                    self._active_key = None
                     return
                 key, revision = next(iter(self._pending.items()))
                 del self._pending[key]
+                self._active_key = key
             try:
                 if self.voice_sink is not None:
                     self.voice_sink(revision)
@@ -152,7 +159,10 @@ class VieNeuBatchConsumer:
             # Release each verified cue as soon as its WAV is committed,
             # without waiting for the complete 50/120-cue batch.
             # Sink failures never discard successful audio or rerun AGY.
-            if self.on_audio_ready is not None:
+            if (self.on_audio_ready is not None
+                    and assess_voice_fit(
+                        cue_duration_ms=cue.end_ms - cue.start_ms,
+                        audio_duration_ms=present.duration_ms) == "PLAY_AS_IS"):
                 try:
                     self.on_audio_ready(revision, cue, present)
                 except Exception:
