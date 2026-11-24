@@ -25,11 +25,11 @@ try {
     $history=Join-Path $spool 'History'
     foreach($f in @(Get-ChildItem -LiteralPath $history -Filter 'request-*.json' -File)) {
         $p=Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
-        if ($p.source_commit -ceq '5b70fa94a9a9296b9861dc5d6cf7ae0cc58a3126' -and $p.nonce -cmatch '^[a-f0-9]{32}$') {
+        if ($p.source_commit -ceq '0f9f1a0e46951cbf70d067a30a76ac578034452d' -and $p.nonce -cmatch '^[a-f0-9]{32}$') {
             $log=Join-Path $base ('LaptopHostOps\run-'+$p.nonce+'\full-owner-output.log')
             if(Test-Path -LiteralPath $log -PathType Leaf) {
                 $body=Get-Content -LiteralPath $log -Raw
-                $prior=if($body -match 'EXACT_FILM_VI_CHECKPOINT_QUARANTINED') {'CACHE_MOVED'} elseif($body -match 'TARGET_RESET_FAILED') {'TARGET_RESET_FAILED'} elseif($body -match 'CURRENT_FILM_PLAN_UNVERIFIED') {'PLAN_FAILED'} elseif($body -match 'WORKERS_STILL_RUNNING') {'WORKERS_STILL_RUNNING'} elseif($body -match 'P2_ACTIVE_OR_UNKNOWN_EFFECT') {'P2_BUSY'} elseif($body -match 'FRESH_OWNER_NOT_VERIFIED') {'START_FAILED'} elseif($body -match 'Cannot convert|Cannot bind argument|Unexpected token|SyntaxError|ParserError|NameError|TypeError|AttributeError') {'SCRIPT_ERROR'} else {'PRIVATE_FAILURE_OTHER'}
+                $prior=if($body -match 'Cannot find a process|No process with the specified|ProcessCommandException|NoProcessFoundForGivenId|No matching.*process') {'PROCESS_EXIT_RACE'} elseif($body -match 'Stop-ScheduledTask|0x8004130[Bb]|task is not running') {'TASK_STOP_ERROR'} elseif($body -match 'Cannot overwrite variable|read.only or constant') {'VARIABLE_COLLISION'} elseif($body -match 'Access is denied|AccessDenied|0x80070005') {'ACCESS_DENIED'} elseif($body -match 'EXACT_FILM_VI_CHECKPOINT_QUARANTINED') {'CACHE_MOVED'} elseif($body -match 'TARGET_RESET_FAILED') {'TARGET_RESET_FAILED'} elseif($body -match 'CURRENT_FILM_PLAN_UNVERIFIED') {'PLAN_FAILED'} elseif($body -match 'WORKERS_STILL_RUNNING') {'WORKERS_STILL_RUNNING'} elseif($body -match 'P2_ACTIVE_OR_UNKNOWN_EFFECT') {'P2_BUSY'} elseif($body -match 'FRESH_OWNER_NOT_VERIFIED') {'START_FAILED'} elseif($body -match 'Cannot convert|Cannot bind argument|Unexpected token|SyntaxError|ParserError|NameError|TypeError|AttributeError') {'SCRIPT_ERROR'} else {'PRIVATE_FAILURE_OTHER'}
             }
         }
     }
@@ -81,7 +81,8 @@ function AssertIdle {
     if ($locks.Count -ne 0) { Hold 'P2_ACTIVE_OR_UNKNOWN_EFFECT' }
 }
 function StopVerifiedWorkers {
-    for ($i=0; $i -lt 8; $i++) {
+    $script:phase='DRAIN_WORKERS'
+    for ($i=0; $i -lt 5; $i++) {
         if (@(OwnerWorkers).Count -eq 0) { return }
         Start-Sleep -Seconds 1
     }
@@ -90,21 +91,39 @@ function StopVerifiedWorkers {
     $app = Join-Path $owner 'app\poc\p2-sub-discovery'
     $allowed = @((Join-Path $app 'owner_p3_p4_entrypoint.py'),
                  (Join-Path $app 'owner_session_bridge.py'))
-    foreach ($worker in $workers) {
-        $matches = @($allowed | Where-Object {
-            [string]$worker.CommandLine -and
-            $worker.CommandLine.IndexOf($_,[StringComparison]::OrdinalIgnoreCase) -ge 0
-        })
-        $who = Invoke-CimMethod -InputObject $worker -MethodName GetOwnerSid -ErrorAction Stop
-        if ($matches.Count -ne 1 -or $who.ReturnValue -ne 0 -or $who.Sid -cne $sid) {
-            Hold 'WORKER_IDENTITY_UNVERIFIED'
-        }
-    }
+    $script:phase='STOP_VERIFIED_WORKERS'
     foreach ($worker in $workers) {
         AssertIdle
-        Stop-Process -Id ([int]$worker.ProcessId) -Force -ErrorAction Stop
+        if ([string](OwnerTask).State -cne 'Disabled') { Hold 'OWNER_TASK_REENABLED' }
+        $live = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$worker.ProcessId)
+        if ($null -eq $live) { continue }
+        $pathHits = @($allowed | Where-Object {
+            [string]$live.CommandLine -and
+            $live.CommandLine.IndexOf($_,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+        if ($pathHits.Count -ne 1 -or $live.CommandLine -cne $worker.CommandLine -or
+            $live.CreationDate -ne $worker.CreationDate) { Hold 'WORKER_IDENTITY_CHANGED' }
+        try {
+            $who = Invoke-CimMethod -InputObject $live -MethodName GetOwnerSid -ErrorAction Stop
+        } catch {
+            if ($null -eq (Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$live.ProcessId))) { continue }
+            throw
+        }
+        if ($who.ReturnValue -ne 0 -or $who.Sid -cne $sid) {
+            if ($null -eq (Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$live.ProcessId))) { continue }
+            Hold 'WORKER_IDENTITY_UNVERIFIED'
+        }
+        try { Stop-Process -Id ([int]$live.ProcessId) -Force -ErrorAction Stop }
+        catch {
+            if ($null -ne (Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$live.ProcessId))) { throw }
+        }
     }
-    if (@(OwnerWorkers).Count -ne 0) { Hold 'WORKERS_STILL_RUNNING' }
+    $script:phase='VERIFY_STOPPED'
+    for($i=0;$i -lt 10;$i++){
+        if(@(OwnerWorkers).Count -eq 0){return}
+        Start-Sleep -Seconds 1
+    }
+    Hold 'WORKERS_STILL_RUNNING'
 }
 function StartOwner([long]$oldPid) {
     $since = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -260,11 +279,19 @@ try {
     }
     Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/trung-via/torrent-tv-vietsub/a66d9464c4f73878e5292dd685002878ecc3720a/poc/p2-sub-discovery/p3_p4_ready_registry.py' -OutFile $stage -TimeoutSec 30
     if((Hash $stage) -cne $targetHash){Hold 'REGISTRY_STAGE_HASH'}
-    $script:phase='STOP_OWNER'
+    $script:phase='DISABLE_OWNER'
     AssertIdle
     Disable-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop | Out-Null
     $disabled=$true
-    if ($state -ceq 'Running') { Stop-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop }
+    $script:phase='STOP_SCHEDULED_TASK'
+    # A task may finish between preflight and Stop-ScheduledTask.
+    if (@(OwnerWorkers).Count -gt 0) {
+        try { Stop-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop }
+        catch {
+            if ([string](OwnerTask).State -ne 'Disabled') { throw }
+            # Disabled task + scoped worker termination below is authoritative.
+        }
+    }
     StopVerifiedWorkers
     AssertIdle
     $script:phase='RESET_CHECKPOINT'
@@ -299,7 +326,11 @@ try {
             StartOwner $oldPid
         } catch {}
     }
-    if(-not (Test-Path -LiteralPath $receiptPath)){Report 'HOLD' 'UNEXPECTED_EXCEPTION'}
+    if(-not (Test-Path -LiteralPath $receiptPath)){
+        $err=[string]$_.FullyQualifiedErrorId
+        $reason=if($err -match 'NoProcessFound|ProcessCommandException'){'PROCESS_EXIT_RACE'} elseif($err -match 'CimException|ScheduledTask'){'TASK_OR_CIM_ERROR'} elseif($err -match 'UnauthorizedAccess|AccessDenied'){'ACCESS_DENIED'} elseif($err -match 'VariableNotWritable'){'VARIABLE_COLLISION'} else {'UNEXPECTED_EXCEPTION'}
+        Report 'HOLD' $reason
+    }
     throw
 } finally {
     Remove-Item -LiteralPath $pyFile,$stage -Force -ErrorAction SilentlyContinue
