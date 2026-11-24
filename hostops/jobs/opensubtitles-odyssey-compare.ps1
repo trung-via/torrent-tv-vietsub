@@ -91,9 +91,10 @@ function Probe([string]$name,[string]$url,[bool]$browser) {
     Write-Output ("OS_COMPARE_" + $name + "_CUES=" + $cues)
     Write-Output ("OS_COMPARE_" + $name + "_DIGEST=" + $digest)
 }
+try {
 # Explicit Owner request: persist one verified English Odyssey subtitle on the
 # dedicated runner; no TV, OwnerAgent, provider or other film's cache mutation.
-$targetRoot = Join-Path $env:RUNNER_WORKSPACE '_omp-fast-cache\\odyssey-english-2026'
+$targetRoot = Join-Path $env:RUNNER_WORKSPACE '_omp-fast-cache\odyssey-english-2026'
 if (-not (Test-Path -LiteralPath $targetRoot)) {
     New-Item -ItemType Directory -Path $targetRoot -ErrorAction Stop | Out-Null
 }
@@ -101,7 +102,7 @@ $dest = Join-Path $targetRoot 'The.Odyssey.2026.1080p.AMZN.WEB-DL.DDP5.1.H.264-K
 $expectedCues = 2009
 if (Test-Path -LiteralPath $dest -PathType Leaf) {
     $existing = [IO.File]::ReadAllBytes($dest)
-    $existingCues = [regex]::Matches([Text.Encoding]::UTF8.GetString($existing),'(?m)^\\d{2}:\\d{2}:\\d{2},\\d{3}\\s+-->\\s+\\d{2}:\\d{2}:\\d{2},\\d{3}').Count
+    $existingCues = [regex]::Matches([Text.Encoding]::UTF8.GetString($existing),'(?m)^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}').Count
     if ($existingCues -ne $expectedCues) { throw 'ODYSSEY_EXISTING_EN_INVALID_NO_OVERWRITE' }
     Write-Output 'ODYSSEY_EN=ALREADY_STAGED_VALID'
     Write-Output ('ODYSSEY_EN_SHA256=' + (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant())
@@ -114,7 +115,7 @@ if (Test-Path -LiteralPath $dest -PathType Leaf) {
         if ($raw.Length -lt 100000 -or $raw.Length -gt 500000) { throw 'ODYSSEY_EN_SIZE_INVALID' }
         $head = [Text.Encoding]::UTF8.GetString($raw,0,[Math]::Min($raw.Length,256))
         if ($head -match '(?i)<!doctype|<html') { throw 'ODYSSEY_EN_HTML_NOT_SUBTITLE' }
-        $count = [regex]::Matches([Text.Encoding]::UTF8.GetString($raw),'(?m)^\\d{2}:\\d{2}:\\d{2},\\d{3}\\s+-->\\s+\\d{2}:\\d{2}:\\d{2},\\d{3}').Count
+        $count = [regex]::Matches([Text.Encoding]::UTF8.GetString($raw),'(?m)^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}').Count
         if ($count -ne $expectedCues) { throw 'ODYSSEY_EN_CUES_INVALID' }
         Move-Item -LiteralPath $temp -Destination $dest -ErrorAction Stop
         Write-Output 'ODYSSEY_EN=DOWNLOADED_VALID'
