@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "opensubtitles-spiderman-http-control-1124",
+  "operation": "agy-browser-native-preflight-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/opensubtitles-spiderman-http-control-1124.ps1",
-  "script_sha256": "c71f80a46d8e6b1915fc7fe09f4ede868a2fc86fcbaeb048605722206b7a15a2",
+  "script_path": "hostops/laptop-ops/operations/agy-browser-native-preflight-1124.ps1",
+  "script_sha256": "5b9bd888482a6f76e01d572f7d054990f80528eb05d4c1b98408e2f6d1268263",
   "arguments": []
 }
