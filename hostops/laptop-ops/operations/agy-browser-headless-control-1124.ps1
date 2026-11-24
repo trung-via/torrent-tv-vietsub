@@ -7,7 +7,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('mcp-cdp9555-stdio-'+$rq.nonce)
+$run=Join-Path $root ('mcp-cdp9555-pageid-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='CDP9555_NOT_READY'
 $profile=Join-Path $root 'CDP9555Profile'
@@ -44,6 +44,12 @@ if($verified){
  $py=@'
 import sys,pathlib,os,json,re,subprocess,time,urllib.request,http.server,threading,secrets,queue
 owner,run=map(pathlib.Path,sys.argv[1:])
+def classify(value,prefix):
+    t=json.dumps(value,ensure_ascii=False).lower()
+    rules=[("ARG",r"invalid (?:arguments|params|parameters)|validation|expected number|required|invalid_type"),("PAGE",r"no page|page.{0,25}(?:not found|closed)|target closed|no selected"),("A11Y",r"accessibility|a11y|snapshot"),("TIME",r"timeout|timed out"),("PERM",r"permission|not allowed|denied"),("PROTO",r"protocol error|session closed")]
+    for label,pat in rules:
+        if re.search(pat,t):return prefix+"_"+label
+    return prefix+"_OTHER"
 class MCP:
     def __init__(self,work):
         self.q=queue.Queue()
@@ -75,9 +81,10 @@ class MCP:
             except queue.Empty:raise TimeoutError(method)
             if y is None:raise EOFError(method)
             if y.get("id")!=self.seq:continue
-            if "error" in y:raise RuntimeError("RPC_ERROR")
+            if "error" in y:raise RuntimeError(classify(y["error"],"RPC"))
             r=y.get("result")
-            if not isinstance(r,dict) or r.get("isError"):raise RuntimeError("TOOL_ERROR")
+            if not isinstance(r,dict):raise RuntimeError("INVALID")
+            if r.get("isError"):raise RuntimeError(classify(r,"TOOL"))
             return r
     def call(self,name,args=None,timeout=30):
         return self.send("tools/call",{"name":name,"arguments":args or {}},timeout=timeout)
@@ -92,7 +99,7 @@ class MCP:
             except subprocess.TimeoutExpired:self.p.kill()
         self.err.close()
 def main():
-    flags={k:0 for k in ("init","list","new","snapshot","hit","close")}
+    flags={k:0 for k in ("init","list","new","snapshot","hit","close","id","req")}
     stage="ENDPOINT"
     outcome="FAIL"
     client=None
@@ -135,17 +142,49 @@ def main():
         flags["new"]=1
         # Only match the exact newly created fixture URL, never record existing tabs.
         def identify(r):
+            # Handle structured page lists and the current title (URL) display format.
+            def visit(v):
+                if isinstance(v,dict):
+                    if v.get("url")==fixture:
+                        for key in ("id","pageId","page_id"):
+                            x=v.get(key)
+                            if isinstance(x,int) and not isinstance(x,bool):return x
+                            if isinstance(x,str) and x.isdecimal():return int(x)
+                    for val in v.values():
+                        found=visit(val)
+                        if found is not None:return found
+                elif isinstance(v,list):
+                    for val in v:
+                        found=visit(val)
+                        if found is not None:return found
+                return None
+            found=visit(r.get("structuredContent",{}))
+            if found is not None:return found
             for item in r.get("content",[]):
                 if not isinstance(item,dict) or item.get("type")!="text":continue
                 for line in item.get("text","").splitlines():
-                    match=re.match(r"^\s*(\d+)\s*:\s*"+re.escape(fixture)+r"(?:\s|$)",line)
-                    if match:return int(match.group(1))
+                    match=re.match(r"^\s*(?:[-*]\s*)?(\d+)\s*:\s*(.*)$",line)
+                    if not match:continue
+                    text=match.group(2)
+                    if re.search(r"(?:^|[\s(])"+re.escape(fixture)+r"(?:$|[\s)])",text):
+                        return int(match.group(1))
             return None
+        stage="ID"
         page_id=identify(result)
         if page_id is None and "list_pages" in schemas:
             page_id=identify(client.call("list_pages"))
+        if page_id is None:raise RuntimeError("NO_ID")
+        flags["id"]=1
+        schema=schemas["take_snapshot"]
+        props=schema.get("properties",{})
+        flags["req"]=int("pageId" in schema.get("required",[]))
         stage="SNAP"
-        result=client.call("take_snapshot")
+        if "pageId" in props:
+            result=client.call("take_snapshot",{"pageId":page_id})
+        else:
+            if "select_page" not in schemas:raise RuntimeError("NO_SELECT")
+            client.call("select_page",{"pageId":page_id})
+            result=client.call("take_snapshot")
         flags["snapshot"]=int(any(marker in x.get("text","") for x in result.get("content",[]) if isinstance(x,dict) and x.get("type")=="text"))
         flags["hit"]=int(any("Chrome/" in ua for ua in visits))
         if flags["snapshot"] and flags["hit"]:outcome="PASS"
@@ -154,7 +193,7 @@ def main():
     except TimeoutError:outcome="TIMEOUT"
     except EOFError:outcome="EOF"
     except Exception as e:
-        outcome=str(e) if str(e) in ("RPC_ERROR","TOOL_ERROR","TOOL_MISSING","INIT_INVALID","ENDPOINT") else "LOCALERR"
+        outcome=str(e) if str(e) in ("TOOL_MISSING","INIT_INVALID","ENDPOINT","NO_ID","NO_SELECT","INVALID") or re.fullmatch(r"(?:RPC|TOOL)_(?:ARG|PAGE|A11Y|TIME|PERM|PROTO|OTHER)",str(e)) else "LOCALERR"
     finally:
         if client:
             if page_id is not None:
@@ -164,7 +203,7 @@ def main():
         if srv:srv.shutdown();srv.server_close()
         flags["hit"]=int(any("Chrome/" in ua for ua in visits))
         (run/"RESULT.json").write_text(json.dumps({"outcome":outcome,"stage":stage,**flags,"elapsed_s":round(time.monotonic()-start)}),encoding="utf-8")
-        print(f"MCPSTD_{outcome}_{stage}_I{flags['init']}_L{flags['list']}_N{flags['new']}_S{flags['snapshot']}_H{flags['hit']}_C{flags['close']}")
+        print(f"MCPID_{outcome}_{stage}_I{flags['init']}_L{flags['list']}_N{flags['new']}_D{flags['id']}_R{flags['req']}_S{flags['snapshot']}_H{flags['hit']}_C{flags['close']}")
 if __name__=="__main__":main()
 '@
  $f=Join-Path $run 'control.py'
