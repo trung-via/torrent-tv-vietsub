@@ -1,5 +1,5 @@
-# One normal website acquisition test on the established dedicated CDP 9555 profile.
-# Respect provider authorization; no CLI/API, alternate identity, or access-control circumvention.
+# One user-authorized logged-in website acquisition via Chrome DevTools MCP on CDP 9555.
+# Keep the existing profile and normal website authorization intact.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
@@ -7,7 +7,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('agy-cdp9555-live-'+$rq.nonce)
+$run=Join-Path $root ('agy-cdp9555-mcp-auth-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='CDP9555_NOT_READY'
 $profile=Join-Path $root 'CDP9555Profile'
@@ -42,7 +42,7 @@ if($existing.Count -eq 1){
 }elseif($existing.Count -gt 1){$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
 if($verified){
  $py=@'
-import sys,pathlib,os,json,re,subprocess,time,urllib.request,hashlib,zipfile,urllib.parse
+import sys,pathlib,os,json,re,subprocess,time,urllib.request,hashlib,zipfile,shutil
 owner,run=map(pathlib.Path,sys.argv[1:])
 sys.path[:0]=[str(owner/"app/poc/p2-aisub")]
 from translator_gateway import preflight_antigravity,_validated_antigravity_alias
@@ -61,7 +61,22 @@ try:
             print("CDP9555_ENDPOINT_UNVERIFIED");sys.exit(0)
     except Exception:
         print("CDP9555_ENDPOINT_UNREACHABLE");sys.exit(0)
-    prompt=("You are the AGY executor for Torrent TV. The dedicated persistent Chrome CDP 9555 has passed a local browser and download test. Connect ONLY to http://127.0.0.1:9555, preferably using Playwright. Open a new tab and use the ordinary website at https://www.opensubtitles.org/. Do not change browser identity, headers, profile, cookies or proxy to evade previous denials. Stop at HTTP 401/403/429, login requirement, CAPTCHA or any other access restriction and report the stage. If the site permits ordinary access, search for English subtitles for Spider-Man: Brand New Day (2026), WEB-DL 1080p, selezen release and MovieDalen audio label if applicable. Verify release and timing evidence; do not substitute or invent a match. Use the website's actual download control or link, following normal redirects (including dl.opensubtitles.org only if the website supplies it); never guess download URLs, bypass restrictions, use OpenSubs CLI or REST API, or pay. Save at most one actual matching SRT/ZIP in downloads/. Use actual browser navigation responses and download event as evidence. Record RESULT.json with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status (integer or null), download_host (hostname only, or null), release_match (boolean), method, and actual_test. No credentials or private browser data in report. Do not touch 9444, existing tabs, global settings or OwnerBridge. Close only your own new tab and disconnect without closing Chrome. No translation or TV changes. Do not make another request after any denial. Report actual observations only.")
+    config=run/".agents"
+    config.mkdir()
+    (config/"mcp_config.json").write_text(json.dumps({"mcpServers":{"ttv-chrome9555":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.13.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics","--log-file="+str(run/"mcp-debug.log")],"tools":{name:{"eager":True} for name in ("new_page","list_pages","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","close_page")}}}}),encoding="utf-8")
+    # Snapshot metadata only for subtitle-shaped files in the dedicated profile's ordinary download location.
+    default=pathlib.Path.home()/"Downloads"
+    try:
+        prefs=run.parent/"CDP9555Profile"/"Default"/"Preferences"
+        pref=json.loads(prefs.read_text(encoding="utf-8"))
+        d=pathlib.Path(pref.get("download",{}).get("default_directory",str(default)))
+        if d.is_absolute() and d.is_dir():default=d
+    except Exception:pass
+    def candidates():
+        try:return {f.name:(f.stat().st_size,f.stat().st_mtime_ns) for f in default.iterdir() if f.is_file() and not f.is_symlink() and f.suffix.lower() in (".srt",".zip")}
+        except Exception:return {}
+    before=candidates()
+    prompt=("Owner has now signed in to OpenSubtitles in the dedicated persistent Chrome 9555 profile. This is a changed authorization condition, so run one normal website acquisition attempt. Use ONLY the workspace ttv-chrome9555 Chrome DevTools MCP (attached to http://127.0.0.1:9555) for website actions, not Playwright, /browser autoConnect, shell browser automation, APIs, other browser profiles or OpenSubs CLI. Use new_page to open https://www.opensubtitles.org/ in a new tab and take_snapshot; then search Spider-Man: Brand New Day (2026), English subtitle, WEB-DL 1080p, selezen release and MovieDalen audio label when applicable. Verify release, timing and language evidence; no guesses. Use the normal website download control once, following actual redirects including dl.opensubtitles.org only if supplied by the site. Do not read cookies, credentials, other tabs or storage, change account settings, solve CAPTCHA, evade denial, modify browser identity, pay or exceed limits. Stop on access restriction, login or download prompt requiring human. Keep original Chrome and existing tabs intact, close only your own new tab. Write RESULT.json in this workspace with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status (integer or null, never invent), download_host (hostname only or null), release_match (boolean), method, downloaded_filename (basename only, actual new file if known), actual_test. Browser downloads may land in the profile's normal download folder; report the actual filename from the download event or website, not a guess. Do not copy old files or create fabricated SRT. Do not change download settings. HostOps will independently verify any new file. No translation or TV changes. Use only genuine observations.")
     args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
     start=time.monotonic()
     try:
@@ -98,6 +113,12 @@ try:
     host=rr.get("download_host")
     dlhost=int(isinstance(host,str) and host.lower()=="dl.opensubtitles.org")
     match=int(rr.get("release_match") is True)
+    # Copy only the newly created exact reported download, never unrelated preexisting files.
+    name=rr.get("downloaded_filename")
+    after=candidates()
+    if status=="DOWNLOADED" and isinstance(name,str) and name==pathlib.Path(name).name and name not in before and name in after and after[name][0]<=10000000:
+        src=default/name
+        if src.is_file() and not src.is_symlink():shutil.copyfile(src,downloads/name)
     cues=0
     files=0
     for f in downloads.iterdir():
@@ -111,7 +132,17 @@ try:
                 for data in blobs:
                     cues=max(cues,len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}",data)))
             except Exception:pass
-    print(f"9555_{codes[status]}_{stage}_H{http}_D{dlhost}_M{match}_F{min(files,9)}_C{min(cues,99999)}_{round(time.monotonic()-start)}S")
+    nodes=[]
+    def walk(x):
+        if isinstance(x,dict):
+            nodes.append(x)
+            for v in x.values():walk(v)
+        elif isinstance(x,list):
+            for v in x:walk(v)
+    walk([x for x in records if x.get("event") not in ("user","result","assistant")])
+    names=[str(v).lower() for x in nodes for k,v in x.items() if k.lower() in ("name","tool_name","toolname","step_type") and isinstance(v,str)]
+    mcp=int(any("new_page" in v or "navigate_page" in v or "take_snapshot" in v for v in names))
+    print(f"9555MCP_{codes[status]}_{stage}_H{http}_D{dlhost}_M{match}_T{mcp}_F{min(files,9)}_C{min(cues,99999)}_{round(time.monotonic()-start)}S")
 except Exception:print("MCP_HEADLESS_LOCAL_ERROR")
 '@
  $f=Join-Path $run 'control.py'
