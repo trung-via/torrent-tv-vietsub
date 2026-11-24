@@ -43,12 +43,12 @@ class BrainInboxTests(unittest.TestCase):
         self.fixture.write_bytes(srt())
         self.fp = _fingerprint(*MEDIA.key)
 
-    def stage(self, *, media=MEDIA, release_name=MATCH):
+    def stage(self, *, media=MEDIA, release_name=MATCH, source_page=PAGE):
         return stage_brain_english(
             cache_root=self.cache,
             source_fingerprint=_fingerprint(*media.key),
             video_name=media.filename, release_name=release_name,
-            source_page=PAGE, srt_file=self.fixture)
+            source_page=source_page, srt_file=self.fixture)
 
     def test_stage_then_exact_media_reuse_no_network(self):
         folder = self.stage()
@@ -61,7 +61,8 @@ class BrainInboxTests(unittest.TestCase):
             acquire_brain_english(OTHER, self.cache)
 
     def test_wrong_release_refused_before_translation(self):
-        self.stage(release_name="Another.Film.2017.1080p.BluRay.x265-GRP.srt")
+        self.stage(release_name="Another.Film.2017.1080p.BluRay.x265-GRP.srt",
+                   source_page="https://subdl.com/s/example")
         with self.assertRaisesRegex(BrainEnglishUnavailable, "RELEASE_MISMATCH"):
             acquire_brain_english(MEDIA, self.cache)
 
@@ -180,8 +181,13 @@ class BrainInboxTests(unittest.TestCase):
             "REVIEW_REQUIRED")
         self.assertEqual(translator.calls, [])
 
+    def test_local_srt_without_website_is_accepted(self):
+        self.stage(source_page="")
+        asset = acquire_brain_english(MEDIA, self.cache)
+        self.assertEqual(asset.cues, 125)
+
     def test_tv_tap_uses_staged_srt_for_lean120_and_cache(self):
-        self.stage()
+        self.stage(source_page="https://subdl.com/s/example")
         translator = FakeAntigravity(text_prefix="Vietnamese fixture")
         flow = self._flow(translator)
         first = flow.selected_media(NAME, verified_media=MEDIA,

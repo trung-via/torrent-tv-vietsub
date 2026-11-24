@@ -80,7 +80,8 @@ def stage_brain_english(*, cache_root: Path, source_fingerprint: str,
     if (not isinstance(release_name, str) or not release_name.strip()
             or len(release_name) > 512 or
             any(ord(c) < 32 or ord(c) == 127 for c in release_name)
-            or not isinstance(source_page, str) or len(source_page) > 2048):
+            or not isinstance(source_page, str) or len(source_page) > 2048
+            or any(ord(c) < 32 or ord(c) == 127 for c in source_page)):
         raise BrainEnglishUnavailable("BRAIN_EN_SOURCE_METADATA_INVALID")
     if (not isinstance(srt_file, Path) or not srt_file.is_absolute()
             or srt_file.is_symlink() or not srt_file.is_file()):

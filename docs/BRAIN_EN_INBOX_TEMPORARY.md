@@ -1,14 +1,16 @@
 # Temporary Brain EN inbox → existing AGY Vietsub (2026-11-23)
 
 Status: **SOURCE CANDIDATE ONLY — not installed on Windows Owner or accepted on Redmi**.
-Human decision: use a Brain-prepared matching English OpenSubtitles SRT. The TV tap
-must never launch an OpenSubtitles search/download or a second source fallback.
+Human decision (2026-11-24): use a Brain-prepared matching English SRT
+from any permitted source, including local/embedded SRT. Source provenance
+is informational, not a provider allowlist or fetch target. The TV tap
+must never launch a search/download or a second source fallback.
 
 ## One temporary path
 
 1. Human adds an authorized film/episode to the **existing TorrServer Library**.
-2. Human supplies the film / exact release and an OpenSubtitles.org page or asks
-   Brain to find the right English subtitle. Brain may retrieve a permitted SRT,
+2. Human supplies the film / exact release and an optional source reference or asks
+   Brain to find the right English subtitle from any permitted source. Brain may retrieve a permitted SRT,
    verify the title, season/episode, release and timeline, then arrange an
    **Owner-private** handoff. No CAPTCHA/login bypass or invented SRT.
 3. The currently authenticated Owner/TorrServer metadata provides
@@ -24,7 +26,7 @@ must never launch an OpenSubtitles search/download or a second source fallback.
    network request, upload to GitHub or infer the TorrServer media identity.
 5. On Redmi `Bật Vietsub AI`, the original signed P3 selection verifies
    the current film and session. Owner reads the exact staged English SRT,
-   checks source page, release/year/group, SHA256, cue count and timestamps,
+   checks release/year/group, SHA256, cue count and timestamps (source reference is informational),
    then invokes the **existing** Antigravity CLI LEAN120 worker in
    50/120-cue windows and **existing** P4/G2 revision delivery. No added
    translator, queue, receiver, APK or GStreamer.
@@ -48,8 +50,8 @@ python .\poc\p2-sub-discovery\brain_english_inbox.py `
   --cache-root "<actual private Owner cache_root>" `
   --source-fingerprint "<exact Owner P3 fingerprint>" `
   --video-name "<exact selected TorrServer video filename>" `
-  --release-name "<actual matching OpenSubtitles release name>" `
-  --source-page "https://www.opensubtitles.org/en/subtitles/<actual-id>/<actual-slug>" `
+  --release-name "<actual matching subtitle release name>" `
+  --source-page "<actual source reference, or empty for unknown provenance>" `
   --srt "<existing local downloaded English SRT absolute path>"
 ```
 

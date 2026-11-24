@@ -1,4 +1,4 @@
-"""One owner-requested AGY task: obtain a matching English OpenSubtitles SRT.
+"""One owner-requested AGY task: obtain a matching English SRT from any permitted source.
 
 The agent chooses *how* to search and download. Only its final artifact is
 accepted, after deterministic source, film/release and timed-text checks.
@@ -13,7 +13,6 @@ from pathlib import Path
 import subprocess
 import tempfile
 from typing import Callable
-from urllib.parse import urlsplit
 
 from matcher import Media, SearchResults, Subtitle, choose, preferred_media_release
 from opensubtitles import Asset, MAX_SUBTITLE_BYTES, SubtitleApiError, validate_timed_text
@@ -58,9 +57,10 @@ def _brief(media: Media) -> str:
     return (
         "You are acquiring an EXISTING English subtitle for one explicitly "
         "owner-requested video. Find the best matching subtitle on "
-        "OpenSubtitles.com or OpenSubtitles.org, download it into your CURRENT WORKING DIRECTORY "
-        "as english.srt (UTF-8 plain SRT), and report the actual release name "
-        "and the original OpenSubtitles subtitle page URL. Decide your own "
+        "any permitted source, including OpenSubtitles, SubDL or other sources. "
+        "Download it into your CURRENT WORKING DIRECTORY as english.srt "
+        "(UTF-8 plain SRT), and report the actual release name and source "
+        "reference (URL or descriptive provenance; empty if unavailable). Decide your own "
         "lawful search and download method: website, permitted browser tools, "
         "or an already configured official API; no fixed search sequence. "
         "Do not require an API key if another permitted method works. "
@@ -114,17 +114,12 @@ def _validate_source(media: Media, payload: dict[str, str]) -> None:
     if (not 0 < len(release) <= 512
             or any(ord(c) < 32 or ord(c) == 127 for c in release)):
         raise AgyEnglishUnavailable("AGY_EN_RELEASE_INVALID")
-    try:
-        url = urlsplit(payload["source_page"])
-        hostname = (url.hostname or "").lower()
-        if (url.scheme != "https" or url.username or url.password or url.fragment
-                or url.port not in (None, 443)
-                or not any(hostname == domain or hostname.endswith("." + domain)
-                           for domain in ("opensubtitles.com", "opensubtitles.org"))
-                or url.path in ("", "/")):
-            raise ValueError("source URL not OpenSubtitles")
-    except (TypeError, ValueError):
-        raise AgyEnglishUnavailable("AGY_EN_SOURCE_UNVERIFIED") from None
+    # Source reference is optional provenance, not a trusted URL or a fetch target.
+    # Match the media and validate actual SRT bytes regardless of provider.
+    source = payload["source_page"]
+    if (not isinstance(source, str) or len(source) > 2048
+            or any(ord(c) < 32 or ord(c) == 127 for c in source)):
+        raise AgyEnglishUnavailable("AGY_EN_SOURCE_UNVERIFIED")
     # The agent is free to search, but cannot assert that a different edit or
     # episode is a match. Reuse the existing D1 release/moviehash acceptance.
     candidate = Subtitle("agy-english", release, "en", "srt")
