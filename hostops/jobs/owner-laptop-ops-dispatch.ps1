@@ -60,6 +60,13 @@ foreach ($arg in $manifest.arguments) {
     }
 }
 
+# Parse the exact checked-out operation before sending it to Owner.
+$operationFile = Join-Path $env:GITHUB_WORKSPACE ($manifest.script_path.Replace('/', '\'))
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($operationFile, [ref]$tokens, [ref]$parseErrors) | Out-Null
+if (@($parseErrors).Count -ne 0) { throw 'HOSTOPS_OWNER_OPS_OPERATION_PARSE_FAILED' }
+Write-Output 'HOSTOPS_OWNER_OPS_OPERATION_PARSE=PASS'
 $name = 'TorrentTV-Vietsub-Laptop-HostOps'
 $task = Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
 if ($manifest.operation -ceq 'owner-ts-ebml-range-readonly') {
