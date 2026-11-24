@@ -102,6 +102,60 @@ function SidOf([string]$id) {
     return ([Security.Principal.NTAccount]::new($id).Translate(
         [Security.Principal.SecurityIdentifier])).Value
 }
+# Teacher receipt-only observation. This path never triggers, archives or edits a request.
+# Scope is the exact approved no-deadline Teacher operation, not all HostOps jobs.
+if ($manifest.operation -ceq 'tr-ttv-teacher-receipt-readonly') {
+    if ($manifest.category -cne 'diagnostics' -or $manifest.arguments.Count -ne 0 -or
+        $manifest.script_path -cne 'hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1') {
+        throw 'HOSTOPS_TEACHER_RECEIPT_MANIFEST_DRIFT'
+    }
+    $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
+    $inbox = Join-Path $spool 'Requests'
+    $outbox = Join-Path $spool 'Receipts'
+    foreach ($dir in @($inbox,$outbox)) {
+        if (-not (Test-Path -LiteralPath $dir -PathType Container) -or
+            ((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'HOSTOPS_OWNER_OPS_SPOOL_NOT_ENROLLED'
+        }
+    }
+    $requestFile = Join-Path $inbox 'request.json'
+    $receiptFile = Join-Path $outbox 'receipt.json'
+    if (-not (Test-Path -LiteralPath $requestFile -PathType Leaf)) { throw 'HOSTOPS_TEACHER_REQUEST_MISSING' }
+    $item=Get-Item -LiteralPath $requestFile -Force
+    if ($item.Length -le 0 -or $item.Length -gt 1024 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'HOSTOPS_TEACHER_REQUEST_INVALID' }
+    $request=Get-Content -LiteralPath $requestFile -Raw | ConvertFrom-Json
+    if ($request.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or $request.nonce -cnotmatch '\A[a-f0-9]{32}\z' -or $request.source_commit -cnotmatch '\A[a-f0-9]{40}\z') { throw 'HOSTOPS_TEACHER_REQUEST_INVALID' }
+    # Resolve the original pinned manifest; never act on a different operation.
+    $orig = (& git show ($request.source_commit + ':hostops/laptop-ops/manifests/current.json') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($orig)) { throw 'HOSTOPS_TEACHER_SOURCE_NOT_AVAILABLE' }
+    $origManifest = $orig | ConvertFrom-Json
+    if ($origManifest.operation -cne 'agy-native-browser-readout-1124' -or $origManifest.script_path -cne 'hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1') { throw 'HOSTOPS_TEACHER_REQUEST_WRONG_OPERATION' }
+    Write-Output ('HOSTOPS_TEACHER_SOURCE=' + $request.source_commit)
+    Write-Output ('HOSTOPS_TEACHER_NONCE=' + $request.nonce)
+    $receipt=$null
+    if (Test-Path -LiteralPath $receiptFile -PathType Leaf) {
+        $item=Get-Item -LiteralPath $receiptFile -Force
+        if ($item.Length -gt 0 -and $item.Length -le 512 -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            $v=Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
+            if ($v.schema -ceq 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -and $v.nonce -ceq $request.nonce -and $v.source_commit -ceq $request.source_commit -and $v.operation -ceq $origManifest.operation -and $v.result -cin @('SUCCESS','FAILED_NO_RETRY')) { $receipt=$v }
+        }
+    }
+    if ($null -eq $receipt) {
+        if ([string]$task.State -ceq 'Running') { Write-Output 'HOSTOPS_TEACHER_STATE=RUNNING' }
+        else { Write-Output 'HOSTOPS_TEACHER_STATE=PENDING_RECEIPT_UNKNOWN_EFFECT_NO_RETRY' }
+        return
+    }
+    Write-Output ('HOSTOPS_TEACHER_STATE=' + $receipt.result)
+    $stage=Join-Path $outbox ('odyssey-stage-' + $request.nonce + '.json')
+    if (Test-Path -LiteralPath $stage -PathType Leaf) {
+        $item=Get-Item -LiteralPath $stage -Force
+        if ($item.Length -gt 0 -and $item.Length -le 1024 -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            $v=Get-Content -LiteralPath $stage -Raw | ConvertFrom-Json
+            if ($v.schema -ceq 'TTV-ODYSSEY-STAGE-V1' -and $v.nonce -ceq $request.nonce -and $v.reason -cmatch '^[A-Z0-9_]{3,90}$') { Write-Output ('HOSTOPS_ODYSSEY_STAGE=' + $v.reason) }
+        }
+    }
+    return
+}
 if ([string]$task.State -cne 'Ready' -or
     [string]$task.Description -cne 'TTV_LAPTOP_HOSTOPS_OWNER_INTERACTIVE_ROUTINE_V1' -or
     [string]$task.Principal.LogonType -ine 'Interactive' -or
@@ -1220,6 +1274,14 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    return
+}
+# A Teacher wait is only an observation window. Keep the original request/nonce.
+if ($manifest.operation -ceq 'agy-native-browser-readout-1124' -and
+    $manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1') {
+    Write-Output ('HOSTOPS_TEACHER_SOURCE=' + $commit)
+    Write-Output ('HOSTOPS_TEACHER_NONCE=' + $nonce)
+    Write-Output 'HOSTOPS_TEACHER_STATE=PENDING_RECEIPT_NO_RETRY'
     return
 }
 throw 'HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY'
