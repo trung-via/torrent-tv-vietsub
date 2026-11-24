@@ -28,7 +28,7 @@ from owner_selected_file_resolver import CurrentPlaying, _fingerprint
 from p3_p4_media_key import p4_key_from_verified_current
 from matcher import Media
 from verified_vietsub_ready import VerifiedVietsubReady
-from automatic_lean120_worker import AutomaticLean120Worker, _job_fingerprint
+from automatic_lean120_worker import AutomaticLean120Worker
 from cached_en_direct_handoff import CachedEnReceipt, prepare_local_translation_source
 from cue_pipeline import parse_cues
 
@@ -187,7 +187,7 @@ class P3OwnerReadyRegistry:
                 private_root=cache)
             if handoff.source_bytes != source:
                 raise P3ReadyRejected("P3_READY_EN_CHANGED")
-            job = _job_fingerprint(handoff, worker.profile, worker.glossary)
+            job = worker.job_fingerprint(handoff)
             if not _SHA.fullmatch(job):
                 raise P3ReadyRejected("P3_READY_P2_JOB_ID_INVALID")
             folder = state / job

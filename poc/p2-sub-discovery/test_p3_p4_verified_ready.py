@@ -140,6 +140,23 @@ class ReadyRegistryTests(unittest.TestCase):
         self.assertEqual(payload["translated_count"],240)
         self.assertEqual(payload["total_count"],240)
 
+    def test_existing_high_final_resolves_after_low_transition(self):
+        from lean120_api import ModelProfile
+        raw = self.source(language="en")
+        self.worker.profile = ModelProfile("antigravity", "gemini-4-hydrogen-high", "high")
+        out = self.finish_en_from_existing_worker(raw)
+        self.flow.worker = AutomaticLean120Worker(
+            state_root=self.state,
+            profile=ModelProfile("antigravity", "gemini-4-hydrogen-low", "low"),
+            glossary={}, preserve_hydrogen_jobs=True,
+            runner=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("LIVE_PROVIDER_FORBIDDEN")))
+        self.register(AutoResult("VIETSUB_READY", cue_count=240, translated_cues=240))
+        ans = self.p4.activate(request(nonce="7"*32))
+        payload = decode_latest_test_only(self.p4.feed_for(ans["session_id"]))
+        self.assertEqual(payload["payload_sha256"], hashlib.sha256(out).hexdigest())
+        self.assertEqual(len(list(self.state.iterdir())), 1)
+
     def test_en_without_existing_full_lean120_is_not_ready(self):
         self.source(language="en")
         with self.assertRaisesRegex(P3ReadyRejected,"COMPLETE_OUTPUT_MISSING"):
