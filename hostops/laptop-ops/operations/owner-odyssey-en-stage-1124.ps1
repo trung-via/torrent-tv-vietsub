@@ -37,25 +37,44 @@ def main():
     policy=read(owner/"p3-p4-policy.json")
     cfg=OwnerLocalTorrServer(policy["profile_id"],policy["torrserver_port"])
     reader=OwnerTorrServerReader(cfg)
+    # Stage only against the unique exact library release. A playback heartbeat
+    # does not persist file identity before the AI tap. No TV event is fabricated.
+    from owner_torrserver_readonly import _local_post
+    from owner_selected_file_resolver import _fingerprint
+    listing=json.loads(_local_post(cfg.url,b'{"action":"list"}',float(cfg.timeout_sec)))
+    require(isinstance(listing,list),"ODYSSEY_TS_LIST_INVALID")
     found={}
-    # Only existing authenticated V4 selections, never synthesize a TV event.
-    for p in (owner/"inbox").iterdir():
-        if not re.fullmatch(r"event-[a-f0-9]{32}\.(done|blocked|review)",p.name): continue
-        row=read(p)
-        if row.get("schema")!="TTV-OWNER-VIDEO-EVENT-V4": continue
-        name=row.get("selected_video_filename","")
-        r=parse_release(name)
-        if r.title!="the odyssey" or r.year!=2026 or r.group!="kyogo": continue
-        fp=row["source_fingerprint"]
-        sel=_authorized_selection(row["authorized_selection"],fp,row["tv_session_id"])
-        if sel["server_id"]!=cfg.profile_id: continue
-        rec=reader(sel["server_id"],sel["torrent_hash"],sel["file_index"])
-        require(_one_basename(rec.path)==name,"ODYSSEY_TS_FILENAME_MISMATCH")
-        media=Media(sel["server_id"],sel["torrent_hash"],sel["file_index"],name,torrent_title=rec.torrent_title)
-        _validate_source(media,{"release_name":release,"source_page":page})
-        require(parse_release(name)==parse_release(release),"ODYSSEY_RELEASE_NOT_EXACT")
-        found[fp]=media
-    require(len(found)==1,"ODYSSEY_EXACT_SELECTION_NOT_UNIQUE")
+    for item in listing:
+        if not isinstance(item,dict): continue
+        h=item.get("hash")
+        if not isinstance(h,str) or not re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}",h): continue
+        files=item.get("file_stats")
+        if not isinstance(files,list) or not files:
+            try: files=json.loads(item["data"])["TorrServer"]["Files"]
+            except (KeyError,ValueError,TypeError): files=[]
+        # Some list responses omit file metadata: use read-only get for Odyssey titles.
+        title=str(item.get("title",""))
+        if (not isinstance(files,list) or not files) and re.search(r"odyssey",title,re.I):
+            row=json.loads(_local_post(cfg.url,json.dumps({"action":"get","hash":h}).encode("ascii"),float(cfg.timeout_sec)))
+            require(isinstance(row,dict) and row.get("hash")==h,"ODYSSEY_TS_HASH_MISMATCH")
+            files=row.get("file_stats")
+            if not isinstance(files,list) or not files:
+                try: files=json.loads(row["data"])["TorrServer"]["Files"]
+                except (KeyError,ValueError,TypeError): files=[]
+        if not isinstance(files,list): continue
+        for rec0 in files:
+            if not isinstance(rec0,dict) or type(rec0.get("id")) is not int or not isinstance(rec0.get("path"),str): continue
+            name=rec0["path"].rsplit("/",1)[-1]
+            if pathlib.Path(name).suffix.lower() not in (".mkv",".mp4",".m4v",".webm"): continue
+            if parse_release(name)!=parse_release(release): continue
+            idx=rec0["id"]
+            rec=reader(cfg.profile_id,h,idx)
+            require(_one_basename(rec.path)==name,"ODYSSEY_TS_FILENAME_MISMATCH")
+            media=Media(cfg.profile_id,h,idx,name,torrent_title=rec.torrent_title)
+            _validate_source(media,{"release_name":release,"source_page":page})
+            found[_fingerprint(cfg.profile_id,h,idx)]=media
+    require(bool(found),"ODYSSEY_EXACT_RELEASE_NOT_IN_LIBRARY")
+    require(len(found)==1,"ODYSSEY_MULTIPLE_EXACT_LIBRARY_FILES")
     fp,media=next(iter(found.items()))
     # Existing source may be already staged. Never overwrite a conflicting EN.
     target=cache/".brain-en-inbox"/fp
