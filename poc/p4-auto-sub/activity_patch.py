@@ -37,6 +37,22 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private var p4OverlayState: P4OverlayState? = null
     private var p4OverlayView: android.widget.TextView? = null
     private var p4LastMuteMs = 0L
+    private val p4StylePrefs by lazy {
+        applicationContext.getSharedPreferences("p4-vietsub-style", android.content.Context.MODE_PRIVATE)
+    }
+    private fun p4BackgroundEnabled(): Boolean =
+        p4StylePrefs.getBoolean("translucent_background", false)
+    private fun applyP4Background(view: android.widget.TextView) {
+        if (!p4BackgroundEnabled()) {
+            view.background = null
+            return
+        }
+        val d = resources.displayMetrics.density
+        view.background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(android.graphics.Color.argb(155, 0, 0, 0))
+            cornerRadius = 8f * d
+        }
+    }
 
     private fun clearP4Overlay() {
         handler.removeCallbacks(p4OverlayTick)
@@ -56,7 +72,9 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             setTextColor(android.graphics.Color.WHITE)
             textSize = 26f
             setShadowLayer(4f, 1f, 2f, android.graphics.Color.BLACK)
-            setPadding(margin, 0, margin, 0)
+            setPadding(margin, (6 * density).toInt(),
+                margin, (6 * density).toInt())
+            applyP4Background(this)
             isFocusable = false
             isClickable = false
             visibility = android.view.View.GONE
@@ -410,6 +428,14 @@ P4_MENU_ROWS = """        add(if (p4LanScope != null || p4ActivationInFlight)
         }
         // Explicit device-level revocation is an optional advanced action,
         // never a prerequisite for enabling Vietsub on the current movie.
+        add(if (p4BackgroundEnabled()) "Nền mờ phụ đề: Bật"
+                else "Nền mờ phụ đề: Tắt", "AD01.15") {
+            p4StylePrefs.edit().putBoolean(
+                "translucent_background", !p4BackgroundEnabled()).apply()
+            p4OverlayView?.let { applyP4Background(it) }
+            showMessage(if (p4BackgroundEnabled()) "Đã bật nền mờ phụ đề."
+                else "Đã tắt nền mờ phụ đề.", false)
+        }
         val savedPc = P4PairingStore(applicationContext).load()
         if (savedPc != null) {
             savedPc.deviceSecret.fill(0)

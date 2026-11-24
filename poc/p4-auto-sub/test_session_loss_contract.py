@@ -98,3 +98,14 @@ class P4SessionLossContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class P4BackgroundStyleContract(unittest.TestCase):
+    def test_optional_background_uses_same_overlay_without_reload(self):
+        from activity_patch import ACTIVITY_BRIDGE, P4_MENU_ROWS
+        self.assertIn('getBoolean("translucent_background", false)', ACTIVITY_BRIDGE)
+        self.assertIn('Color.argb(155, 0, 0, 0)', ACTIVITY_BRIDGE)
+        self.assertIn('applyP4Background(this)', ACTIVITY_BRIDGE)
+        self.assertIn('Nền mờ phụ đề: Bật', P4_MENU_ROWS)
+        self.assertIn('Nền mờ phụ đề: Tắt', P4_MENU_ROWS)
+        self.assertIn('p4OverlayView?.let { applyP4Background(it) }', P4_MENU_ROWS)
+        self.assertNotIn('session.load(', P4_MENU_ROWS)
