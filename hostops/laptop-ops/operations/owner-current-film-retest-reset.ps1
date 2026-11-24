@@ -10,7 +10,17 @@ $inbox = Join-Path $owner 'inbox'
 $healthFile = Join-Path $owner 'agent-health.json'
 $archives = Join-Path $base 'CacheArchives'
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-function Hold([string]$code) { throw ('OWNER_CACHE_PURGE_HOLD_' + $code) }
+function Hold([string]$code) {
+    try {
+        $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
+        $req=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
+        if ($code -cmatch '^[A-Z0-9_]{3,100}$' -and $req.nonce -cmatch '^[0-9a-f]{32}$') {
+            $rec=@{schema='TTV-RETEST-HOLD-V1';nonce=$req.nonce;reason=$code}
+            [IO.File]::WriteAllText((Join-Path $spool ('Receipts\retest-hold-'+$req.nonce+'.json')),($rec|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+        }
+    } catch {}
+    throw ('OWNER_CACHE_PURGE_HOLD_' + $code)
+}
 function AssertDir([string]$path) {
     if (-not (Test-Path -LiteralPath $path -PathType Container)) { Hold 'ROOT_MISSING' }
     if ((Get-Item -LiteralPath $path -Force).Attributes -band
@@ -100,7 +110,7 @@ if ($env:GITHUB_ACTIONS -ceq 'true' -or -not [Environment]::UserInteractive -or
     $sid -in @('S-1-5-18','S-1-5-19','S-1-5-20')) { Hold 'INTERACTIVE_OWNER_REQUIRED' }
 foreach ($dir in @($base,$owner,$cache,$p2,$inbox)) { AssertDir $dir }
 $state = [string](OwnerTask).State
-if ($state -cnotin @('Running','Ready')) { Hold 'OWNER_TASK_NOT_RUNNABLE' }
+if ($state -cnotin @('Running','Ready','Disabled')) { Hold 'OWNER_TASK_NOT_RUNNABLE' }
 AssertIdle
 if (Test-Path -LiteralPath $archives) { AssertDir $archives }
 else { [IO.Directory]::CreateDirectory($archives) | Out-Null }
@@ -126,20 +136,34 @@ def read(p):
     require(p.is_file() and not p.is_symlink() and p.stat().st_size <= 16384, "RECEIPT_INVALID")
     return json.loads(p.read_text("utf-8"))
 def main():
-    recent=[]
-    for p in (owner/"inbox").glob("event-*.done"):
-        if not 0<=time.time()-p.stat().st_mtime<=1200: continue
-        row=read(p)
-        c=row.get("authorized_selection")
-        if not isinstance(c,dict) or set(c)!={"server_id","torrent_hash","file_index"}: continue
-        fp=hashlib.sha256("\x00".join((c["server_id"],c["torrent_hash"],str(c["file_index"]))).encode()).hexdigest()
-        require(fp==row.get("source_fingerprint") and p.name=="event-"+row["event_id"]+".done","EVENT_ID_INVALID")
-        recent.append((p.stat().st_mtime,p,row,fp))
-    require(recent and len({x[3] for x in recent})==1,"CURRENT_FILM_AMBIGUOUS_OR_NO_RECENT_COMPLETED_EVENT")
-    _,p,row,fp=max(recent,key=lambda x:x[0])
-    if mode=="apply": require(row["event_id"]==sys.argv[6],"EVENT_CHANGED")
-    c=row["authorized_selection"]; media=Media(c["server_id"],c["torrent_hash"],c["file_index"],row["selected_video_filename"])
-    en=acquire_brain_english(media,cache)
+    # Latest actual successful P2 completion, not an arbitrary recent film.
+    import ast
+    log=owner/"diagnostics/owner-full.log"
+    require(log.is_file() and not log.is_symlink(),"OWNER_LOG_MISSING")
+    with log.open("rb") as stream:
+        stream.seek(max(0,log.stat().st_size-1048576))
+        tail=stream.read().decode("utf-8","replace")
+    completed=[]
+    for line in tail.splitlines():
+        marker="OWNER_FULL_TRACE 'P2_EVENT_FINISHED' "
+        if marker not in line: continue
+        try: record=ast.literal_eval(line.split(marker,1)[1])
+        except (ValueError,SyntaxError): continue
+        if record.get("result")=="VIETSUB_READY" and re.fullmatch(r"[a-f0-9]{32}",str(record.get("event_id"))):
+            completed.append(record["event_id"])
+    require(completed,"NO_COMPLETED_VI_EVENT_IN_LOG")
+    event=completed[-1] if mode=="plan" else sys.argv[6]
+    require(event==completed[-1],"EVENT_CHANGED")
+    p=owner/"inbox"/("event-"+event+".done")
+    row=read(p); fp=row.get("source_fingerprint")
+    require(row.get("event_id")==event and isinstance(fp,str) and re.fullmatch(r"[a-f0-9]{64}",fp),"EVENT_ID_INVALID")
+    staged=cache/".brain-en-inbox"/fp
+    receipt=read(staged/"receipt.json")
+    require(receipt.get("source_fingerprint")==fp and receipt.get("video_name")==row.get("selected_video_filename") and receipt.get("language")=="en","EN_RECEIPT_EVENT_MISMATCH")
+    from cached_en_direct_handoff import CachedEnReceipt, prepare_local_translation_source
+    source=prepare_local_translation_source(CachedEnReceipt(staged/"english.srt",receipt["sha256"],receipt["cues"]),private_root=cache)
+    from types import SimpleNamespace
+    en=SimpleNamespace(sha256=source.source_sha256,cues=source.cue_count,contents=source.source_bytes)
     # No other staged film may share this source-derived worker namespace.
     for other in (cache/".brain-en-inbox").glob("*/receipt.json"):
         if other.parent.name!=fp:
@@ -162,7 +186,8 @@ def main():
         require(not list(job.glob("*.inflight")) and not (job/"active.lock").exists(),"UNKNOWN_PROVIDER_EFFECT")
         require(not list(job.glob("*.abandoned.json")),"ABANDONED_JOB_HOLD")
         jobs.append(job)
-    require(jobs,"NO_MATCHED_TRANSLATION_CACHE")
+    if not jobs:
+        require(mode=='plan' or mode=='apply', 'MODE_INVALID')
     if mode=="plan":
         print(row["event_id"])
         return
@@ -174,7 +199,7 @@ def main():
             dst=archive/job.name
             job.rename(dst); moved.append((job,dst))
         require(all(not src.exists() and dst.is_dir() for src,dst in moved),"ARCHIVE_VERIFY_FAILED")
-        require(acquire_brain_english(media,cache).sha256==en.sha256,"EN_CHANGED")
+        require(hashlib.sha256((staged/'english.srt').read_bytes()).hexdigest()==en.sha256,"EN_CHANGED")
     except Exception:
         for src,dst in reversed(moved):
             if not src.exists() and dst.exists(): dst.rename(src)
@@ -188,7 +213,10 @@ except Exception as e:
     sys.exit(1)
 '@
 $plan = @(& py -3 -I -B -c $pyCode $owner $cache $p2 $archives plan 2>$null)
-if ($LASTEXITCODE -ne 0 -or $plan.Count -ne 1 -or [string]$plan[0] -cnotmatch '^[0-9a-f]{32}$') { Hold 'CURRENT_FILM_PLAN_UNVERIFIED' }
+if ($LASTEXITCODE -ne 0 -or $plan.Count -ne 1 -or [string]$plan[0] -cnotmatch '^[0-9a-f]{32}$') {
+    if ($plan.Count -eq 1 -and [string]$plan[0] -cmatch '^[A-Z0-9_]{3,100}$') { Hold ([string]$plan[0]) }
+    Hold 'CURRENT_FILM_PLAN_UNVERIFIED'
+}
 $eventId = [string]$plan[0]
 $disabled=$false
 try {
@@ -199,7 +227,10 @@ try {
     StopVerifiedWorkers
     AssertIdle
     $done=@(& py -3 -I -B -c $pyCode $owner $cache $p2 $archives apply $eventId 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $done.Count -ne 1 -or [string]$done[0] -cne 'RETEST_RESET_PASS') { Hold 'TARGET_RESET_FAILED' }
+    if ($LASTEXITCODE -ne 0 -or $done.Count -ne 1 -or [string]$done[0] -cne 'RETEST_RESET_PASS') {
+        if ($done.Count -eq 1 -and [string]$done[0] -cmatch '^[A-Z0-9_]{3,100}$') { Hold ([string]$done[0]) }
+        Hold 'TARGET_RESET_FAILED'
+    }
     Write-Output 'OWNER_RETEST_RESET=EXACT_FILM_VI_CHECKPOINT_QUARANTINED_EN_PRESERVED'
     StartOwner $oldPid
     $disabled=$false
