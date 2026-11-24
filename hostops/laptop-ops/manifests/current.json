@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-brain-source-neutral-install",
-  "category": "owner-maintenance",
+  "operation": "owner-brain-neutral-diagnostic",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-brain-source-neutral-install.ps1",
-  "script_sha256": "dca0b7171ee20088f954be3576b89ed3cf18d0eaa8ffa1b1b91dcc581ca627d9",
+  "script_path": "hostops/laptop-ops/operations/owner-brain-neutral-diagnostic.ps1",
+  "script_sha256": "706e08350c8dfcf44cf4aef67a0c24aa7f6eb728b51eb0c485d51dbb3ff47a8a",
   "arguments": []
 }
