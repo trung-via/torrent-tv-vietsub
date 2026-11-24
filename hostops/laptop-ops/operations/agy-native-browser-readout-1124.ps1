@@ -7,14 +7,14 @@ $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | C
 $prior=@(Get-ChildItem -LiteralPath (Join-Path $spool 'History') -Filter 'receipt-*.json' -File | ForEach-Object {
  if($_.Length -le 2048 -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)){
   try{$r=Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
-   if($r.source_commit -ceq '6739c0c27e347e69e2049a474fe5ed9a8c942a79' -and $r.operation -ceq 'agy-browser-headless-control-1124' -and $r.nonce -cmatch '^[a-f0-9]{32}$'){$r}
+   if($r.source_commit -ceq 'dc55c5566dec8d11d2cb77ac6c8476254360f2a5' -and $r.operation -ceq 'agy-browser-headless-control-1124' -and $r.nonce -cmatch '^[a-f0-9]{32}$'){$r}
   }catch{}
  }
 })
 $code='MCP_READOUT_PRIOR_NOT_UNIQUE'
 if($prior.Count -eq 1){
  $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
- $run=Join-Path $root ('agy-access-diagnosis-'+$prior[0].nonce)
+ $run=Join-Path $root ('agy-cdp9555-live-'+$prior[0].nonce)
  $log=Join-Path $run 'RESULT.json'
  $code='MCP_READOUT_LOG_MISSING'
  if(Test-Path -LiteralPath $log -PathType Leaf){
@@ -25,26 +25,21 @@ import json,re,sys,pathlib
 p=pathlib.Path(sys.argv[1])
 r=json.loads(p.read_text(encoding="utf-8-sig"))
 if not isinstance(r,dict):raise ValueError("invalid report")
-# Only fixed, sanitized labels; never output raw AGY report, private paths or secrets.
-def text(k):
-    return json.dumps(r.get(k,""),ensure_ascii=False).lower()
-method=text("method")
-cause=text("cause")
-test=text("actual_test")
-next_action=text("next_action")
+def text(k):return json.dumps(r.get(k,""),ensure_ascii=False).lower()
 def f(t,p):return int(bool(re.search(p,t)))
-api=f(method,r"\bapi\b|rest")
-web=f(method,r"website|browser|playwright|web interface")
-cli=f(method,r"opensubs.cli|command.line|\bcli\b")
-key=f(method+" "+next_action,r"api.key|developer.key")
-login=f(method+" "+next_action,r"login|log.in|sign.in|account|username|password")
-unknown=f(cause,r"unknown|not (?:confirmed|known|determined|explicit)|uncertain|unconfirmed")
-bot=f(cause,r"cloudflare|bot|captcha|challenge|waf")
-no_test=f(test,r"not (?:tested|performed|attempted|executed|run)|no (?:live|new|additional|test|request)|documentation.only|skipped|none")
-paid=f(next_action,r"paid|payment|subscription|vip")
-docs=r.get("official_sources",[])
-doc=len(docs) if isinstance(docs,list) else 0
-print(f"ACCESS_READ_API{api}_WEB{web}_CLI{cli}_KEY{key}_LOGIN{login}_UNK{unknown}_BOT{bot}_NOTEST{no_test}_PAID{paid}_DOC{min(doc,99)}")
+method=text("method")
+test=text("actual_test")
+pw=f(method,r"playwright")
+cdp=f(method,r"cdp|9555")
+login=f(test,r"log.in|sign.in|authentication required|login")
+challenge=f(test,r"captcha|cloudflare|challenge|turnstile|bot protection")
+www=f(test,r"www.authenticate|basic authentication|bearer")
+unauth=f(test,r"\b401\b|unauthorized")
+body=f(test,r"response body|page content|page text|page title")
+dom=f(test,r"page\.goto|navigation response|main.document|document response")
+home=int(r.get("stage")=="HOME")
+# Read only the exact saved agent report; flags are reported observations, not a new network probe.
+print(f"9555_READ_PW{pw}_CDP{cdp}_HOME{home}_H401{unauth}_LOGIN{login}_CHAL{challenge}_WWW{www}_BODY{body}_NAV{dom}")
 '@
    $out=@($py | & py -3 -I -B - $log 2>$null)
    if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,90}$'){$code=[string]$out[0]}else{$code='MCP_READOUT_PARSE_ERROR'}
