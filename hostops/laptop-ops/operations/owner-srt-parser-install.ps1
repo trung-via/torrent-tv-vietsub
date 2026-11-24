@@ -355,53 +355,7 @@ try {
     }
     $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
     $request = Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
-    if ($request.nonce -cnotmatch '^[0-9a-f]{32}
-    Write-Output 'OWNER_BRAIN_R3_PROVIDER_TV=NOT_RUN'
-    Write-Output 'OWNER_BRAIN_R3_CACHE_CHECKPOINTS=UNCHANGED'
-} catch {
-    $failure = $_
-    Write-Output 'OWNER_BRAIN_R3_RECOVERY=ATTEMPTING_PRIVATE_ROLLBACK'
-    if (-not $stopped) {
-        # No source files were changed. Restore availability only if the
-        # previous owner worker has exited and the queue remains untouched.
-        if (@(Workers).Count -eq 0 -and
-            [string](CheckTask).State -ceq 'Disabled') {
-            NoOpenWork
-            if (StartOwner $oldPid) {
-                Write-Output 'OWNER_BRAIN_R3_RECOVERY=NO_FILES_CHANGED_OLD_OWNER_RUNNING'
-            }
-        }
-        throw
-    }
-    StopOwner
-    foreach ($name in $expected.Keys) {
-        $file = InstalledFile $name
-        $old = [string]$previous[$name]
-        $new = [string]$expected[$name]
-        if ($old -ceq $new) { continue }
-        if ($old -ceq 'MISSING') {
-            if (Test-Path -LiteralPath $file) {
-                if ((Hash $file) -cne $new) { Hold 'ROLLBACK_NEW_FILE_DRIFT' }
-                [IO.File]::Delete($file)
-            }
-        } else {
-            $saved = Join-Path $backup $name
-            if ((Hash $saved) -cne $old) { Hold 'ROLLBACK_BACKUP_DRIFT' }
-            if ((Hash $file) -cne $old) {
-                if ((Hash $file) -cne $new) { Hold 'ROLLBACK_INSTALLED_DRIFT' }
-                $temp = Join-Path (Split-Path -Parent $file) ('.brain-rollback-' + [Guid]::NewGuid().ToString('N') + '.tmp')
-                [IO.File]::Copy($saved,$temp,$false)
-                $displaced = Join-Path $backup ('failed-' + $name)
-                [IO.File]::Replace($temp,$file,$displaced)
-            }
-            if ((Hash $file) -cne $old) { Hold 'ROLLBACK_ORIGINAL_HASH_CHANGED' }
-        }
-    }
-    if (-not (StartOwner $oldPid)) { Hold 'ROLLBACK_OWNER_HEARTBEAT_FAILED_TASK_HOLD' }
-    Write-Output 'OWNER_BRAIN_R3_RECOVERY=ORIGINAL_OWNER_RESTORED'
-    throw 'OWNER_BRAIN_R3_INSTALL_FAILED_ROLLED_BACK'
-}
-) { Hold 'RECEIPT_NONCE_INVALID' }
+    if ($request.nonce -cnotmatch '^[0-9a-f]{32}$') { Hold 'RECEIPT_NONCE_INVALID' }
     $record = @{schema='TTV-SRT-PARSER-INSTALL-V1';nonce=$request.nonce;status='INSTALLED';modules=2;owner='READY_FRESH';source='UNCHANGED'}
     $dest = Join-Path $spool ('Receipts\srt-parser-' + $request.nonce + '.json')
     [IO.File]::WriteAllText($dest,($record | ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))

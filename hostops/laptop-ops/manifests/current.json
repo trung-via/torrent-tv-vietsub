@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-srt-parser-install.ps1",
-  "script_sha256": "95ce4313c3600049b5254f5572205548f05ab555d103a9862a310bc733a492ca",
+  "script_sha256": "fab026cbc01d8fa46314f27b930f38606179491f3ed7a0d946baf397f43483dd",
   "arguments": []
 }
