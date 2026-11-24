@@ -134,5 +134,20 @@ fun main() {
         error("corrupted persisted cursor accepted")
     } catch (e: IllegalArgumentException) { check(e.message == "P4_STORED_LEDGER_INVALID") }
 
+    val timeline = receiver.parseTimeline(extended.toByteArray(Charsets.UTF_8), "srt")
+    check(timeline.extends(receiver.parseTimeline(original.toByteArray(Charsets.UTF_8), "srt")))
+    check(timeline.textAt(0) == "Câu thử 1")
+    check(timeline.textAt(850) == "")
+    check(timeline.textAt(2000) == "Câu thử 3")
+    check(timeline.textAt(1000) == "Câu thử 2") // backwards seek
+    val overlap = P4CueTimeline(listOf(P4Cue(0, 2000, "A"), P4Cue(1000, 3000, "B")))
+    check(overlap.textAt(1500) == "A\nB")
+    check(overlap.textAt(2000) == "B")
+    check(!overlap.extends(timeline))
+    val overlay = P4SignedReceiver(session, media, src, secret)
+    overlay.receive(first, session, media, "ON", "VLC", ::accept)
+    check(overlay.acknowledgeOverlayInstalled(session, media, "ON", "VLC",
+        1, first.payloadSha256) == "OVERLAY_INSTALLED")
+    check(overlay.lastAppliedForTest() == 1)
     println("P4_NATIVE_SIGNED_RECEIVER_SYNTHETIC_PASS (Kotlin/JVM, Python-HMAC cross-language)")
 }

@@ -91,8 +91,9 @@ class P4SessionLossContractTest(unittest.TestCase):
     def test_overlay_is_once_only_and_preserves_g2_guard(self):
         with self.assertRaisesRegex(ValueError, "P4_ACTIVITY_ALREADY_APPLIED"):
             patcher().patch_activity(self.activity)
-        self.assertIn("acknowledgeP4FirstFrame()", self.activity)
-        self.assertIn("restoreP4RegistryIfPending()", self.activity)
+        self.assertIn("receiver.acknowledgeOverlayInstalled(", self.activity)
+        self.assertIn("P1ProductionSubtitles.rollbackAutomatic(", self.activity)
+        self.assertNotIn("session.load(newRequest)", self.activity)
 
 
 if __name__ == "__main__":

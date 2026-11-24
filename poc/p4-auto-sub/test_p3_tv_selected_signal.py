@@ -24,10 +24,8 @@ def fake_p4_activity() -> str:
 class PlayerActivity {
     private var g2Recovery: G2RefreshRecovery? = null
     internal fun receiveP4Revision(offer: P4SubtitleOffer): String { return "" }
-    private fun acknowledgeP4FirstFrame(): Boolean {
-        if (!acknowledged) return false
-        // Only after the persisted first-frame ACK is this new registry valid.
-        return true
+    private fun installP4Overlay() {
+        android.util.Log.i("TorrentTV-Vietsub", "P4_TV_OVERLAY_INSTALLED")
     }
     private fun receiveP4CurrentOffer(): String {
         val choice = P1ProductionSubtitles.automaticChoice(applicationContext, r, idx)
@@ -191,7 +189,7 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('val sampledAt = android.os.SystemClock.elapsedRealtime()', self.kt)
         self.assertIn('STATUS_TIMEOUT_MS = 2_000L', self.kt)
         for stage in ('P4_TV_ACTIVATE_NOT_READY', 'P4_TV_SESSION_ACCEPTED',
-                      'P4_TV_OFFER_RECEIVED_UNVERIFIED', 'P4_TV_G2_FIRST_FRAME_ACK'):
+                      'P4_TV_OFFER_RECEIVED_UNVERIFIED', 'P4_TV_OVERLAY_INSTALLED'):
             self.assertIn(stage, self.patched)
         self.assertNotIn('item.title', self.kt)
         self.assertNotIn('"video_filename"', self.kt)

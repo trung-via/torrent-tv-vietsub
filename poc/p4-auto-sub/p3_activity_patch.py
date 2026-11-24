@@ -273,12 +273,6 @@ P4_SUCCESS_REPLACEMENT = """                result.sessionSecret.fill(0)
                     if (started) "Đã bật Vietsub AI. Đang chờ bản dịch đầu tiên..."
                     else "Phim đã đổi hoặc không thể bật Vietsub AI.", !started)"""
 
-P4_FIRST_FRAME = """        if (!acknowledged) return false
-        // Only after the persisted first-frame ACK is this new registry valid."""
-P4_FIRST_FRAME_REPLACEMENT = """        if (!acknowledged) return false
-        android.util.Log.i("TorrentTV-Vietsub", "P4_TV_G2_FIRST_FRAME_ACK")
-        // Only after the persisted first-frame ACK is this new registry valid."""
-
 P4_OFFER = """        val choice = P1ProductionSubtitles.automaticChoice(applicationContext, r, idx)
         return try {
             receiver.receive("""
@@ -328,6 +322,7 @@ def patch_activity(text: str) -> str:
             P3SelectedMediaPublisher.cancelViewer(
                 applicationContext, session.request, index(), engine is VlcEngine)
             if (p4LanScope != null) unbindP4Session()
+            clearP4Overlay()
         }
         if (!closedSent && ::session.isInitialized) {
             P3SelectedMediaPublisher.sample(
@@ -359,7 +354,6 @@ def patch_activity(text: str) -> str:
         (P4_CONNECTING_MESSAGE, P4_CONNECTING_REPLACEMENT),
         (P4_PENDING_MESSAGE, P4_PENDING_REPLACEMENT),
         (P4_SUCCESS, P4_SUCCESS_REPLACEMENT),
-        (P4_FIRST_FRAME, P4_FIRST_FRAME_REPLACEMENT),
         (P4_OFFER, P4_OFFER_REPLACEMENT),
     )
     for original, _ in rules:

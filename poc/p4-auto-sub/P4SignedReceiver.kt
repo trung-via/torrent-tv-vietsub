@@ -22,6 +22,20 @@ internal data class P4SubtitleOffer(
     val signature: String,
 )
 
+internal data class P4Cue(val startMs: Long, val endMs: Long, val text: String)
+
+internal class P4CueTimeline(val cues: List<P4Cue>) {
+    fun extends(previous: P4CueTimeline): Boolean =
+        cues.size >= previous.cues.size && cues.take(previous.cues.size) == previous.cues
+
+    // Bounded by the authenticated 2,000-cue payload. Overlaps and seeks
+    // deliberately use the actual playback clock, not elapsed wall time.
+    fun textAt(positionMs: Long): String = cues.asSequence()
+        .takeWhile { it.startMs <= positionMs }
+        .filter { positionMs < it.endMs }
+        .joinToString("\n") { it.text }
+}
+
 internal class P4SignedReceiver(
     private val pairedSessionId: String,
     private val pairedMediaKey: String,
@@ -119,6 +133,17 @@ internal class P4SignedReceiver(
         return "APPLIED_TO_G2"
     }
 
+    /** Same ledger commit, distinct evidence: the cue timeline is installed,
+     *  NOT proof a cue was visible at the current playback position. */
+    @Synchronized fun acknowledgeOverlayInstalled(
+        activeSessionId: String, activeMediaKey: String, subtitleChoice: String,
+        engine: String, version: Int, payloadSha256: String,
+    ): String {
+        val result = acknowledgeFirstFrame(activeSessionId, activeMediaKey,
+            subtitleChoice, engine, version, payloadSha256)
+        return if (result == "APPLIED_TO_G2") "OVERLAY_INSTALLED" else result
+    }
+
     /** G2 engineFailed, timeout, switched item or closed activity must drop pending. */
     @Synchronized fun abortPending(version: Int, payloadSha256: String): Boolean {
         val staged = pending ?: return false
@@ -142,13 +167,15 @@ internal class P4SignedReceiver(
         if (shaHex(o.payload) != o.payloadSha256) {
             throw IllegalArgumentException("P4_PAYLOAD_HASH_MISMATCH")
         }
-        val result = parseCues(o.payload, o.format)
-        if (result.first != o.translatedCount || result.second != o.lastEndMs) {
+        val result = parseTimeline(o.payload, o.format)
+        if (result.cues.size != o.translatedCount || result.cues.last().endMs != o.lastEndMs) {
             throw IllegalArgumentException("P4_SUBTITLE_METADATA_MISMATCH")
         }
     }
 
-    private fun parseCues(payload: ByteArray, fmt: String): Pair<Int, Long> {
+    internal fun parseTimeline(payload: ByteArray, fmt: String): P4CueTimeline {
+        require(fmt in setOf("srt", "vtt") && payload.isNotEmpty() &&
+            payload.size <= 256 * 1024) { "P4_TIMELINE_BOUNDS_INVALID" }
         val body = try {
             Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT)
@@ -169,7 +196,7 @@ internal class P4SignedReceiver(
             throw IllegalArgumentException("P4_CUE_COUNT_INVALID")
         }
         var previousStart = -1L
-        var lastEnd = 0L
+        val cues = ArrayList<P4Cue>(blocks.size)
         blocks.forEachIndexed { i, block ->
             val lines = block.split("\n")
             val offset = if (fmt == "srt") {
@@ -189,9 +216,9 @@ internal class P4SignedReceiver(
                 throw IllegalArgumentException("P4_CUE_ORDER_INVALID")
             }
             previousStart = start
-            lastEnd = end
+            cues.add(P4Cue(start, end, lines.drop(offset + 1).joinToString("\n")))
         }
-        return Pair(blocks.size, lastEnd)
+        return P4CueTimeline(cues)
     }
 
     private fun millis(value: String, fmt: String): Long {
