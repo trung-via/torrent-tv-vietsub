@@ -88,6 +88,14 @@ class CueQATests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_cues(b"WEBVTT\n\nSTYLE\n::cue { color: red; }", "vtt")
 
+    def test_feature_length_2009_cues_preserved(self):
+        raw = "\n\n".join(
+            f"{i}\n00:00:01,000 --> 00:00:02,000\nLine {i}"
+            for i in range(1, 2010)).encode("utf-8")
+        cues = parse_cues(raw, "srt")
+        self.assertEqual(len(cues), 2009)
+        self.assertEqual(parse_cues(render(cues, "srt"), "srt"), cues)
+
     def test_large_input_rejected(self):
         with self.assertRaisesRegex(ValueError, "INPUT_TOO_LARGE"):
             parse_cues(b"a" * 1000001, "srt")

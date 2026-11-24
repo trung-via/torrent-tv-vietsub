@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import re
 
-MAX_CUES = 2000
+MAX_CUES = 10000
 MAX_BYTES = 1_000_000
 SRT_TIME = re.compile(r"^(\d{2}):(\d{2}):(\d{2}),(\d{3})$")
 VTT_TIME = re.compile(r"^(?:(\d{2}):)?(\d{2}):(\d{2})\.(\d{3})$")
