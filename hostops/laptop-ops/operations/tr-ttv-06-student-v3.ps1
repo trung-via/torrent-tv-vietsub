@@ -1,4 +1,4 @@
-# TR-TTV.06 V3: Owner-supplied exact Iron Man 2 release benchmark.
+# TR-TTV.06 V3: Neon High Teacher control, identical Student V3 prompt and checks.
 # Never edit shared settings or touch Owner production.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -8,7 +8,7 @@ $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | C
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-06-ironman2-v3-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-06-ironman2-teacher-v3-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 function Listener([int]$port){
   @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
@@ -22,7 +22,7 @@ $profile=Join-Path $root 'CDP9555Profile'
 $active9555=@(Listener 9555)
 $started9555=0
 $verified=$false
-$code='TR06V3_BROWSER_NOT_VERIFIED'
+$code='TR06T3_BROWSER_NOT_VERIFIED'
 if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
 elseif($active9555.Count -eq 1){
  $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
@@ -112,21 +112,21 @@ def probe():
     override=run/"session-settings.json"
     write(override,config)
     env["TTV_SESSION_SETTINGS"]=str(override)
-    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
+    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-neon-high","high")
     # One ordinary pre-existing provider tab only. Do not reload, rotate or solve a challenge.
     with opener.open("http://127.0.0.1:9555/json/list",timeout=3) as f:tabs=json.load(f)
     pages=[t for t in tabs if t.get("type")=="page"]
     site=[t for t in pages if urllib.parse.urlsplit(t.get("url","")).hostname in ("www.opensubtitles.org","opensubtitles.org")]
-    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR06V3_ACCESS_BLOCKED_PRE"
-    if len(site)!=1:return "TR06V3_TASK_TAB_AMBIGUOUS"
+    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR06T3_ACCESS_BLOCKED_PRE"
+    if len(site)!=1:return "TR06T3_TASK_TAB_AMBIGUOUS"
     target=site[0]
     u=urllib.parse.urlsplit(target.get("url",""))
-    if u.scheme!="https" or not re.search(r"subtitles",target.get("title",""),re.I):return "TR06V3_TASK_TAB_UNVERIFIED"
+    if u.scheme!="https" or not re.search(r"subtitles",target.get("title",""),re.I):return "TR06T3_TASK_TAB_UNVERIFIED"
     # Keep original browser download preferences unchanged; snapshot known download directory.
     prefs=read(profile/"Default"/"Preferences")
     download=prefs.get("download",{})
     dest=pathlib.Path(os.path.expandvars(download.get("default_directory") or str(home/"Downloads")))
-    if not dest.is_absolute() or not dest.is_dir():return "TR06V3_DOWNLOAD_DIR_UNVERIFIED"
+    if not dest.is_absolute() or not dest.is_dir():return "TR06T3_DOWNLOAD_DIR_UNVERIFIED"
     dirs={dest}
     resultdir=run/"browser-downloads";resultdir.mkdir()
     write(run/"task-binding.json",{"cdp_target_id":target.get("id"),"initial_url":target.get("url"),"download_directory":str(dest),"existing_profile":True,"cold_profile":False})
@@ -301,11 +301,11 @@ def probe():
     challenge=bool(re.search(r"making sure you.re not a bot|/\.within\.website/|anti.bot challenge|captcha",access_evidence,re.I))
     provider_access="ACCESS_BLOCKED" if challenge else "SITE_TAB_OBSERVED"
     selection_evaluation="NOT_TESTED" if challenge else "RELEASE_METADATA_UNVERIFIED"
-    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V3","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Iron Man 2","year":2010,"release":"Iron Man 2 2010 REPACK 1080p BluRay x264-nikt0","release_origin":"OWNER_SUPPLIED","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
-    write(run/"BRAIN_STUDENT_REPORT.json",report)
-    (run/"BRAIN_STUDENT_FULL_RESPONSE.md").write_text("# Hydrogen Low student benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-neon-high","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V3","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Iron Man 2","year":2010,"release":"Iron Man 2 2010 REPACK 1080p BluRay x264-nikt0","release_origin":"OWNER_SUPPLIED","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    write(run/"BRAIN_TEACHER_REPORT.json",report)
+    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Neon High teacher benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
-    return f"TR06V3_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}E{exact}I{bound}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
+    return f"TR06T3_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}E{exact}I{bound}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
 
 try:print(probe())
 except Exception as e:
