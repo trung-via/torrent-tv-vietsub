@@ -228,6 +228,19 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-vieneu-provision') {
+        $file = Join-Path $outbox ('vieneu-provision-' + $nonce + '.json')
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Length -le 0 -or $item.Length -gt 1024 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'VIENEU_PROVISION_RECEIPT_INVALID' }
+        $v = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($v.schema -cne 'TTV-VIENEU-PROVISION-V1' -or $v.nonce -cne $nonce -or
+            $v.status -cnotin @('ENV_READY','NO_COMPATIBLE_PYTHON','TIME_BUDGET','VENV_FAILED','RESOLVE_TIMEOUT','WHEEL_RESOLUTION_FAILED','INSTALL_TIMEOUT','INSTALL_FAILED','IMPORT_FAILED','PROVISION_EXCEPTION') -or
+            $v.elapsed_s -lt 0 -or $v.elapsed_s -gt 600 -or $v.model_load -cne 'NOT_ATTEMPTED') { throw 'VIENEU_PROVISION_SCOPE_INVALID' }
+        foreach ($name in @('python','sdk','onnx')) {
+            if ([string]$v.$name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9.+_-]{0,47}$') { throw 'VIENEU_PROVISION_VERSION_INVALID' }
+        }
+        foreach ($name in @('status','python','sdk','onnx','elapsed_s','model_load')) { Write-Output ('HOSTOPS_VIENEU_PROVISION_' + $name.ToUpperInvariant() + '=' + $v.$name) }
+    }
     if ($receipt.operation -ceq 'owner-vieneu-readiness') {
         $file = Join-Path $outbox ('vieneu-readiness-' + $nonce + '.json')
         $item = Get-Item -LiteralPath $file -Force
