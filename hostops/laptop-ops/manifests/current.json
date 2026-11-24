@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-spiderman-en-stage",
-  "category": "diagnostics",
+  "operation": "owner-srt-parser-install",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-spiderman-en-stage.ps1",
-  "script_sha256": "3feb5c2ac424fe3303ce68b5a9bf74dd68a24dbe8a8a3ea7f5ddedec3cffe02b",
+  "script_path": "hostops/laptop-ops/operations/owner-srt-parser-install.ps1",
+  "script_sha256": "95ce4313c3600049b5254f5572205548f05ab555d103a9862a310bc733a492ca",
   "arguments": []
 }

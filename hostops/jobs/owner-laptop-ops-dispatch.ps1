@@ -280,6 +280,14 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
         Write-Output 'HOSTOPS_VIENEU_MODEL_LOAD=NOT_ATTEMPTED'
     }
+    if ($receipt.operation -ceq 'owner-srt-parser-install') {
+        $file = Join-Path $outbox ('srt-parser-' + $nonce + '.json')
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Length -le 0 -or $item.Length -gt 512 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'SRT_PARSER_INSTALL_RECEIPT_INVALID' }
+        $r = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        if ($r.schema -cne 'TTV-SRT-PARSER-INSTALL-V1' -or $r.nonce -cne $nonce -or $r.status -cne 'INSTALLED' -or $r.modules -ne 2 -or $r.owner -cne 'READY_FRESH' -or $r.source -cne 'UNCHANGED') { throw 'SRT_PARSER_INSTALL_RECEIPT_INVALID' }
+        foreach ($field in @('status','modules','owner','source')) { Write-Output ('HOSTOPS_SRT_PARSER_' + $field.ToUpperInvariant() + '=' + $r.$field) }
+    }
     if ($receipt.operation -ceq 'owner-spiderman-en-stage') {
         $file = Join-Path $outbox ('en-stage-' + $nonce + '.json')
         $item = Get-Item -LiteralPath $file -Force
