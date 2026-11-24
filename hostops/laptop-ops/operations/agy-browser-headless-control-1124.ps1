@@ -1,5 +1,5 @@
-# Independent stdio MCP protocol test using a local fixture only.
-# No external website access or changes to the existing Chrome profile.
+# AGY acquisition using the independently validated stdio MCP client and explicit pageId.
+# Keep the existing profile and normal website authorization intact.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
@@ -7,7 +7,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('mcp-cdp9555-pageid-'+$rq.nonce)
+$run=Join-Path $root ('agy-cdp9555-mcp-stdio-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='CDP9555_NOT_READY'
 $profile=Join-Path $root 'CDP9555Profile'
@@ -42,169 +42,102 @@ if($existing.Count -eq 1){
 }elseif($existing.Count -gt 1){$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
 if($verified){
  $py=@'
-import sys,pathlib,os,json,re,subprocess,time,urllib.request,http.server,threading,secrets,queue
+import sys,pathlib,os,json,re,subprocess,time,urllib.request,hashlib,zipfile,shutil
 owner,run=map(pathlib.Path,sys.argv[1:])
-def classify(value,prefix):
-    t=json.dumps(value,ensure_ascii=False).lower()
-    rules=[("ARG",r"invalid (?:arguments|params|parameters)|validation|expected number|required|invalid_type"),("PAGE",r"no page|page.{0,25}(?:not found|closed)|target closed|no selected"),("A11Y",r"accessibility|a11y|snapshot"),("TIME",r"timeout|timed out"),("PERM",r"permission|not allowed|denied"),("PROTO",r"protocol error|session closed")]
-    for label,pat in rules:
-        if re.search(pat,t):return prefix+"_"+label
-    return prefix+"_OTHER"
-class MCP:
-    def __init__(self,work):
-        self.q=queue.Queue()
-        self.seq=0
-        self.err=open(work/"mcp-stderr.txt","w",encoding="utf-8")
-        self.p=subprocess.Popen(["cmd.exe","/d","/c","npx","-y","chrome-devtools-mcp@1.13.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics"],cwd=work,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.err,text=True,encoding="utf-8",errors="replace",bufsize=1)
-        def reader():
-            for line in self.p.stdout:
-                try:
-                    x=json.loads(line)
-                    if isinstance(x,dict):self.q.put(x)
-                except ValueError:pass
-            self.q.put(None)
-        threading.Thread(target=reader,daemon=True).start()
-    def send(self,method,params=None,notification=False,timeout=25):
-        x={"jsonrpc":"2.0","method":method}
-        if params is not None:x["params"]=params
-        if not notification:
-            self.seq+=1
-            x["id"]=self.seq
-        self.p.stdin.write(json.dumps(x)+"\n")
-        self.p.stdin.flush()
-        if notification:return {}
-        until=time.monotonic()+timeout
-        while True:
-            remain=until-time.monotonic()
-            if remain<=0:raise TimeoutError(method)
-            try:y=self.q.get(timeout=remain)
-            except queue.Empty:raise TimeoutError(method)
-            if y is None:raise EOFError(method)
-            if y.get("id")!=self.seq:continue
-            if "error" in y:raise RuntimeError(classify(y["error"],"RPC"))
-            r=y.get("result")
-            if not isinstance(r,dict):raise RuntimeError("INVALID")
-            if r.get("isError"):raise RuntimeError(classify(r,"TOOL"))
-            return r
-    def call(self,name,args=None,timeout=30):
-        return self.send("tools/call",{"name":name,"arguments":args or {}},timeout=timeout)
-    def close(self):
-        # Closing stdio disconnects the MCP server; never call browser.close.
-        try:self.p.stdin.close()
-        except Exception:pass
-        try:self.p.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self.p.terminate()
-            try:self.p.wait(timeout=5)
-            except subprocess.TimeoutExpired:self.p.kill()
-        self.err.close()
-def main():
-    flags={k:0 for k in ("init","list","new","snapshot","hit","close","id","req")}
-    stage="ENDPOINT"
-    outcome="FAIL"
-    client=None
-    srv=None
-    fixture=None
-    page_id=None
-    visits=[]
-    start=time.monotonic()
+sys.path[:0]=[str(owner/"app/poc/p2-aisub")]
+from translator_gateway import preflight_antigravity,_validated_antigravity_alias
+try:
+    cli=preflight_antigravity()
+    model=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
+    env=dict(os.environ)
+    for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GEMINI_BASE_URL","AGY_ADC_AUTH","GOOGLE_CLOUD_PROJECT","GOOGLE_CLOUD_QUOTA_PROJECT"):env.pop(k,None)
+    downloads=run/"downloads"
+    downloads.mkdir()
     try:
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open("http://127.0.0.1:9555/json/version",timeout=3) as resp:v=json.load(resp)
-        if not str(v.get("Browser","")).startswith("Chrome/") or not str(v.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9555/"):raise RuntimeError("ENDPOINT")
-        marker="TTV_MCP_"+secrets.token_hex(16)
-        route="/"+secrets.token_hex(16)
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self,*args):pass
-            def do_GET(self):
-                if self.path!=route:self.send_error(404);return
-                visits.append(self.headers.get("User-Agent",""))
-                body=("<html><title>TTV local MCP</title><h1>"+marker+"</h1></html>").encode()
-                self.send_response(200);self.send_header("Content-Type","text/html");self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body)
-        srv=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
-        threading.Thread(target=srv.serve_forever,daemon=True).start()
-        fixture=f"http://127.0.0.1:{srv.server_port}{route}"
-        stage="SPAWN"
-        client=MCP(run)
-        stage="INIT"
-        init=client.send("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ttv-local-smoke","version":"1.0"}},timeout=50)
-        if not init.get("protocolVersion") or not init.get("serverInfo"):raise RuntimeError("INIT_INVALID")
-        flags["init"]=1
-        client.send("notifications/initialized",notification=True)
-        stage="LIST"
-        tools=client.send("tools/list")
-        schemas={x["name"]:x.get("inputSchema",{}) for x in tools.get("tools",[]) if isinstance(x,dict) and isinstance(x.get("name"),str)}
-        for name in ("new_page","take_snapshot","close_page"):
-            if name not in schemas:raise RuntimeError("TOOL_MISSING")
-        flags["list"]=1
-        stage="NEW"
-        result=client.call("new_page",{"url":fixture},timeout=40)
-        flags["new"]=1
-        # Only match the exact newly created fixture URL, never record existing tabs.
-        def identify(r):
-            # Handle structured page lists and the current title (URL) display format.
-            def visit(v):
-                if isinstance(v,dict):
-                    if v.get("url")==fixture:
-                        for key in ("id","pageId","page_id"):
-                            x=v.get(key)
-                            if isinstance(x,int) and not isinstance(x,bool):return x
-                            if isinstance(x,str) and x.isdecimal():return int(x)
-                    for val in v.values():
-                        found=visit(val)
-                        if found is not None:return found
-                elif isinstance(v,list):
-                    for val in v:
-                        found=visit(val)
-                        if found is not None:return found
-                return None
-            found=visit(r.get("structuredContent",{}))
-            if found is not None:return found
-            for item in r.get("content",[]):
-                if not isinstance(item,dict) or item.get("type")!="text":continue
-                for line in item.get("text","").splitlines():
-                    match=re.match(r"^\s*(?:[-*]\s*)?(\d+)\s*:\s*(.*)$",line)
-                    if not match:continue
-                    text=match.group(2)
-                    if re.search(r"(?:^|[\s(])"+re.escape(fixture)+r"(?:$|[\s)])",text):
-                        return int(match.group(1))
-            return None
-        stage="ID"
-        page_id=identify(result)
-        if page_id is None and "list_pages" in schemas:
-            page_id=identify(client.call("list_pages"))
-        if page_id is None:raise RuntimeError("NO_ID")
-        flags["id"]=1
-        schema=schemas["take_snapshot"]
-        props=schema.get("properties",{})
-        flags["req"]=int("pageId" in schema.get("required",[]))
-        stage="SNAP"
-        if "pageId" in props:
-            result=client.call("take_snapshot",{"pageId":page_id})
-        else:
-            if "select_page" not in schemas:raise RuntimeError("NO_SELECT")
-            client.call("select_page",{"pageId":page_id})
-            result=client.call("take_snapshot")
-        flags["snapshot"]=int(any(marker in x.get("text","") for x in result.get("content",[]) if isinstance(x,dict) and x.get("type")=="text"))
-        flags["hit"]=int(any("Chrome/" in ua for ua in visits))
-        if flags["snapshot"] and flags["hit"]:outcome="PASS"
-        else:outcome="MISMATCH"
-        stage="DONE"
-    except TimeoutError:outcome="TIMEOUT"
-    except EOFError:outcome="EOF"
-    except Exception as e:
-        outcome=str(e) if str(e) in ("TOOL_MISSING","INIT_INVALID","ENDPOINT","NO_ID","NO_SELECT","INVALID") or re.fullmatch(r"(?:RPC|TOOL)_(?:ARG|PAGE|A11Y|TIME|PERM|PROTO|OTHER)",str(e)) else "LOCALERR"
-    finally:
-        if client:
-            if page_id is not None:
-                try:client.call("close_page",{"pageId":page_id},timeout=10);flags["close"]=1
-                except Exception:pass
-            client.close()
-        if srv:srv.shutdown();srv.server_close()
-        flags["hit"]=int(any("Chrome/" in ua for ua in visits))
-        (run/"RESULT.json").write_text(json.dumps({"outcome":outcome,"stage":stage,**flags,"elapsed_s":round(time.monotonic()-start)}),encoding="utf-8")
-        print(f"MCPID_{outcome}_{stage}_I{flags['init']}_L{flags['list']}_N{flags['new']}_D{flags['id']}_R{flags['req']}_S{flags['snapshot']}_H{flags['hit']}_C{flags['close']}")
-if __name__=="__main__":main()
+        with opener.open("http://127.0.0.1:9555/json/version",timeout=3) as resp:
+            version=json.load(resp)
+        if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9555/"):
+            print("CDP9555_ENDPOINT_UNVERIFIED");sys.exit(0)
+    except Exception:
+        print("CDP9555_ENDPOINT_UNREACHABLE");sys.exit(0)
+    (run/"mcp_client.py").write_text("import pathlib,json,re,subprocess,time,threading,queue\ndef classify(value,prefix):\n    t=json.dumps(value,ensure_ascii=False).lower()\n    rules=[(\"ARG\",r\"invalid (?:arguments|params|parameters)|validation|expected number|required|invalid_type\"),(\"PAGE\",r\"no page|page.{0,25}(?:not found|closed)|target closed|no selected\"),(\"A11Y\",r\"accessibility|a11y|snapshot\"),(\"TIME\",r\"timeout|timed out\"),(\"PERM\",r\"permission|not allowed|denied\"),(\"PROTO\",r\"protocol error|session closed\")]\n    for label,pat in rules:\n        if re.search(pat,t):return prefix+\"_\"+label\n    return prefix+\"_OTHER\"\nclass MCP:\n    def __init__(self,work):\n        self.work=work\n        self.q=queue.Queue()\n        self.seq=0\n        self.err=open(work/\"mcp-stderr.txt\",\"w\",encoding=\"utf-8\")\n        self.p=subprocess.Popen([\"cmd.exe\",\"/d\",\"/c\",\"npx\",\"-y\",\"chrome-devtools-mcp@1.13.0\",\"--browser-url=http://127.0.0.1:9555\",\"--no-usage-statistics\"],cwd=work,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.err,text=True,encoding=\"utf-8\",errors=\"replace\",bufsize=1)\n        def reader():\n            for line in self.p.stdout:\n                try:\n                    x=json.loads(line)\n                    if isinstance(x,dict):self.q.put(x)\n                except ValueError:pass\n            self.q.put(None)\n        threading.Thread(target=reader,daemon=True).start()\n    def send(self,method,params=None,notification=False,timeout=25):\n        x={\"jsonrpc\":\"2.0\",\"method\":method}\n        if params is not None:x[\"params\"]=params\n        if not notification:\n            self.seq+=1\n            x[\"id\"]=self.seq\n        self.p.stdin.write(json.dumps(x)+\"\\n\")\n        self.p.stdin.flush()\n        if notification:return {}\n        until=time.monotonic()+timeout\n        while True:\n            remain=until-time.monotonic()\n            if remain<=0:raise TimeoutError(method)\n            try:y=self.q.get(timeout=remain)\n            except queue.Empty:raise TimeoutError(method)\n            if y is None:raise EOFError(method)\n            if y.get(\"id\")!=self.seq:continue\n            if \"error\" in y:raise RuntimeError(classify(y[\"error\"],\"RPC\"))\n            r=y.get(\"result\")\n            if not isinstance(r,dict):raise RuntimeError(\"INVALID\")\n            if r.get(\"isError\"):raise RuntimeError(classify(r,\"TOOL\"))\n            if method==\"tools/call\":\n                with (self.work/\"mcp-trace.jsonl\").open(\"a\",encoding=\"utf-8\") as f:f.write(json.dumps({\"tool\":params.get(\"name\"),\"ok\":True})+\"\\n\")\n            return r\n    def call(self,name,args=None,timeout=30):\n        return self.send(\"tools/call\",{\"name\":name,\"arguments\":args or {}},timeout=timeout)\n    def close(self):\n        # Closing stdio disconnects the MCP server; never call browser.close.\n        try:self.p.stdin.close()\n        except Exception:pass\n        try:self.p.wait(timeout=5)\n        except subprocess.TimeoutExpired:\n            self.p.terminate()\n            try:self.p.wait(timeout=5)\n            except subprocess.TimeoutExpired:self.p.kill()\n        self.err.close()\n",encoding="utf-8")
+    # Snapshot metadata only for subtitle-shaped files in the dedicated profile's ordinary download location.
+    default=pathlib.Path.home()/"Downloads"
+    try:
+        prefs=run.parent/"CDP9555Profile"/"Default"/"Preferences"
+        pref=json.loads(prefs.read_text(encoding="utf-8"))
+        d=pathlib.Path(pref.get("download",{}).get("default_directory",str(default)))
+        if d.is_absolute() and d.is_dir():default=d
+    except Exception:pass
+    def candidates():
+        try:return {f.name:(f.stat().st_size,f.stat().st_mtime_ns) for f in default.iterdir() if f.is_file() and not f.is_symlink() and f.suffix.lower() in (".srt",".zip")}
+        except Exception:return {}
+    before=candidates()
+    prompt="Owner approved one normal signed-in OpenSubtitles acquisition after independently validating Chrome DevTools MCP stdio on dedicated Chrome 9555. The actual MCP server requires pageId on take_snapshot; the previous native AGY integration failed because the argument was absent. Use the provided workspace mcp_client.py unchanged, import MCP from it, write and execute a small Python script using the client to call the actual Chrome DevTools MCP server. Do not use native AGY MCP configuration, direct Playwright, direct CDP navigation, OpenSubs CLI, HTTP provider requests, REST API, or /browser. Initialize with protocolVersion 2025-06-18, capabilities {}, clientInfo name ttv-agy version 1.0; send notifications/initialized, tools/list; inspect returned schemas. Create exactly one new tab using new_page at about:blank with a unique fragment marker; identify its actual pageId from the new_page response/structuredContent or list_pages by exact marker, never select an existing tab. Use pageId explicitly for all page-scoped tools, especially take_snapshot, and use returned element uids/schema for search and click. Navigate this tab to https://www.opensubtitles.org/ using MCP. Use ordinary existing authorized session only. Search Spider-Man: Brand New Day (2026), English WEB-DL 1080p, selezen release and MovieDalen audio label if applicable. Verify title, release, timing and language evidence; do not substitute or invent matches. Download one matching subtitle using the actual website control and normal redirect only, including dl.opensubtitles.org only if the site supplies it. Stop immediately on 401/403/429, login requirement, CAPTCHA, payment or other denial. No bypass, spoofing, account/profile changes, reading credentials/cookies/storage/unrelated tabs, or repeat provider requests after denial. Only use the existing dedicated Chrome 9555; never touch 9444. Preserve the session within a single Python execution where possible; if you must continue, keep the exact created tab ID bound to the same MCP session. Close only your own tab via close_page with that pageId, disconnect client without closing Chrome. Write RESULT.json even on failure, with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status integer or null, download_host hostname or null, release_match boolean, method, downloaded_filename basename or null, and actual_test. Report only actual observations. Use no payment. If actual browser download lands in ordinary download directory, report exact new filename; HostOps verifies independently. Do not copy old files or fabricate SRT. No OwnerBridge, translation or TV changes."
+    args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
+    start=time.monotonic()
+    try:
+        p=subprocess.run(args,env=env,cwd=run,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=270,check=False)
+    except subprocess.TimeoutExpired as e:
+        for name,raw in (("agy-stdout.jsonl",e.stdout),("agy-stderr.txt",e.stderr)):
+            if raw is not None:
+                (run/name).write_bytes(raw if isinstance(raw,bytes) else raw.encode("utf-8"))
+        print("CDP9555_TIMEOUT_RESULT_UNKNOWN");sys.exit(0)
+    (run/"agy-stdout.jsonl").write_text(p.stdout,encoding="utf-8")
+    (run/"agy-stderr.txt").write_text(p.stderr,encoding="utf-8")
+    records=[]
+    for line in p.stdout.splitlines():
+        try:
+            x=json.loads(line)
+            if isinstance(x,dict):records.append(x)
+        except ValueError:pass
+    results=[x.get("result") for x in records if x.get("event")=="result"]
+    result=results[0] if len(results)==1 and isinstance(results[0],dict) else {}
+    rr={}
+    try:
+        rr=json.loads((run/"RESULT.json").read_text(encoding="utf-8-sig"))
+        if not isinstance(rr,dict):rr={}
+    except Exception:pass
+    allowed={"DOWNLOADED","ACCESS_DENIED","AUTH_REQUIRED","NO_MATCH","DOWNLOAD_FAILED","CDP_FAILED","OTHER"}
+    status=rr.get("status","")
+    if not isinstance(status,str) or status not in allowed:status="UNCLASSIFIED"
+    # Compact fixed labels to stay within the existing receipt length limit.
+    codes={"DOWNLOADED":"DL","ACCESS_DENIED":"DENY","AUTH_REQUIRED":"AUTH","NO_MATCH":"NOMATCH","DOWNLOAD_FAILED":"DLFAIL","CDP_FAILED":"CDPFAIL","OTHER":"OTHER","UNCLASSIFIED":"UNK"}
+    stage=rr.get("stage")
+    stage=stage if stage in ("HOME","SEARCH","DETAIL","DOWNLOAD","CDP") else "NA"
+    http=str(rr.get("observed_http_status"))
+    http=http if http in ("200","401","403","429","503","404","302") else "NA"
+    host=rr.get("download_host")
+    dlhost=int(isinstance(host,str) and host.lower()=="dl.opensubtitles.org")
+    match=int(rr.get("release_match") is True)
+    # Copy only the newly created exact reported download, never unrelated preexisting files.
+    name=rr.get("downloaded_filename")
+    after=candidates()
+    if status=="DOWNLOADED" and isinstance(name,str) and name==pathlib.Path(name).name and name not in before and name in after and after[name][0]<=10000000:
+        src=default/name
+        if src.is_file() and not src.is_symlink():shutil.copyfile(src,downloads/name)
+    cues=0
+    files=0
+    for f in downloads.iterdir():
+        if f.is_file() and not f.is_symlink() and f.stat().st_size<=10000000 and f.suffix.lower() in (".srt",".zip"):
+            files+=1
+            try:
+                if f.suffix.lower()==".srt":blobs=[f.read_bytes()]
+                else:
+                    with zipfile.ZipFile(f) as z:
+                        blobs=[z.read(i) for i in [x for x in z.infolist() if x.filename.lower().endswith(".srt") and x.file_size<=2000000][:5]]
+                for data in blobs:
+                    cues=max(cues,len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}",data)))
+            except Exception:pass
+    trace=[]
+    try:
+        for line in (run/"mcp-trace.jsonl").read_text(encoding="utf-8").splitlines():
+            x=json.loads(line)
+            if isinstance(x,dict) and x.get("ok") is True:trace.append(x.get("tool"))
+    except Exception:pass
+    print(f"9555STD_{codes[status]}_{stage}_H{http}_D{dlhost}_M{match}_N{int('new_page' in trace)}_S{int('take_snapshot' in trace)}_F{min(files,9)}_C{min(cues,99999)}_{round(time.monotonic()-start)}S")
+except Exception:print("MCP_HEADLESS_LOCAL_ERROR")
 '@
  $f=Join-Path $run 'control.py'
  [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
