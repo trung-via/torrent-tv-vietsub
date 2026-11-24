@@ -1,4 +1,4 @@
-# Read-only Owner log classifier for the EXACT R2 restart attempt.
+# Read-only Owner log classifier for the EXACT November 24 source-neutral restart and rollback attempt.
 # Never copies exception messages, media, secrets or private paths into HostOps.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -34,9 +34,9 @@ if (-not (Test-Path -LiteralPath $logFile -PathType Leaf)) {
         ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         $status = 'LOG_NOT_READABLE'
     } else {
-        # Exactly the second failed R2 installation: 2026-11-23 07:42-07:46 UTC.
-        $start = [DateTimeOffset]::Parse('2026-11-23T07:42:00Z').ToUnixTimeSeconds()
-        $end = [DateTimeOffset]::Parse('2026-11-23T07:46:00Z').ToUnixTimeSeconds()
+        # Exact source-neutral install run 45298606485: 2026-11-24 00:37-00:40 UTC.
+        $start = [DateTimeOffset]::Parse('2026-11-24T00:37:00Z').ToUnixTimeSeconds()
+        $end = [DateTimeOffset]::Parse('2026-11-24T00:40:00Z').ToUnixTimeSeconds()
         $inAttempt = $false
         $afterTrace = $false
         $traceLines = 0

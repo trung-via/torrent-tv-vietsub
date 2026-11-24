@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-brain-neutral-diagnostic",
+  "operation": "owner-brain-r2-startup-trace",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-brain-neutral-diagnostic.ps1",
-  "script_sha256": "425cbe479746ab387c7eec0c98c91560b5f8ac5fd9756ff94f830d63911d0aa2",
+  "script_path": "hostops/laptop-ops/operations/owner-brain-r2-startup-trace.ps1",
+  "script_sha256": "0470fd5fe944f7bd7b222db13254f2b1dbf84152fd6dbdb2ae160e183bd00dde",
   "arguments": []
 }
