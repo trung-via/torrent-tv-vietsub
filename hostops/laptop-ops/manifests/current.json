@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-spiderman-en-stage",
-  "category": "owner-maintenance",
+  "operation": "owner-p2-block-trace-readonly",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-spiderman-en-stage.ps1",
-  "script_sha256": "45fccaa45429e2a11380fa40c2bc114c3ec0902c9f033602f37148e5b9e9b8ff",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-block-trace-readonly.ps1",
+  "script_sha256": "f2bd386c9a8dde14b07f466d2ffa2c6b3a006f195b5785a7f1eff674f99733b3",
   "arguments": []
 }
