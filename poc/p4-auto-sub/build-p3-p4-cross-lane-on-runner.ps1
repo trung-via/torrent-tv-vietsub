@@ -22,13 +22,18 @@ $flat = ($requestedPr -ne $null -and
      ($requestedPr -eq 179 -and
       $env:GITHUB_HEAD_REF -ceq 'fix/p2-dual-candidates-20261122')) -and
     $env:GITHUB_BASE_REF -ceq 'main')
-if (@(@($pr162,$pr168,$flat) | Where-Object { $_ }).Count -ne 1) {
+$g1Performance = ($requestedPr -eq 186 -and
+    $env:GITHUB_HEAD_REF -ceq 'feature/p2-lean120-parallel-20261124' -and
+    $env:GITHUB_BASE_REF -ceq 'feature/brain-en-inbox-temporary-20261123')
+if (@(@($pr162,$pr168,$flat,$g1Performance) | Where-Object { $_ }).Count -ne 1) {
     throw 'STOP: expected exactly one approved build-only PR identity'
 }
 $branch = if ($pr162) { 'feature/p3-p4-cross-lane-tv-owner-compose-20261114' } elseif ($pr168) {
     'feature/p3p4-r0-r2-single-tap-20261116'
 } else { $env:GITHUB_HEAD_REF }
-$baseBranch = if ($pr168) { 'feature/p3-owner-v2-offline-activation-20261115' } else { 'main' }
+$baseBranch = if ($pr168) { 'feature/p3-owner-v2-offline-activation-20261115' } elseif ($g1Performance) {
+    'feature/brain-en-inbox-temporary-20261123'
+} else { 'main' }
 $allowedWorkflows = if ($pr162) {
     @('.github/workflows/tv-p3-p4-cross-lane-android-ci.yml')
 } elseif ($pr168) {
@@ -85,7 +90,7 @@ if ($pr162 -and [int]$eventData.number -ne 162) {
 if ($pr168 -and [int]$eventData.number -ne 168) {
     throw 'STOP: PR #168 event number mismatch'
 }
-if ($flat -and [int]$eventData.number -ne $requestedPr) {
+if (($flat -or $g1Performance) -and [int]$eventData.number -ne $requestedPr) {
     throw 'STOP: FLAT event number mismatch'
 }
 if ($eventData.repository.private -ne $true -and $eventData.repository.private -ne $false) {
@@ -257,9 +262,21 @@ foreach ($anchor in @('internal fun bindP4Session(', 'internal fun receiveP4Revi
                       'P4ActivationClient.activate(', 'P4PairingStore(applicationContext).load(',
                       'P4AppliedLedger(applicationContext, sessionId, mediaKey, sourceSha256)',
                       'P4LanClient.pollOnce(', 'handler.removeCallbacks(p4LanPoll)',
-                      'p4ExpectedRefresh = newRequest',
-                      'acknowledgeP4FirstFrame()', 'P1ProductionSubtitles.importAutomaticBytes(')) {
+                      'P1ProductionSubtitles.importAutomaticBytes(')) {
     if (-not $activityP4.Contains($anchor)) { throw ('STOP: P4 Activity hook missing ' + $anchor) }
+}
+if ($g1Performance) {
+    foreach ($anchor in @('receiver.acknowledgeOverlayInstalled(', 'state.timeline.textAt(engine.positionMs)',
+                          'P4_TV_OVERLAY_INSTALLED', 'timeline.extends(old.timeline)')) {
+        if (-not $activityP4.Contains($anchor)) { throw ('STOP: Zero-reload Activity hook missing ' + $anchor) }
+    }
+    if ($activityP4.Contains('p4ExpectedRefresh = newRequest')) {
+        throw 'STOP: obsolete automatic reload hook still present'
+    }
+} else {
+    foreach ($anchor in @('p4ExpectedRefresh = newRequest', 'acknowledgeP4FirstFrame()')) {
+        if (-not $activityP4.Contains($anchor)) { throw ('STOP: legacy P4 Activity hook missing ' + $anchor) }
+    }
 }
 foreach ($anchor in @('internal fun importAutomaticBytes(', 'internal fun automaticChoice(')) {
     if (-not $g1P4.Contains($anchor)) { throw ('STOP: P4 G1 source hook missing ' + $anchor) }

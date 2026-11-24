@@ -227,6 +227,23 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn("if (result == null)", self.patched)
         self.assertIn("if (same) {", self.patched)
 
+    def test_g1_performance_candidate_build_uses_exact_owned_stacked_route(self):
+        workflow = (HERE.parents[1] / '.github/workflows/tv-flat-integration-android-ci.yml').read_text('utf-8')
+        builder = (HERE / 'build-p3-p4-cross-lane-on-runner.ps1').read_text('utf-8')
+        for anchor in ('feature/p2-lean120-parallel-20261124',
+                       'feature/brain-en-inbox-temporary-20261123'):
+            self.assertEqual(workflow.count(anchor), 2)
+            self.assertIn(anchor, builder)
+        self.assertIn('$requestedPr -eq 186', builder)
+        self.assertIn('$flat,$g1Performance', builder)
+        self.assertIn('receiver.acknowledgeOverlayInstalled(', builder)
+        self.assertIn('state.timeline.textAt(engine.positionMs)', builder)
+        self.assertIn('STOP: obsolete automatic reload hook still present', builder)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
+        self.assertIn("github.event.pull_request.user.login == 'trung-via'", workflow)
+        self.assertNotIn('pull_request_target:', workflow)
+        self.assertNotIn('adb install', builder.lower())
+
     def test_exact_pr178_build_only_ci_gate_without_adb_side_effect(self):
         repo = HERE.parents[1]
         workflow = (repo / '.github/workflows/tv-flat-integration-android-ci.yml').read_text('utf-8')
