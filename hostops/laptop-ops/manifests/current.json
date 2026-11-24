@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-g1-186-install.ps1",
-  "script_sha256": "85eee3f8b7e5f8888a92263a0f932d2de3529efa70d9b1e3103bccf2ec0aa324",
+  "script_sha256": "5a1b633a89715c54f875cf7d8e242b79281ca3cdb23207326c175cbccdd7ab7c",
   "arguments": []
 }
