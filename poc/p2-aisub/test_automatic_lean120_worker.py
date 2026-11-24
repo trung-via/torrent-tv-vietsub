@@ -91,6 +91,7 @@ class AutoLean120WorkerTests(unittest.TestCase):
             runner=kwargs.pop("runner", self.provider),
             first_window_cues=kwargs.pop("first_window_cues", None),
             parallel_batches=kwargs.pop("parallel_batches", 1),
+            preserve_hydrogen_jobs=kwargs.pop("preserve_hydrogen_jobs", False),
         )
 
     def folders(self):
@@ -408,6 +409,49 @@ class AutoLean120WorkerTests(unittest.TestCase):
         self.worker().run(handoff(1, OTHER))
         self.assertEqual(len(self.folders()), 3)
         self.assertEqual(len(self.provider.calls), 3)
+
+    def test_owner_profile_transition_reuses_finished_and_partial_jobs(self):
+        low = ModelProfile("antigravity", "gemini-4-hydrogen-low", "low")
+        completed, partial, fresh = handoff(1), handoff(175), handoff(1, OTHER)
+        old = self.worker(first_window_cues=50, preserve_hydrogen_jobs=True)
+        old.run(completed)
+        old.run(partial, max_new_windows=1)
+        new = self.worker(profile=low, first_window_cues=50,
+                          preserve_hydrogen_jobs=True)
+        self.assertEqual(new.profile_for_source(completed), PROFILE)
+        self.assertEqual(new.profile_for_source(partial), PROFILE)
+        self.assertEqual(new.job_fingerprint(partial), old.job_fingerprint(partial))
+        before = len(self.provider.calls)
+        self.assertTrue(new.run(completed).complete)
+        self.assertEqual(len(self.provider.calls), before)
+        self.assertTrue(new.run(partial).complete)
+        self.assertEqual([len(ids) for ids in self.provider.calls[before:]], [120, 5])
+        self.assertEqual(new.profile_for_source(fresh), low)
+        new.run(fresh)
+        self.assertEqual(old.profile_for_source(fresh), low)  # rollback reuses Low
+        self.assertEqual(len(self.folders()), 3)
+
+    def test_owner_profile_transition_never_replays_unknown_high_call(self):
+        source = handoff(1)
+        self.provider.fail_on = 1
+        with self.assertRaisesRegex(ValueError, "AGY_PROCESS_FAILED_RESULT_UNKNOWN"):
+            self.worker().run(source)
+        low = ModelProfile("antigravity", "gemini-4-hydrogen-low", "low")
+        candidate = self.worker(profile=low, preserve_hydrogen_jobs=True)
+        self.assertEqual(candidate.profile_for_source(source), PROFILE)
+        with self.assertRaisesRegex(ValueError, "UNCERTAIN_BATCH_MANUAL_RECONCILE"):
+            candidate.run(source)
+        self.assertEqual(len(self.provider.calls), 1)
+        self.assertEqual(len(self.folders()), 1)
+
+    def test_owner_profile_transition_holds_conflicting_existing_jobs(self):
+        source = handoff(1)
+        low = ModelProfile("antigravity", "gemini-4-hydrogen-low", "low")
+        self.worker().run(source)
+        self.worker(profile=low).run(source)  # deliberate isolated test
+        with self.assertRaisesRegex(ValueError, "PROFILE_STATE_AMBIGUOUS"):
+            self.worker(profile=low, preserve_hydrogen_jobs=True).run(source)
+        self.assertEqual(len(self.provider.calls), 2)
 
     def test_parallel_batches_finish_out_of_order_but_publish_contiguous(self):
         barrier = Barrier(3, timeout=5)

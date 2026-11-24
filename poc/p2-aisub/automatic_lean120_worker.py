@@ -80,7 +80,8 @@ class AutomaticLean120Worker:
                  glossary: Mapping[str, str],
                  runner: Runner | None = None,
                  first_window_cues: int | None = None,
-                 parallel_batches: int = 1) -> None:
+                 parallel_batches: int = 1,
+                 preserve_hydrogen_jobs: bool = False) -> None:
         if not isinstance(state_root, Path) or not state_root.is_absolute():
             raise ValueError("AUTO_LEAN120_ABSOLUTE_PRIVATE_STATE_REQUIRED")
         if not provider_enabled(profile.provider):
@@ -95,12 +96,40 @@ class AutomaticLean120Worker:
             raise ValueError("AUTO_LEAN120_FIRST_WINDOW_CUE_LIMIT_INVALID")
         if type(parallel_batches) is not int or not 1 <= parallel_batches <= 3:
             raise ValueError("AUTO_LEAN120_PARALLEL_LIMIT_INVALID")
+        if type(preserve_hydrogen_jobs) is not bool:
+            raise ValueError("AUTO_LEAN120_PROFILE_REUSE_FLAG_INVALID")
+        self.preserve_hydrogen_jobs = preserve_hydrogen_jobs
         self.parallel_batches = parallel_batches
         self.state_root = state_root
         self.profile = profile
         self.glossary = dict(glossary)
         self.runner = runner
         self.first_window_cues = first_window_cues
+
+    def profile_for_source(self, source: AssumedEnglishSubtitle) -> ModelProfile:
+        """Keep the original profile for an existing exact-source job.
+
+        No migration, copying, mixing models or replay of uncertain work.
+        The Owner opts into compatibility for the High/Low transition; other
+        callers retain deliberate isolated-profile benchmarking semantics.
+        """
+        high = ModelProfile("antigravity", "gemini-4-hydrogen-high", "high")
+        low = ModelProfile("antigravity", "gemini-4-hydrogen-low", "low")
+        if not self.preserve_hydrogen_jobs or self.profile not in (high, low):
+            return self.profile
+        existing = []
+        for profile in (high, low):
+            folder = self.state_root / _job_fingerprint(source, profile, self.glossary)
+            if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
+                raise ValueError("AUTO_LEAN120_PROFILE_STATE_INVALID")
+            if folder.is_dir():
+                existing.append(profile)
+        if len(existing) > 1:
+            raise ValueError("AUTO_LEAN120_PROFILE_STATE_AMBIGUOUS")
+        return existing[0] if existing else self.profile
+
+    def job_fingerprint(self, source: AssumedEnglishSubtitle) -> str:
+        return _job_fingerprint(source, self.profile_for_source(source), self.glossary)
 
     def progressive_session(self, source: AssumedEnglishSubtitle
                             ) -> ProgressiveSubtitleSession:
@@ -120,8 +149,7 @@ class AutomaticLean120Worker:
             source.source_bytes, source.fmt, source.media_key)
         if session.windows[0].ids == legacy.windows[0].ids:
             return session
-        folder = self.state_root / _job_fingerprint(
-            source, self.profile, self.glossary)
+        folder = self.state_root / self.job_fingerprint(source)
         first = folder / "batch-0001.json"
         inflight = folder / "batch-0001.inflight"
         if first.is_symlink() or inflight.is_symlink():
@@ -165,6 +193,7 @@ class AutomaticLean120Worker:
         if (source.source_sha256 != handoff.source_sha256 or
             source.cue_count != handoff.cue_count):
             raise ValueError("AUTO_LEAN120_SOURCE_CHANGED")
+        selected_profile = self.profile_for_source(source)
         session = self.progressive_session(source)
         # Validate ALL windows and the configured glossary BEFORE any on-disk
         # in-flight marker or potentially billable call.
@@ -173,8 +202,10 @@ class AutomaticLean120Worker:
         if self.runner is None:
             # Account/config/CI gate MUST run before a new in-flight marker is
             # recorded, even for the first window of a new source.
-            preflight_provider(self.profile)
-        digest = _job_fingerprint(source, self.profile, self.glossary)
+            preflight_provider(selected_profile)
+        digest = _job_fingerprint(source, selected_profile, self.glossary)
+        if self.job_fingerprint(source) != digest:
+            raise ValueError("AUTO_LEAN120_PROFILE_STATE_CHANGED")
         if not _SAFE_JOB.fullmatch(digest):
             raise ValueError("AUTO_LEAN120_JOB_KEY_INVALID")
         # Other films own independent checkpoint/lock namespaces. Their
@@ -200,8 +231,8 @@ class AutomaticLean120Worker:
 
         def provider(window: TranslationWindow) -> dict[int, str]:
             if self.runner is None:
-                return translate_window(window, self.profile, glossary=self.glossary)
-            return translate_window(window, self.profile, glossary=self.glossary,
+                return translate_window(window, selected_profile, glossary=self.glossary)
+            return translate_window(window, selected_profile, glossary=self.glossary,
                                     runner=self.runner)
 
         def translated_result(window: TranslationWindow) -> dict[int, str]:

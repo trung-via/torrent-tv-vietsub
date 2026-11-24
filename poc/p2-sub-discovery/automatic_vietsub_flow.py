@@ -223,7 +223,7 @@ class AutomaticVietsubFlow:
     def _reuse_finished_translation(self, asset: Asset,
                                     file_path: Path) -> PipelineReceipt | None:
         """Verify vi-final.srt and last LEAN120 checkpoint without a model call."""
-        from automatic_lean120_worker import AutomaticLean120Worker, _job_fingerprint
+        from automatic_lean120_worker import AutomaticLean120Worker
         from cached_en_direct_handoff import prepare_local_translation_source
         from cue_pipeline import parse_cues
         from progressive_handoff import ProgressiveSubtitleSession
@@ -231,7 +231,7 @@ class AutomaticVietsubFlow:
             return None
         source = prepare_local_translation_source(
             _receipt(file_path, asset), private_root=self.cache_root)
-        job = _job_fingerprint(source, self.worker.profile, self.worker.glossary)
+        job = self.worker.job_fingerprint(source)
         folder = self.worker.state_root / job
         final = folder / "vi-final.srt"
         if not final.exists():
@@ -696,6 +696,7 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     worker = AutomaticLean120Worker(
         state_root=state_root, profile=profile, glossary={},
         first_window_cues=50, parallel_batches=int(parallel),
+        preserve_hydrogen_jobs=True,
     )
 
     def provider_disabled(*_args: object) -> bytes:

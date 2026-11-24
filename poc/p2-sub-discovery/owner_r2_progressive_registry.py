@@ -25,7 +25,7 @@ from cue_pipeline import parse_cues
 from lan_revision_feed import SessionRevisionFeed
 from paired_activation import AuthenticatedProgressiveSource
 from progressive_handoff import ProgressiveSubtitleSession, SubtitleRevision
-from automatic_lean120_worker import AutomaticLean120Worker, _job_fingerprint
+from automatic_lean120_worker import AutomaticLean120Worker
 from owner_selected_file_resolver import CurrentPlaying, _fingerprint
 from matcher import Media
 from p3_p4_media_key import p4_key_from_verified_current
@@ -223,7 +223,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         state = worker.state_root
         if state.is_symlink() or not state.is_dir():
             return None
-        job = _job_fingerprint(handoff, worker.profile, worker.glossary)
+        job = worker.job_fingerprint(handoff)
         folder = state / job
         if folder.is_symlink() or not folder.is_dir():
             return None
