@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-odyssey-en-stage-1124.ps1",
-  "script_sha256": "3af8d5800b8c2cc259357313b3270a6e8a283fb7632141a71340e1b2bd731803",
+  "script_sha256": "1eb3dcca93e2ca791a94ef883db06380fe3cc03fe2337c05d22703621d6764f7",
   "arguments": []
 }
