@@ -249,6 +249,18 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($receipt.operation -ceq 'owner-odyssey-en-stage-1124') {
+        $file = Join-Path $outbox ('odyssey-stage-' + $nonce + '.json')
+        if (Test-Path -LiteralPath $file -PathType Leaf) {
+            $item = Get-Item -LiteralPath $file -Force
+            if ($item.Length -le 1024 -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $v = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+                if ($v.schema -ceq 'TTV-ODYSSEY-STAGE-V1' -and $v.nonce -ceq $nonce -and $v.reason -cmatch '^[A-Z0-9_]{3,90}$') {
+                    Write-Output ('HOSTOPS_ODYSSEY_STAGE=' + $v.reason)
+                }
+            }
+        }
+    }
     if ($receipt.result -cne 'SUCCESS') {
         Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
         if ($receipt.operation -ceq 'owner-srt-parser-install') {
