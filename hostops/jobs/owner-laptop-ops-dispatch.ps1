@@ -228,7 +228,8 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
-    if ($receipt.operation -ceq 'owner-vieneu-benchmark') {
+    if ($receipt.operation -cin @('owner-vieneu-benchmark','owner-vieneu-int8-benchmark')) {
+        $expectedPrecision = if ($receipt.operation -ceq 'owner-vieneu-int8-benchmark') {'INT8'} else {'FP32'}
         $file = Join-Path $outbox ('vieneu-benchmark-' + $nonce + '.json')
         $item = Get-Item -LiteralPath $file -Force
         if ($item.Length -le 0 -or $item.Length -gt 1536 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'VIENEU_BENCHMARK_RECEIPT_INVALID' }
@@ -236,7 +237,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         if ($v.schema -cne 'TTV-VIENEU-BENCHMARK-V1' -or $v.nonce -cne $nonce -or
             $v.status -cnotin @('BENCHMARK_COMPLETE','BENCHMARK_FAILED','BENCHMARK_TIMEOUT','ENV_MISSING','RAM_LOW','PROBE_EXCEPTION') -or
             $v.stage -cnotin @('PREFLIGHT','IMPORT','MODEL_RESOLVE','MODEL_INIT','SYNTHESIS','DONE') -or
-            $v.sdk -cnotin @('NONE','3.8.5') -or $v.precision -cne 'FP32' -or $v.threads -ne 8 -or
+            $v.sdk -cnotin @('NONE','3.8.5') -or $v.precision -cne $expectedPrecision -or $v.threads -ne 8 -or
             $v.model_sha -cnotmatch '^(NONE|[a-f0-9]{40})$' -or $v.codec_sha -cnotmatch '^(NONE|[a-f0-9]{40})$') { throw 'VIENEU_BENCHMARK_SCOPE_INVALID' }
         foreach($field in @('prior_error','error_kind')) {
             if ($v.$field -cnotin @('UNKNOWN','NONE','MEMORY_TELEMETRY','MEMORY_EXHAUSTED','ASSERTION','CACHE_MISSING','OTHER')) { throw 'VIENEU_BENCHMARK_ERROR_INVALID' }
