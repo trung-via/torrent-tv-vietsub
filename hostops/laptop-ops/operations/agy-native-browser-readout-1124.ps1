@@ -21,7 +21,7 @@ if($prior.Count -eq 1){
   $file=Get-Item -LiteralPath $log
   if($file.Length -gt 0 -and $file.Length -le 4194304 -and -not ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){
    $py=@'
-import json,re,sys,pathlib
+import json,re,sys,pathlib,os,shutil,subprocess
 p=pathlib.Path(sys.argv[1])
 records=[]
 for l in p.read_text(encoding="utf-8").splitlines():
@@ -29,25 +29,38 @@ for l in p.read_text(encoding="utf-8").splitlines():
         x=json.loads(l)
         if isinstance(x,dict):records.append(x)
     except ValueError:pass
-init=[r.get("init",{}) for r in records if r.get("event")=="init"]
-tools=json.dumps([x.get("tools",[]) for x in init]).lower()
-updates=[r.get("step_update",{}) for r in records if r.get("event")=="step_update"]
-steps=[x for x in updates if isinstance(x,dict) and re.search(r"mcp|tool",str(x.get("step_type","")),re.I)]
-done=[x for x in steps if str(x.get("state","")).upper()=="DONE"]
-# Inspect structured tool step types, not user or assistant prose.
-st=json.dumps(done,ensure_ascii=False).lower()
-nav=int("navigate_page" in st)
-snap=int("take_snapshot" in st)
-mcp=int(bool(re.search(r"torrent[-_]tv[-_]chrome",st)))
-initnav=int("navigate_page" in tools)
-initsnap=int("take_snapshot" in tools)
-results=[r.get("result",{}) for r in records if r.get("event")=="result"]
-result=results[0] if len(results)==1 and isinstance(results[0],dict) else {}
-final=str(result.get("response","")).lower()
-status=int(result.get("status")=="SUCCESS")
-denial=int(bool(re.search(r"denied|approval required|permission required|not available|unavailable|blocked|failed|could not|unable",final)))
-error=int(bool(re.search(r'"(?:is_error|isError)"\s*:\s*true|"status"\s*:\s*"error"',st)))
-print(f"MCP_READOUT_INIT{initnav}{initsnap}_DONE{min(len(done),999)}_NAV{nav}_SNAP{snap}_MCP{mcp}_OK{status}_DEN{denial}_ERR{error}")
+# Count actual structured event payloads, with recursive traversal, never disclose raw logs.
+def visit(x):
+    if isinstance(x,dict):
+        yield x
+        for v in x.values():yield from visit(v)
+    elif isinstance(x,list):
+        for v in x:yield from visit(v)
+events=[r for r in records if r.get("event") not in ("user","result","assistant")]
+nodes=[x for r in events for x in visit(r)]
+names=[str(v).lower() for x in nodes for k,v in x.items() if k.lower() in ("name","tool_name","toolname","server_name","server","step_type","type") and isinstance(v,str)]
+nav=int(any("navigate_page" in v for v in names))
+snap=int(any("take_snapshot" in v for v in names))
+mcp=int(any("torrent-tv-chrome" in v or "torrent_tv_chrome" in v for v in names))
+# Cached tool schemas are independent evidence of MCP discovery.
+cache=pathlib.Path.home()/".gemini"/"antigravity-cli"/"mcp"/"torrent-tv-chrome"
+cached=int((cache/"navigate_page.json").is_file())+int((cache/"take_snapshot.json").is_file())
+config=p.parent/".agents"/"mcp_config.json"
+cfg=int(config.is_file())
+stderr=p.parent/"agy-stderr.txt"
+err=stderr.read_text(encoding="utf-8",errors="replace").lower() if stderr.is_file() else ""
+trust=int(bool(re.search(r"untrusted workspace|workspace.{0,25}not trusted|workspace trust",err)))
+spawn=int(bool(re.search(r"enoent|spawn.{0,45}(failed|error)|cannot find module|not recognized as",err)))
+# Inspect CLI help without provider calls.
+agy=shutil.which("agy.exe") or shutil.which("agy")
+flags=0
+if agy:
+    try:
+        z=subprocess.run([agy,"--help"],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=15)
+        txt=z.stdout+z.stderr
+        flags=int("--allowed-mcp-server-names" in txt)+2*int("--mcp-config" in txt)+4*int("--add-dir" in txt)
+    except Exception:pass
+print(f"MCP_DIAG_CFG{cfg}_CACHE{cached}_EVENTS{min(len(events),999)}_NAV{nav}_SNAP{snap}_MCP{mcp}_TRUST{trust}_SPAWN{spawn}_FLAGS{flags}")
 '@
    $out=@($py | & py -3 -I -B - $log 2>$null)
    if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,90}$'){$code=[string]$out[0]}else{$code='MCP_READOUT_PARSE_ERROR'}
