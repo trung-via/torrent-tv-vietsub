@@ -89,6 +89,28 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         return view
     }
 
+    /** Restore the exact movie's validated cached AI cues into the SAME overlay.
+     * No player reload and no P4 ledger acknowledgement on local restoration. */
+    private fun restoreP4SavedOverlay() {
+        if (p4OverlayState != null || p4ImportInFlight ||
+            closedSent || isFinishing || isDestroyed || !::session.isInitialized ||
+            engine !is VlcEngine) return
+        val r = session.request ?: return
+        val idx = index()
+        val saved = P1ProductionSubtitles.savedAutomaticOverlay(applicationContext, r, idx)
+            ?: return
+        val timeline = try {
+            P4SignedReceiver.parseTimeline(saved.first, saved.second)
+        } catch (_: IllegalArgumentException) { return }
+        if (session.request !== r || index() != idx || engine !is VlcEngine ||
+            p4OverlayState != null) return
+        ensureP4OverlayView()
+        p4OverlayState = P4OverlayState(r, idx, engine, "saved-local", timeline)
+        handler.removeCallbacks(p4OverlayTick)
+        handler.post(p4OverlayTick)
+        android.util.Log.i("TorrentTV-Vietsub", "P4_TV_SAVED_OVERLAY_RESTORED")
+    }
+
     private val p4OverlayTick = object : Runnable {
         override fun run() {
             val state = p4OverlayState ?: return
@@ -469,10 +491,14 @@ def patch_activity(original: str) -> str:
         LOAD_ANCHOR: (LOAD_ANCHOR.replace(
             "        clearG2Recovery()",
             "        P4OwnerBootstrap.consume(applicationContext)\n" +
-            "        clearP4Overlay()\n        unbindP4Session()\n        clearG2Recovery()"), "LOAD"),
+            "        clearP4Overlay()\n        unbindP4Session()\n" +
+            "        handler.postDelayed({ restoreP4SavedOverlay() }, 700L)\n" +
+            "        clearG2Recovery()"), "LOAD"),
         ITEM_ANCHOR: (ITEM_ANCHOR.replace(
             "        clearG2Recovery()",
-            "        clearP4Overlay()\n        unbindP4Session()\n        clearG2Recovery()"), "ITEM"),
+            "        clearP4Overlay()\n        unbindP4Session()\n" +
+            "        handler.postDelayed({ restoreP4SavedOverlay() }, 700L)\n" +
+            "        clearG2Recovery()"), "ITEM"),
         MENU_ANCHOR: (MENU_ANCHOR + "\n" + P4_MENU_ROWS, "MENU"),
     }
     text = original

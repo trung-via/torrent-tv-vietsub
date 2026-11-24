@@ -109,3 +109,19 @@ class P4BackgroundStyleContract(unittest.TestCase):
         self.assertIn('Nền mờ phụ đề: Tắt', P4_MENU_ROWS)
         self.assertIn('p4OverlayView?.let { applyP4Background(it) }', P4_MENU_ROWS)
         self.assertNotIn('session.load(', P4_MENU_ROWS)
+
+class P4SavedOverlayReopenContract(unittest.TestCase):
+    def test_reopen_uses_exact_saved_ai_file_and_same_renderer(self):
+        from activity_patch import ACTIVITY_BRIDGE, patch_activity
+        from pathlib import Path
+        root = Path(__file__).resolve().parent
+        g1 = (root.parent / "g1-prod" / "P1ProductionSubtitles.kt").read_text("utf-8")
+        receiver = (root / "P4SignedReceiver.kt").read_text("utf-8")
+        self.assertIn('savedAutomaticOverlay(applicationContext, r, idx)', ACTIVITY_BRIDGE)
+        self.assertIn('P4SignedReceiver.parseTimeline(saved.first, saved.second)', ACTIVITY_BRIDGE)
+        self.assertIn('P4_TV_SAVED_OVERLAY_RESTORED', ACTIVITY_BRIDGE)
+        self.assertIn('handler.postDelayed({ restoreP4SavedOverlay() }, 700L)', root.joinpath('activity_patch.py').read_text("utf-8"))
+        self.assertIn('if (automaticChoice(ctx, r, i) != "ON") return null', g1)
+        self.assertIn('validate(it) == Validated(ext, digest)', g1)
+        self.assertIn('    companion object {\n    internal fun parseTimeline(', receiver)
+        self.assertNotIn('session.load(', ACTIVITY_BRIDGE)

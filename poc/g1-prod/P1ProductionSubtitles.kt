@@ -194,6 +194,26 @@ internal object P1ProductionSubtitles {
         return true
     }
 
+    /** Reopen only an exact saved AI subtitle for the same VLC movie.
+     * The native sidecar is never trusted by filename alone. */
+    @Synchronized internal fun savedAutomaticOverlay(
+        ctx: Context, r: PlayRequest?, i: Int,
+    ): Pair<ByteArray, String>? {
+        val k = mediaKey(r, i) ?: return null
+        if (automaticChoice(ctx, r, i) != "ON") return null
+        val p = prefs(ctx)
+        if (p.getString("selection.$k", null) != "on") return null
+        val digest = p.getString("sha.$k", null) ?: return null
+        val ext = p.getString("ext.$k", null) ?: return null
+        if (!digestRx.matches(digest) || ext !in listOf("srt", "vtt")) return null
+        val f = file(ctx, k, Validated(ext, digest))
+        return try {
+            if (!f.isFile || !f.canRead() || f.length() !in 1L..MAX.toLong()) null
+            else f.readBytes().takeIf { validate(it) == Validated(ext, digest) }
+                ?.let { Pair(it, ext) }
+        } catch (_: Exception) { null }
+    }
+
     fun noteTrackChoice(ctx: Context, r: PlayRequest?, i: Int, choice: TrackChoice) {
         if (choice.audio) return
         val k = mediaKey(r, i) ?: return

@@ -173,6 +173,7 @@ internal class P4SignedReceiver(
         }
     }
 
+    companion object {
     internal fun parseTimeline(payload: ByteArray, fmt: String): P4CueTimeline {
         require(fmt in setOf("srt", "vtt") && payload.isNotEmpty() &&
             payload.size <= 256 * 1024) { "P4_TIMELINE_BOUNDS_INVALID" }
@@ -235,7 +236,6 @@ internal class P4SignedReceiver(
         return ((h * 60 + m) * 60 + sec) * 1000 + ms
     }
 
-    companion object {
         private val SESSION = Regex("[A-Za-z0-9_-]{16,80}")
         private val MEDIA = Regex("media\\.[0-9a-f]{64}")
         private val SHA = Regex("[0-9a-f]{64}")
