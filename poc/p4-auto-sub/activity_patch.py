@@ -129,6 +129,12 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                 }
                 return
             }
+            val audible = p4VoiceController?.tick(
+                scope.sessionId, media.orEmpty(), engine.positionMs,
+                engine.playWhenReady && session.firstFrame, engine.isBuffering
+            ) == true
+            if (p4VoiceMode == "VOICE" &&
+                p4VoiceController?.hasPreparedAudio != true) restoreP4VoiceCaption()
             // G2 may hot-reload the same movie with new external subtitle IDs.
             // In VOICE-only mode hide AI captions without marking user OFF:
             // doing so via session.selectSubtitle would revoke the P4 feed.
@@ -141,16 +147,31 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                     p4VoiceSubHidden = true
                 }
             }
-            val audible = p4VoiceController?.tick(
-                scope.sessionId, media.orEmpty(), engine.positionMs,
-                engine.playWhenReady && session.firstFrame, engine.isBuffering
-            ) == true
             if (audible != p4VoiceDucked) {
                 (engine as? VlcEngine)?.p4VoiceoverDuck(audible)
                 p4VoiceDucked = audible
             }
             handler.postDelayed(this, 150L)
         }
+    }
+
+    private fun p4ResetVoiceOnSeek() {
+        val scope = p4LanScope ?: return
+        val r = if (::session.isInitialized) session.request else null
+        val media = if (r == null) null else P1ProductionSubtitles.mediaKey(r, index())
+        if (media != null) p4VoiceController?.seeked(scope.sessionId, media)
+        if (p4VoiceDucked) (engine as? VlcEngine)?.p4VoiceoverDuck(false)
+        p4VoiceDucked = false
+    }
+
+    private fun restoreP4VoiceCaption() {
+        if (!p4VoiceSubHidden) return
+        val restored = engine.subtitleTracks().firstOrNull {
+            it.id == p4VoiceRestoreSub
+        }?.id
+        if (restored != null) engine.selectSubtitle(restored)
+        p4VoiceSubHidden = false
+        p4VoiceRestoreSub = null
     }
 
     private fun setP4VoiceMode(next: String) {
@@ -166,16 +187,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             showMessage("Bật Vietsub AI để chọn phụ đề hoặc giọng đọc.", true)
             return
         }
-        if (p4VoiceMode == "VOICE" && next != "VOICE" && p4VoiceSubHidden) {
-            val options = engine.subtitleTracks()
-            val remembered = p4VoiceRestoreSub
-            // Never replace AI captions with an arbitrary downloaded VI file:
-            // only restore the exact track that VOICE mode hid.
-            val restored = options.firstOrNull { it.id == remembered }?.id
-            if (restored != null) engine.selectSubtitle(restored)
-            p4VoiceSubHidden = false
-            p4VoiceRestoreSub = null
-        }
+        if (p4VoiceMode == "VOICE" && next != "VOICE") restoreP4VoiceCaption()
         p4VoiceMode = next
         p4VoiceController?.setMode(next)
         if (next == "VOICE") p4VoiceSubHidden = false
@@ -265,14 +277,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             P1ProductionSubtitles.mediaKey(r, index()).orEmpty(),
             sourceSha256, secret, certPinSha256,
             onUnavailable = {
-                if (p4VoiceSubHidden) {
-                    val restored = engine.subtitleTracks().firstOrNull {
-                        it.id == p4VoiceRestoreSub
-                    }?.id
-                    if (restored != null) engine.selectSubtitle(restored)
-                    p4VoiceSubHidden = false
-                    p4VoiceRestoreSub = null
-                }
+                restoreP4VoiceCaption()
                 showMessage("Đang thử kết nối lại giọng AI; giữ Vietsub.", false)
             })
         p4VoiceMode = "SUBS"
@@ -564,6 +569,16 @@ def patch_activity(original: str) -> str:
             raise ValueError("P4_ACTIVITY_ANCHOR_" + tag)
     for old, (new, tag) in anchors.items():
         text = _once(text, old, new, tag)
+    # Pinned native OMP has two explicit t seeks and a pending seek closure.
+    # The small synthetic overlay fixture may omit all three.
+    seek_count = original.count("engine.seekTo(t)")
+    pending_count = original.count("seeker.take()?.let { engine.seekTo(it) }")
+    if seek_count or pending_count:
+        if seek_count != 2 or pending_count != 1:
+            raise ValueError("P4_VOICE_SEEK_ANCHOR_DRIFT")
+        text = text.replace("engine.seekTo(t)", "p4ResetVoiceOnSeek(); engine.seekTo(t)")
+        text = text.replace("seeker.take()?.let { engine.seekTo(it) }",
+                            "seeker.take()?.let { p4ResetVoiceOnSeek(); engine.seekTo(it) }")
     if text.count("internal fun receiveP4Revision(") != 1:
         raise ValueError("P4_ACTIVITY_ENTRYPOINT_INVALID")
     return text

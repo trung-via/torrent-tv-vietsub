@@ -377,5 +377,28 @@ $hashes | Out-File -LiteralPath (Join-Path $dir 'SHA256SUMS-P4-COMPOSED.txt') -E
     'P4_RELEASE_BINARY_UNVERIFIED'
 ) | Out-File -LiteralPath (Join-Path $dir 'P4-COMPOSED-BUILD-EVIDENCE.txt') -Encoding utf8
 
+# Retain the exact ARM32 candidate for separately authorized device validation.
+# Never upload to the public repository or install from this build job.
+$arm32 = @($apks | Where-Object { $_.Name -ceq 'app-armeabi-v7a-debug.apk' })
+if ($arm32.Count -ne 1) { throw 'VIENEU_STAGE_EXPECTED_SINGLE_ARM32_APK' }
+$srcHash = (Get-FileHash -LiteralPath $arm32[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+$staged = Join-Path $cache ('p4-vieneu-pr183-staged\' + $SourceCommit + '\' + $srcHash)
+New-Item -ItemType Directory -Path $staged -Force | Out-Null
+$target = Join-Path $staged $arm32[0].Name
+if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+    Copy-Item -LiteralPath $arm32[0].FullName -Destination $target -ErrorAction Stop
+}
+$copied = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($copied -cne $srcHash) { throw 'VIENEU_STAGE_APK_SHA_MISMATCH' }
+@(
+    'schema=TTV-VIENEU-PR183-APK-STAGE-V1',
+    "app_commit=$SourceCommit",
+    "omp_commit=$upstream",
+    "sha256=$copied",
+    'variant=app-armeabi-v7a-debug.apk',
+    'device_installed=no'
+) | Set-Content -LiteralPath (Join-Path $staged 'stage-receipt.txt') -Encoding Ascii -ErrorAction Stop
+Write-Host 'VIENEU_PR183_ARM32_STAGED_RUNNER_CACHE_NOT_INSTALLED'
+
 $global:LASTEXITCODE = 0
 Write-Host 'VIENEU_PR183_DEBUG_APK_COMPOSE_PASS_NOT_INSTALLED_NO_ADB'

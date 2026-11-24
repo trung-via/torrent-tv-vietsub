@@ -105,6 +105,12 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('P3SelectedMediaPublisher.closed(applicationContext)', self.patched)
         self.assertNotIn("P3SelectedMediaPublisher.accepted(", fake_p4_activity())
 
+    def test_voice_original_reuses_normal_off_path(self):
+        synthetic = fake_p4_activity() + '\nprivate fun setP4VoiceMode(next: String) {\n        if (next == "ORIGINAL") {\n            stopP4LanSession()\n        }\n}\n'
+        patched = self.p.patch_activity(synthetic)
+        self.assertIn('if (next == "ORIGINAL") {\n            cancelP3ViewerAndP4(', patched)
+        self.assertEqual(patched.count("P3SelectedMediaPublisher.cancelViewer("), 4)
+
     def test_pause_resume_seek_dont_trigger_signal(self):
         for word in ("pause", "resume", "seek"):
             self.assertNotIn("P3SelectedMediaPublisher." + word, self.patched)

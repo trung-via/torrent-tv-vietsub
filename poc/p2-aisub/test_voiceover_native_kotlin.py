@@ -109,7 +109,20 @@ class NativeVoiceoverContract(unittest.TestCase):
                      "VOICE_CONTROLLER_FILE"):
             self.assertIn(file, composer)
         self.assertIn("private fun setAudio(es: Int)", composer)
-        self.assertIn("mp.volume = if (on) 30 else 100", composer)
+        self.assertIn("mp.volume = original * 30 / 100", composer)
+        self.assertIn("p4VoiceOriginalVolume?.let { mp.volume = it }", composer)
+
+    def test_explicit_seek_hooks_reset_voice_without_discovery(self):
+        import importlib.util
+        from test_p4_overlay import fake_g2_activity
+        spec = importlib.util.spec_from_file_location("p4_voice_seek", ROOT / "activity_patch.py")
+        assert spec is not None and spec.loader is not None
+        patch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(patch)
+        src = fake_g2_activity() + "\nengine.seekTo(t)\nengine.seekTo(t)\nseeker.take()?.let { engine.seekTo(it) }\n"
+        patched = patch.patch_activity(src)
+        self.assertEqual(patched.count("p4ResetVoiceOnSeek(); engine.seekTo(t)"), 2)
+        self.assertIn("p4ResetVoiceOnSeek(); engine.seekTo(it)", patched)
 
     def test_static_track_writes_pcm_before_initialized_gate(self):
         src = (ROOT / "P4VoiceoverAudioTrack.kt").read_text("utf-8")

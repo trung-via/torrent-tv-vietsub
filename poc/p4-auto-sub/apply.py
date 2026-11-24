@@ -281,10 +281,25 @@ def run(root: Path, *, apply: bool = False) -> None:
     existing_vlc = vlc_engine.read_text(encoding="utf-8-sig")
     if existing_vlc.count(duck_anchor) != 1 or "p4VoiceoverDuck(" in existing_vlc:
         raise ValueError("P4_VOICE_VLC_VOLUME_HOOK_INVALID")
-    duck_method = """    /** Optional per-cue Android mix; restore VLC to 100% when speech ends. */
+    duck_method = """    private var p4VoiceOriginalVolume: Int? = null
+
+    /** Preserve the actual VLC volume; a muted movie stays muted. */
     internal fun p4VoiceoverDuck(on: Boolean) {
         if (released) return
-        call { mp.volume = if (on) 30 else 100 }
+        call {
+            if (on) {
+                if (p4VoiceOriginalVolume == null) {
+                    val original = mp.volume
+                    if (original >= 0) {
+                        p4VoiceOriginalVolume = original
+                        mp.volume = original * 30 / 100
+                    }
+                }
+            } else {
+                p4VoiceOriginalVolume?.let { mp.volume = it }
+                p4VoiceOriginalVolume = null
+            }
+        }
     }
 
 """

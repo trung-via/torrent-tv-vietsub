@@ -65,21 +65,7 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
             val waiting = current != null && P3SelectedMediaPublisher.viewerRequested(
                 applicationContext, current, index(), engine is VlcEngine)
             if (p4LanScope != null || p4ActivationInFlight || waiting) {
-                handler.removeCallbacks(p3ActivationTick)
-                p3ActivationAttempts = 0
-                p3LastDelivery = null
-                p4ActivationGeneration++
-                p4ActivationInFlight = false
-                if (p4LanScope != null) stopP4LanSession()
-                if (current != null) {
-                    P3SelectedMediaPublisher.cancelViewer(
-                        applicationContext, current, index(), engine is VlcEngine)
-                    P3SelectedMediaPublisher.sample(
-                        applicationContext, current, index(), engine is VlcEngine)
-                }
-                // The one movie-scoped button owns both signal and request.
-                // Clearing the global signal on OFF never implies an AI call.
-                P3SelectedMediaPublisher.setEnabled(applicationContext, false)
+                cancelP3ViewerAndP4(current)
                 showMessage("Đã hủy Vietsub AI cho phim này.", false)
             } else {
                 // Import ONLY a previously authorized private ADB bootstrap;
@@ -181,6 +167,25 @@ P4_SWITCH_SOURCE = """    /** Switch only after a new source-specific, signed P4
 P3_RETRY = """    /** Bound only to explicit request, never to a native Play event. */
     private var p3ActivationAttempts = 0
     private var p3LastDelivery: Boolean? = null
+
+    /** OFF and ORIGINAL share the same film-scoped cancellation. */
+    private fun cancelP3ViewerAndP4(current: PlayRequest?) {
+        handler.removeCallbacks(p3ActivationTick)
+        p3ActivationAttempts = 0
+        p3LastDelivery = null
+        p4ActivationGeneration++
+        p4ActivationInFlight = false
+        if (p4LanScope != null) stopP4LanSession()
+        if (current != null) {
+            P3SelectedMediaPublisher.cancelViewer(
+                applicationContext, current, index(), engine is VlcEngine)
+            P3SelectedMediaPublisher.sample(
+                applicationContext, current, index(), engine is VlcEngine)
+        }
+        // The one movie-scoped button owns both signal and request.
+        // Clearing the global signal on OFF never implies an AI call.
+        P3SelectedMediaPublisher.setEnabled(applicationContext, false)
+    }
 
     /** HTTP 204 is a P3 signal receipt, NOT a claim that P2 has finished. */
     private fun showP3Delivery(
@@ -367,6 +372,13 @@ def patch_activity(text: str) -> str:
             raise ValueError("P3_SOURCE_ANCHOR_DRIFT")
     for original, updated in rules:
         text = text.replace(original, updated, 1)
+    voice_original = '        if (next == "ORIGINAL") {\n            stopP4LanSession()'
+    if 'private fun setP4VoiceMode(' in text:
+        if text.count(voice_original) != 1:
+            raise ValueError("P3_VOICE_ORIGINAL_ANCHOR_DRIFT")
+        text = text.replace(voice_original,
+            '        if (next == "ORIGINAL") {\n'
+            '            cancelP3ViewerAndP4(if (::session.isInitialized) session.request else null)', 1)
     if text.count("P3SelectedMediaPublisher.accepted(") != 2:
         raise ValueError("P3_SOURCE_CALLBACK_COUNT_INVALID")
     if text.count("P3SelectedMediaPublisher.closed(") != 1:
