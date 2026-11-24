@@ -228,6 +228,23 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-vieneu-benchmark') {
+        $file = Join-Path $outbox ('vieneu-benchmark-' + $nonce + '.json')
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Length -le 0 -or $item.Length -gt 1536 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'VIENEU_BENCHMARK_RECEIPT_INVALID' }
+        $v = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($v.schema -cne 'TTV-VIENEU-BENCHMARK-V1' -or $v.nonce -cne $nonce -or
+            $v.status -cnotin @('BENCHMARK_COMPLETE','BENCHMARK_FAILED','BENCHMARK_TIMEOUT','ENV_MISSING','RAM_LOW','PROBE_EXCEPTION') -or
+            $v.stage -cnotin @('PREFLIGHT','IMPORT','MODEL_RESOLVE','MODEL_INIT','SYNTHESIS','DONE') -or
+            $v.sdk -cnotin @('NONE','3.8.5') -or $v.precision -cne 'FP32' -or $v.threads -ne 4 -or
+            $v.model_sha -cnotmatch '^(NONE|[a-f0-9]{40})$' -or $v.codec_sha -cnotmatch '^(NONE|[a-f0-9]{40})$') { throw 'VIENEU_BENCHMARK_SCOPE_INVALID' }
+        foreach($name in @('init_ms','first_ms','audio_ms','synth_ms','rtf_milli','cue_count','peak_mib','sample_rate','elapsed_s')){
+            if ($v.$name -lt 0 -or $v.$name -gt 6000000) { throw 'VIENEU_BENCHMARK_METRIC_INVALID' }
+        }
+        foreach($name in @('status','stage','sdk','precision','threads','model_sha','codec_sha','init_ms','first_ms','audio_ms','synth_ms','rtf_milli','cue_count','peak_mib','sample_rate','elapsed_s')){
+            Write-Output ('HOSTOPS_VIENEU_BENCHMARK_' + $name.ToUpperInvariant() + '=' + $v.$name)
+        }
+    }
     if ($receipt.operation -ceq 'owner-vieneu-provision') {
         $file = Join-Path $outbox ('vieneu-provision-' + $nonce + '.json')
         $item = Get-Item -LiteralPath $file -Force
