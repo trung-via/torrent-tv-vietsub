@@ -92,6 +92,22 @@ class FullFlowSnapshotV4Tests(unittest.TestCase):
         self.assertEqual(_p2_commits(self.owner, now=1784700000)[
             "committed_prefix"], -1)
 
+    def test_parallel_markers_report_only_contiguous_prefix_for_one_job(self):
+        folder = self.root / "P2" / "auto-lean120-state" / ("a" * 64)
+        folder.mkdir(parents=True)
+        (folder / "batch-0001.json").write_text("synthetic")
+        for version in (2, 3, 4):
+            (folder / f"batch-{version:04d}.inflight").write_text("synthetic")
+        (folder / "result-0004.json").write_text("later result is not committed")
+        result = _p2_commits(self.owner, now=1784700000)
+        self.assertEqual(result["committed_prefix"], 1)
+        self.assertEqual(result["final_present"], "NO")
+        self.assertEqual(len(list(folder.glob("*.inflight"))), 3)
+        second = folder.parent / ("b" * 64)
+        second.mkdir()
+        (second / "batch-0001.inflight").write_text("synthetic")
+        self.assertEqual(_p2_commits(self.owner, now=1784700000)["committed_prefix"], -1)
+
     def test_v4_is_bounded_privacy_only_and_never_mutates_worker(self):
         self.write_log(
             "OWNER_FULL_DIAGNOSTICS_STARTED pid=1234 epoch=1784700000",

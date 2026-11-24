@@ -58,10 +58,13 @@ def _p2_commits(owner_root: Path, now: int) -> dict[str, int | str]:
             inflights = [p for p in folder.glob("batch-*.inflight") if p.is_file()]
             if inflights:
                 jobs.append((folder, inflights))
-        if len(jobs) != 1 or len(jobs[0][1]) != 1:
+        # A three-window group may have multiple markers for the same job.
+        # Across multiple films, do not attribute a single prefix to all jobs.
+        # This is observation only; no marker is cleared or retried.
+        if len(jobs) != 1:
             return result
         folder, markers = jobs[0]
-        if _is_link(markers[0]):
+        if any(_is_link(marker) for marker in markers):
             return result
         versions = set()
         for file in folder.glob("batch-*.json"):
@@ -78,7 +81,7 @@ def _p2_commits(owner_root: Path, now: int) -> dict[str, int | str]:
             prefix += 1
         if len(versions) != prefix:
             return result
-        age = now - int(markers[0].stat().st_mtime)
+        age = now - int(min(marker.stat().st_mtime for marker in markers))
         result.update({
             "committed_prefix": prefix,
             "inflight_age_seconds": age if 0 <= age <= 86400 else -1,
