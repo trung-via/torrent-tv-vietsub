@@ -86,10 +86,10 @@ try:
     except BrainEnglishUnavailable as exc:
         if str(exc)!='BRAIN_EN_NOT_STAGED': finish('HOLD','EXISTING_INBOX_CONFLICT')
     # Brain-selected public detail page. Follow only an actual exposed download URL.
-    page='https://subdl.com/s/info/Jl0rB5lBK4/spider-man-brand-new-day'
+    page='https://www.opensubtitles.org/en/subtitles/14097898/spider-man-brand-new-day-en'
     def allowed(url):
         p=urlsplit(url)
-        return p.scheme=='https' and p.hostname in ('subdl.com','www.subdl.com','dl.subdl.com','download.subdl.com') and not p.username and not p.password and p.port in (None,443)
+        return p.scheme=='https' and p.hostname in ('opensubtitles.org','www.opensubtitles.org','dl.opensubtitles.org','download.opensubtitles.org') and not p.username and not p.password and p.port in (None,443)
     class Redirect(HTTPRedirectHandler):
         def redirect_request(self,req,fp,code,msg,headers,newurl):
             if not allowed(newurl): raise ValueError('BRAIN_DOWNLOAD_REDIRECT_UNVERIFIED')
@@ -119,7 +119,7 @@ try:
     links=set()
     for href in parser.links:
         u=urljoin(actual_page,href)
-        if allowed(u) and (urlsplit(u).hostname in ('dl.subdl.com','download.subdl.com') or urlsplit(u).path.lower().endswith(('.zip','.srt'))):
+        if allowed(u) and (re.search(r'/download/(?:vrf-[a-f0-9]+/)?sub/14097898(?:/|$)',urlsplit(u).path) or re.search(r'/(?:download/file|downloadfile|subdownload)/[0-9]+(?:/|$)',urlsplit(u).path) or urlsplit(u).path.lower().endswith(('.zip','.srt'))):
             links.add(u)
     if not links:
         finish('HOLD','BRAIN_PUBLIC_DOWNLOAD_LINK_NOT_EXPOSED')
