@@ -147,6 +147,9 @@ $stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
 $stable9555=[int](($active9555 -join ',') -ceq (@(Listener 9555) -join ','))
 $stableOwner=[int]($ownerState -ceq [string](Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\').State)
 $code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9555
+$hostTask=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-Laptop-HostOps' -TaskPath '\'
+$unlimited=[int]([string]$hostTask.Settings.ExecutionTimeLimit -eq 'PT0S')
+$code=$code+'_L'+$unlimited
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
