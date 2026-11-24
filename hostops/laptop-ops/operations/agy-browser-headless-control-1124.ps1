@@ -42,7 +42,7 @@ if($existing.Count -eq 1){
 }elseif($existing.Count -gt 1){$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
 if($verified){
  $py=@'
-import sys,pathlib,os,json,re,subprocess,time,urllib.request,hashlib,zipfile,shutil
+import sys,pathlib,os,json,re,subprocess,time,urllib.request,urllib.parse,hashlib,zipfile,shutil
 owner,run=map(pathlib.Path,sys.argv[1:])
 sys.path[:0]=[str(owner/"app/poc/p2-aisub")]
 from translator_gateway import preflight_antigravity,_validated_antigravity_alias
@@ -70,11 +70,51 @@ try:
         d=pathlib.Path(pref.get("download",{}).get("default_directory",str(default)))
         if d.is_absolute() and d.is_dir():default=d
     except Exception:pass
+    dirs={default,pathlib.Path.home()/"Downloads"}
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
+            d=pathlib.Path(os.path.expandvars(winreg.QueryValueEx(k,"{374DE290-123F-4565-9164-39C4925E467B}")[0]))
+            if d.is_absolute() and d.is_dir():dirs.add(d)
+    except OSError:pass
     def candidates():
-        try:return {f.name:(f.stat().st_size,f.stat().st_mtime_ns) for f in default.iterdir() if f.is_file() and not f.is_symlink() and f.suffix.lower() in (".srt",".zip")}
-        except Exception:return {}
+        found={}
+        for d in dirs:
+            try:
+                for f in d.iterdir():
+                    if f.is_file() and not f.is_symlink() and f.suffix.lower() in (".srt",".zip"):
+                        found[str(f.resolve())]=(f.stat().st_size,f.stat().st_mtime_ns)
+            except OSError:pass
+        return found
+    def cue_count(f):
+        try:
+            if f.suffix.lower()==".srt":blobs=[f.read_bytes()]
+            else:
+                with zipfile.ZipFile(f) as z:
+                    blobs=[z.read(i) for i in z.infolist()[:100] if i.filename.lower().endswith(".srt") and 0<i.file_size<=2000000 and not i.flag_bits&1]
+            return max((len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2}[,.]\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}[,.]\d{3}",data)) for data in blobs),default=0)
+        except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):return 0
+    def verify_new_download(before,after,selected_id):
+        # Only accept one newly created artifact, not pre-existing or overwritten names.
+        # Chrome's origin metadata must bind the download to the normal issued link
+        # and candidate; no guess at a provider URL and no model-only success.
+        good=[]
+        for key,(size,mtime) in after.items():
+            if key in before or not 0<size<=10000000:continue
+            f=pathlib.Path(key)
+            try:
+                with open(str(f)+":Zone.Identifier","r",encoding="utf-8",errors="replace") as stream:
+                    fields=dict(x.split("=",1) for x in stream.read(8192).splitlines() if "=" in x)
+                u=urllib.parse.urlsplit(fields.get("HostUrl",""))
+                ref=fields.get("ReferrerUrl","")
+                if u.scheme!="https" or u.hostname!="dl.opensubtitles.org":continue
+                if not re.search(r"(?<!\d)"+re.escape(selected_id)+r"(?!\d)",u.path+" "+u.query+" "+ref):continue
+                cues=cue_count(f)
+                if cues:good.append((f,cues))
+            except (OSError,ValueError):pass
+        return good[0] if len(good)==1 else (None,0)
     before=candidates()
-    prompt="Owner approved one normal signed-in OpenSubtitles acquisition on the dedicated Chrome 9555. WORKED EXAMPLE FROM INDEPENDENT BRAIN: For Spider-Man: Brand New Day (2026), IMDb tt22084616, an ordinary browser navigation to https://www.opensubtitles.org/en/search/sublanguageid-eng/imdbid-22084616 returned 15 subtitle rows, 11 WEB candidates, zero exact seleZen names. The actual video release metadata suggests WEB-DL 1080p, 145 minutes, 23.976 fps; MovieDalen labels a Russian dub, not an English subtitle requirement. Brain opened candidate 14109322 (PAHE, WEB, English, runtime 145 min, fps not established) and 14104608 (WEB, English, runtime 145 min, 23.976 fps). Prefer 14104608 if your live page reconfirms this metadata; do not blindly trust an example or require identical release group if no conflict in title, cut, fps or duration. This is metadata compatibility, not proven playback synchronization. GENERAL METHOD: identify movie by title/year and IMDb ID; use the normal English-filtered movie catalog; shortlist compatible WEB rows; inspect candidate details; choose one based on source, language, fps, duration and cut evidence; never treat a missing release label as automatic NO_MATCH. Use the provided workspace mcp_client.py unchanged, import MCP, write and execute one concise Python script. Initialize protocolVersion 2025-06-18, capabilities {}, clientInfo name ttv-agy version 1.0; send notifications/initialized, tools/list; inspect schemas. Create exactly one new tab about:blank with unique fragment marker; identify its actual pageId from new_page response or list_pages by exact marker. Use that pageId explicitly for all page-scoped calls, including take_snapshot and click. Use returned element uids and actual schemas. Navigate directly to the verified English IMDb catalog URL above through MCP, open actual candidate link from the result, verify detail, then click one normal download control if compatible. Do not spend time on broad search or write a long narrative. Use existing authorized browser session only; stop immediately on 401/403/429, login requirement, CAPTCHA, payment or other denial. No bypass, spoofing, direct provider HTTP/API, Playwright, direct CDP navigation, OpenSubs CLI, native AGY MCP configuration, /browser, reading credentials/cookies/storage/unrelated tabs, or repeat provider requests after denial. Only Chrome 9555; never touch 9444. Close only your created tab by its pageId and disconnect MCP without closing Chrome. Write RESULT.json even on failure with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status integer or null, download_host hostname or null, release_match boolean (true means metadata compatibility, not proven sync), method, downloaded_filename basename or null, actual_test describing observed source, candidate ID, language/fps/runtime and any uncertainty. Report actual new download filename only; HostOps checks file and cues independently. No reuse of preexisting files or fabricated SRT. No payment. No OwnerBridge, translation or TV changes."
+    prompt="Owner approved one normal signed-in OpenSubtitles acquisition on the dedicated Chrome 9555. WORKED EXAMPLE FROM INDEPENDENT BRAIN: For Spider-Man: Brand New Day (2026), IMDb tt22084616, an ordinary browser navigation to https://www.opensubtitles.org/en/search/sublanguageid-eng/imdbid-22084616 returned 15 subtitle rows, 11 WEB candidates, zero exact seleZen names. The actual video release metadata suggests WEB-DL 1080p, 145 minutes, 23.976 fps; MovieDalen labels a Russian dub, not an English subtitle requirement. Brain opened candidate 14109322 (PAHE, WEB, English, runtime 145 min, fps not established) and 14104608 (WEB, English, runtime 145 min, 23.976 fps). Prefer 14104608 if your live page reconfirms this metadata; do not blindly trust an example or require identical release group if no conflict in title, cut, fps or duration. This is metadata compatibility, not proven playback synchronization. GENERAL METHOD: identify movie by title/year and IMDb ID; use the normal English-filtered movie catalog; shortlist compatible WEB rows; inspect candidate details; choose one based on source, language, fps, duration and cut evidence; never treat a missing release label as automatic NO_MATCH. Use the provided workspace mcp_client.py unchanged, import MCP, write and execute one concise Python script. Initialize protocolVersion 2025-06-18, capabilities {}, clientInfo name ttv-agy version 1.0; send notifications/initialized, tools/list; inspect schemas. Create exactly one new tab about:blank with unique fragment marker; identify its actual pageId from new_page response or list_pages by exact marker. Use that pageId explicitly for all page-scoped calls, including take_snapshot and click. Use returned element uids and actual schemas. Navigate directly to the verified English IMDb catalog URL above through MCP, open actual candidate link from the result, verify detail, then follow the actual normal website-issued download link on dl.opensubtitles.org if available, using the existing signed-in browser session. Do not construct or guess the URL. A download can make browser navigation report an interruption while Chrome saves a ZIP; check the new download file before concluding failure. Report selected_subtitle_id as a numeric string and the real downloaded filename. The local verifier checks the artifact regardless of your status. Do not repeat a successful download. Do not spend time on broad search or write a long narrative. Use existing authorized browser session only; stop immediately on 401/403/429, login requirement, CAPTCHA, payment or other denial. No bypass, spoofing, direct provider HTTP/API, Playwright, direct CDP navigation, OpenSubs CLI, native AGY MCP configuration, /browser, reading credentials/cookies/storage/unrelated tabs, or repeat provider requests after denial. Only Chrome 9555; never touch 9444. Close only your created tab by its pageId and disconnect MCP without closing Chrome. Write RESULT.json even on failure with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status integer or null, download_host hostname or null, release_match boolean (true means metadata compatibility, not proven sync), method, downloaded_filename basename or null, actual_test describing observed source, candidate ID, language/fps/runtime and any uncertainty. Report actual new download filename only; HostOps checks file and cues independently. No reuse of preexisting files or fabricated SRT. No payment. No OwnerBridge, translation or TV changes."
     args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
     start=time.monotonic()
     try:
@@ -111,25 +151,25 @@ try:
     host=rr.get("download_host")
     dlhost=int(isinstance(host,str) and host.lower()=="dl.opensubtitles.org")
     match=int(rr.get("release_match") is True)
-    # Copy only the newly created exact reported download, never unrelated preexisting files.
-    name=rr.get("downloaded_filename")
+    # Reconcile independently observed filesystem output even if AGY reports failure.
+    # This is a fixed Spider-Man benchmark: Brain verified 14104608 metadata.
+    # Other IDs must be assessed separately; do not infer playback synchronization.
+    reported_status=status
     after=candidates()
-    if status=="DOWNLOADED" and isinstance(name,str) and name==pathlib.Path(name).name and name not in before and name in after and after[name][0]<=10000000:
-        src=default/name
-        if src.is_file() and not src.is_symlink():shutil.copyfile(src,downloads/name)
-    cues=0
+    selected_id=str(rr.get("selected_subtitle_id") or "14104608")
+    f,cues=verify_new_download(before,after,selected_id) if selected_id=="14104608" and match and status in ("DOWNLOADED","DOWNLOAD_FAILED","UNCLASSIFIED") else (None,0)
     files=0
-    for f in downloads.iterdir():
-        if f.is_file() and not f.is_symlink() and f.stat().st_size<=10000000 and f.suffix.lower() in (".srt",".zip"):
-            files+=1
-            try:
-                if f.suffix.lower()==".srt":blobs=[f.read_bytes()]
-                else:
-                    with zipfile.ZipFile(f) as z:
-                        blobs=[z.read(i) for i in [x for x in z.infolist() if x.filename.lower().endswith(".srt") and x.file_size<=2000000][:5]]
-                for data in blobs:
-                    cues=max(cues,len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}",data)))
-            except Exception:pass
+    if f is not None:
+        shutil.copyfile(f,downloads/f.name)
+        if cue_count(downloads/f.name)==cues:
+            files=1
+            status="DOWNLOADED"
+            stage="DOWNLOAD"
+            dlhost=1
+    if files==0 and status=="DOWNLOADED":
+        status="DOWNLOAD_FAILED"
+    (run/"verified-acquisition.json").write_text(json.dumps({"reported_status":reported_status,"verified_status":status,"candidate_id":selected_id,"files":files,"cues":cues if files else 0,"source_verified":bool(files),"playback_sync_verified":False}),encoding="utf-8")
+    if not files:cues=0
     trace=[]
     try:
         for line in (run/"mcp-trace.jsonl").read_text(encoding="utf-8").splitlines():
