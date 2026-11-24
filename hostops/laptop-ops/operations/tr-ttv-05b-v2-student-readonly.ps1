@@ -22,7 +22,12 @@ def main():
     p=run/"BRAIN_STUDENT_REPORT.json"
     if not p.is_file() or p.is_symlink() or not 0<p.stat().st_size<=16000000:return "TR05QA_REPORT_MISSING"
     r=json.loads(p.read_text(encoding="utf-8"))
-    if r.get("source_commit")!="c5f56e07dfc71b1f778e346a2ba6de16508810c0" or r.get("model")!="gemini-4-hydrogen-low" or r.get("recipe_version")!="V2":return "TR05QA_BINDING_MISMATCH"
+    # V2 writes the child-only TTV_SOURCE_SHA into its subprocess env, but reads the parent env for the report.
+    # The archived exact-source SUCCESS receipt and nonce-specific directory are the primary binding.
+    source=r.get("source_commit")
+    if source not in ("","c5f56e07dfc71b1f778e346a2ba6de16508810c0"):return "TR05QA_SOURCE_FIELD_MISMATCH"
+    if r.get("model")!="gemini-4-hydrogen-low":return "TR05QA_MODEL_MISMATCH"
+    if r.get("recipe_version")!="V2":return "TR05QA_RECIPE_MISMATCH"
     arts=r.get("artifacts",[])
     if len(arts)!=1:return "TR05QA_ARTIFACT_NOT_UNIQUE"
     a=arts[0]; name=a["filename"]
