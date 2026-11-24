@@ -281,6 +281,14 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
         Write-Output 'HOSTOPS_VIENEU_MODEL_LOAD=NOT_ATTEMPTED'
     }
+    if ($receipt.operation -ceq 'owner-srt-install-diagnostic') {
+        $file=Join-Path $outbox ('srt-install-diag-'+$nonce+'.json')
+        $item=Get-Item -LiteralPath $file -Force
+        if ($item.Length -gt 1024 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {throw 'SRT_INSTALL_DIAG_INVALID'}
+        $r=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        if ($r.schema -cne 'TTV-SRT-INSTALL-DIAG-V1' -or $r.nonce -cne $nonce -or $r.reason -cnotmatch '^[A-Z0-9_]{3,80}$' -or $r.phase -cnotin @('UNKNOWN','BEFORE_BACKUP','PREFLIGHT_PASSED','BACKUP_CREATED','RECOVERY_ATTEMPTED','ROLLED_BACK') -or $r.parser -cnotin @('OLD','NEW','OTHER','MISSING') -or $r.brain -cnotin @('OLD','NEW','OTHER','MISSING') -or $r.task -cnotin @('Running','Ready','Disabled','Unknown','Queued') -or $r.health -cnotin @('READY_FRESH','NOT_VERIFIED')) {throw 'SRT_INSTALL_DIAG_INVALID'}
+        foreach ($field in @('reason','phase','parser','brain','task','health','pending','inflight','locks')) {Write-Output ('HOSTOPS_SRT_DIAG_'+$field.ToUpperInvariant()+'='+$r.$field)}
+    }
     if ($receipt.operation -ceq 'owner-srt-parser-install') {
         $file = Join-Path $outbox ('srt-parser-' + $nonce + '.json')
         $item = Get-Item -LiteralPath $file -Force
