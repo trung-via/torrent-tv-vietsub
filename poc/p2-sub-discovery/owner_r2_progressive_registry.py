@@ -52,7 +52,8 @@ class _RollingReceipt:
 class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
     def __init__(self, *, read_verified_current_playback: Callable,
                  on_status: Callable[[str], None] | None = None,
-                 voiceover_lane: object | None = None):
+                 voiceover_lane: object | None = None,
+                 voiceover_consumer: object | None = None):
         super().__init__(
             read_verified_current_playback=read_verified_current_playback)
         if on_status is not None and not callable(on_status):
@@ -64,6 +65,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                 getattr(voiceover_lane, "bind_verified_media", None)):
             raise P3ReadyRejected("P4_VOICE_MEDIA_BINDER_INVALID")
         self._voiceover_lane = voiceover_lane
+        self._voiceover_consumer = voiceover_consumer
 
     def _status(self, code: str) -> None:
         """Only source-owned enum; status reporting cannot affect delivery."""
@@ -253,7 +255,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         except Exception:
             raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_NOT_VERIFIED") from None
 
-    def _restore_current_checkpoint(self, media_key: str) -> str | None:
+    def _restore_current_checkpoint(self, media_key: str, *, restore_voice: bool = False) -> str | None:
         with self._lock:
             flow = self._flow
         if flow is None:
@@ -323,6 +325,12 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             # A live producer may have published a newer batch concurrently.
             if exc.args != ("P4_ROLLING_OLDER_REVISION",):
                 raise
+        # Activation reoffers durable VI, not every polling GET.
+        if restore_voice and self._voiceover_consumer is not None:
+            try:
+                self._voiceover_consumer.offer(revision)
+            except Exception:
+                self._status("VOICEOVER_CACHE_RESTORE_FAILED")
 
     @classmethod
     def _cached_en(cls, flow: object, fingerprint: str,
@@ -452,7 +460,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
 
     def resolve_progressive(self, media_key: str
                             ) -> AuthenticatedProgressiveSource | None:
-        status = self._restore_current_checkpoint(media_key)
+        status = self._restore_current_checkpoint(media_key, restore_voice=True)
         with self._lock:
             receipt = self._rolling.get(media_key)
         if receipt is None or receipt.media_key != media_key:

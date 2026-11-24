@@ -157,6 +157,28 @@ class FanoutTests(unittest.TestCase):
         self.assertEqual(subs, [1])
         self.assertIn("VOICEOVER_TTS_HOLD_SUBTITLE_UNAFFECTED", events)
 
+    def test_local_failure_isolated_and_recovered_without_replaying_good_cues(self):
+        class FlakyTts:
+            def __init__(self):
+                self.calls = []
+            def stream(self, cue):
+                self.calls.append(cue.number)
+                if cue.number == 1 and self.calls.count(1) == 1:
+                    raise RuntimeError("local model failed")
+                return [[0.0, 0.25, -0.25]]
+        with tempfile.TemporaryDirectory() as root:
+            store = VoiceoverWavStore(Path(root))
+            tts = FlakyTts()
+            events = []
+            sink = VieNeuBatchConsumer(wav_store=store, tts=tts, status=events.append)
+            self.assertEqual(len(sink(mkrev())), 1)
+            self.assertEqual(tts.calls, [1, 2])
+            self.assertIn("VOICEOVER_COVERAGE_PARTIAL", events)
+            self.assertEqual(len(sink(mkrev())), 2)
+            self.assertEqual(tts.calls, [1, 2, 1])
+            self.assertEqual(len(sink(mkrev())), 2)
+            self.assertEqual(tts.calls, [1, 2, 1])
+
     def test_real_audio_consumer_uses_only_one_source_revision(self):
         class FakeTts:
             def __init__(self):

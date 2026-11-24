@@ -136,7 +136,8 @@ class VieNeuBatchConsumer:
     def __init__(self, *, wav_store: object, tts: object,
                  voice_id: str = DEFAULT_VOICE_CACHE_ID,
                  on_audio_ready: Callable[[TranslationRevision, object, object],
-                                          object] | None = None):
+                                          object] | None = None,
+                 status: Callable[[str], object] | None = None):
         if on_audio_ready is not None and not callable(on_audio_ready):
             raise ValueError("VOICEOVER_AUDIO_SINK_INVALID")
         self.wav_store = wav_store
@@ -145,19 +146,25 @@ class VieNeuBatchConsumer:
         # Optional *already session-gated* consumer; no LAN or TV listener
         # is installed by this class.
         self.on_audio_ready = on_audio_ready
+        self.status = status
+        self._failures: dict[str, int] = {}
 
     def __call__(self, revision: TranslationRevision) -> tuple[object, ...]:
         full = plan_voiceover(revision, voice_id=self.voice_id)
-        keys = []
         receipts = []
         for cue in full.new_cues:
-            present = self.wav_store.read(cue)
-            if present is None:
-                # Real VieNeu is optional: this method is only invoked by an
-                # explicitly wired Owner, never by import or a TV GET.
-                present, _ = self.wav_store.synthesize(cue, self.tts.stream(cue))
+            try:
+                present = self.wav_store.recover_local_attempt(cue)
+                if present is None:
+                    if self._failures.get(cue.tts_key, 0) >= 2:
+                        continue
+                    present, _ = self.wav_store.synthesize(cue, self.tts.stream(cue))
+                self._failures.pop(cue.tts_key, None)
+            except Exception as exc:
+                self._failures[cue.tts_key] = self._failures.get(cue.tts_key, 0) + 1
+                self._note("VOICEOVER_CUE_FAILED_" + type(exc).__name__.upper())
+                continue
             receipts.append(present)
-            keys.append(cue.tts_key)
             # Release each verified cue as soon as its WAV is committed,
             # without waiting for the complete 50/120-cue batch.
             # Sink failures never discard successful audio or rerun AGY.
@@ -168,10 +175,16 @@ class VieNeuBatchConsumer:
                 try:
                     self.on_audio_ready(revision, cue, present)
                 except Exception:
-                    pass
-        # Verification of all receipts is mandatory before claiming coverage.
-        done = plan_voiceover(revision, voice_id=self.voice_id,
-                              completed_keys=tuple(keys))
-        if not done.is_caught_up:
-            raise ValueError("VOICEOVER_COVERAGE_INCOMPLETE")
+                    self._note("VOICEOVER_AUDIO_REGISTRATION_FAILED")
+            elif self.on_audio_ready is not None:
+                self._note("VOICEOVER_CUE_TOO_LONG_ORIGINAL_AUDIO")
+        if len(receipts) != full.translated_count:
+            self._note("VOICEOVER_COVERAGE_PARTIAL")
         return tuple(receipts)
+
+    def _note(self, code: str) -> None:
+        if self.status is not None:
+            try:
+                self.status(code)
+            except Exception:
+                pass

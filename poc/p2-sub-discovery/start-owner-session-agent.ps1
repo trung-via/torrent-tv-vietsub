@@ -67,7 +67,7 @@ try {
         if (-not (Test-Path -LiteralPath $p3p4 -PathType Leaf)) {
             throw 'OWNER_BRIDGE_P3_P4_SOURCE_NOT_DEPLOYED'
         }
-        & py -3 $p3p4 --owner-root $root --cache-root $cache --state-root $state --start-lan
+        & py -3 $p3p4 --owner-root $root --cache-root $cache --state-root $state --start-lan --enable-vieneu-voiceover
         if ($LASTEXITCODE -ne 0) {
             throw 'OWNER_BRIDGE_P3_P4_STARTUP_BLOCKED'
         }

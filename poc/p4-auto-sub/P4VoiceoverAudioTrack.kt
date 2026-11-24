@@ -73,8 +73,10 @@ internal class P4VoiceoverAudioTrack {
                     .setTransferMode(AudioTrack.MODE_STATIC)
                     .setBufferSizeInBytes(pcmLength).build()
                 try {
-                    if (track.state != AudioTrack.STATE_INITIALIZED ||
-                        track.write(wav, 44, pcmLength, AudioTrack.WRITE_BLOCKING) != pcmLength) {
+                    // MODE_STATIC starts in STATE_NO_STATIC_DATA until write().
+                    if (track.state == AudioTrack.STATE_UNINITIALIZED ||
+                        track.write(wav, 44, pcmLength, AudioTrack.WRITE_BLOCKING) != pcmLength ||
+                        track.state != AudioTrack.STATE_INITIALIZED) {
                         throw IllegalStateException("P4_VOICE_AUDIO_TRACK_NOT_READY")
                     }
                     return Prepared(offer, track)

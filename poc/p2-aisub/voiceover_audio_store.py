@@ -16,6 +16,7 @@ import re
 import struct
 import tempfile
 import wave
+from uuid import uuid4
 from typing import Iterable
 
 from voiceover_revision import NarrationCue
@@ -107,6 +108,29 @@ class VoiceoverWavStore:
         except (OSError, UnicodeError, KeyError, TypeError, ValueError,
                 wave.Error, json.JSONDecodeError):
             raise ValueError("VOICEOVER_CACHE_VERIFY_FAILED") from None
+
+    def recover_local_attempt(self, cue: NarrationCue) -> AudioReceipt | None:
+        """Single Owner TTS worker only; no concurrent synthesis of this cue.
+
+        Unlike an uncertain paid AGY call, local PCM can be regenerated.
+        Keep a verified success, quarantine only incomplete/invalid artifacts.
+        The caller must bound retries and never invoke this from an HTTP read.
+        """
+        wav, receipt, marker = self._paths(cue)
+        if self.root.is_symlink() or any(p.is_symlink() for p in (wav, receipt, marker)):
+            raise ValueError("VOICEOVER_CACHE_SYMLINK")
+        try:
+            old = self.read(cue)
+        except ValueError:
+            old = None
+        if old is not None:
+            marker.unlink(missing_ok=True)
+            return old
+        suffix = ".invalid-" + uuid4().hex
+        for path in (wav, receipt, marker):
+            if path.is_file():
+                path.rename(path.with_name(path.name + suffix))
+        return None
 
     def synthesize(self, cue: NarrationCue, chunks: Iterable[Iterable[float]]
                    ) -> tuple[AudioReceipt, bool]:

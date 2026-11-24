@@ -146,10 +146,12 @@ def build_optional_vieneu_lane(*, cache_root: Path):
     tts = VieNeuOnnxSession()
     batch = VieNeuBatchConsumer(
         wav_store=store, tts=tts, voice_id=DEFAULT_VOICE_CACHE_ID,
-        on_audio_ready=lane.on_audio_ready)
+        on_audio_ready=lane.on_audio_ready,
+        status=lambda code: owner_full_trace("VOICEOVER_STATUS", code=code))
     consumer = DualSubtitleVoiceConsumer(
         subtitle_sink=lambda _handoff, _revision: None,
-        voice_sink=batch, voice_id=DEFAULT_VOICE_CACHE_ID)
+        voice_sink=batch, voice_id=DEFAULT_VOICE_CACHE_ID,
+        status=lambda code: owner_full_trace("VOICEOVER_STATUS", code=code))
     return consumer, lane, tts
 
 

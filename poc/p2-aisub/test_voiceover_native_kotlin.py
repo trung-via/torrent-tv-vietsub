@@ -111,6 +111,14 @@ class NativeVoiceoverContract(unittest.TestCase):
         self.assertIn("private fun setAudio(es: Int)", composer)
         self.assertIn("mp.volume = if (on) 30 else 100", composer)
 
+    def test_static_track_writes_pcm_before_initialized_gate(self):
+        src = (ROOT / "P4VoiceoverAudioTrack.kt").read_text("utf-8")
+        a = src.index("track.state == AudioTrack.STATE_UNINITIALIZED")
+        b = src.index("track.write(wav", a)
+        d = src.index("track.state != AudioTrack.STATE_INITIALIZED", b)
+        self.assertLess(a, b)
+        self.assertLess(b, d)
+
     def test_android_client_is_composed_into_original_omp_player_only(self):
         client = (ROOT / "P4VoiceoverLanClient.kt").read_text("utf-8")
         composer = (ROOT / "apply.py").read_text("utf-8")
