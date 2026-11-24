@@ -328,6 +328,9 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         # Activation reoffers durable VI, not every polling GET.
         if restore_voice and self._voiceover_consumer is not None:
             try:
+                prefer = getattr(self._voiceover_consumer, "prioritize", None)
+                if callable(prefer):
+                    prefer(revision.media_key, revision.source_sha256)
                 self._voiceover_consumer.offer(revision)
             except Exception:
                 self._status("VOICEOVER_CACHE_RESTORE_FAILED")

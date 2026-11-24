@@ -36,6 +36,7 @@ class DualSubtitleVoiceConsumer:
         self._seen: dict[tuple[str, str], tuple[int, str]] = {}
         self._running = False
         self._active_key: tuple[str, str] | None = None
+        self._preferred: tuple[str, str] | None = None
         self._closed = False
         self._executor: ThreadPoolExecutor | None = None
 
@@ -71,6 +72,15 @@ class DualSubtitleVoiceConsumer:
         if self.voice_sink is not None:
             self._offer(revision)
 
+    def prioritize(self, media_key: str, source_sha256: str) -> None:
+        """Called only after verifying the currently selected TV film."""
+        with self._lock:
+            self._preferred = (media_key, source_sha256)
+
+    def _should_yield(self, key: tuple[str, str]) -> bool:
+        with self._lock:
+            return self._preferred != key and self._preferred in self._pending
+
     def _offer(self, revision: TranslationRevision) -> None:
         key = revision.media_key, revision.source_sha256
         with self._lock:
@@ -93,8 +103,13 @@ class DualSubtitleVoiceConsumer:
                     if key in self._pending or key == self._active_key:
                         return
             if key not in self._pending and len(self._pending) >= self.max_waiting_films:
-                self._note("VOICEOVER_BACKLOG_FULL_SUBTITLE_UNAFFECTED")
-                return
+                if key != self._preferred:
+                    self._note("VOICEOVER_BACKLOG_FULL_SUBTITLE_UNAFFECTED")
+                    return
+                # A new current film may displace only an in-memory pending
+                # revision; its durable VI and WAVs remain recoverable.
+                del self._pending[next(iter(self._pending))]
+                self._note("VOICEOVER_BACKGROUND_DEFERRED")
             self._seen[key] = (revision.version, revision.sha256)
             self._pending[key] = revision
             if self._running:
@@ -112,11 +127,19 @@ class DualSubtitleVoiceConsumer:
                     self._running = False
                     self._active_key = None
                     return
-                key, revision = next(iter(self._pending.items()))
-                del self._pending[key]
+                key = self._preferred if self._preferred in self._pending else next(iter(self._pending))
+                revision = self._pending.pop(key)
                 self._active_key = key
             try:
-                if self.voice_sink is not None:
+                if isinstance(self.voice_sink, VieNeuBatchConsumer):
+                    _, interrupted = self.voice_sink.consume(
+                        revision, should_yield=lambda: self._should_yield(key))
+                    if interrupted:
+                        with self._lock:
+                            if key not in self._pending and len(self._pending) < self.max_waiting_films:
+                                self._pending[key] = revision
+                        self._note("VOICEOVER_YIELD_TO_CURRENT_FILM")
+                elif self.voice_sink is not None:
                     self.voice_sink(revision)
             except Exception:
                 # TTS is lower priority and cannot invalidate committed P2/P4.
@@ -150,9 +173,17 @@ class VieNeuBatchConsumer:
         self._failures: dict[str, int] = {}
 
     def __call__(self, revision: TranslationRevision) -> tuple[object, ...]:
+        receipts, _ = self.consume(revision)
+        return receipts
+
+    def consume(self, revision: TranslationRevision, *,
+                should_yield: Callable[[], bool] = lambda: False
+                ) -> tuple[tuple[object, ...], bool]:
         full = plan_voiceover(revision, voice_id=self.voice_id)
         receipts = []
         for cue in full.new_cues:
+            if should_yield():
+                return tuple(receipts), True
             try:
                 present = self.wav_store.recover_local_attempt(cue)
                 if present is None:
@@ -180,7 +211,7 @@ class VieNeuBatchConsumer:
                 self._note("VOICEOVER_CUE_TOO_LONG_ORIGINAL_AUDIO")
         if len(receipts) != full.translated_count:
             self._note("VOICEOVER_COVERAGE_PARTIAL")
-        return tuple(receipts)
+        return tuple(receipts), False
 
     def _note(self, code: str) -> None:
         if self.status is not None:

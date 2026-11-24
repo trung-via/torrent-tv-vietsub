@@ -185,8 +185,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--owner-root", required=True)
     parser.add_argument("--cache-root", required=True)
     parser.add_argument("--state-root", required=True)
-    parser.add_argument("--enable-vieneu-voiceover", action="store_true",
-                        help="Opt in Ngọc Linh v3 Turbo ONNX/CPU in THIS Owner")
+    # This approved G3 candidate uses the existing F6 launcher unchanged.
+    # Keep an explicit rollback switch; preflight still never opens TTS.
+    parser.add_argument("--enable-vieneu-voiceover",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="Ngoc Linh v3 Turbo ONNX/CPU; --no-enable-vieneu-voiceover disables it")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--start-lan", action="store_true")
     mode.add_argument("--preflight-only", action="store_true")
@@ -234,8 +237,14 @@ def main(argv: list[str] | None = None) -> int:
         voice_lane = None
         voice_tts = None
         if args.enable_vieneu_voiceover and args.start_lan:
-            voice_consumer, voice_lane, voice_tts = build_optional_vieneu_lane(
-                cache_root=cache)
+            try:
+                voice_consumer, voice_lane, voice_tts = build_optional_vieneu_lane(
+                    cache_root=cache)
+                owner_full_trace("VOICEOVER_STATUS", code="VOICEOVER_LANE_CONFIGURED")
+            except Exception as exc:
+                owner_full_trace("VOICEOVER_LANE_START_FAILED", error=exc)
+                # Optional voice preparation must never block subtitle Owner.
+                voice_consumer = voice_lane = voice_tts = None
         wiring = compose_owner_redmi_status(
             p4_gateway=None, paired_device_secret=key,
             torrserver_reader=reader,

@@ -68,6 +68,9 @@ class R2VerifiedV3Processor(VerifiedV3Processor):
             # the already-committed film A translation or its local narration.
             try:
                 publish_verified(handoff, revision)
+                prefer = getattr(self.voiceover_consumer, "prioritize", None)
+                if callable(prefer):
+                    prefer(revision.media_key, revision.source_sha256)
             finally:
                 if self.voiceover_consumer is not None:
                     try:

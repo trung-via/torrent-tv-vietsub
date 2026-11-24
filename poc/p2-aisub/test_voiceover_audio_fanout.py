@@ -163,9 +163,10 @@ class FanoutTests(unittest.TestCase):
                 self.calls = []
             def stream(self, cue):
                 self.calls.append(cue.number)
+                yield [0.0]
                 if cue.number == 1 and self.calls.count(1) == 1:
-                    raise RuntimeError("local model failed")
-                return [[0.0, 0.25, -0.25]]
+                    raise RuntimeError("local model failed after marker")
+                yield [0.25, -0.25]
         with tempfile.TemporaryDirectory() as root:
             store = VoiceoverWavStore(Path(root))
             tts = FlakyTts()
@@ -178,6 +179,37 @@ class FanoutTests(unittest.TestCase):
             self.assertEqual(tts.calls, [1, 2, 1])
             self.assertEqual(len(sink(mkrev())), 2)
             self.assertEqual(tts.calls, [1, 2, 1])
+
+    def test_current_film_preempts_at_cue_boundary_and_old_film_resumes(self):
+        started, release = Event(), Event()
+        events = []
+        class SlowTts:
+            def stream(self, cue):
+                events.append(cue.tts_key)
+                if len(events) == 1:
+                    started.set()
+                    release.wait(3)
+                yield [0.0, 0.25]
+        from voiceover_revision import plan_voiceover
+        from voiceover_vieneu import DEFAULT_VOICE_CACHE_ID
+        a = mkrev(cues=3)
+        b = mkrev(cues=2, media_key="media." + "c"*64)
+        keys_a = [c.tts_key for c in plan_voiceover(a, voice_id=DEFAULT_VOICE_CACHE_ID).new_cues]
+        keys_b = [c.tts_key for c in plan_voiceover(b, voice_id=DEFAULT_VOICE_CACHE_ID).new_cues]
+        with tempfile.TemporaryDirectory() as root:
+            sink = VieNeuBatchConsumer(wav_store=VoiceoverWavStore(Path(root)), tts=SlowTts())
+            flow = DualSubtitleVoiceConsumer(subtitle_sink=lambda *_: None, voice_sink=sink)
+            try:
+                flow.prioritize(a.media_key, a.source_sha256)
+                flow.offer(a)
+                self.assertTrue(started.wait(2))
+                flow.prioritize(b.media_key, b.source_sha256)
+                flow.offer(b)
+                release.set()
+            finally:
+                release.set()
+                flow.close()
+            self.assertEqual(events, keys_a[:1] + keys_b + keys_a[1:])
 
     def test_real_audio_consumer_uses_only_one_source_revision(self):
         class FakeTts:
