@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/agy-browser-headless-control-1124.ps1",
-  "script_sha256": "7606b6375bfca9b9f534d58239f8ad9f9ede8500550ba1b5347d35aa49753ebf",
+  "script_sha256": "562e4a1c227cf2f3110345dae3611aa4495fe3f0a3d0ec391818759f822904a4",
   "arguments": []
 }
