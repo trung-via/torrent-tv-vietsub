@@ -79,8 +79,10 @@ internal class P4VoiceoverController(
         }
         val speaking = player.tick(positionMs, playing, buffering)
         val now = SystemClock.uptimeMillis()
+        val fetchIntervalMs = if (failures > 0) 5_000L else 1_800L
+        val elapsedMs = now - lastFetchAt
         if (!playing || buffering || inflight || !player.hasCapacity ||
-            now - lastFetchAt < (if (failures > 0) 5_000L else 1800L)) {
+            elapsedMs < fetchIntervalMs) {
             return speaking
         }
         lastFetchAt = now
