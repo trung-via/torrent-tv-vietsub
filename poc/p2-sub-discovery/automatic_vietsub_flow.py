@@ -687,9 +687,15 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     # No CLI/model/web request at startup or while an EN file is missing.
     # A signed TV tap binds the exact staged SRT to the existing AGY translator.
     preflight = model_preflight or (lambda: preflight_provider(profile))
+    # Candidate opt-in only; installed Owner defaults stay sequential until
+    # the multi-inflight diagnostic and live throughput gates are accepted.
+    # Changing concurrency does not change the existing job fingerprint.
+    parallel = os.environ.get("TTV_LEAN120_PARALLEL_BATCHES", "1")
+    if parallel not in ("1", "2", "3"):
+        raise ValueError("AUTO_LEAN120_PARALLEL_LIMIT_INVALID")
     worker = AutomaticLean120Worker(
         state_root=state_root, profile=profile, glossary={},
-        first_window_cues=50,
+        first_window_cues=50, parallel_batches=int(parallel),
     )
 
     def provider_disabled(*_args: object) -> bytes:
