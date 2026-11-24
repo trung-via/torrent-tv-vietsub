@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1",
-  "script_sha256": "72278b1a4a0d7314574598e25ce6d33aef5c80fac56da5db25a3e6d9853e0f1e",
+  "script_path": "hostops/laptop-ops/operations/agy-native-browser-readout-1124.ps1",
+  "script_sha256": "48d7bac89d758a79b5345ec78f0409c876e89b4c11d1724f537eb2a6cf5d5a57",
   "arguments": []
 }
