@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-srt-install-diagnostic",
-  "category": "diagnostics",
+  "operation": "owner-srt-parser-install",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-srt-install-diagnostic.ps1",
-  "script_sha256": "11fefd4ce3e989262b63bde37445febb3187947c6b2afcaf7cfbc6737970e1ce",
+  "script_path": "hostops/laptop-ops/operations/owner-srt-parser-install.ps1",
+  "script_sha256": "e937d39f26db2a68d9295e3e7346b87aa62f61677f2f456d8712e015d839039d",
   "arguments": []
 }

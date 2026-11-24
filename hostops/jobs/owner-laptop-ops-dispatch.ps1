@@ -221,6 +221,18 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         $receipt.source_commit -cne $commit) { continue }
     if ($receipt.result -cne 'SUCCESS') {
         Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
+        if ($receipt.operation -ceq 'owner-srt-parser-install') {
+            $diagFile=Join-Path $outbox ('srt-parser-hold-'+$nonce+'.json')
+            if (Test-Path -LiteralPath $diagFile -PathType Leaf) {
+                $item=Get-Item -LiteralPath $diagFile -Force
+                if ($item.Length -le 512 -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                    $diag=Get-Content -LiteralPath $diagFile -Raw | ConvertFrom-Json
+                    if ($diag.schema -ceq 'TTV-SRT-INSTALL-HOLD-V1' -and $diag.nonce -ceq $nonce -and $diag.reason -cmatch '^[A-Z0-9_]{3,80}$') {
+                        Write-Output ('HOSTOPS_SRT_INSTALL_HOLD='+$diag.reason)
+                    }
+                }
+            }
+        }
         if ($receipt.diagnostic -cmatch '^OWNER_FULL_DIAG_FAILURE_PHASE=(REPLACE_FILES|OFFLINE_IMPORT|FRESH_OWNER_START|FULL_LOG_VERIFY)$') {
             Write-Output $receipt.diagnostic
         }

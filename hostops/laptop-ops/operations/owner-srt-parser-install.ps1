@@ -33,6 +33,15 @@ function InstalledFile([string]$name) {
     return (Join-Path $app $name)
 }
 function Hold([string]$reason) {
+    try {
+        $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
+        $rq = Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
+        if ($rq.nonce -cmatch '^[0-9a-f]{32}$' -and $reason -cmatch '^[A-Z0-9_]{3,80}$') {
+            $diag = @{schema='TTV-SRT-INSTALL-HOLD-V1';nonce=$rq.nonce;reason=$reason}
+            [IO.File]::WriteAllText((Join-Path $spool ('Receipts\srt-parser-hold-' + $rq.nonce + '.json')),($diag|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+        }
+    } catch {}
+
     Write-Output ('OWNER_BRAIN_R3=HOLD_' + $reason)
     throw 'OWNER_BRAIN_R3_INSTALL_HOLD'
 }
@@ -208,15 +217,35 @@ if ($taskState -ceq 'Running') {
     # The existing StopOwner transaction rechecks idle state, disables the
     # task and revalidates each PID before stopping only these app workers.
 }
-# All 16 old R3 hashes must match, except the two files may already be the new target.
+# Raw Windows SHA may differ solely because of line endings. Compare the
+# actual parser against the exact reviewed baseline, allowing only AST equivalence.
+# Preserve all actual original bytes for rollback.
 foreach ($name in $baseline.Keys) {
     $file = InstalledFile $name
     RegularFile $file
     $actual = Hash $file
-    if ($actual -cne $baseline[$name] -and
-        (-not $expected.Contains($name) -or $actual -cne $expected[$name])) {
-        Hold 'INSTALLED_R3_BASELINE_DRIFT'
+    if ($actual -ceq $baseline[$name] -or $actual -ceq $expected[$name]) { continue }
+    if ($name -cne 'cue_pipeline.py') { Hold 'INSTALLED_R3_BASELINE_DRIFT' }
+    $baselineProbe = @'
+import ast, hashlib, pathlib, sys
+p=pathlib.Path(sys.argv[1])
+raw=p.read_bytes()
+baseline="\"\"\"P2-AISUB.1: local-only timed SRT/VTT cue QA and translated-text import.\n\nNo model/provider call, ASR, network, background processing or APK/TV effects.\nA separate opt-in translator must create the cue-indexed JSON. This module\nvalidates and imports only, preserving exact source timestamps and ordering.\n\"\"\"\nfrom __future__ import annotations\nimport argparse\nfrom dataclasses import dataclass, replace\nimport json\nfrom pathlib import Path\nimport re\n\nMAX_CUES = 2000\nMAX_BYTES = 1_000_000\nSRT_TIME = re.compile(r\"^(\\d{2}):(\\d{2}):(\\d{2}),(\\d{3})$\")\nVTT_TIME = re.compile(r\"^(?:(\\d{2}):)?(\\d{2}):(\\d{2})\\.(\\d{3})$\")\nARROW = re.compile(r\"^(\\S+) --> (\\S+)(.*)$\")\n\n\n@dataclass(frozen=True)\nclass Cue:\n    number: int\n    start_ms: int\n    end_ms: int\n    text: str\n    identifier: str = \"\"\n    settings: str = \"\"\n\n\ndef _decode(data: bytes) -> str:\n    if len(data) > MAX_BYTES:\n        raise ValueError(\"INPUT_TOO_LARGE\")\n    try:\n        s = data.decode(\"utf-8-sig\")\n    except UnicodeDecodeError as e:\n        raise ValueError(\"UTF8_REQUIRED\") from e\n    if \"\\x00\" in s:\n        raise ValueError(\"BINARY_INPUT_NOT_ALLOWED\")\n    return s.replace(\"\\r\\n\", \"\\n\").replace(\"\\r\", \"\\n\")\n\n\ndef _time_ms(s: str, fmt: str) -> int:\n    m = (SRT_TIME if fmt == \"srt\" else VTT_TIME).fullmatch(s)\n    if not m:\n        raise ValueError(\"MALFORMED_TIMESTAMP\")\n    parts = m.groups()\n    if fmt == \"srt\":\n        h, minute, sec, ms = (int(v) for v in parts)\n    else:\n        h = int(parts[0] or 0)\n        minute, sec, ms = (int(x) for x in parts[1:])\n    if minute > 59 or sec > 59:\n        raise ValueError(\"INVALID_TIME_RANGE\")\n    return ((h * 60 + minute) * 60 + sec) * 1000 + ms\n\n\ndef _time_text(ms: int, fmt: str) -> str:\n    hours, rem = divmod(ms, 3600000)\n    minutes, rem = divmod(rem, 60000)\n    seconds, millis = divmod(rem, 1000)\n    if hours > 99:\n        raise ValueError(\"HOURS_OUT_OF_RANGE\")\n    separator = \",\" if fmt == \"srt\" else \".\"\n    return f\"{hours:02d}:{minutes:02d}:{seconds:02d}{separator}{millis:03d}\"\n\n\ndef parse_cues(data: bytes, fmt: str) -> tuple[Cue, ...]:\n    if fmt not in (\"srt\", \"vtt\"):\n        raise ValueError(\"UNSUPPORTED_FORMAT\")\n    s = _decode(data).strip(\"\\n\")\n    blocks = re.split(r\"\\n[ \\t]*\\n+\", s)\n    if fmt == \"vtt\":\n        if not blocks or not re.fullmatch(r\"WEBVTT[^\\n]*\", blocks[0]):\n            raise ValueError(\"VTT_HEADER_REQUIRED\")\n        blocks = blocks[1:]\n    if not blocks or not blocks[0] or len(blocks) > MAX_CUES:\n        raise ValueError(\"NO_CUES_OR_TOO_MANY\")\n    cues: list[Cue] = []\n    prev_start = -1\n    for i, block in enumerate(blocks, 1):\n        lines = block.split(\"\\n\")\n        identifier = \"\"\n        if fmt == \"srt\":\n            if len(lines) < 3 or lines[0] != str(i):\n                raise ValueError(\"SRT_SEQUENCE_REQUIRED\")\n            timing, content = lines[1], lines[2:]\n        else:\n            if lines[0].startswith((\"NOTE\", \"STYLE\", \"REGION\")):\n                raise ValueError(\"VTT_UNSUPPORTED_BLOCK\")\n            if \" --> \" in lines[0]:\n                timing, content = lines[0], lines[1:]\n            else:\n                if len(lines) < 3 or not lines[0].strip():\n                    raise ValueError(\"VTT_IDENTIFIER_OR_CUE_INVALID\")\n                identifier, timing, content = lines[0], lines[1], lines[2:]\n        if not content or not all(t.strip() for t in content):\n            raise ValueError(\"EMPTY_CUE_TEXT\")\n        m = ARROW.fullmatch(timing)\n        if not m:\n            raise ValueError(\"TIMING_ARROW_REQUIRED\")\n        start, end = _time_ms(m[1], fmt), _time_ms(m[2], fmt)\n        settings = m[3]\n        if fmt == \"srt\" and settings:\n            raise ValueError(\"SRT_SETTINGS_INVALID\")\n        if end <= start or start < prev_start:\n            raise ValueError(\"INVALID_CUE_DURATION_OR_ORDER\")\n        prev_start = start\n        cues.append(Cue(i, start, end, \"\\n\".join(content), identifier, settings))\n    return tuple(cues)\n\n\ndef apply_translations(cues: tuple[Cue, ...], translations: dict[str, str]) -> tuple[Cue, ...]:\n    if not isinstance(translations, dict):\n        raise ValueError(\"TRANSLATION_MAP_REQUIRED\")\n    wanted = {str(c.number) for c in cues}\n    if set(translations) != wanted:\n        raise ValueError(\"MISSING_OR_EXTRA_TRANSLATED_CUE\")\n    out: list[Cue] = []\n    for c in cues:\n        text = translations[str(c.number)]\n        if (not isinstance(text, str) or not text.strip()\n            or len(text) > 2000 or any(ch in text for ch in (\"\\x00\", \"<\", \">\"))\n            or \"\\r\" in text):\n            raise ValueError(\"PLAIN_UTF8_TRANSLATION_REQUIRED\")\n        out.append(replace(c, text=text.strip()))\n    return tuple(out)\n\n\ndef render(cues: tuple[Cue, ...], fmt: str) -> bytes:\n    if fmt not in (\"srt\", \"vtt\"):\n        raise ValueError(\"UNSUPPORTED_FORMAT\")\n    sections = []\n    for c in cues:\n        line = f\"{_time_text(c.start_ms, fmt)} --> {_time_text(c.end_ms, fmt)}\"\n        if fmt == \"vtt\":\n            line += c.settings\n            if c.identifier:\n                line = c.identifier + \"\\n\" + line\n        else:\n            line = str(c.number) + \"\\n\" + line\n        sections.append(line + \"\\n\" + c.text)\n    header = \"WEBVTT\\n\\n\" if fmt == \"vtt\" else \"\"\n    return (header + \"\\n\\n\".join(sections) + \"\\n\").encode(\"utf-8\")\n\n\ndef main() -> int:\n    p = argparse.ArgumentParser(description=\"Offline cue translation import; no AI calls\")\n    p.add_argument(\"--input\", type=Path, required=True)\n    p.add_argument(\"--translations\", type=Path, required=True)\n    p.add_argument(\"--output\", type=Path, required=True)\n    p.add_argument(\"--confirm\", required=True)\n    args = p.parse_args()\n    if args.confirm != \"LOCAL_OFFLINE_ONE_FILE\":\n        p.error(\"EXPLICIT_ONE_FILE_CONSENT_REQUIRED\")\n    if args.input.suffix.lower() not in (\".srt\", \".vtt\") or args.output.suffix.lower() != args.input.suffix.lower():\n        p.error(\"SAME_SRT_OR_VTT_FORMAT_REQUIRED\")\n    paths = [x.resolve() for x in (args.input, args.translations, args.output)]\n    if len(set(paths)) != 3 or args.output.exists():\n        p.error(\"OUTPUT_MUST_BE_NEW_AND_DISTINCT\")\n    fmt = args.input.suffix.lower()[1:]\n    cues = parse_cues(args.input.read_bytes(), fmt)\n    translations = json.loads(_decode(args.translations.read_bytes()))\n    data = render(apply_translations(cues, translations), fmt)\n    with args.output.open(\"xb\") as f:\n        f.write(data)\n    print(f\"LOCAL_CUE_QA_PASS format={fmt} cues={len(cues)} no_cloud_or_tv_effect\")\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n"
+expected='96a569bcc5630f86db7e84a4c9df98442f946d7d3265d8ec2bab7d692365176a'
+assert hashlib.sha256(baseline.encode('utf-8')).hexdigest()==expected
+actual=raw.decode('utf-8-sig').replace('\r\n','\n')
+if actual==baseline:
+    print('CANONICAL_BASELINE_MATCH')
+elif ast.dump(ast.parse(actual),include_attributes=False)==ast.dump(ast.parse(baseline),include_attributes=False):
+    print('AST_BASELINE_MATCH')
+else:
+    print('BASELINE_SEMANTIC_DRIFT')
+'@
+    $comparison=@(& py -3 -I -B -c $baselineProbe $file 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $comparison.Count -ne 1 -or [string]$comparison[0] -cnotin @('CANONICAL_BASELINE_MATCH','AST_BASELINE_MATCH')) {
+        Hold 'PARSER_BASELINE_SEMANTIC_DRIFT'
     }
+    Write-Output ('OWNER_SRT_BASELINE=' + [string]$comparison[0])
 }
 $stageParent = Split-Path -Parent $stage
 RegularDirectory $stageParent
