@@ -1,4 +1,4 @@
-# Brain-selected direct HTTP subtitle acquisition, then existing EN Inbox. NO AGY execution.
+# Brain-selected OpenSubtitles direct-download URI to exact Owner EN Inbox. No AGY acquisition.
 # No translation, cache deletion, torrent add, TV event, or playback change.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -85,8 +85,11 @@ try:
         finish('READY_EXISTING')
     except BrainEnglishUnavailable as exc:
         if str(exc)!='BRAIN_EN_NOT_STAGED': finish('HOLD','EXISTING_INBOX_CONFLICT')
-    # Brain-selected public detail page. Follow only an actual exposed download URL.
+    # Brain-chosen legacy direct-download URL for the owner's exact subtitle ID.
+    # Confirmed pattern on public OpenSubtitles user reports; no speculative file ID.
+    # No API and no AGY: one bounded HTTP request directly to dl.opensubtitles.org.
     page='https://www.opensubtitles.org/en/subtitles/14097898/spider-man-brand-new-day-en'
+    download='https://dl.opensubtitles.org/en/download/sub/14097898'
     def allowed(url):
         p=urlsplit(url)
         return p.scheme=='https' and p.hostname in ('opensubtitles.org','www.opensubtitles.org','dl.opensubtitles.org','download.opensubtitles.org') and not p.username and not p.password and p.port in (None,443)
@@ -98,7 +101,7 @@ try:
     def get(url,cap):
         if not allowed(url): finish('HOLD','BRAIN_DOWNLOAD_URL_UNVERIFIED')
         try:
-            with opener.open(Request(url,headers={'User-Agent':'TorrentTV-Brain/1.0','Accept':'*/*'}),timeout=15) as r:
+            with opener.open(Request(url,headers={'User-Agent':'TorrentTV-Brain/1.0','Accept':'application/zip,application/octet-stream,text/plain'}),timeout=18) as r:
                 data=r.read(cap+1)
                 if len(data)>cap: finish('HOLD','BRAIN_DOWNLOAD_TOO_LARGE')
                 return data,r.geturl()
@@ -106,26 +109,6 @@ try:
             finish('HOLD','BRAIN_DOWNLOAD_HTTP_'+str(e.code))
         except (URLError,TimeoutError,OSError):
             finish('HOLD','BRAIN_DOWNLOAD_UNREACHABLE')
-    raw,actual_page=get(page,3_000_000)
-    html=raw.decode('utf-8','replace')
-    class Links(HTMLParser):
-        def __init__(self):
-            super().__init__();self.links=[]
-        def handle_starttag(self,tag,attrs):
-            a=dict(attrs)
-            if tag=='a' and a.get('href'):
-                self.links.append(a['href'])
-    parser=Links();parser.feed(html)
-    links=set()
-    for href in parser.links:
-        u=urljoin(actual_page,href)
-        if allowed(u) and (re.search(r'/download/(?:vrf-[a-f0-9]+/)?sub/14097898(?:/|$)',urlsplit(u).path) or re.search(r'/(?:download/file|downloadfile|subdownload)/[0-9]+(?:/|$)',urlsplit(u).path) or urlsplit(u).path.lower().endswith(('.zip','.srt'))):
-            links.add(u)
-    if not links:
-        finish('HOLD','BRAIN_PUBLIC_DOWNLOAD_LINK_NOT_EXPOSED')
-    if len(links)!=1:
-        finish('HOLD','BRAIN_PUBLIC_DOWNLOAD_LINK_AMBIGUOUS')
-    download=next(iter(links))
     data,actual_url=get(download,5_000_000)
     candidates=[]
     def consider(filename,content):

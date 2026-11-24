@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-vieneu-benchmark",
+  "operation": "owner-spiderman-en-stage",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-vieneu-benchmark.ps1",
-  "script_sha256": "01de7103b8f9b10a35728526194c6c0089c7ba6d3ba698f38d75acbee7682d0a",
+  "script_path": "hostops/laptop-ops/operations/owner-spiderman-en-stage.ps1",
+  "script_sha256": "45fccaa45429e2a11380fa40c2bc114c3ec0902c9f033602f37148e5b9e9b8ff",
   "arguments": []
 }
