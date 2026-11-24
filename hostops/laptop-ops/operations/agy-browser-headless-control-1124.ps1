@@ -1,5 +1,5 @@
-# One user-authorized logged-in website acquisition via Chrome DevTools MCP on CDP 9555.
-# Keep the existing profile and normal website authorization intact.
+# AGY self-audit and repair of its isolated MCP integration; one permitted acquisition after smoke.
+# Preserve the dedicated Chrome profile and existing authorization.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
@@ -7,7 +7,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('agy-cdp9555-mcp-auth-'+$rq.nonce)
+$run=Join-Path $root ('agy-cdp9555-mcp-repair-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='CDP9555_NOT_READY'
 $profile=Join-Path $root 'CDP9555Profile'
@@ -42,7 +42,7 @@ if($existing.Count -eq 1){
 }elseif($existing.Count -gt 1){$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
 if($verified){
  $py=@'
-import sys,pathlib,os,json,re,subprocess,time,urllib.request,hashlib,zipfile,shutil
+import sys,pathlib,os,json,re,subprocess,time,urllib.request,hashlib,zipfile,shutil,http.server,threading,secrets
 owner,run=map(pathlib.Path,sys.argv[1:])
 sys.path[:0]=[str(owner/"app/poc/p2-aisub")]
 from translator_gateway import preflight_antigravity,_validated_antigravity_alias
@@ -76,7 +76,36 @@ try:
         try:return {f.name:(f.stat().st_size,f.stat().st_mtime_ns) for f in default.iterdir() if f.is_file() and not f.is_symlink() and f.suffix.lower() in (".srt",".zip")}
         except Exception:return {}
     before=candidates()
-    prompt=("Owner has now signed in to OpenSubtitles in the dedicated persistent Chrome 9555 profile. This is a changed authorization condition, so run one normal website acquisition attempt. Use ONLY the workspace ttv-chrome9555 Chrome DevTools MCP (attached to http://127.0.0.1:9555) for website actions, not Playwright, /browser autoConnect, shell browser automation, APIs, other browser profiles or OpenSubs CLI. Use new_page to open https://www.opensubtitles.org/ in a new tab and take_snapshot; then search Spider-Man: Brand New Day (2026), English subtitle, WEB-DL 1080p, selezen release and MovieDalen audio label when applicable. Verify release, timing and language evidence; no guesses. Use the normal website download control once, following actual redirects including dl.opensubtitles.org only if supplied by the site. Do not read cookies, credentials, other tabs or storage, change account settings, solve CAPTCHA, evade denial, modify browser identity, pay or exceed limits. Stop on access restriction, login or download prompt requiring human. Keep original Chrome and existing tabs intact, close only your own new tab. Write RESULT.json in this workspace with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status (integer or null, never invent), download_host (hostname only or null), release_match (boolean), method, downloaded_filename (basename only, actual new file if known), actual_test. Browser downloads may land in the profile's normal download folder; report the actual filename from the download event or website, not a guess. Do not copy old files or create fabricated SRT. Do not change download settings. HostOps will independently verify any new file. No translation or TV changes. Use only genuine observations.")
+    history=pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"History"
+    matches=[]
+    for f in history.glob("receipt-*.json"):
+        try:
+            if f.is_symlink() or f.stat().st_size>2048:continue
+            q=json.loads(f.read_text(encoding="utf-8-sig"))
+            if q.get("source_commit")=="677608fbd0a6c50993a0d81ba20fe384add8cd65" and re.fullmatch(r"[a-f0-9]{32}",str(q.get("nonce",""))):matches.append(q)
+        except Exception:pass
+    prior=run/"prior"
+    prior.mkdir()
+    if len(matches)==1:
+        oldrun=run.parent/("agy-cdp9555-mcp-auth-"+matches[0]["nonce"])
+        for name in ("agy-stdout.jsonl","agy-stderr.txt","mcp-debug.log","RESULT.json"):
+            f=oldrun/name
+            if f.is_file() and not f.is_symlink() and f.stat().st_size<=4194304:shutil.copyfile(f,prior/name)
+    marker="TTV_MCP_"+secrets.token_hex(8)
+    route="/"+secrets.token_hex(16)
+    visits=[]
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self,*args):pass
+        def do_GET(self):
+            if self.path!=route:
+                self.send_error(404);return
+            data=("<html><title>MCP fixture</title><body><h1>"+marker+"</h1></body></html>").encode()
+            visits.append(self.headers.get("User-Agent",""))
+            self.send_response(200);self.send_header("Content-Type","text/html");self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data)
+    srv=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
+    threading.Thread(target=srv.serve_forever,daemon=True).start()
+    fixture=f"http://127.0.0.1:{srv.server_port}{route}"
+    prompt=("Owner authorizes you, AGY, to diagnose and repair your Chrome DevTools MCP integration in this disposable workspace, then perform one normal OpenSubtitles acquisition using the signed-in Chrome 9555. Previous run had new_page tool trace, no snapshot, no click, no valid RESULT.json and no verified download. Read prior/ logs locally; identify actual tool result and failure, not just tool name. Do not export logs or inspect credentials, cookies, storage, unrelated browser tabs, private profile data or other projects. Fix only workspace MCP config or create a small workspace-only MCP stdio client if native tool loading is unreliable; the client must invoke the real Chrome DevTools MCP server tools (initialize, tools/list, tools/call), attached only to http://127.0.0.1:9555. Do not use direct Playwright, CDP commands for website navigation, /browser, HTTP clients for provider, other profiles, OpenSubs CLI or REST API. Do not disable permission checks or sandbox. Use new_page and take_snapshot on this local fixture: "+fixture+". Extract its h1 text from actual MCP response, write the observed text (only that text) to SMOKE.txt. Do not use HTTP clients or fabricate marker. If smoke fails, stop and write diagnosis and RESULT.json. If smoke succeeds, use the same MCP on a new tab to visit www.opensubtitles.org normally using the existing signed-in profile; search for Spider-Man: Brand New Day (2026), EN, WEB-DL 1080p, selezen release, MovieDalen audio label if applicable. Verify release and timing evidence, report NO_MATCH if not found. Use the ordinary website's actual download link once if matching, including dl.opensubtitles.org only if supplied by website; stop at any access denial, login prompt, CAPTCHA, quota or payment. No bypass or retry after restriction. Do not touch 9444 or close the browser or pre-existing tabs; close only tabs you create. Do not change account/profile/download settings. Save actual new file in downloads/ if browser allows, otherwise report downloaded_filename basename from actual new file. No old files or fabricated results. Write SETUP.md with exact cause, actual tool response category, repair, reproducible MCP config/commands and observations (no secrets). Always write RESULT.json even if failed, with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status integer or null, download_host hostname or null, release_match boolean, downloaded_filename basename or null, method and actual_test. Do not translate or change OwnerBridge/TV. Use genuine observations only.")
     args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
     start=time.monotonic()
     try:
@@ -85,7 +114,9 @@ try:
         for name,raw in (("agy-stdout.jsonl",e.stdout),("agy-stderr.txt",e.stderr)):
             if raw is not None:
                 (run/name).write_bytes(raw if isinstance(raw,bytes) else raw.encode("utf-8"))
+        srv.shutdown();srv.server_close()
         print("CDP9555_TIMEOUT_RESULT_UNKNOWN");sys.exit(0)
+    srv.shutdown();srv.server_close()
     (run/"agy-stdout.jsonl").write_text(p.stdout,encoding="utf-8")
     (run/"agy-stderr.txt").write_text(p.stderr,encoding="utf-8")
     records=[]
@@ -142,7 +173,11 @@ try:
     walk([x for x in records if x.get("event") not in ("user","result","assistant")])
     names=[str(v).lower() for x in nodes for k,v in x.items() if k.lower() in ("name","tool_name","toolname","step_type") and isinstance(v,str)]
     mcp=int(any("new_page" in v or "navigate_page" in v or "take_snapshot" in v for v in names))
-    print(f"9555MCP_{codes[status]}_{stage}_H{http}_D{dlhost}_M{match}_T{mcp}_F{min(files,9)}_C{min(cues,99999)}_{round(time.monotonic()-start)}S")
+    smoke=run/"SMOKE.txt"
+    sm=int(smoke.is_file() and not smoke.is_symlink() and smoke.stat().st_size<256 and smoke.read_text(encoding="utf-8-sig",errors="replace").strip()==marker and any("Chrome/" in ua for ua in visits))
+    setup=int((run/"SETUP.md").is_file())
+    report=int(bool(rr))
+    print(f"9555FIX_{codes[status]}_{stage}_H{http}_S{sm}_R{report}_A{setup}_M{match}_F{min(files,9)}_C{min(cues,99999)}_{round(time.monotonic()-start)}S")
 except Exception:print("MCP_HEADLESS_LOCAL_ERROR")
 '@
  $f=Join-Path $run 'control.py'
