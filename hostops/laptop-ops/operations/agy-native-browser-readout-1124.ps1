@@ -88,13 +88,7 @@ $code='TR04AR_LOCAL_ERROR'
 if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}
 $task=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-Laptop-HostOps' -TaskPath '\' -ErrorAction SilentlyContinue
 $lim=if($task){[string]$task.Settings.ExecutionTimeLimit}else{''}
-$lm=if($lim -eq 'PT0S'){0}elseif($lim -match '^PT(\d+)H'TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
-[IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
-Write-Output $code
-){[int]$Matches[1]*60}elseif($lim -match '^PT(\d+)M'TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
-[IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
-Write-Output $code
-){[int]$Matches[1]}else{999}
+$lm=if($lim -eq 'PT0S'){0}elseif($lim -match '\APT(\d+)H\z'){[int]$Matches[1]*60}elseif($lim -match '\APT(\d+)M\z'){[int]$Matches[1]}else{999}
 $code=$code+'_L'+$lm
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
