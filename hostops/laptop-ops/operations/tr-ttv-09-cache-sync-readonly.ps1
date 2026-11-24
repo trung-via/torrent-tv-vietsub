@@ -88,7 +88,23 @@ def main():
     exact=int(norm(pathlib.PurePosixPath(name).stem)==target)
     size=round(actual.length/1048576)
     if not exact:return "TR09CACHE_MEDIA_DRIFT"
-    if file_count!=1:return f"TR09CACHE_MULTIFILE_{file_count}"
+    # Web IDs are sorted by path, not necessarily physical order. Do not sum by ID.
+    # A complete v1 file list and total size bound every possible physical offset.
+    if len(tor)!=40:return "TR09CACHE_NOT_V1"
+    current=json.loads(_local_post(cfg.url,json.dumps({"action":"get","hash":tor}).encode(),6.0))
+    if not isinstance(current,dict) or current.get("hash")!=tor:return "TR09CACHE_META_ID"
+    fs=current.get("file_stats")
+    if not isinstance(fs,list) or len(fs)!=file_count or not 1<=len(fs)<=64:return "TR09CACHE_FILELIST"
+    if any(not isinstance(v,dict) or type(v.get("id")) is not int or type(v.get("length")) is not int or v["length"]<0 or not isinstance(v.get("path"),str) for v in fs):return "TR09CACHE_FILEFIELDS"
+    if len({v["id"] for v in fs})!=len(fs) or len({v["path"] for v in fs})!=len(fs):return "TR09CACHE_FILEDUP"
+    selected=[v for v in fs if v["id"]==idx and v["path"]==actual.path and v["length"]==actual.length]
+    if len(selected)!=1:return "TR09CACHE_FILEDRIFT"
+    whole=sum(v["length"] for v in fs)
+    if type(current.get("torrent_size")) is not int or current["torrent_size"]!=whole:return "TR09CACHE_TOTAL_UNVERIFIED"
+    # Conservative interval envelope: every possible offset is between 0 and
+    # sum(other lengths), independent of ordering. All touched global pieces
+    # across that envelope must be complete before reading a file-relative range.
+    max_offset=whole-actual.length
     if not name.lower().endswith(".mkv"):return "TR09CACHE_NOT_MKV"
     import time,statistics,html
     from collections import defaultdict
@@ -140,20 +156,24 @@ def main():
         row=json.loads(raw)
         if not isinstance(row,dict) or row.get("Hash")!=tor:raise DiagnosticStop("CACHE_ID")
         ps,n,items=row.get("PiecesLength"),row.get("PiecesCount"),row.get("Pieces")
-        if type(ps) is not int or not 0<ps<=67108864 or type(n) is not int or n!=(actual.length+ps-1)//ps or not isinstance(items,dict):raise DiagnosticStop("CACHE_GEOMETRY")
+        if type(ps) is not int or not 0<ps<=67108864 or type(n) is not int or n!=(whole+ps-1)//ps or not isinstance(items,dict):raise DiagnosticStop("CACHE_GEOMETRY")
         ready={int(k) for k,v in items.items() if isinstance(k,str) and k.isdecimal() and isinstance(v,dict) and v.get("Id")==int(k) and v.get("Completed") is True and 0<=int(k)<n}
         return ps,ready
     try:ps,ready=cache()
     except DiagnosticStop as exc:return "TR09CACHE_"+exc.code
     except Exception:return "TR09CACHE_UNAVAILABLE"
     if not ready:return "TR09CACHE_EMPTY"
-    if 0 not in ready:return f"TR09CACHE_HEADER_MISS_P{len(ready)}"
+    def covered(at,length,piece_size,complete):
+        low=at//piece_size
+        high=(at+length-1+max_offset)//piece_size
+        return high-low+1<=len(complete) and all(i in complete for i in range(low,high+1))
+    if not covered(0,min(ps,262144),ps,ready):return f"TR09CACHE_HEADER_MISS_P{len(ready)}O{max_offset}"
     reads=0;total=0
     def read(at,length):
         nonlocal reads,total
         if time.monotonic()>deadline or reads>=12 or total+length>8388608 or at<0 or length<=0 or at+length>actual.length:raise DiagnosticStop("BUDGET")
         ps2,now=cache()
-        if ps2!=ps or any(i not in now for i in range(at//ps,(at+length-1)//ps+1)):raise DiagnosticStop("CACHE_MISS")
+        if ps2!=ps or not covered(at,length,ps,now):raise DiagnosticStop("CACHE_MISS")
         stop=at+length-1
         req=Request(base+f"/play/{tor}/{idx}",headers={"Range":f"bytes={at}-{stop}","Connection":"close","Cache-Control":"no-store"})
         reads+=1
@@ -223,7 +243,7 @@ def main():
     for lo,hi in reversed(runs):
         if time.monotonic()>deadline or total>=8000000 or reads>=12:break
         at=lo*ps
-        length=min((hi-lo+1)*ps,actual.length-at,4194304,8388608-total)
+        length=min((hi-lo+1)*ps-max_offset,actual.length-at,4194304,8388608-total)
         if length<4096:continue
         try:data=read(at,length)
         except Exception:errors+=1;continue
@@ -263,7 +283,7 @@ def main():
     best=max(matched.values(),key=len,default=[])
     near=sum(abs(x)<=750 for x in best)
     med=round(statistics.median(best)) if best else 0
-    return f"TR09CACHE_P{len(ready)}S{samples}C{clusters}N{len(seen)}M{len(best)}A{near}D{'P' if med>=0 else 'N'}{abs(med)}X{errors}KB{total//1024}"
+    return f"TR09R2_P{len(ready)}S{samples}C{clusters}N{len(seen)}M{len(best)}A{near}D{'P' if med>=0 else 'N'}{abs(med)}X{errors}KB{total//1024}"
 
 try:print(main())
 except Exception:print("TR08QA_PRIVATE_ERROR")
