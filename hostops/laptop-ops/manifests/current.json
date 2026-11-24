@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/agy-native-browser-readout-1124.ps1",
-  "script_sha256": "437889eb43d6bf3c8876406ebbc25fd1e16b58a637c15013599398de0471dc60",
+  "script_sha256": "0a74085d246e22249e487169477406f5bb841977771a53c6cd563f61f1c41e1b",
   "arguments": []
 }
