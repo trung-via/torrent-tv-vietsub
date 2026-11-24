@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-vieneu-int8-benchmark.ps1",
-  "script_sha256": "3d505eed3fc34d379c988877079b1324fd6a636636a9c8e50e3f6699cf803ca9",
+  "script_sha256": "74e7492cc5c2a91509fac9ce1e226bf42582770de6bf740f41833ef194d12663",
   "arguments": []
 }
