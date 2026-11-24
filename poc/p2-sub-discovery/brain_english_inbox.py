@@ -61,6 +61,11 @@ def _content(contents: bytes) -> tuple[str, int]:
         raise BrainEnglishUnavailable("BRAIN_EN_SRT_SIZE_INVALID")
     try:
         cues = validate_timed_text(contents, "srt")
+        # Use the exact consumer parser at the inbox boundary as well.
+        # Keep original bytes/digest to preserve existing source bindings.
+        from cue_pipeline import parse_cues
+        if len(parse_cues(contents, "srt")) != cues:
+            raise ValueError("BRAIN_EN_CUE_COUNT_MISMATCH")
     except (UnicodeError, ValueError, SubtitleApiError):
         raise BrainEnglishUnavailable("BRAIN_EN_SRT_QA_FAILED") from None
     return hashlib.sha256(contents).hexdigest(), cues

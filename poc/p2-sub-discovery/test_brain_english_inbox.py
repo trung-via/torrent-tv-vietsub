@@ -172,6 +172,31 @@ class BrainInboxTests(unittest.TestCase):
             model_preflight=lambda: None,
             source_acquirer=acquire_brain_english)
 
+    def test_numbering_defect_staged_and_translated_without_changing_source(self):
+        from cue_pipeline import parse_cues
+        raw = srt().replace(b"\n\n2\n", b"\n\n8\n", 1)
+        self.fixture.write_bytes(raw)
+        folder = self.stage()
+        original = parse_cues(srt(), "srt")
+        asset = acquire_brain_english(MEDIA, self.cache)
+        self.assertEqual(asset.contents, raw)
+        self.assertEqual(parse_cues(asset.contents, "srt"), original)
+        translator = FakeAntigravity()
+        result = self._flow(translator).selected_media(
+            NAME, verified_media=MEDIA, source_fingerprint=self.fp)
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertEqual([len(ids) for ids in translator.calls], [50, 75])
+        self.assertEqual((folder / "english.srt").read_bytes(), raw)
+        final, = (self.root / "state").rglob("vi-final.srt")
+        self.assertEqual(
+            [(c.number, c.start_ms, c.end_ms) for c in parse_cues(final.read_bytes(), "srt")],
+            [(c.number, c.start_ms, c.end_ms) for c in original])
+
+    def test_inbox_refuses_srt_consumer_cannot_parse(self):
+        self.fixture.write_bytes(srt().replace(b"\n\n2\n", b"\n\nlabel\n", 1))
+        with self.assertRaisesRegex(BrainEnglishUnavailable, "SRT_QA_FAILED"):
+            self.stage()
+
     def test_missing_staged_file_does_not_invoke_agy_or_api(self):
         translator = FakeAntigravity()
         flow = self._flow(translator)
