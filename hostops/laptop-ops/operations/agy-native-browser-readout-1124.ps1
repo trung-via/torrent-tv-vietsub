@@ -6,7 +6,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('brain-cdp9555-catalog-'+$rq.nonce)
+$run=Join-Path $root ('brain-cdp9555-detail-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='CDP9555_NOT_READY'
 $profile=Join-Path $root 'CDP9555Profile'
@@ -135,39 +135,46 @@ def main():
             schema=schemas[name]
             if "pageId" in schema.get("properties",{}):args={"pageId":page_id,**args}
             return client.call(name,args)
-        # Normal public catalog URL, English filter and exact IMDb identity.
-        url="https://www.opensubtitles.org/en/search/sublanguageid-eng/imdbid-22084616"
-        call("navigate_page",{"url":url})
-        snap=txt(call("take_snapshot",{}))
-        if re.search(r"access denied|verify you are human|checking your browser|captcha|429 too many|403 forbidden|401 unauthorized",snap,re.I):
-            code="BRAIN_SEARCH_ACCESS_STOP"
-        else:
-            fn="""() => JSON.stringify({host:location.hostname,path:location.pathname,title:document.title,rows:[...document.querySelectorAll('tr')].flatMap(r=>{let a=[...r.querySelectorAll('a[href]')].map(a=>a.href).filter(u=>/^https:\\/\\/(?:www\\.)?opensubtitles\\.org\\/en\\/subtitles\\/\\d+/i.test(u));return a.length?[{urls:a,text:r.innerText.slice(0,1200)}]:[]}).slice(0,100)})"""
-            raw=txt(call("evaluate_script",{"function":fn}))
-            (run/"catalog-private.txt").write_text(raw,encoding="utf-8")
-            # MCP output usually wraps a JSON result in a fenced block, sometimes double encoded.
-            data=None
-            for candidate in [raw]+re.findall(r"(?s)\x60\x60\x60(?:json)?\s*(.*?)\s*\x60\x60\x60",raw):
-                try:
-                    obj=json.loads(candidate)
-                    if isinstance(obj,str):obj=json.loads(obj)
-                    if isinstance(obj,dict) and "rows" in obj:data=obj;break
-                except (ValueError,TypeError):pass
-            if not data:
-                code="BRAIN_SEARCH_PARSE_HOLD"
-            elif data.get("host") not in ("www.opensubtitles.org","opensubtitles.org"):
-                code="BRAIN_SEARCH_HOST_HOLD"
-            else:
-                rows=data["rows"]
-                web=[x for x in rows if re.search(r"\bWEB[- .]?(?:DL|Rip)\b|\bAMZN\b|\bETHEL\b",x["text"],re.I)]
-                exact=[x for x in web if re.search(r"selezen",x["text"],re.I)]
-                selected=(exact or web)
-                ids=[]
-                for x in selected:
-                    for u in x["urls"]:
-                        m=re.search(r"/en/subtitles/(\d+)",u)
-                        if m and m.group(1) not in ids:ids.append(m.group(1))
-                code=f"BRAIN_SEARCH_R{min(len(rows),99)}_W{min(len(web),99)}_E{min(len(exact),99)}_ID"+("_".join(ids[:2]) if ids else "NONE")
+        # Use exact candidate URLs observed by the previous independent catalog run.
+        spool=pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"History"
+        prior=[]
+        for f in spool.glob("receipt-*.json"):
+            try:
+                rr=json.loads(f.read_text(encoding="utf-8-sig"))
+                if rr.get("source_commit")=="3fdb7db8ef21366196a5e92c69ff58ea0f23d52f" and rr.get("result")=="SUCCESS" and re.fullmatch(r"[a-f0-9]{32}",rr.get("nonce","")):prior.append(rr)
+            except (ValueError,OSError):pass
+        if len(prior)!=1:raise RuntimeError("PRIOR")
+        previous=run.parent/("brain-cdp9555-catalog-"+prior[0]["nonce"])/"catalog-private.txt"
+        raw=previous.read_text(encoding="utf-8")
+        data=None
+        for candidate in [raw]+re.findall(r"(?s)\x60\x60\x60(?:json)?\s*(.*?)\s*\x60\x60\x60",raw):
+            try:
+                obj=json.loads(candidate)
+                if isinstance(obj,str):obj=json.loads(obj)
+                if isinstance(obj,dict) and "rows" in obj:data=obj;break
+            except (ValueError,TypeError):pass
+        if not data:raise RuntimeError("PRIOR")
+        tags=[]
+        for wanted in ("14109322","14104608"):
+            matches=[(u,x["text"]) for x in data["rows"] for u in x["urls"] if re.match(r"https://(?:www\.)?opensubtitles\.org/en/subtitles/"+wanted+r"(?:/|$)",u)]
+            if not matches:
+                tags.append("MISSING");continue
+            url,row=matches[0]
+            call("navigate_page",{"url":url})
+            snap=txt(call("take_snapshot",{}))
+            if re.search(r"access denied|verify you are human|checking your browser|captcha|429 too many|403 forbidden|401 unauthorized",snap,re.I):
+                tags.append("DENY");break
+            (run/("detail-"+wanted+".txt")).write_text(snap,encoding="utf-8")
+            combined=row+"\n"+snap
+            group="OTHER"
+            for label,pat in [("AMZN",r"\bAMZN\b"),("MA",r"\bMA[ .-]WEB"),("ETHEL",r"\bETHEL\b"),("KYO",r"\bKyoGo\b"),("RDNYB",r"\bRDNYB\b"),("PAHE",r"\bPahe\b"),("ASTRID",r"\bASTRiD\b"),("BYNDR",r"\bBYNDR\b")]:
+                if re.search(pat,row,re.I):group=label;break
+            fps=int(bool(re.search(r"23[.,]976|24000/1001",combined,re.I)))
+            runtime=int(bool(re.search(r"02:25(?::00)?|145\s*(?:min|minute)|2\s*h(?:ours)?\s*25",combined,re.I)))
+            english=int(bool(re.search(r"\bEnglish\b|sublanguageid-eng",combined,re.I)))
+            web=int(bool(re.search(r"\bWEB[- .]?(?:DL|Rip)\b|\bAMZN\b|\bETHEL\b",row,re.I)))
+            tags.append(f"{group}F{fps}T{runtime}E{english}W{web}")
+        code="BRDETAIL_"+"_".join(tags)
     except TimeoutError:code="BRAIN_SEARCH_TIMEOUT"
     except Exception as e:
         code="BRAIN_SEARCH_"+(str(e) if re.fullmatch(r"(?:RPC|TOOL)_[A-Z]+|NO_ID",str(e)) else "LOCALERR")
