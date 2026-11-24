@@ -417,7 +417,7 @@ class AutoLean120WorkerTests(unittest.TestCase):
         calls = []
         def parallel(cmd, **kwargs):
             prompt = json.loads(kwargs["input"].strip())["message"]["content"]
-            ids = [x["id"] for x in json.loads(prompt.split("\\n", 1)[1])["target"]]
+            ids = [x["id"] for x in json.loads(prompt.split("\n", 1)[1])["target"]]
             with guard:
                 calls.append(ids[0])
             if ids[0] in (51, 171, 291):
@@ -450,7 +450,7 @@ class AutoLean120WorkerTests(unittest.TestCase):
         calls = []
         def fail_first(cmd, **kwargs):
             prompt = json.loads(kwargs["input"].strip())["message"]["content"]
-            ids = [x["id"] for x in json.loads(prompt.split("\\n", 1)[1])["target"]]
+            ids = [x["id"] for x in json.loads(prompt.split("\n", 1)[1])["target"]]
             calls.append(ids[0])
             if ids[0] != 1:
                 barrier.wait()
