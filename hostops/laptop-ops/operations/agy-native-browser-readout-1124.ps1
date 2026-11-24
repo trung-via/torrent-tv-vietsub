@@ -1,99 +1,259 @@
-# Read-only reconciliation of exact GEN2 attempt. No provider or browser calls.
+# AGY acquisition using the independently validated stdio MCP client and explicit pageId.
+# Keep the existing profile and normal website authorization intact.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
-$prior=@(Get-ChildItem -LiteralPath (Join-Path $spool 'History') -Filter 'receipt-*.json' -File | ForEach-Object {
- if($_.Length -le 2048 -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)){
-  try{$r=Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
-   if($r.source_commit -ceq '1c6600358d1bc30e9228c1ec2c0b8027f1d2e8c6' -and $r.operation -ceq 'agy-browser-headless-control-1124' -and $r.result -ceq 'SUCCESS' -and $r.nonce -cmatch '^[a-f0-9]{32}$'){$r}
-  }catch{}
- }
-})
-$code='G2READ_PRIOR_NOT_UNIQUE'
-if($prior.Count -eq 1){
- $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
- $run=Join-Path $root ('agy-cdp9555-mcp-stdio-'+$prior[0].nonce)
+$owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
+$root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
+$run=Join-Path $root ('agy-helper-local-'+$rq.nonce)
+New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
+$code='CDP9555_NOT_READY'
+$profile=Join-Path $root 'CDP9555Profile'
+function ListenPid([int]$port){
+ @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+}
+$before9444=@(ListenPid 9444)
+$existing=@(ListenPid 9555)
+$started=$false
+if($false -and $existing.Count -eq 0){
+ $chrome=@(
+   (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
+   (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
+ )|Where-Object {Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
+ if($chrome){
+  New-Item -ItemType Directory -Path $profile -Force|Out-Null
+  $profileArg='--user-data-dir="'+$profile+'"'
+  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','about:blank')|Out-Null
+  $started=$true
+  for($i=0;$i -lt 20;$i++){
+   Start-Sleep -Milliseconds 500
+   $existing=@(ListenPid 9555)
+   if($existing.Count -gt 0){break}
+  }
+ }else{$code='CDP9555_CHROME_NOT_FOUND'}
+}
+$verified=$false
+if($existing.Count -eq 1){
+ $proc=Get-CimInstance Win32_Process -Filter ("ProcessId="+$existing[0])
+ $listeners=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
+ if($proc -and $proc.Name -eq 'chrome.exe' -and $proc.CommandLine -match '(?:^|\s)--remote-debugging-port=9555(?:\s|$)' -and $proc.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}else{$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
+}elseif($existing.Count -gt 1){$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
+if($verified){
+ $client=@'
+import pathlib,json,re,subprocess,time,threading,queue
+def classify(value,prefix):
+    t=json.dumps(value,ensure_ascii=False).lower()
+    rules=[("ARG",r"invalid (?:arguments|params|parameters)|validation|expected number|required|invalid_type"),("PAGE",r"no page|page.{0,25}(?:not found|closed)|target closed|no selected"),("A11Y",r"accessibility|a11y|snapshot"),("TIME",r"timeout|timed out"),("PERM",r"permission|not allowed|denied"),("PROTO",r"protocol error|session closed")]
+    for label,pat in rules:
+        if re.search(pat,t):return prefix+"_"+label
+    return prefix+"_OTHER"
+class MCP:
+    def __init__(self,work):
+        self.work=work
+        self.q=queue.Queue()
+        self.seq=0
+        self.err=open(work/"mcp-stderr.txt","w",encoding="utf-8")
+        self.p=subprocess.Popen(["cmd.exe","/d","/c","npx","-y","chrome-devtools-mcp@1.13.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics"],cwd=work,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.err,text=True,encoding="utf-8",errors="replace",bufsize=1)
+        def reader():
+            for line in self.p.stdout:
+                try:
+                    x=json.loads(line)
+                    if isinstance(x,dict):self.q.put(x)
+                except ValueError:pass
+            self.q.put(None)
+        threading.Thread(target=reader,daemon=True).start()
+    def send(self,method,params=None,notification=False,timeout=25):
+        x={"jsonrpc":"2.0","method":method}
+        if params is not None:x["params"]=params
+        if not notification:
+            self.seq+=1
+            x["id"]=self.seq
+        self.p.stdin.write(json.dumps(x)+"\n")
+        self.p.stdin.flush()
+        if notification:return {}
+        until=time.monotonic()+timeout
+        while True:
+            remain=until-time.monotonic()
+            if remain<=0:raise TimeoutError(method)
+            try:y=self.q.get(timeout=remain)
+            except queue.Empty:raise TimeoutError(method)
+            if y is None:raise EOFError(method)
+            if y.get("id")!=self.seq:continue
+            if "error" in y:raise RuntimeError(classify(y["error"],"RPC"))
+            r=y.get("result")
+            if not isinstance(r,dict):raise RuntimeError("INVALID")
+            if r.get("isError"):raise RuntimeError(classify(r,"TOOL"))
+            if method=="tools/call":
+                with (self.work/"mcp-trace.jsonl").open("a",encoding="utf-8") as f:f.write(json.dumps({"tool":params.get("name"),"ok":True,"ts":time.time()})+"\n")
+            return r
+    def call(self,name,args=None,timeout=30):
+        return self.send("tools/call",{"name":name,"arguments":args or {}},timeout=timeout)
+    def close(self):
+        # Closing stdio disconnects the MCP server; never call browser.close.
+        try:self.p.stdin.close()
+        except Exception:pass
+        try:self.p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.p.terminate()
+            try:self.p.wait(timeout=5)
+            except subprocess.TimeoutExpired:self.p.kill()
+        self.err.close()
+
+class Browser:
+    """One isolated tab; the agent chooses the search and download approach."""
+    def __init__(self,work):
+        import secrets
+        self.m=MCP(work); self.page_id=None
+        try:
+            self.m.send("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ttv-agy","version":"1.0"}})
+            self.m.send("notifications/initialized",notification=True)
+            self.schemas={x["name"]:x["inputSchema"] for x in self.m.send("tools/list")["tools"]}
+            marker="about:blank#TTV_"+secrets.token_hex(12)
+            def identify(r):
+                def walk(v):
+                    if isinstance(v,dict):
+                        if v.get("url")==marker:
+                            for k in ("id","pageId","page_id"):
+                                x=v.get(k)
+                                if isinstance(x,int) and not isinstance(x,bool):return x
+                                if isinstance(x,str) and x.isdecimal():return int(x)
+                        for x in v.values():
+                            n=walk(x)
+                            if n is not None:return n
+                    elif isinstance(v,list):
+                        for x in v:
+                            n=walk(x)
+                            if n is not None:return n
+                n=walk(r.get("structuredContent",{}))
+                if n is not None:return n
+                for line in self.text(r).splitlines():
+                    m=re.match(r"^\s*(?:[-*]\s*)?(\d+)\s*:\s*(.*)$",line)
+                    if m and marker in m.group(2):return int(m.group(1))
+            self.page_id=identify(self.m.call("new_page",{"url":marker},timeout=25))
+            if self.page_id is None:self.page_id=identify(self.m.call("list_pages"))
+            if self.page_id is None:raise RuntimeError("NO_PAGE_ID")
+        except Exception:
+            self.close();raise
+    @staticmethod
+    def text(r):return "\n".join(x.get("text","") for x in r.get("content",[]) if isinstance(x,dict))
+    def call(self,name,args=None,timeout=15):
+        args=dict(args or {})
+        if name not in ("navigate_page","take_snapshot","click","fill","fill_form","type_text","press_key","evaluate_script","list_network_requests","get_network_request"):raise ValueError("TOOL_SCOPE")
+        if "pageId" in self.schemas[name].get("properties",{}):args["pageId"]=self.page_id
+        else:raise ValueError("PAGE_SCOPE_REQUIRED")
+        return self.m.call(name,args,timeout=timeout)
+    def close(self):
+        if self.page_id is not None:
+            try:self.m.call("close_page",{"pageId":self.page_id},timeout=8)
+            except Exception:pass
+            self.page_id=None
+        self.m.close()
+    def __enter__(self):return self
+    def __exit__(self,*args):self.close()
+'@
+ [IO.File]::WriteAllText((Join-Path $run 'mcp_client.py'),$client,[Text.UTF8Encoding]::new($false))
+ $probe=@'
+import sys,pathlib,json,time,threading,http.server,secrets
+run=pathlib.Path(__file__).resolve().parent
+sys.path.insert(0,str(run))
+from mcp_client import Browser
+marker="TTV_LOCAL_"+secrets.token_hex(12)
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self,*args):pass
+    def do_GET(self):
+        body=("<html><title>Local smoke</title><h1>"+marker+"</h1></html>").encode()
+        self.send_response(200);self.send_header("Content-Type","text/html");self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body)
+srv=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
+threading.Thread(target=srv.serve_forever,daemon=True).start()
+stage="OPEN";n=0;v=0;p=0;c=0
+t=time.monotonic()
+try:
+    with Browser(run) as b:
+        n=int(b.page_id is not None)
+        stage="NAV"
+        b.call("navigate_page",{"url":f"http://127.0.0.1:{srv.server_port}/"})
+        v=1
+        stage="SNAP"
+        p=int(marker in b.text(b.call("take_snapshot")))
+        stage="DONE"
+    trace=[json.loads(l) for l in (run/"mcp-trace.jsonl").read_text().splitlines()]
+    c=int(any(x.get("tool")=="close_page" and x.get("ok") for x in trace))
+except Exception as e:
+    stage=stage+"_"+(str(e) if str(e) in ("NO_PAGE_ID","PAGE_SCOPE_REQUIRED","TOOL_SCOPE","TOOL_ARG","RPC_ARG") else type(e).__name__.upper())
+finally:srv.shutdown();srv.server_close()
+(run/"PROBE_RESULT.json").write_text(json.dumps({"n":n,"v":v,"p":p,"c":c,"stage":stage,"seconds":round(time.monotonic()-t)}),encoding="utf-8")
+print(f"HELPER_{'PASS' if n and v and p and c else 'FAIL'}_{stage}_N{n}V{v}P{p}C{c}_T{round(time.monotonic()-t)}")
+'@
+ [IO.File]::WriteAllText((Join-Path $run 'helper_probe.py'),$probe,[Text.UTF8Encoding]::new($false))
  $py=@'
-import sys,pathlib,json,re,os,datetime,urllib.parse,zipfile
-root,run=map(pathlib.Path,sys.argv[1:])
+import sys,pathlib,os,json,re,time,subprocess
+owner,run=map(pathlib.Path,sys.argv[1:])
+sys.path.insert(0,str(owner/"app/poc/p2-aisub"))
+from translator_gateway import preflight_antigravity,_validated_antigravity_alias
 def read(p):
     try:
-        if p.is_file() and not p.is_symlink() and p.stat().st_size<=4194304:return p.read_text(encoding="utf-8-sig",errors="replace")
+        if p.is_file() and p.stat().st_size<=4194304:return p.read_text(encoding="utf-8-sig",errors="replace")
     except OSError:pass
     return ""
-def obj(p):
-    try:
-        x=json.loads(read(p))
-        return x if isinstance(x,dict) else {}
-    except ValueError:return {}
 def rows(p):
     out=[]
-    for l in read(p).splitlines():
+    for line in read(p).splitlines():
         try:
-            x=json.loads(l)
+            x=json.loads(line)
             if isinstance(x,dict):out.append(x)
         except ValueError:pass
     return out
-if not run.is_dir():print("G2READ_RUN_MISSING");sys.exit(0)
-trace=[x.get("tool") for x in rows(run/"mcp-trace.jsonl") if x.get("ok") is True]
-ev=rows(run/"agy-stdout.jsonl")
-term=[x for x in ev if x.get("event")=="result"]
-rr=obj(run/"RESULT.json"); sel=obj(run/"SELECTION.json")
-verified=obj(run/"verified-acquisition.json")
-# Classify runtime logs only, not initial instructions.
-logs=read(run/"agy-stderr.txt")+"\n"+read(run/"mcp-stderr.txt")+"\n"+json.dumps(term)
-for x in ev:
-    if str(x.get("event","")).lower() in ("tool_result","tool_error","error","assistant_error"):logs+="\n"+json.dumps(x)
-calls=[x for x in ev if str(x.get("event","")).lower() in ("tool_use","tool_call","tool_start","tool_request")]
-replies=[x for x in ev if str(x.get("event","")).lower() in ("tool_result","tool_error","tool_end","tool_response")]
-# Classify actual terminal/assistant output without disclosing raw logs.
-assistant=[x for x in ev if str(x.get("event","")).lower() in ("assistant","message") and x.get("role")!="user"]
-logs+="\n"+json.dumps(assistant)
-reason="UNSPEC"
-for label,pat in [("QUOTA",r"resource.exhausted|quota.exceeded|rate.limit.exceeded|usage limit|capacity exhausted"),("SANDBOX",r"sandbox.{0,80}(?:denied|blocked|unavailable|failed)|approval required|tool permission|not in allowed|not permitted"),("SHELL",r"not recognized as (?:an internal|the name)|command not found|cannot find the path|unexpected token|invalid syntax|no such file"),("TIME",r"print.{0,10}timeout|timed out|deadline exceeded|timeout exceeded|execution timeout"),("SCOPE",r"PAGE_SCOPE_REQUIRED|TOOL_SCOPE|NO_PAGE_ID"),("PY",r"Traceback \(most recent call last\)|ModuleNotFoundError|SyntaxError|NameError|ImportError"),("DENIAL",r"access denied|captcha|403 forbidden|401 unauthorized|permission denied"),("MCP",r"TOOL_(?:ARG|PAGE|TIME|OTHER)|RPC_(?:ARG|PAGE|TIME|OTHER)|broken pipe|ECONNREFUSED")]:
-    if re.search(pat,logs,re.I):reason=label;break
-start=datetime.datetime.fromisoformat("2026-11-24T14:52:17+00:00").timestamp()
-end=datetime.datetime.fromisoformat("2026-11-24T14:53:54+00:00").timestamp()
-dirs={pathlib.Path.home()/"Downloads",run/"downloads"}
-pref=obj(root/"CDP9555Profile"/"Default"/"Preferences")
-try:
-    d=pathlib.Path(pref["download"]["default_directory"])
-    if d.is_absolute() and d.is_dir():dirs.add(d)
-except (KeyError,TypeError):pass
-try:
-    import winreg
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
-        d=pathlib.Path(os.path.expandvars(winreg.QueryValueEx(k,"{374DE290-123F-4565-9164-39C4925E467B}")[0]))
-        if d.is_absolute() and d.is_dir():dirs.add(d)
-except OSError:pass
-found=set();best=0
-for d in dirs:
+def classify(log):
+    for label,pat in [("REL",r"relative paths?.{0,120}(?:not supported|not allowed|invalid|absolute|required)|(?:invalid|unsupported).{0,70}relative paths?|sandbox.{0,80}relative path"),("QUOTA",r"resource.exhausted|quota.exceeded|rate.limit.exceeded|usage limit|capacity exhausted"),("DENY",r"permission denied|access denied|sandbox.{0,80}(?:denied|blocked)|approval required|not permitted"),("TIME",r"timed out|deadline exceeded|timeout exceeded|execution timeout"),("PY",r"Traceback \(most recent call last\)|ModuleNotFoundError|SyntaxError|NameError|ImportError"),("SHELL",r"not recognized as (?:an internal|the name)|command not found|cannot find the path|unexpected token|no such file"),("MCP",r"PAGE_SCOPE_REQUIRED|NO_PAGE_ID|TOOL_ARG|RPC_ARG|broken pipe|ECONNREFUSED")]:
+        if re.search(pat,log,re.I|re.S):return label
+    return "UNK"
+def log_for(p):
+    events=rows(p/"agy-stdout.jsonl")
+    return read(p/"agy-stderr.txt")+"\n"+read(p/"mcp-stderr.txt")+"\n"+json.dumps([x for x in events if str(x.get("event","")).lower() in ("result","tool_result","tool_error","error","assistant_error")])
+prev="NA"
+history=pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"History"
+old=[]
+for f in history.glob("receipt-*.json"):
     try:
-        for p in d.iterdir():
-            if not re.search(r"odyssey",p.name,re.I) or p.suffix.lower() not in (".zip",".srt") or not p.is_file() or p.is_symlink():continue
-            st=p.stat()
-            if not 0<st.st_size<=10000000 or not(start<=st.st_ctime<=end or start<=st.st_mtime<=end):continue
-            try:
-                with open(str(p)+":Zone.Identifier","r",encoding="utf-8",errors="replace") as f:
-                    fields=dict(x.split("=",1) for x in f.read(8192).splitlines() if "=" in x)
-                if urllib.parse.urlsplit(fields.get("HostUrl","")).hostname!="dl.opensubtitles.org":continue
-            except (OSError,ValueError):continue
-            try:
-                if p.suffix.lower()==".srt":blobs=[p.read_bytes()]
-                else:
-                    with zipfile.ZipFile(p) as z:blobs=[z.read(i) for i in z.infolist()[:100] if i.filename.lower().endswith(".srt") and 0<i.file_size<=2000000 and not i.flag_bits&1]
-                c=max((len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2}[,.]\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}[,.]\d{3}",b)) for b in blobs),default=0)
-                if c:found.add(str(p.resolve()).casefold());best=max(best,c)
-            except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):pass
-    except OSError:pass
-def n(*names):return min(99,sum(trace.count(x) for x in names))
-print(f"G2READ_R{int(bool(rr))}_S{int(bool(sel))}_T{min(len(term),9)}_N{n('new_page')}_V{n('navigate_page')}_P{n('take_snapshot')}_C{n('click')}_E{n('close_page')}_F{min(len(found),9)}_Q{min(best,99999)}_A{min(len(calls),99)}_B{min(len(replies),99)}_{reason}")
+        q=json.loads(read(f))
+        if q.get("source_commit")=="1c6600358d1bc30e9228c1ec2c0b8027f1d2e8c6" and q.get("operation")=="agy-browser-headless-control-1124" and q.get("result")=="SUCCESS" and re.fullmatch(r"[a-f0-9]{32}",q.get("nonce","")):old.append(q["nonce"])
+    except (ValueError,TypeError):pass
+if len(old)==1:prev=classify(log_for(run.parent/("agy-cdp9555-mcp-stdio-"+old[0])))
+cli=preflight_antigravity()
+model=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
+env=dict(os.environ)
+for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GEMINI_BASE_URL","AGY_ADC_AUTH","GOOGLE_CLOUD_PROJECT","GOOGLE_CLOUD_QUOTA_PROJECT"):env.pop(k,None)
+prompt="Run this single local diagnostic command in the current workspace: py -3 -I -B helper_probe.py . The prewritten test opens its own Chrome 9555 tab, reads a loopback page and closes that tab. Use your normal authorized shell tool and existing sandbox. Do not modify files, settings, sandbox or permissions. Do not access external websites. If permission or execution is denied, stop and report it. Return the command outcome only."
+args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
+start=time.monotonic()
+try:
+    p=subprocess.run(args,env=env,cwd=run,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=270,check=False)
+    (run/"agy-stdout.jsonl").write_text(p.stdout,encoding="utf-8")
+    (run/"agy-stderr.txt").write_text(p.stderr,encoding="utf-8")
+    rc=int(p.returncode==0)
+except subprocess.TimeoutExpired as e:
+    rc=0
+    for name,raw in (("agy-stdout.jsonl",e.stdout),("agy-stderr.txt",e.stderr)):
+        if raw is not None:(run/name).write_bytes(raw if isinstance(raw,bytes) else raw.encode("utf-8"))
+reason=classify(log_for(run))
+try:
+    q=json.loads(read(run/"PROBE_RESULT.json"))
+    ok=int(all(q.get(k)==1 for k in ("n","v","p","c")))
+except (ValueError,TypeError):ok=0
+trace=rows(run/"mcp-trace.jsonl")
+n,v,sn,c=[int(any(x.get("tool")==k and x.get("ok") for x in trace)) for k in ("new_page","navigate_page","take_snapshot","close_page")]
+print(f"AGYLOCAL_{'PASS' if ok and n and v and sn and c else 'FAIL'}_P{prev}_R{reason}_N{n}V{v}S{sn}C{c}_E{rc}_T{round(time.monotonic()-start)}")
 '@
- $out=@($py | & py -3 -I -B - $root $run 2>$null)
- if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,90}$'){$code=[string]$out[0]}else{$code='G2READ_PARSE_ERROR'}
+ $f=Join-Path $run 'control.py'
+ [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
+ $out=@(& py -3 -I -B $f $owner $run 2> (Join-Path $run 'python-stderr.txt'))
+ if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}else{$code='MCP_HEADLESS_LOCAL_ERROR'}
 }
+$after9444=@(ListenPid 9444)
+$stable=if(($before9444 -join ',') -ceq ($after9444 -join ',')){1}else{0}
+$code=$code+'_P9555'+[int]$verified+'_START'+[int]$started+'_P9444STABLE'+$stable
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
