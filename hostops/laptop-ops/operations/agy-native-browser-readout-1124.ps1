@@ -33,29 +33,53 @@ def probe():
             v=json.loads(line)
             if isinstance(v,dict):events.append(v)
         except ValueError:pass
-    # Never export raw logs or page data. Classify observable errors and CLI option description.
-    combined=raw+"\n"+err
-    patterns=[
-      ("U",r"unknown (?:argument|option|flag)|unrecognized (?:argument|option)|unexpected argument"),
-      ("S",r"(?:settings|config).{0,100}(?:invalid|failed|cannot|error|not found)|(?:failed|invalid|error).{0,100}(?:settings|config)"),
-      ("P",r"permission|auto.denied|not permitted"),
-      ("T",r"timeout|timed out|deadline exceeded"),
-      ("Q",r"quota|rate limit|resource.exhausted|429"),
-      ("M",r"(?:mcp|ttv-browser).{0,100}(?:failed|unavailable|not found|error|denied)"),
-      ("B",r"sandbox.{0,100}(?:error|failed|invalid)|non-absolute file path"),
-      ("N",r"no output produced|no response|no final"),
-      ("A",r"authentication|unauthorized|login required|not signed in")]
-    flags="".join(k+str(int(bool(re.search(rx,combined,re.I)))) for k,rx in patterns)
-    # Examine tool result status structurally, not model claims.
-    steps=sum(e.get("event")=="step_update" for e in events)
-    results=[e for e in events if e.get("event")=="result"]
-    settingsline=[x.strip() for x in helptext.splitlines() if re.match(r"^\s*--?settings(?:[ =\t]|$)",x)]
-    sl=" ".join(settingsline).lower()
-    kind=1 if re.search(r"json|file|path",sl) else 2 if sl else 0
-    # Preserve relevant text in a local report for owner if needed.
-    report={"source":str(p.name),"summary":summary,"event_shapes":[{"event":e.get("event"),"keys":sorted(e.keys()),"nested_keys":{k:sorted(v.keys()) for k,v in e.items() if isinstance(v,dict)}} for e in events],"settings_help":settingsline,"error_flags":flags,"stderr":err}
-    (run/"readout.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
-    return f"TR04AR_E{int(summary.get('exit',255))}_N{min(len(events),999)}_S{min(steps,999)}_R{len(results)}_H{kind}_{flags}"
+    # Use exact event-scoped matches, excluding prompt/input/config echoes.
+    # Never export raw text, page content, paths or credentials to public logs.
+    def leaves(v, trail=()):
+        if isinstance(v,dict):
+            for k,x in v.items():
+                if k.lower() not in ("prompt","input","arguments","command","env","credentials","config","thinking","reasoning","thought","signature","instructions","system","user"):
+                    yield from leaves(x,trail+(k,))
+        elif isinstance(v,list):
+            for x in v:yield from leaves(x,trail)
+        elif isinstance(v,str):yield (trail,v)
+    outcome=[]
+    steptext=[]
+    results=[]
+    for e in events:
+        ev=e.get("event",e.get("type",""))
+        if ev=="result":results.extend(v for _,v in leaves(e))
+        elif ev=="step_update":steptext.extend(v for _,v in leaves(e))
+    body="\n".join(steptext+results+[err])
+    checks=[
+      ("D",r"user denied permission|permission check failed|auto.denied|permission denied|not permitted"),
+      ("W",r"waiting for (?:a |the )?(?:user |tool )?(?:permission|approval|confirmation)|permission.{0,45}(?:timed out|timeout)|(?:timed out|timeout).{0,45}permission"),
+      ("A",r"approval required|permission required|requires.{0,40}permission|request.{0,25}permission"),
+      ("H",r"headless mode cannot prompt|headless.{0,50}(?:permission|approval)|non.interactive.{0,50}(?:permission|approval)"),
+      ("L",r"ttv-browser[/\\]list_pages|ttv-browser__list_pages|ttv-browser\.list_pages"),
+      ("C",r"(?:mcp|server).{0,80}(?:connect|initialize|startup|handshake).{0,50}(?:timeout|timed out|failed)|(?:timeout|timed out).{0,60}(?:connect|initialize|handshake)"),
+      ("T",r"print.timeout|response timeout|timed out waiting for (?:the )?(?:response|model)|deadline exceeded|(?:timed out|timeout).{0,25}45\s*(?:s|seconds)"),
+      ("X",r"tool.{0,45}(?:execution|call).{0,45}(?:timeout|timed out)|(?:timeout|timed out).{0,45}tool"),
+      ("F",r"failed to read|failed to load|invalid settings|settings.{0,30}not found"),
+      ("V",r"non-absolute file path|sandbox configuration error")]
+    flags="".join(k+str(int(bool(re.search(rx,body,re.I)))) for k,rx in checks)
+    def hit(v,rx):
+        return int(bool(re.search(rx,v,re.I)))
+    timeout_rx=r"timeout|timed out|deadline exceeded"
+    perm_rx=r"permission|approval|auto.denied"
+    st="\n".join(steptext);rt="\n".join(results)
+    # Split where the permission/timeout text appears (step, result, stderr).
+    scopes="".join(str(hit(v,rx)) for v in (st,rt,err) for rx in (perm_rx,timeout_rx))
+    # Preserve exact original user-facing errors in Owner-local report.
+    # Exclude reasoning, prompts and unrelated raw payloads.
+    lines=[]
+    for name,vals in (("STEP",steptext),("RESULT",results),("STDERR",[err])):
+        for v in vals:
+            if re.search(perm_rx+"|"+timeout_rx+"|ttv-browser",v,re.I):
+                lines.append(name+": "+v[:3000])
+    (run/"TR04A_PERMISSION_TIMEOUT_REPORT.txt").write_text("\n".join(lines),encoding="utf-8")
+    return "TR04D_"+flags+"_S"+scopes
+
 try:print(probe())
 except Exception as e:
     (run/"readout-error.txt").write_text(type(e).__name__+": "+str(e),encoding="utf-8")
