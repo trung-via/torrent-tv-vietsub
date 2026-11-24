@@ -10,6 +10,30 @@ $inbox = Join-Path $owner 'inbox'
 $healthFile = Join-Path $owner 'agent-health.json'
 $archives = Join-Path $base 'CacheArchives'
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
+$rq = Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
+$receiptPath = Join-Path $spool ('Receipts\retest-result-'+$rq.nonce+'.json')
+$phase = 'PRECHECK'
+$prior = 'NOT_FOUND'
+$jobCount = -1
+$registryState = 'NOT_CHECKED'
+function Report([string]$status,[string]$reason) {
+    $rec = [ordered]@{schema='TTV-RETEST-RESULT-V2';nonce=$rq.nonce;status=$status;phase=$script:phase;prior=$script:prior;jobs=$script:jobCount;registry=$script:registryState;reason=$reason}
+    [IO.File]::WriteAllText($receiptPath,($rec|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+}
+try {
+    $history=Join-Path $spool 'History'
+    foreach($f in @(Get-ChildItem -LiteralPath $history -Filter 'request-*.json' -File)) {
+        $p=Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
+        if ($p.source_commit -ceq '5b70fa94a9a9296b9861dc5d6cf7ae0cc58a3126' -and $p.nonce -cmatch '^[a-f0-9]{32}$') {
+            $log=Join-Path $base ('LaptopHostOps\run-'+$p.nonce+'\full-owner-output.log')
+            if(Test-Path -LiteralPath $log -PathType Leaf) {
+                $body=Get-Content -LiteralPath $log -Raw
+                $prior=if($body -match 'EXACT_FILM_VI_CHECKPOINT_QUARANTINED') {'CACHE_MOVED'} elseif($body -match 'TARGET_RESET_FAILED') {'TARGET_RESET_FAILED'} elseif($body -match 'CURRENT_FILM_PLAN_UNVERIFIED') {'PLAN_FAILED'} elseif($body -match 'WORKERS_STILL_RUNNING') {'WORKERS_STILL_RUNNING'} elseif($body -match 'P2_ACTIVE_OR_UNKNOWN_EFFECT') {'P2_BUSY'} elseif($body -match 'FRESH_OWNER_NOT_VERIFIED') {'START_FAILED'} elseif($body -match 'Cannot convert|Cannot bind argument|Unexpected token|SyntaxError|ParserError|NameError|TypeError|AttributeError') {'SCRIPT_ERROR'} else {'PRIVATE_FAILURE_OTHER'}
+            }
+        }
+    }
+} catch { $prior='LOG_UNAVAILABLE' }
 function Hold([string]$code) {
     try {
         $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
@@ -19,6 +43,7 @@ function Hold([string]$code) {
             [IO.File]::WriteAllText((Join-Path $spool ('Receipts\retest-hold-'+$req.nonce+'.json')),($rec|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
         }
     } catch {}
+    Report 'HOLD' $code
     throw ('OWNER_CACHE_PURGE_HOLD_' + $code)
 }
 function AssertDir([string]$path) {
@@ -136,30 +161,23 @@ def read(p):
     require(p.is_file() and not p.is_symlink() and p.stat().st_size <= 16384, "RECEIPT_INVALID")
     return json.loads(p.read_text("utf-8"))
 def main():
-    # Latest actual successful P2 completion, not an arbitrary recent film.
-    import ast
-    log=owner/"diagnostics/owner-full.log"
-    require(log.is_file() and not log.is_symlink(),"OWNER_LOG_MISSING")
-    with log.open("rb") as stream:
-        stream.seek(max(0,log.stat().st_size-1048576))
-        tail=stream.read().decode("utf-8","replace")
-    completed=[]
-    for line in tail.splitlines():
-        marker="OWNER_FULL_TRACE 'P2_EVENT_FINISHED' "
-        if marker not in line: continue
-        try: record=ast.literal_eval(line.split(marker,1)[1])
-        except (ValueError,SyntaxError): continue
-        if record.get("result")=="VIETSUB_READY" and re.fullmatch(r"[a-f0-9]{32}",str(record.get("event_id"))):
-            completed.append(record["event_id"])
-    require(completed,"NO_COMPLETED_VI_EVENT_IN_LOG")
-    event=completed[-1] if mode=="plan" else sys.argv[6]
-    require(event==completed[-1],"EVENT_CHANGED")
-    p=owner/"inbox"/("event-"+event+".done")
-    row=read(p); fp=row.get("source_fingerprint")
-    require(row.get("event_id")==event and isinstance(fp,str) and re.fullmatch(r"[a-f0-9]{64}",fp),"EVENT_ID_INVALID")
-    staged=cache/".brain-en-inbox"/fp
-    receipt=read(staged/"receipt.json")
-    require(receipt.get("source_fingerprint")==fp and receipt.get("video_name")==row.get("selected_video_filename") and receipt.get("language")=="en","EN_RECEIPT_EVENT_MISMATCH")
+    # Select most recent terminal event from authoritative persisted inbox,
+    # not the rotating log. Require unique matching staged EN film.
+    done=[]
+    for p in (owner/"inbox").glob("event-*.done"):
+        row=read(p)
+        fp=row.get("source_fingerprint")
+        event=row.get("event_id")
+        if not isinstance(fp,str) or not re.fullmatch(r"[0-9a-f]{64}",fp): continue
+        if not isinstance(event,str) or p.name!="event-"+event+".done": continue
+        staged=cache/".brain-en-inbox"/fp
+        if not (staged/"receipt.json").is_file(): continue
+        receipt=read(staged/"receipt.json")
+        if receipt.get("source_fingerprint")!=fp or receipt.get("video_name")!=row.get("selected_video_filename") or receipt.get("language")!="en": continue
+        done.append((p.stat().st_mtime,event,fp,staged,receipt))
+    require(done and len({x[2] for x in done})==1,"AMBIGUOUS_OR_MISSING_STAGED_EVENT")
+    _,event,fp,staged,receipt=max(done,key=lambda x:x[0])
+    if mode=="apply": require(event==sys.argv[6],"EVENT_CHANGED")
     from cached_en_direct_handoff import CachedEnReceipt, prepare_local_translation_source
     source=prepare_local_translation_source(CachedEnReceipt(staged/"english.srt",receipt["sha256"],receipt["cues"]),private_root=cache)
     from types import SimpleNamespace
@@ -189,7 +207,7 @@ def main():
     if not jobs:
         require(mode=='plan' or mode=='apply', 'MODE_INVALID')
     if mode=="plan":
-        print(row["event_id"])
+        print(event)
         return
     archive=archive_root/("single-film-retest-"+uuid.uuid4().hex)
     archive.mkdir()
@@ -204,7 +222,7 @@ def main():
         for src,dst in reversed(moved):
             if not src.exists() and dst.exists(): dst.rename(src)
         raise
-    print("RETEST_RESET_PASS")
+    print("RETEST_RESET_PASS:"+str(len(moved)))
 try: main()
 except Exception as e:
     # Never print film metadata or filesystem path.
@@ -212,32 +230,77 @@ except Exception as e:
     print(v if re.fullmatch(r"[A-Z0-9_]{3,100}",v) else "RETEST_LOCAL_ERROR")
     sys.exit(1)
 '@
-$plan = @(& py -3 -I -B -c $pyCode $owner $cache $p2 $archives plan 2>$null)
-if ($LASTEXITCODE -ne 0 -or $plan.Count -ne 1 -or [string]$plan[0] -cnotmatch '^[0-9a-f]{32}$') {
-    if ($plan.Count -eq 1 -and [string]$plan[0] -cmatch '^[A-Z0-9_]{3,100}$') { Hold ([string]$plan[0]) }
-    Hold 'CURRENT_FILM_PLAN_UNVERIFIED'
-}
-$eventId = [string]$plan[0]
+# Use a UTF-8 Python FILE, not multiline -c native argument.
+$script:phase='PLAN'
+$pyFile = Join-Path $env:TEMP ('ttv-retest-'+[Guid]::NewGuid().ToString('N')+'.py')
+[IO.File]::WriteAllText($pyFile,$pyCode,[Text.UTF8Encoding]::new($false))
+$registry=Join-Path $owner 'app\poc\p2-sub-discovery\p3_p4_ready_registry.py'
+$targetHash='7a11638820772d31e0ada488dc8c0410f94c294f1af469d45fc2beb72571a1e6'
+$oldHash='d06fb93bc186788c553253e7e1c47bdb5e11f4e091b9a945f36cc2638e444375'
+$stage=Join-Path $env:TEMP ('ttv-registry-'+[Guid]::NewGuid().ToString('N')+'.py')
 $disabled=$false
+$backed=$false
+$applied=$false
+function Hash([string]$file) {(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()}
 try {
+    $plan=@(& py -3 -I -B $pyFile $owner $cache $p2 $archives plan 2>$null)
+    if($LASTEXITCODE -ne 0 -or $plan.Count -ne 1 -or [string]$plan[0] -cnotmatch '^[a-f0-9]{32}$') {
+        if($plan.Count -eq 1 -and [string]$plan[0] -cmatch '^[A-Z0-9_]{3,100}$'){Hold ([string]$plan[0])}
+        Hold 'PLAN_FAILED'
+    }
+    $eventId=[string]$plan[0]
+    $script:phase='STAGE_REGISTRY'
+    $installedHash=Hash $registry
+    if($installedHash -cnotin @($oldHash,$targetHash)) {
+        # Permit only normalized LF equality for Windows checkout.
+        $text=[IO.File]::ReadAllText($registry).Replace([string][char]13+[string][char]10,[string][char]10)
+        $bytes=[Text.UTF8Encoding]::new($false).GetBytes($text)
+        $normalized=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+        if($normalized -cnotin @($oldHash,$targetHash)){Hold 'REGISTRY_BASELINE_DRIFT'}
+    }
+    Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/trung-via/torrent-tv-vietsub/a66d9464c4f73878e5292dd685002878ecc3720a/poc/p2-sub-discovery/p3_p4_ready_registry.py' -OutFile $stage -TimeoutSec 30
+    if((Hash $stage) -cne $targetHash){Hold 'REGISTRY_STAGE_HASH'}
+    $script:phase='STOP_OWNER'
     AssertIdle
     Disable-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop | Out-Null
     $disabled=$true
     if ($state -ceq 'Running') { Stop-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop }
     StopVerifiedWorkers
     AssertIdle
-    $done=@(& py -3 -I -B -c $pyCode $owner $cache $p2 $archives apply $eventId 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $done.Count -ne 1 -or [string]$done[0] -cne 'RETEST_RESET_PASS') {
-        if ($done.Count -eq 1 -and [string]$done[0] -cmatch '^[A-Z0-9_]{3,100}$') { Hold ([string]$done[0]) }
-        Hold 'TARGET_RESET_FAILED'
+    $script:phase='RESET_CHECKPOINT'
+    $done=@(& py -3 -I -B $pyFile $owner $cache $p2 $archives apply $eventId 2>$null)
+    if($LASTEXITCODE -ne 0 -or $done.Count -ne 1 -or [string]$done[0] -cnotmatch '^RETEST_RESET_PASS:([0-3])$'){
+        if($done.Count -eq 1 -and [string]$done[0] -cmatch '^[A-Z0-9_]{3,100}$'){Hold ([string]$done[0])}
+        Hold 'RESET_FAILED'
     }
-    Write-Output 'OWNER_RETEST_RESET=EXACT_FILM_VI_CHECKPOINT_QUARANTINED_EN_PRESERVED'
+    $script:jobCount=[int]$Matches[1]
+    $script:phase='APPLY_REGISTRY'
+    if((Hash $registry) -cne $installedHash){Hold 'REGISTRY_CHANGED'}
+    if($installedHash -cne $targetHash){
+        $backup=Join-Path $archives ('registry-before-'+[Guid]::NewGuid().ToString('N')+'.py')
+        [IO.File]::Copy($registry,$backup,$false)
+        if((Hash $backup) -cne $installedHash){Hold 'REGISTRY_BACKUP_HASH'}
+        $backed=$true
+        [IO.File]::Copy($stage,$registry,$true)
+        $applied=$true
+    }
+    if((Hash $registry) -cne $targetHash){Hold 'REGISTRY_INSTALL_HASH'}
+    $script:registryState='EXACT_HASH'
+    $script:phase='START_OWNER'
     StartOwner $oldPid
     $disabled=$false
-    Write-Output 'OWNER_RETEST_RESET=FRESH_OWNER_READY_NO_PROVIDER_CALL'
+    $script:phase='DONE'
+    Report 'SUCCESS' 'NONE'
 } catch {
-    if ($disabled -and @(OwnerWorkers).Count -eq 0) {
-        try { AssertIdle; StartOwner $oldPid } catch {}
+    if($disabled -and @(OwnerWorkers).Count -eq 0){
+        try {
+            if($applied -and $backed){[IO.File]::Copy($backup,$registry,$true);$script:registryState='ROLLED_BACK'}
+            AssertIdle
+            StartOwner $oldPid
+        } catch {}
     }
+    if(-not (Test-Path -LiteralPath $receiptPath)){Report 'HOLD' 'UNEXPECTED_EXCEPTION'}
     throw
+} finally {
+    Remove-Item -LiteralPath $pyFile,$stage -Force -ErrorAction SilentlyContinue
 }

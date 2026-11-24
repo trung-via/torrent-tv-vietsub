@@ -219,6 +219,18 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     if ($receipt.schema -cne 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -or
         $receipt.nonce -cne $nonce -or
         $receipt.source_commit -cne $commit) { continue }
+    if ($receipt.operation -ceq 'owner-current-film-retest-reset') {
+        $f=Join-Path $outbox ('retest-result-'+$nonce+'.json')
+        if(Test-Path -LiteralPath $f -PathType Leaf){
+            $v=Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+            if($v.schema -ceq 'TTV-RETEST-RESULT-V2' -and $v.nonce -ceq $nonce){
+                foreach($key in @('status','phase','prior','registry','reason')){
+                    if([string]$v.$key -cmatch '^[A-Z0-9_]{2,100}$'){Write-Output ('HOSTOPS_RETEST_'+$key.ToUpperInvariant()+'='+$v.$key)}
+                }
+                if([int]$v.jobs -ge -1 -and [int]$v.jobs -le 3){Write-Output ('HOSTOPS_RETEST_JOBS='+$v.jobs)}
+            }
+        }
+    }
     if ($receipt.result -cne 'SUCCESS') {
         Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
         if ($receipt.operation -ceq 'owner-srt-parser-install') {

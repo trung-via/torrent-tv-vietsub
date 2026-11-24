@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-current-film-retest-reset.ps1",
-  "script_sha256": "a4e8ef1fdb729e6e1e044c59fcb865dce976c8132a0214870639ab4b0bdcacdb",
+  "script_sha256": "107c1f6e8e02c5473b6029a783eb9bbefd1115c13c04ee5ffaa96f6a3319e1c3",
   "arguments": []
 }
