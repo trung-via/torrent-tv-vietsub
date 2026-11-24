@@ -81,10 +81,23 @@ for d in dirs:
             st=p.stat()
             if start<=st.st_ctime<=end or start<=st.st_mtime<=end:add(p,0,1 if movie(p.name) else 0)
     except OSError:pass
-count=0;best=0;last=0;identity=0;source=0;en=0;zipcount=0
+count=0;best=0;last=0;identity=0;source=0;en=0;zipcount=0;ads=0;aid=0;ahost=0
 for p,src,ident in files.values():
     try:
         blobs=[]
+        # Read only Zone.Identifier of this already time/movie-filtered file.
+        try:
+            with open(str(p)+":Zone.Identifier","r",encoding="utf-8",errors="replace") as f:
+                zone=f.read(8192)
+            ads=1
+            fields=dict(x.split("=",1) for x in zone.splitlines() if "=" in x)
+            hosturl=fields.get("HostUrl","")
+            refurl=fields.get("ReferrerUrl","")
+            h=urllib.parse.urlsplit(hosturl).hostname
+            ahost=max(ahost,2 if h=="dl.opensubtitles.org" else 1 if h in ("www.opensubtitles.org","opensubtitles.org") else 0)
+            if re.search(r"(?<!\d)14104608(?!\d)",hosturl+" "+refurl):aid=2
+            elif re.search(r"(?<!\d)14109322(?!\d)",hosturl+" "+refurl):aid=max(aid,1)
+        except (OSError,ValueError):pass
         if p.suffix.lower()==".zip":
             with zipfile.ZipFile(p) as z:
                 zipcount+=1
@@ -103,7 +116,7 @@ for p,src,ident in files.values():
                 identity=ident;source=src;best=len(ts);en=is_en
                 t=ts[-1];last=int(t[3])*3600+int(t[4])*60+int(t[5])
     except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):pass
-print(f"ZIPQA_DB{dbstate}_R{min(records,9)}_D{dl}_K{min(complete,9)}_F{min(len(files),9)}_Z{min(zipcount,9)}_S{min(count,9)}_C{min(best,99999)}_T{last}_I{identity}_P{source}_E{en}")
+print(f"ZIPORIGIN_ADS{ads}_HOST{ahost}_ID{aid}_F{min(len(files),9)}_C{min(best,99999)}_T{last}")
 '@
  $out=@($py | & py -3 -I -B - $root $run 2>$null)
  if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,90}$'){$code=[string]$out[0]}else{$code='ZIPQA_PARSE_ERROR'}
