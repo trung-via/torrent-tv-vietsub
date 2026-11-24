@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-lan-rebind-and-neutral-install",
-  "category": "device-lan",
+  "operation": "owner-vieneu-readiness",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-lan-rebind-and-neutral-install.ps1",
-  "script_sha256": "c4eb173bc735b701da1e0a67f092bed937b62a8a724b858086b1a28d1d8e8084",
+  "script_path": "hostops/laptop-ops/operations/owner-vieneu-readiness.ps1",
+  "script_sha256": "aed6997b4536abb9002d391258e985d2fd7ebfe4cf9bae02d0fa39bdfdb3c22f",
   "arguments": []
 }
