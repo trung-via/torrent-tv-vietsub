@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-brain-neutral-diagnostic.ps1",
-  "script_sha256": "706e08350c8dfcf44cf4aef67a0c24aa7f6eb728b51eb0c485d51dbb3ff47a8a",
+  "script_sha256": "425cbe479746ab387c7eec0c98c91560b5f8ac5fd9756ff94f830d63911d0aa2",
   "arguments": []
 }
