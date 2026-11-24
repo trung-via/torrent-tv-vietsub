@@ -89,6 +89,9 @@ def main():
     size=round(actual.length/1048576)
     # Metadata endpoint only; no play/range request or torrent modification.
     fps=dur=embedded=0
+    state='UNKNOWN'
+    from urllib.error import HTTPError,URLError
+    from socket import timeout
     try:
         endpoint=f"http://127.0.0.1:{cfg.localhost_port}/ffp/{tor}/{idx}"
         opener=build_opener(ProxyHandler({}),_NoRedirect())
@@ -96,9 +99,11 @@ def main():
             data=resp.read(131073)
             if len(data)>131072:raise ValueError("metadata too large")
             doc=json.loads(data)
+        if not isinstance(doc,dict):return "TR08FFP_RESPONSE_NOT_OBJECT"
         streams=doc.get("streams",[])
         if not isinstance(streams,list) or len(streams)>128:raise ValueError("streams")
         v=next((s for s in streams if isinstance(s,dict) and s.get("codec_type")=="video"),{})
+        state="VIDEO" if v else "NO_VIDEO"
         for x in (v.get("avg_frame_rate"),v.get("r_frame_rate")):
             try:
                 rate=float(Fraction(str(x)))
@@ -110,11 +115,15 @@ def main():
                 if 0<d<86400:dur=round(d);break
             except (TypeError,ValueError):pass
         embedded=sum(isinstance(s,dict) and s.get("codec_type")=="subtitle" and str(s.get("tags",{}).get("language","")).lower() in ("en","eng","english") for s in streams)
-    except Exception:pass
+    except HTTPError as e:state="HTTP"+str(e.code)
+    except URLError as e:state="TIMEOUT" if isinstance(e.reason,TimeoutError) else "URLERROR"
+    except (TimeoutError,timeout):state="TIMEOUT"
+    except (ValueError,TypeError,AttributeError):state="INVALID"
+    except OSError:state="IOERROR"
     delta=dur-last if dur else 0
     # duration may be unknown; avoid interpreting it as zero-length film.
     sign="P" if delta>=0 else "N"
-    return f"TR08MEDIA_EX{exact}MB{size}FPS{fps}D{dur}L{last}DI{sign}{abs(delta)}EN{embedded}"
+    return f"TR08FFP_{state}_EX{exact}FPS{fps}D{dur}L{last}EN{embedded}"
 
 try:print(main())
 except Exception:print("TR08QA_PRIVATE_ERROR")
