@@ -217,15 +217,27 @@ def main():
         if info is None or tracks is None:return "TR09CACHE_HEADER_INCOMPLETE"
         scale=number(fields(info).get(0x2AD7B1,b"\x0f\x42\x40"))
         if not 1<=scale<=1000000000:return "TR09CACHE_SCALE"
-        tr={}
+        tr={};num_sub=num_text=num_en=num_forced=num_conflict=0
         for ident,body,_ in children(tracks):
             if ident!=0xAE:continue
             f=fields(body)
             if number(f.get(0x83,b"\0"))!=17:continue
-            lang=f.get(0x22B59D,f.get(0x22B59C,b"und")).decode("utf-8","replace").lower()
-            codec=f.get(0x86,b"").decode("ascii","replace")
-            if lang in ("en","eng","english","en-us","en-gb") and codec in ("S_TEXT/UTF8","S_TEXT/ASS","S_TEXT/SSA") and 0xD7 in f and not number(f.get(0x55AA,b"\0")):tr[number(f[0xD7])]=codec
-        if not tr:return "TR09CACHE_NO_EN_TEXT"
+            num_sub+=1
+            legacy=f.get(0x22B59C,b"eng").decode("utf-8","replace").strip("\x00 ").lower()
+            ietf=f.get(0x22B59D,b"").decode("utf-8","replace").strip("\x00 ").lower()
+            # IETF language overrides legacy; recognize all English regional tags.
+            lang=ietf or legacy
+            is_en=lang.replace("_","-").split("-")[0] in ("en","eng","english")
+            codec=f.get(0x86,b"").decode("ascii","replace").strip("\x00 ").upper()
+            is_text=codec in ("S_TEXT/UTF8","S_TEXT/ASS","S_TEXT/SSA")
+            forced=bool(number(f.get(0x55AA,b"\0")))
+            num_text+=is_text
+            num_en+=is_en
+            num_forced+=forced
+            num_conflict+=bool(ietf and (legacy in ("en","eng","english"))!=is_en)
+            # For a comparison sample even forced EN is evidence; never make it the production track.
+            if is_en and is_text and 0xD7 in f:tr[number(f[0xD7])]=codec
+        if not tr:return f"TR09TRACK_S{num_sub}T{num_text}E{num_en}F{num_forced}C{num_conflict}"
     except DiagnosticStop as exc:return "TR09CACHE_"+exc.code
     except Exception:return "TR09CACHE_HEADER_ERROR"
     def clean(s):
@@ -283,7 +295,7 @@ def main():
     best=max(matched.values(),key=len,default=[])
     near=sum(abs(x)<=750 for x in best)
     med=round(statistics.median(best)) if best else 0
-    return f"TR09R2_P{len(ready)}S{samples}C{clusters}N{len(seen)}M{len(best)}A{near}D{'P' if med>=0 else 'N'}{abs(med)}X{errors}KB{total//1024}"
+    return f"TR09R3_P{len(ready)}S{samples}C{clusters}N{len(seen)}M{len(best)}A{near}D{'P' if med>=0 else 'N'}{abs(med)}X{errors}KB{total//1024}"
 
 try:print(main())
 except Exception:print("TR08QA_PRIVATE_ERROR")
