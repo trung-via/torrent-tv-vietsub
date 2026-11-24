@@ -16,14 +16,38 @@ $before9444=@(Listener 9444)
 $before9555=@(Listener 9555)
 $task=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\'
 $ownerState=[string]$task.State
+$profile=Join-Path $root 'CDP9555Profile'
+$active9555=@($before9555)
+$started9555=0
 $verified=$false
-if($before9555.Count -eq 1){
- $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$before9555[0])
- $profile=Join-Path $root 'CDP9555Profile'
- $listeners=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
- if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -match '(?:^|\s)--remote-debugging-port=9555(?:\s|$)' -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
+$code='TR04A_9555_NO_LISTENER'
+if($active9555.Count -eq 0){
+ $chrome=@(
+   (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
+   (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
+ )|Where-Object {Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
+ if($chrome){
+  New-Item -ItemType Directory -Path $profile -Force|Out-Null
+  $profileArg='--user-data-dir="'+$profile+'"'
+  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','about:blank')|Out-Null
+  $started9555=1
+  for($i=0;$i -lt 20;$i++){
+   Start-Sleep -Milliseconds 500
+   $active9555=@(Listener 9555)
+   if($active9555.Count -gt 0){break}
+  }
+ }else{$code='TR04A_9555_CHROME_NOT_FOUND'}
 }
-$code='TR04A_9555_NOT_VERIFIED'
+if($active9555.Count -gt 1){$code='TR04A_9555_MULTIPLE_PID'}
+if($active9555.Count -eq 1){
+ $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
+ $listeners=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
+ if(-not $p -or $p.Name -ne 'chrome.exe'){$code='TR04A_9555_NOT_CHROME'}
+ elseif(-not $p.CommandLine -or $p.CommandLine -notmatch '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|$)'){$code='TR04A_9555_PORT_FLAG_MISMATCH'}
+ elseif($p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -lt 0){$code='TR04A_9555_PROFILE_MISMATCH'}
+ elseif(@($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -ne 0){$code='TR04A_9555_NONLOOPBACK'}
+ else{$verified=$true}
+}
 if($verified){
 $py=@'
 import sys,pathlib,os,json,re,subprocess,hashlib,shutil,urllib.request
@@ -137,9 +161,9 @@ $out=@(& py -3 -I -B $f $owner $run 2> (Join-Path $run 'python-stderr.txt'))
 if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}else{$code='TR04A_LOCAL_ERROR'}
 }
 $stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
-$stable9555=[int](($before9555 -join ',') -ceq (@(Listener 9555) -join ','))
+$stable9555=[int](($active9555 -join ',') -ceq (@(Listener 9555) -join ','))
 $stableOwner=[int]($ownerState -ceq [string](Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\').State)
-$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner
+$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9555
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
