@@ -24,10 +24,33 @@ $started9555=0
 $verified=$false
 $code='TR08V4_BROWSER_NOT_VERIFIED'
 if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
-elseif($active9555.Count -eq 1){
- $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
- $ls=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
- if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)' -and @($ls|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
+else{
+ # Recover only the enrolled dedicated profile when its browser is actually absent.
+ # Never kill another process, replace the profile, or rotate endpoints.
+ if($active9555.Count -eq 0){
+  $roots=@(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object {$_.CommandLine -and $_.CommandLine -notmatch '--type=' -and $_.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0})
+  $chrome=Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'
+  if($roots.Count -ne 0){$code='TR08V4_PROFILE_RUNNING_NO_LISTENER'}
+  elseif(-not (Test-Path -LiteralPath $profile -PathType Container) -or -not (Test-Path -LiteralPath $chrome -PathType Leaf)){$code='TR08V4_PROFILE_OR_CHROME_MISSING'}
+  else{
+   Start-Process -FilePath $chrome -ArgumentList @('--user-data-dir="'+$profile+'"','--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--new-window','https://www.subtitlecat.com/')
+   $started9555=1
+   for($i=0;$i -lt 30;$i++){
+    Start-Sleep -Milliseconds 500
+    $active9555=@(Listener 9555)
+    if($active9555.Count -eq 1){break}
+   }
+   $code='TR08V4_RESTORE_NO_LISTENER'
+  }
+ }
+ if($active9555.Count -gt 1){$code='TR08V4_LISTENER_AMBIGUOUS'}
+ elseif($active9555.Count -eq 1){
+  $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
+  $ls=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
+  if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)' -and @($ls|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){
+   $verified=$true
+  }else{$code='TR08V4_LISTENER_IDENTITY_MISMATCH'}
+ }
 }
 if($verified){
 $py=@'
@@ -121,6 +144,16 @@ def probe():
     host=lambda t:urllib.parse.urlsplit(t.get("url","")).hostname
     site=[t for t in pages if host(t) in cat_hosts]
     if not site:site=[t for t in pages if host(t) in os_hosts]
+    if not site:
+        # Ordinary homepage on the same verified profile, only if no provider tab exists.
+        req=urllib.request.Request("http://127.0.0.1:9555/json/new?https://www.subtitlecat.com/",method="PUT")
+        with opener.open(req,timeout=5) as f:new=json.load(f)
+        for _ in range(20):
+            time.sleep(.5)
+            with opener.open("http://127.0.0.1:9555/json/list",timeout=3) as f:tabs=json.load(f)
+            site=[t for t in tabs if t.get("type")=="page" and t.get("id")==new.get("id") and host(t) in cat_hosts]
+            if site:break
+
     if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR08V4_ACCESS_BLOCKED_PRE"
     if len(site)!=1:return "TR08V4_TASK_TAB_AMBIGUOUS"
     target=site[0]
