@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-odyssey-en-stage-1124",
-  "category": "owner-maintenance",
+  "operation": "owner-p3-gate-readonly-1124",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-odyssey-en-stage-1124.ps1",
-  "script_sha256": "1eb3dcca93e2ca791a94ef883db06380fe3cc03fe2337c05d22703621d6764f7",
+  "script_path": "hostops/laptop-ops/operations/owner-p3-gate-readonly-1124.ps1",
+  "script_sha256": "68bd1c62a25b24c72e73e5815ee69b23ba958bb8b284bef12c2b23a2114abceb",
   "arguments": []
 }
