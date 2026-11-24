@@ -314,6 +314,18 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         if ($r.schema -cne 'TTV-SRT-INSTALL-DIAG-V1' -or $r.nonce -cne $nonce -or $r.reason -cnotmatch '^[A-Z0-9_]{3,80}$' -or $r.phase -cnotin @('UNKNOWN','BEFORE_BACKUP','PREFLIGHT_PASSED','BACKUP_CREATED','RECOVERY_ATTEMPTED','ROLLED_BACK') -or $r.parser -cnotin @('OLD','NEW','OTHER','MISSING') -or $r.brain -cnotin @('OLD','NEW','OTHER','MISSING') -or $r.task -cnotin @('Running','Ready','Disabled','Unknown','Queued') -or $r.health -cnotin @('READY_FRESH','NOT_VERIFIED')) {throw 'SRT_INSTALL_DIAG_INVALID'}
         foreach ($field in @('reason','phase','parser','brain','task','health','pending','inflight','locks')) {Write-Output ('HOSTOPS_SRT_DIAG_'+$field.ToUpperInvariant()+'='+$r.$field)}
     }
+    if ($receipt.operation -ceq 'owner-hydrogen-benchmark') {
+        $f=Join-Path $outbox ('hydrogen-benchmark-'+$nonce+'.json')
+        $item=Get-Item -LiteralPath $f -Force
+        if ($item.Length -gt 16384 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {throw 'HYDROGEN_BENCHMARK_INVALID'}
+        $v=Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+        if ($v.schema -cne 'TTV-HYDROGEN-BENCH-V1' -or $v.nonce -cne $nonce -or $v.configured -cnotin @('gemini-4-hydrogen-high','gemini-4-hydrogen-medium','OTHER') -or $v.rows.Count -notin @(1,2)) {throw 'HYDROGEN_BENCHMARK_INVALID'}
+        Write-Output ('HOSTOPS_HYDROGEN_CONFIGURED='+$v.configured)
+        foreach ($row in $v.rows) {
+            if ($row.level -cnotin @('high','medium') -or $row.status -cnotmatch '^[A-Z0-9_]{3,75}$' -or $row.ms -lt 0 -or $row.ms -gt 220000 -or $row.cues -notin @(0,50) -or $row.examples.Count -gt 8) {throw 'HYDROGEN_BENCHMARK_ROW_INVALID'}
+            Write-Output ('HOSTOPS_HYDROGEN_RESULT='+($row | ConvertTo-Json -Compress -Depth 5))
+        }
+    }
     if ($receipt.operation -ceq 'owner-srt-parser-install') {
         $file = Join-Path $outbox ('srt-parser-' + $nonce + '.json')
         $item = Get-Item -LiteralPath $file -Force
