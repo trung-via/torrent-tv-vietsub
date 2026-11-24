@@ -1,4 +1,4 @@
-# TR-TTV.04c: Owner-approved blind acquisition, new Chrome profile 9556.
+# TR-TTV.05b: Owner-approved blind acquisition, new Chrome profile 9557.
 # Never edit shared settings or touch Owner production.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -8,7 +8,7 @@ $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | C
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-04c-blind-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-05b-student-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 function Listener([int]$port){
   @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
@@ -20,12 +20,12 @@ $ownerState=[string]$task.State
 $hostTask=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-Laptop-HostOps' -TaskPath '\'
 $profile=Join-Path $run 'ChromeBlindProfile'
 $downloadDir=Join-Path $run 'browser-downloads'
-$active9556=@(Listener 9556)
-$started9556=0
+$active9557=@(Listener 9557)
+$started9557=0
 $verified=$false
 $code='TR04C_PORT_BUSY'
 if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
-elseif($active9556.Count -eq 0){
+elseif($active9557.Count -eq 0){
  $chrome=@(
    (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
    (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
@@ -37,25 +37,25 @@ elseif($active9556.Count -eq 0){
   $prefs=@{download=@{default_directory=$downloadDir;prompt_for_download=$false;directory_upgrade=$true};browser=@{check_default_browser=$false}}
   [IO.File]::WriteAllText((Join-Path $profile 'Default\Preferences'),($prefs|ConvertTo-Json -Depth 4 -Compress),[Text.UTF8Encoding]::new($false))
   $profileArg='--user-data-dir="'+$profile+'"'
-  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9556','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','about:blank')|Out-Null
-  $started9556=1
+  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9557','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','about:blank')|Out-Null
+  $started9557=1
   for($i=0;$i -lt 30;$i++){
    Start-Sleep -Milliseconds 500
-   $active9556=@(Listener 9556)
-   if($active9556.Count -gt 0){break}
+   $active9557=@(Listener 9557)
+   if($active9557.Count -gt 0){break}
   }
   $code='TR04C_NO_LISTENER'
-  if($active9556.Count -eq 1){
-   $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9556[0])
-   $listeners=@(Get-NetTCPConnection -LocalPort 9556 -State Listen -ErrorAction SilentlyContinue)
-   if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9556(?:\s|"|\z)' -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
+  if($active9557.Count -eq 1){
+   $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9557[0])
+   $listeners=@(Get-NetTCPConnection -LocalPort 9557 -State Listen -ErrorAction SilentlyContinue)
+   if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9557(?:\s|"|\z)' -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
    else{$code='TR04C_PROFILE_MISMATCH'}
   }
  }else{$code='TR04C_CHROME_MISSING'}
 }
 if($verified){
 $py=@'
-import sys,pathlib,os,json,re,subprocess,hashlib,shutil,urllib.request,urllib.parse,time,zipfile
+import sys,pathlib,os,json,re,subprocess,hashlib,shutil,urllib.request,urllib.parse,time,zipfile,sqlite3
 owner,run=map(pathlib.Path,sys.argv[1:])
 sys.path.insert(0,str(owner/"app/poc/p2-aisub"))
 from translator_gateway import preflight_antigravity,_validated_antigravity_alias
@@ -87,7 +87,7 @@ def probe():
     config_before=[sha(p) for p in paths]
     config=read(settings); sharedconfig=read(shared); servers=read(global_mcp).get("mcpServers",{})
     if not isinstance(servers,dict):return "TR04A_MCP_SCHEMA_UNKNOWN"
-    if "ttv-browser" in servers:return "TR04A_GLOBAL_TTV_CONFLICT"
+    if "ttv-student-9557" in servers:return "TR04A_GLOBAL_TTV_CONFLICT"
     # Identify exact relative rule, with structural locations only, no exported values.
     hits=[]
     def scan(v,trail,idx):
@@ -101,11 +101,11 @@ def probe():
     # Retain actual documented CLI flag evidence in the private run directory.
     write(run/"config-audit.json",{"relative_rule_locations":[{"source":i,"path":[str(v) for v in t]} for i,t,_ in hits],"session_settings_flag":session_flag,"global_mcp_count":len(servers),"global_ttv_conflict":False})
     agents=run/".agents";agents.mkdir()
-    write(agents/"mcp_config.json",{"mcpServers":{"ttv-browser":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.14.0","--browser-url=http://127.0.0.1:9556","--no-usage-statistics"]}}})
+    write(agents/"mcp_config.json",{"mcpServers":{"ttv-student-9557":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.14.0","--browser-url=http://127.0.0.1:9557","--no-usage-statistics"]}}})
     # Confirm loopback Chrome without reading tabs or visiting a website.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open("http://127.0.0.1:9556/json/version",timeout=3) as f:version=json.load(f)
-    if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9556/"):return "TR04A_ENDPOINT_UNVERIFIED"
+    with opener.open("http://127.0.0.1:9557/json/version",timeout=3) as f:version=json.load(f)
+    if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9557/"):return "TR04A_ENDPOINT_UNVERIFIED"
     if not session_flag:
         return "TR04A_NO_SESSION_FLAG_R%dS%d"%(sum(i==0 for i,_,_ in hits),sum(i==1 for i,_,_ in hits))
     if any(i!=0 for i,_,_ in hits):return "TR04A_SHARED_RULE_NEEDS_SCOPE"
@@ -123,22 +123,22 @@ def probe():
     # Respect any existing explicit deny or ask; no global wildcard grant.
     for key in ("deny","ask"):
         for rule in perms.get(key,[]):
-            if isinstance(rule,str) and (rule.startswith("mcp(ttv-browser") or rule=="mcp(*)"):return "TR04A_EXISTING_RESTRICTION"
+            if isinstance(rule,str) and (rule.startswith("mcp(ttv-student-9557") or rule=="mcp(*)"):return "TR04A_EXISTING_RESTRICTION"
     # Explicit tool grants limited to this benchmark and native 9555 server.
     tools=("list_pages","new_page","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","close_page","evaluate_script")
     for k in ("deny","ask"):
-        if any(isinstance(v,str) and (v.startswith("mcp(ttv-browser") or v=="mcp(*)") for v in perms.get(k,[])):return "TR04B_EXISTING_RESTRICTION"
+        if any(isinstance(v,str) and (v.startswith("mcp(ttv-student-9557") or v=="mcp(*)") for v in perms.get(k,[])):return "TR04B_EXISTING_RESTRICTION"
     allowed=perms.setdefault("allow",[])
     for tool in tools:
-        rule="mcp(ttv-browser/"+tool+")"
+        rule="mcp(ttv-student-9557/"+tool+")"
         if rule not in allowed:allowed.append(rule)
     if config.get("agentMode")=="auto":config.pop("agentMode")
     override=run/"session-settings.json"
     write(override,config)
     env["TTV_SESSION_SETTINGS"]=str(override)
-    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-neon-high","high")
+    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
     # The new dedicated profile has an initially empty download directory.
-    with opener.open("http://127.0.0.1:9556/json/list",timeout=3) as f:tabs=json.load(f)
+    with opener.open("http://127.0.0.1:9557/json/list",timeout=3) as f:tabs=json.load(f)
     pages=[t for t in tabs if t.get("type")=="page"]
     if len(pages)!=1 or pages[0].get("url")!="about:blank":return "TR04C_NOT_BLANK"
     dirs={run/"browser-downloads"}
@@ -181,7 +181,7 @@ def probe():
         return good[0] if len(good)==1 else (None,0)
     downloads=run/"downloads";downloads.mkdir()
     before=candidates()
-    prompt="Find and download an English subtitle from OpenSubtitles.org for the following video: Resident.Evil.2026.2026.1080p.AMZN.WEB-DL.H.264-EniaHD.mkv (Resident Evil, 2026; AMZN WEB-DL, EniaHD, 1080p, H.264; approximately 6.9 GB). No IMDb ID, subtitle ID, candidate URL, prior recipe, FPS or runtime is provided. Independently choose the search and selection method, do not assume missing release metadata, and distinguish a title match from a verified release or playback synchronization. Use normal website access through the native ttv-browser MCP in this dedicated fresh browser session only. Do not access other browser servers, tabs outside this session, or prior run files. No direct API, guessed download URL, credentials or bypass of site restrictions. Stop on explicit access denial, CAPTCHA, login/payment requirement, or tool denial; do not circumvent it. evaluate_script is limited to reading visible rendered page data and website-issued links on this session's public pages, not requests or browser storage. Download only a legitimate website-provided English subtitle, once. No time deadline. Return your final response as a JSON object containing selection (selected_subtitle_id, detail_url, title, year, language, release_match, observed_release, observed_fps, observed_runtime, evidence_notes), result (status, selected_subtitle_id, observed_http_status, downloaded_filename, stage), teacher_recipe (actual steps, tools used, observations, decisions, errors, timing), and usage if available. Use null for unknown fields. Status must be one of DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER. Report even if no file was downloaded. No need to write JSON files yourself. Do not include credentials or private browser data."
+    prompt="You are the English subtitle acquisition agent for Torrent TV Vietsub. Input: The Wild Robot (2024), English. No actual video filename, FPS, duration, IMDb ID, subtitle ID, candidate URL, prior answer, or cached subtitle is supplied. Independently find an appropriate English subtitle from OpenSubtitles using ordinary authorized website interaction in the dedicated browser session. Choose your own search method. Use no previous movie's answer or cached subtitle. A blind test starts with a blank, isolated browser and empty download directory.\n\nFirst call list_pages on the native MCP server ttv-student-9557 only. If it does not show exactly one about:blank page, stop and report ISOLATION_UNVERIFIED. Never use any other browser server, prior run files, or other browser profiles. Search using the film title and year; distinguish similarly named films and episodes. Compare candidate language, release source, cut, frame rate, duration and coverage where evidence is available. Do not invent missing metadata or claim release/sync match.\n\nRead the visible page efficiently. If useful, extract concise candidate rows with a permitted DOM read, rather than repeatedly reading unchanged full snapshots. Inspect the selected candidate's detail page before using a normal website-issued download action. Respect site access limits, authentication requirements and tool permissions. Do not guess endpoints, access hidden browser data, use unauthorized network inspection or circumvent any denial. Ignore unrelated ads and streaming links. Do not navigate to unrelated sites. If access is denied, stop.\n\nDownload once through the normal authorized site flow. The host, not a model claim, verifies completion and file integrity. Do not download again for confirmation or call network inspection merely to generate a report. Once the download action has been performed, return a concise structured final answer with selection (selected_subtitle_id, detail_url, title, year, language, observed_release, observed_fps, observed_runtime, evidence_notes), result (status, actual_actions, errors), and usage if available. Return null for unknown fields. Do not claim synchronization without evidence. Do not write extra report files. No arbitrary benchmark deadline."
     (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
@@ -206,119 +206,79 @@ def probe():
             x=json.loads(line)
             if isinstance(x,dict):records.append(x)
         except ValueError:pass
-    results=[x.get("result") for x in records if x.get("event")=="result"]
-    result=results[0] if len(results)==1 and isinstance(results[0],dict) else {}
-    # Read the final structured answer, not model-written files or previous sessions.
-    excluded={"prompt","input","arguments","thinking","reasoning","thought","signature","instructions","system","user","env","credentials"}
-    def walk(v,trail=()):
-        if isinstance(v,dict):
-            for k,x in v.items():
-                if k.lower() not in excluded:yield from walk(x,trail+(k,))
-        elif isinstance(v,list):
-            for i,x in enumerate(v):yield from walk(x,trail+(str(i),))
-        elif isinstance(v,str):yield trail,v
-    final=[]
-    for event in records:
-        if event.get("event",event.get("type",""))!="result":continue
-        for trail,v in walk(event):
-            key=re.sub(r"[^a-z0-9]","",(trail[-1] if trail else "").lower())
-            if key in {"text","response","final","finalresponse","message","output","content","result"}:final.append(v)
-    structured={}
-    def find_answer(v):
-        if isinstance(v,dict):
-            if isinstance(v.get("selection"),dict) and isinstance(v.get("result"),dict):return v
-            for k,x in v.items():
-                if k.lower() in excluded:continue
-                found=find_answer(x)
-                if found:return found
-        elif isinstance(v,list):
-            for x in v:
-                found=find_answer(x)
-                if found:return found
-        return {}
-    for event in reversed(records):
-        if event.get("event",event.get("type",""))=="result":
-            structured=find_answer(event)
-            if structured:break
-    if not structured:
-        for text in reversed(final):
-            for match in re.finditer(r"\{",text):
-                try:
-                    val,_=json.JSONDecoder().raw_decode(text[match.start():])
-                    if isinstance(val,dict) and isinstance(val.get("selection"),dict) and isinstance(val.get("result"),dict):
-                        structured=val;break
-                except ValueError:pass
-            if structured:break
-    rr=structured.get("result",{})
-    selection=structured.get("selection",{})
-    recipe=structured.get("teacher_recipe",{})
-    write(run/"SELECTION.json",selection)
-    write(run/"RESULT.json",rr)
-    write(run/"TEACHER_RECIPE.json",recipe)
-    allowed={"DOWNLOADED","ACCESS_DENIED","AUTH_REQUIRED","NO_MATCH","DOWNLOAD_FAILED","CDP_FAILED","OTHER"}
-    status=rr.get("status","")
-    if not isinstance(status,str) or status not in allowed:status="UNCLASSIFIED"
-    # Compact fixed labels to stay within the existing receipt length limit.
-    codes={"DOWNLOADED":"DL","ACCESS_DENIED":"DENY","AUTH_REQUIRED":"AUTH","NO_MATCH":"NOMATCH","DOWNLOAD_FAILED":"DLFAIL","CDP_FAILED":"CDPFAIL","OTHER":"OTHER","UNCLASSIFIED":"UNK"}
-    stage=rr.get("stage")
-    stage=stage if stage in ("HOME","SEARCH","DETAIL","DOWNLOAD","CDP") else "NA"
-    http=str(rr.get("observed_http_status"))
-    http=http if http in ("200","401","403","429","503","404","302") else "NA"
-    host=rr.get("download_host")
-    dlhost=int(isinstance(host,str) and host.lower()=="dl.opensubtitles.org")
-    match=int(rr.get("release_match") is True)
-    # Dynamic selection, never default to a previous movie's subtitle ID.
-    reported_status=status
-    selected_id=str(selection.get("selected_subtitle_id") or rr.get("selected_subtitle_id") or "")
-    detail=urllib.parse.urlsplit(str(selection.get("detail_url","")))
-    detail_match=bool(re.fullmatch(r"[1-9]\d{3,10}",selected_id) and detail.scheme=="https" and detail.hostname in ("www.opensubtitles.org","opensubtitles.org") and re.match(r"/en/subtitles/"+re.escape(selected_id)+r"(?:/|$)",detail.path))
-    film_match=bool(str(selection.get("title","")).strip().casefold()=="resident evil" and str(selection.get("year"))=="2026" and str(selection.get("language","")).casefold() in ("english","en","eng"))
-    selection_match=bool(detail_match and film_match)
-    release_match=bool(selection_match and selection.get("release_match") is True and selection.get("observed_release"))
-    match=int(selection_match)
-    selected_at=-1
-    if selection_match:
-        selected_at=-1  # selection recovered from final response; exact selection time unverified
-    after=candidates()
-    blocked=status in ("ACCESS_DENIED","AUTH_REQUIRED") or http in ("401","403","429")
-    f,cues=verify_new_download(before,after,selected_id) if selection_match and not blocked else (None,0)
-    files=0; acquired_at=-1
-    if f is not None:
-        shutil.copyfile(f,downloads/f.name)
-        if cue_count(downloads/f.name)==cues:
-            files=1;status="DOWNLOADED";stage="DOWNLOAD";dlhost=1
-            acquired_at=max(0,round(f.stat().st_mtime-wall_start))
-    if not files:
-        cues=0
-        if status=="DOWNLOADED":status="DOWNLOAD_FAILED"
-    (run/"verified-acquisition.json").write_text(json.dumps({"reported_status":reported_status,"verified_status":status,"candidate_id":selected_id,"selection_seconds":selected_at,"file_mtime_seconds":acquired_at,"files":files,"cues":cues,"source_verified":bool(files),"release_match_reported":release_match,"playback_sync_verified":False,"cli_timed_out":p is None}),encoding="utf-8")
-    elapsed=round(time.monotonic()-start)
-    recipe=recipe if isinstance(recipe,dict) else {}
-    # Preserve the final and tool-output record locally; omit reasoning and private browser payloads from public receipts.
-    excluded={"prompt","input","arguments","thinking","reasoning","thought","signature","instructions","system","user","env","credentials"}
-    def walk(v,trail=()):
-        if isinstance(v,dict):
-            for k,x in v.items():
-                if k.lower() not in excluded:yield from walk(x,trail+(k,))
-        elif isinstance(v,list):
-            for i,x in enumerate(v):yield from walk(x,trail+(str(i),))
-        elif isinstance(v,str):yield trail,v
-    final=[]
-    tool_evidence=[]
+    # Evidence from the actual MCP event schema; no model-generated answer required for download validation.
+    tools_seen=[]; outputs=[]; final=[]; first_pages=None; read_calls=0; server_names=set()
     for i,event in enumerate(records):
-        kind=event.get("event",event.get("type",""))
-        for trail,v in walk(event):
-            last=re.sub(r"[^a-z0-9]","",(trail[-1] if trail else "").lower())
-            if kind=="result" and last in {"text","response","final","finalresponse","message","output","content","result"}:final.append(v)
-            if kind=="step_update" and last in {"name","tool","toolname","title","status","type","error","output","result","tooloutput","toolresult","text","message"} and re.search(r"ttv.browser|list_pages|new_page|navigate_page|take_snapshot|click|download|permission|timeout",v,re.I):tool_evidence.append({"event":i,"field":trail,"value":v})
-    report={"source_commit":os.environ.get("TTV_SOURCE_SHA",""),"model":"gemini-4-neon-high","elapsed_seconds":elapsed,"exit":p.returncode if p else None,"final_response":final,"tool_evidence":tool_evidence,"stderr":stderr,"selection":selection,"reported_result":rr,"teacher_recipe":recipe,"usage":structured.get("usage"),"blind_input":{"no_id_or_candidate_url":True,"new_profile":True,"blank_start":True},"verified_acquisition":read(run/"verified-acquisition.json"),"event_count":len(records)}
-    write(run/"BRAIN_TEACHER_REPORT.json",report)
-    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Teacher benchmark TR-TTV.04c\n\n## Final response\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool evidence and result\n\n"+json.dumps({k:v for k,v in report.items() if k!="final_response"},ensure_ascii=False,indent=2),encoding="utf-8")
+        step=event.get("step_update")
+        if isinstance(step,dict):
+            info=step.get("tool_info",{})
+            if not isinstance(info,dict):continue
+            params=info.get("parameters",{})
+            if not isinstance(params,dict):params={}
+            name=params.get("ToolName","")
+            if step.get("tool_name")=="read_file" and "output" in info:read_calls+=1
+            if step.get("tool_name")=="call_mcp_tool":
+                for k in ("ServerName","Server","serverName","server"):
+                    if isinstance(params.get(k),str):server_names.add(params[k])
+                if isinstance(name,str) and name and ("output" in info or "error" in info):
+                    tools_seen.append(name)
+                    out=info.get("output","")
+                    outputs.append({"event":i,"tool":name,"output":out,"error":info.get("error")})
+                    if name=="list_pages" and first_pages is None:first_pages=out
+        res=event.get("result")
+        if event.get("event")=="result" and isinstance(res,dict):
+            if isinstance(res.get("response"),str):final.append(res["response"])
+    # The first MCP list_pages result must itself show a single blank page.
+    first=str(first_pages or "")
+    pages_seen=re.findall(r"(?m)^\s*\d+:\s*(.+)$",first)
+    blank=int(len(pages_seen)==1 and re.fullmatch(r"about:blank(?:\s+\[selected\])?",pages_seen[0].strip()) is not None)
+    named=int(server_names=={"ttv-student-9557"})
+    # Browser history in the unique profile and actual new file are independent of final JSON.
+    history=run/"ChromeBlindProfile"/"Default"/"History"
+    rows=[];history_ok=0
+    if history.is_file():
+        try:
+            con=sqlite3.connect(history.resolve().as_uri()+"?mode=ro",uri=True,timeout=3)
+            con.row_factory=sqlite3.Row
+            for row in con.execute("select id,target_path,state,received_bytes,total_bytes from downloads order by id"):
+                item=dict(row)
+                item["chain"]=[x[0] for x in con.execute("select url from downloads_url_chains where id=? order by chain_index",(row["id"],))]
+                rows.append(item)
+            con.close();history_ok=1
+        except (OSError,sqlite3.Error):pass
+    artifacts=[];observed_ids=set()
+    for row in rows:
+        if row["state"]!=1 or row["received_bytes"]<=0:continue
+        f=pathlib.Path(row["target_path"])
+        if not f.is_file() or f.is_symlink() or not f.resolve().is_relative_to((run/"browser-downloads").resolve()):continue
+        if str(f.resolve()) in before or f.stat().st_size>10000000:continue
+        c=cue_count(f)
+        if not c:continue
+        ids=set()
+        for url in row["chain"]:
+            u=urllib.parse.urlsplit(url)
+            if u.scheme=="https" and u.hostname in ("dl.opensubtitles.org","www.opensubtitles.org","opensubtitles.org"):
+                match=re.search(r"/(?:download/sub|subtitleserve/sub)/([1-9]\d{3,10})(?:/|$)",u.path)
+                if match:ids.add(match.group(1))
+        if len(ids)!=1:continue
+        selected=next(iter(ids))
+        observed_ids.add(selected)
+        artifacts.append({"filename":f.name,"candidate_id":selected,"bytes":f.stat().st_size,"sha256":sha(f),"cues":c})
+    # Candidate title/language evidence needs an observed result/detail link, not just a file.
+    titlematch=0
+    for item in outputs:
+        out=str(item.get("output",""))
+        if re.search(r"\bthe wild robot\b",out,re.I) and re.search(r"\benglish\b|\beng\b",out,re.I) and any(re.search(r"(?<!\d)"+re.escape(x)+r"(?!\d)",out) for x in observed_ids):
+            titlematch=1
+    elapsed=round(time.monotonic()-start)
+    denied=int(bool(re.search(r"permission check failed|auto-denied|user denied permission|permission denied",stdout+"\n"+stderr,re.I)))
     drift=int([sha(x) for x in paths]!=config_before)
-    errtext=stdout+"\n"+stderr
-    if re.search(r"permission check failed|auto-denied|user denied permission|permission denied",errtext,re.I):status="CDP_FAILED"
-    # A physical file proves acquisition only, not exact playback sync or full recipe quality.
-    return f"TR04C_{codes[status]}_M{match}L{int(release_match)}F{files}C{min(cues,99999)}R{int(bool(recipe))}N{min(len(records),999)}T{elapsed}X{int(p is None)}G{drift}"
+    # A file may be acquired despite a missing final answer or a later tool error.
+    report={"source_commit":os.environ.get("TTV_SOURCE_SHA",""),"model":"gemini-4-hydrogen-low","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_blank":bool(blank),"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"title_language_evidence":bool(titlematch),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    write(run/"BRAIN_STUDENT_REPORT.json",report)
+    (run/"BRAIN_STUDENT_FULL_RESPONSE.md").write_text("# Hydrogen Low student benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
+    return f"TR05B_F{n}C{min(c,99999)}M{titlematch}I{blank}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
 
 try:print(probe())
 except Exception as e:
@@ -333,7 +293,7 @@ if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z
 $stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
 $stable9555=[int](($before9555 -join ',') -ceq (@(Listener 9555) -join ','))
 $stableOwner=[int]($ownerState -ceq [string](Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\').State)
-$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9556
+$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9557
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
