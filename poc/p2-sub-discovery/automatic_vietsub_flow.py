@@ -1,9 +1,8 @@
-"""One Owner Vietsub AI request -> AGY OpenSubtitles EN -> AGY P2 -> P4.
+"""One Owner Vietsub AI request -> staged Brain EN -> AGY P2 -> P4.
 
-The installed Owner builder uses one agent-selected English download route
-when its matching film cache is empty. Earlier local/REST flows remain only
-for source compatibility and offline rollback, never a production fallback.
-No new translator, queue, receiver, public GitHub upload or TV claims.
+Temporary owner-selected English SRT inbox mode: do not search, call the
+OpenSubtitles REST API or ask AGY to download at TV tap. Retain one existing
+LEAN120 translator, cache and signed P4/G2 path, with no fallback on missing EN.
 """
 from __future__ import annotations
 
@@ -106,7 +105,29 @@ class AutomaticVietsubFlow:
         if self._model_ready:
             return
         if self._model_preflight is not None:
-            self._model_preflight()
+            try:
+                self._model_preflight()
+            except ValueError as exc:
+                # Strictly local account/CLI checks have not contacted AGY.
+                # Preserve the P3 event for the bounded pre-provider retry;
+                # never classify an arbitrary model error as retry-safe.
+                retry_safe = {
+                    "AGY_OWNER_HOME_UNAVAILABLE",
+                    "AGY_CLI_NOT_INSTALLED_FOR_OWNER",
+                    "AGY_ACCOUNT_SETTINGS_UNREADABLE",
+                    "AGY_ACCOUNT_SETTINGS_INVALID",
+                    "AGY_ACCOUNT_REQUIRED_API_KEY_MODE_REFUSED",
+                    "AGY_PERSONAL_ACCOUNT_MODE_REQUIRED",
+                    "AGY_APP_ACCOUNT_SETTINGS_UNREADABLE",
+                    "AGY_APP_ACCOUNT_SETTINGS_INVALID",
+                    "AGY_ACCOUNT_REQUIRED_ADC_MODE_REFUSED",
+                }
+                if (len(exc.args) == 1 and isinstance(exc.args[0], str)
+                        and exc.args[0] in retry_safe):
+                    from owner_session_bridge import PreProviderTransient
+                    raise PreProviderTransient(
+                        "AGY_OWNER_PREFLIGHT_UNAVAILABLE") from None
+                raise
         self._model_ready = True
         self.emit("AUTO_TRANSLATION_PROVIDER_AVAILABLE=YES")
 
@@ -268,12 +289,30 @@ class AutomaticVietsubFlow:
         The older catalog's ai_en kind is deliberately preserved for P4 and
         already finished LEAN120 checkpoints. No automatic VI source selection.
         """
+        from brain_english_inbox import (
+            BrainEnglishUnavailable, acquire_brain_english,
+        )
+        # Temporary Brain-inbox mode always verifies a staged file first.
+        # A legacy AI cache without the matching staged EN cannot win merely
+        # because its film key matches. Never silently use stale subtitles.
+        staged = None
+        if self.source_acquirer is acquire_brain_english:
+            try:
+                staged = acquire_brain_english(media, self.cache_root)
+            except BrainEnglishUnavailable as exc:
+                if str(exc) == "BRAIN_EN_NOT_STAGED":
+                    self.emit("AUTO_EN_SOURCE=BRAIN_EN_NOT_STAGED")
+                    return AutoResult("REVIEW_REQUIRED")
+                raise
         catalog = DualSubtitleCatalog(self.cache_root)
         ai = catalog.read(media, fingerprint, "ai_en")
-        if ai is None:
+        if ai is None and staged is None:
             imported = catalog.import_legacy(media, fingerprint, only_en=True)
             if imported is not None and imported.kind == "ai_en":
                 ai = imported
+        if ai is not None and staged is not None and ai.sha256 != staged.sha256:
+            self.emit("AUTO_EN_SOURCE=BRAIN_EN_CACHE_CONFLICT")
+            return AutoResult("REVIEW_REQUIRED")
         if ai is not None:
             data = ai.file.read_bytes()
             source = Asset(0, "en", "srt", data, ai.sha256, ai.cues)
@@ -290,9 +329,15 @@ class AutomaticVietsubFlow:
             # Do not branch through local MKV/sidecars, VI lookup or a second
             # OpenSubtitles client here, even if they happen to exist.
             from agy_opensubtitles_acquisition import AgyEnglishUnavailable
-            self._ensure_en_model_ready()
+            from brain_english_inbox import BrainEnglishUnavailable
             try:
-                en_asset = self.source_acquirer(media, self.cache_root)
+                en_asset = staged if staged is not None else self.source_acquirer(
+                    media, self.cache_root)
+            except BrainEnglishUnavailable as exc:
+                if str(exc) == "BRAIN_EN_NOT_STAGED":
+                    self.emit("AUTO_EN_SOURCE=BRAIN_EN_NOT_STAGED")
+                    return AutoResult("REVIEW_REQUIRED")
+                raise
             except AgyEnglishUnavailable as exc:
                 if str(exc) == "AGY_EN_NO_MATCH":
                     self.emit("AUTO_EN_SOURCE=AGY_OPENSUB_NO_MATCH")
@@ -301,6 +346,7 @@ class AutomaticVietsubFlow:
             if (not isinstance(en_asset, Asset) or en_asset.language != "en"
                     or en_asset.fmt != "srt"):
                 raise ValueError("AUTO_AGY_EN_SOURCE_INVALID")
+            self._ensure_en_model_ready()
             en_file = write_private_cache(self.cache_root, media, en_asset)
             catalog.record(media, fingerprint, "ai_en", en_asset, en_file,
                            release_matched=True)
@@ -311,7 +357,7 @@ class AutomaticVietsubFlow:
             translated = self.after_en_cached(en_asset, en_file)
             if not translated.translation_complete:
                 raise ValueError("AUTO_AGY_EN_INCOMPLETE_TRANSLATION")
-            self.emit("AUTO_EN_SOURCE=AGY_OPENSUB_MATCHED")
+            self.emit("AUTO_EN_SOURCE=VERIFIED_EN_STAGED_OR_ACQUIRED")
             return AutoResult("VIETSUB_READY", cue_count=en_asset.cues,
                               translated_cues=translated.translated_cues)
         en_asset: Asset | None = None
@@ -608,7 +654,7 @@ class AutomaticVietsubFlow:
 def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
                           model_preflight: Callable[[], None] | None = None
                           ) -> AutomaticVietsubFlow:
-    """Owner-process bootstrap. One AGY English source, never per-media UI.
+    """Owner bootstrap: one Brain-staged English SRT, then AGY translation.
 
     Host app resolves owner-local preference (enabled) once at startup and
     supplies user-owned credential environment. None of these credentials
@@ -632,14 +678,14 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     from lean120_api import load_profile
     from owner_vietsub_pipeline import _P2
     from translator_gateway import preflight_provider, provider_enabled
-    from agy_opensubtitles_acquisition import acquire_english
+    from brain_english_inbox import acquire_brain_english
 
     profile = load_profile(_P2 / "translator_profile.json")
     if not provider_enabled(profile.provider):
         raise ValueError("AUTO_VIETSUB_PROVIDER_NOT_ENABLED")
 
-    # No CLI/model/web request at owner startup. On a signed TV tap, validate
-    # the existing Owner CLI login before the agent searches OpenSubtitles.
+    # No CLI/model/web request at startup or while an EN file is missing.
+    # A signed TV tap binds the exact staged SRT to the existing AGY translator.
     preflight = model_preflight or (lambda: preflight_provider(profile))
     worker = AutomaticLean120Worker(
         state_root=state_root, profile=profile, glossary={},
@@ -661,7 +707,5 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
             auto_download=True, auto_translate_en=True),
         model_preflight=lambda: preflight(),
         dual_mode=True,
-        source_acquirer=lambda media, root: acquire_english(
-            media, cache_root=root, model=profile.model,
-            thinking_level=profile.thinking_level),
+        source_acquirer=acquire_brain_english,
     )

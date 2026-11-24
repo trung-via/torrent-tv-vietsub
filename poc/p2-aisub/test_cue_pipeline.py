@@ -62,9 +62,23 @@ class CueQATests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_cues(bad, "srt")
 
-    def test_srt_sequence_required(self):
+    def test_external_srt_indices_normalized_without_timeline_or_text_changes(self):
+        canonical = parse_cues(SRT, "srt")
+        for raw in (
+            SRT.replace(b"2\n00:00:03", b"3\n00:00:03"),
+            SRT.replace(b"2\n00:00:03", b"1\n00:00:03"),
+            b" 000 " + SRT[1:],
+            SRT.replace(b"2\n00:00:03", b"00:00:03"),
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(parse_cues(raw, "srt"), canonical)
+                self.assertEqual(render(parse_cues(raw, "srt"), "srt"), SRT)
+
+    def test_srt_invalid_label_and_missing_text_rejected(self):
+        with self.assertRaisesRegex(ValueError, "SRT_SEQUENCE_REQUIRED"):
+            parse_cues(SRT.replace(b"2\n00:00:03", b"label\n00:00:03"), "srt")
         with self.assertRaises(ValueError):
-            parse_cues(SRT.replace(b"2\n00:00:03", b"3\n00:00:03"), "srt")
+            parse_cues(b"42\n00:00:01,000 --> 00:00:02,000\n", "srt")
 
     def test_missing_vtt_header_rejected(self):
         with self.assertRaises(ValueError):

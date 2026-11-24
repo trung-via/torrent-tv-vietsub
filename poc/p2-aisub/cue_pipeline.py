@@ -82,9 +82,18 @@ def parse_cues(data: bytes, fmt: str) -> tuple[Cue, ...]:
         lines = block.split("\n")
         identifier = ""
         if fmt == "srt":
-            if len(lines) < 3 or lines[0] != str(i):
+            # External SRT indices are labels, not translation IDs. Real
+            # releases can start at zero, skip/duplicate numbers or omit
+            # labels entirely. Assign stable 1-based IDs by source order;
+            # never sort, remove cues or alter their timestamps/text.
+            if re.fullmatch(r"[0-9]+", lines[0].strip()):
+                if len(lines) < 3:
+                    raise ValueError("SRT_SEQUENCE_REQUIRED")
+                timing, content = lines[1], lines[2:]
+            elif ARROW.fullmatch(lines[0]):
+                timing, content = lines[0], lines[1:]
+            else:
                 raise ValueError("SRT_SEQUENCE_REQUIRED")
-            timing, content = lines[1], lines[2:]
         else:
             if lines[0].startswith(("NOTE", "STYLE", "REGION")):
                 raise ValueError("VTT_UNSUPPORTED_BLOCK")

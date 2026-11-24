@@ -59,6 +59,63 @@ class SignedIngressTests(unittest.TestCase):
     def inbox(self):
         return list((self.root / "inbox").glob("event-*.json"))
 
+    def test_brain_source_missing_then_staged_resumes_same_tv_request(self):
+        from brain_english_inbox import stage_brain_english
+        from owner_selected_file_resolver import _fingerprint
+        self.cache = self.root.parent / "owner-cache"
+        self.adapter.bind_brain_english_inbox(self.cache)
+        before = self.adapter.on_wire(wire(), now_ms=WHEN)
+        self.assertEqual((before.status, before.reason),
+                         ("WAIT", "BRAIN_EN_NOT_STAGED"))
+        self.assertEqual(self.inbox(), [])
+        self.assertFalse((self.root / "inbox").exists())
+        with self.assertRaisesRegex(ValueError, "P3_BRAIN_INBOX_BIND_INVALID"):
+            self.adapter.bind_brain_english_inbox(self.cache)
+        staged = self.root.parent / "source.srt"
+        staged.write_text(
+            "1\n00:00:00,000 --> 00:00:02,000\nSample English\n",
+            encoding="utf-8")
+        stage_brain_english(
+            cache_root=self.cache,
+            source_fingerprint=_fingerprint(
+                "owner-windows-server", TORRENT, 2),
+            video_name=NAME,
+            release_name="Synthetic.Movie.2017.1080p.BluRay.x265-GRP_en.srt",
+            source_page="https://www.opensubtitles.org/en/subtitles/123456/example-en",
+            srt_file=staged)
+        accepted = self.adapter.on_wire(
+            wire(nonce="d" * 32, sent_at_ms=WHEN + 100),
+            now_ms=WHEN + 100)
+        self.assertEqual(accepted.status, "DISPATCH")
+        skipped = self.adapter.on_wire(
+            wire(nonce="e" * 32, sent_at_ms=WHEN + 200),
+            now_ms=WHEN + 200)
+        self.assertEqual((skipped.status, skipped.reason),
+                         ("SKIP", "DUPLICATE_CURRENT_PLAY_EVENT"))
+        self.assertEqual(len(self.inbox()), 1)
+
+    def test_brain_staged_wrong_release_holds_without_event(self):
+        from brain_english_inbox import stage_brain_english
+        from owner_selected_file_resolver import _fingerprint
+        cache = self.root.parent / "owner-cache"
+        self.adapter.bind_brain_english_inbox(cache)
+        file = self.root.parent / "other.srt"
+        file.write_text(
+            "1\n00:00:00,000 --> 00:00:02,000\nSample\n",
+            encoding="utf-8")
+        stage_brain_english(
+            cache_root=cache,
+            source_fingerprint=_fingerprint(
+                "owner-windows-server", TORRENT, 2),
+            video_name=NAME,
+            release_name="Other.Movie.2017.1080p.BluRay.x265-GRP_en.srt",
+            source_page="https://www.opensubtitles.org/en/subtitles/123456/other-en",
+            srt_file=file)
+        decision = self.adapter.on_wire(wire(), now_ms=WHEN)
+        self.assertEqual((decision.status, decision.reason),
+                         ("HOLD", "BRAIN_EN_INVALID"))
+        self.assertEqual(self.inbox(), [])
+
     def test_signed_current_play_enqueues_persistent_per_film_job(self):
         result = self.adapter.on_wire(wire(), now_ms=WHEN)
         self.assertEqual(result.status, "DISPATCH")

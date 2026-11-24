@@ -81,7 +81,8 @@ class AgyAcquisitionTests(unittest.TestCase):
         self.assertNotIn("--dangerously-skip-permissions", command)
         brief = json.loads(kwargs["input"])["message"]["content"]
         self.assertIn("Decide your own", brief)
-        self.assertIn("OpenSubtitles.com", brief)
+        self.assertIn("any permitted source", brief)
+        self.assertIn("SubDL", brief)
         self.assertNotIn("a" * 40, brief)  # no torrent hash/model-side private key
         self.assertNotIn("GEMINI_API_KEY", kwargs["env"])
         self.assertEqual(list((self.root / "cache").glob(".agy-opensub-*")), [])
@@ -93,8 +94,8 @@ class AgyAcquisitionTests(unittest.TestCase):
             self.acquire(runner)
         self.assertEqual(list((self.root / "cache").glob("*.srt")), [])
 
-    def test_source_must_be_real_opensubtitles_page(self):
-        runner = FakeAgent(stdout=outcome(source_page="http://localhost:8000/sub"))
+    def test_malformed_provenance_is_rejected(self):
+        runner = FakeAgent(stdout=outcome(source_page="invalid\nreference"))
         with self.assertRaisesRegex(AgyEnglishUnavailable, "SOURCE_UNVERIFIED"):
             self.acquire(runner)
 
@@ -104,10 +105,19 @@ class AgyAcquisitionTests(unittest.TestCase):
         asset = self.acquire(runner)
         self.assertEqual(asset.cues, 125)
 
-    def test_lookalike_opensubtitles_domain_is_rejected(self):
+    def test_matching_srt_is_accepted_without_provider_restriction(self):
+        for source in ("https://subdl.com/s/example",
+                       "https://another.example/subtitle",
+                       "embedded English track", "local SRT", ""):
+            with self.subTest(source=source):
+                asset = self.acquire(FakeAgent(stdout=outcome(source_page=source)))
+                self.assertEqual(asset.cues, 125)
+
+    def test_other_provider_does_not_bypass_release_matching(self):
         runner = FakeAgent(stdout=outcome(
-            source_page="https://fake-opensubtitles.org/en/subtitles/14190981"))
-        with self.assertRaisesRegex(AgyEnglishUnavailable, "SOURCE_UNVERIFIED"):
+            source_page="https://subdl.com/s/example",
+            release_name="Another.Film.2017.1080p.BluRay.x265-GRP.srt"))
+        with self.assertRaisesRegex(AgyEnglishUnavailable, "RELEASE_MISMATCH"):
             self.acquire(runner)
 
     def test_no_match_cannot_fabricate_english(self):
