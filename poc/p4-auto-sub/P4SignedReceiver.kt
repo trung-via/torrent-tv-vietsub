@@ -173,6 +173,9 @@ internal class P4SignedReceiver(
         }
     }
 
+    internal fun parseTimeline(payload: ByteArray, fmt: String): P4CueTimeline =
+        Companion.parseTimeline(payload, fmt)
+
     companion object {
     internal fun parseTimeline(payload: ByteArray, fmt: String): P4CueTimeline {
         require(fmt in setOf("srt", "vtt") && payload.isNotEmpty() &&

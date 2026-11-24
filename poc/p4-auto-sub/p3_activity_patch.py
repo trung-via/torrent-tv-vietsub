@@ -333,6 +333,7 @@ def patch_activity(text: str) -> str:
         P3SelectedMediaPublisher.accepted(
             applicationContext, session.request, session.index,
             "PLAY_REQUEST_ACCEPTED", engine is VlcEngine)
+        restoreP4SavedOverlay()
         handler.removeCallbacks(p3StatusTick)
         handler.postDelayed(p3StatusTick, 3_000L)
         flow.reset()"""),
@@ -340,6 +341,7 @@ def patch_activity(text: str) -> str:
         P3SelectedMediaPublisher.accepted(
             applicationContext, session.request, session.index,
             "NEXT_QUEUE_ITEM_ACCEPTED", engine is VlcEngine)
+        restoreP4SavedOverlay()
         handler.removeCallbacks(p3StatusTick)
         handler.postDelayed(p3StatusTick, 3_000L)
         cancelCountdown()"""),

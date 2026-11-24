@@ -100,6 +100,9 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('session.load(production.request, next)\n        P3SelectedMediaPublisher.accepted(', self.patched)
         self.assertIn('if (!switcher.goTo(i, itemTransition?.picks)) return\n        P3SelectedMediaPublisher.accepted(', self.patched)
         self.assertEqual(self.patched.count("P3SelectedMediaPublisher.accepted("), 2)
+        self.assertIn('"PLAY_REQUEST_ACCEPTED", engine is VlcEngine)\n        restoreP4SavedOverlay()', self.patched)
+        self.assertIn('"NEXT_QUEUE_ITEM_ACCEPTED", engine is VlcEngine)\n        restoreP4SavedOverlay()', self.patched)
+        self.assertEqual(self.patched.count("restoreP4SavedOverlay()"), 2)
         self.assertIn('P3SelectedMediaPublisher.closed(applicationContext)', self.patched)
         self.assertNotIn("P3SelectedMediaPublisher.accepted(", fake_p4_activity())
 

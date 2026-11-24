@@ -43,14 +43,18 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private fun p4BackgroundEnabled(): Boolean =
         p4StylePrefs.getBoolean("translucent_background", false)
     private fun applyP4Background(view: android.widget.TextView) {
-        if (!p4BackgroundEnabled()) {
-            view.background = null
-            return
-        }
         val d = resources.displayMetrics.density
-        view.background = android.graphics.drawable.GradientDrawable().apply {
+        val enabled = p4BackgroundEnabled()
+        view.background = if (enabled) android.graphics.drawable.GradientDrawable().apply {
             setColor(android.graphics.Color.argb(155, 0, 0, 0))
             cornerRadius = 8f * d
+        } else null
+        val horizontal = ((if (enabled) 12 else 0) * d).toInt()
+        val vertical = ((if (enabled) 4 else 0) * d).toInt()
+        view.setPadding(horizontal, vertical, horizontal, vertical)
+        (view.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let {
+            it.bottomMargin = (54 * d).toInt() - vertical
+            view.layoutParams = it
         }
     }
 
@@ -72,20 +76,19 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             setTextColor(android.graphics.Color.WHITE)
             textSize = 26f
             setShadowLayer(4f, 1f, 2f, android.graphics.Color.BLACK)
-            setPadding(margin, (6 * density).toInt(),
-                margin, (6 * density).toInt())
-            applyP4Background(this)
+            maxWidth = resources.displayMetrics.widthPixels - 2 * margin
             isFocusable = false
             isClickable = false
             visibility = android.view.View.GONE
         }
         val params = android.widget.FrameLayout.LayoutParams(
-            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
             android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL)
         params.bottomMargin = (54 * density).toInt()
         parent.addView(view, parent.indexOfChild(video) + 1, params)
         p4OverlayView = view
+        applyP4Background(view)
         return view
     }
 
@@ -106,6 +109,8 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             p4OverlayState != null) return
         ensureP4OverlayView()
         p4OverlayState = P4OverlayState(r, idx, engine, "saved-local", timeline)
+        // Suppress native cached sidecar before the first overlay tick.
+        engine.selectSubtitle(null)
         handler.removeCallbacks(p4OverlayTick)
         handler.post(p4OverlayTick)
         android.util.Log.i("TorrentTV-Vietsub", "P4_TV_SAVED_OVERLAY_RESTORED")
@@ -492,12 +497,10 @@ def patch_activity(original: str) -> str:
             "        clearG2Recovery()",
             "        P4OwnerBootstrap.consume(applicationContext)\n" +
             "        clearP4Overlay()\n        unbindP4Session()\n" +
-            "        handler.postDelayed({ restoreP4SavedOverlay() }, 700L)\n" +
             "        clearG2Recovery()"), "LOAD"),
         ITEM_ANCHOR: (ITEM_ANCHOR.replace(
             "        clearG2Recovery()",
             "        clearP4Overlay()\n        unbindP4Session()\n" +
-            "        handler.postDelayed({ restoreP4SavedOverlay() }, 700L)\n" +
             "        clearG2Recovery()"), "ITEM"),
         MENU_ANCHOR: (MENU_ANCHOR + "\n" + P4_MENU_ROWS, "MENU"),
     }
