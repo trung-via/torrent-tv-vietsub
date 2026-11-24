@@ -322,7 +322,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         if ($v.schema -cne 'TTV-HYDROGEN-BENCH-V1' -or $v.nonce -cne $nonce -or $v.configured -cnotin @('gemini-4-hydrogen-high','gemini-4-hydrogen-medium','OTHER') -or $v.rows.Count -notin @(1,2)) {throw 'HYDROGEN_BENCHMARK_INVALID'}
         Write-Output ('HOSTOPS_HYDROGEN_CONFIGURED='+$v.configured)
         foreach ($row in $v.rows) {
-            if ($row.level -cnotin @('high','medium') -or $row.status -cnotmatch '^[A-Z0-9_]{3,75}$' -or $row.ms -lt 0 -or $row.ms -gt 220000 -or $row.cues -notin @(0,50) -or $row.examples.Count -gt 8) {throw 'HYDROGEN_BENCHMARK_ROW_INVALID'}
+            if ($row.level -cnotin @('high','medium','hydrogen','neon') -or $row.status -cnotmatch '^[A-Z0-9_]{3,75}$' -or $row.ms -lt 0 -or $row.ms -gt 220000 -or $row.cues -notin @(0,50) -or $row.examples.Count -gt 8) {throw 'HYDROGEN_BENCHMARK_ROW_INVALID'}
             Write-Output ('HOSTOPS_HYDROGEN_RESULT='+($row | ConvertTo-Json -Compress -Depth 5))
         }
     }

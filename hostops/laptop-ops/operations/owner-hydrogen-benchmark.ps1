@@ -35,8 +35,9 @@ result={"schema":"TTV-HYDROGEN-BENCH-V1","nonce":nonce,"configured":profile.mode
 def save():
     dest.write_text(json.dumps(result,ensure_ascii=True,separators=(",",":")),"utf-8")
 save()
-for level in ("high","medium"):
-    p=ModelProfile("antigravity","gemini-4-hydrogen-"+level,level)
+for model in ("gemini-4-hydrogen-low","gemini-4-neon-low"):
+    level=model.removeprefix("gemini-4-").removesuffix("-low")
+    p=ModelProfile("antigravity",model,"low")
     row={"level":level,"status":"STARTED","ms":0,"cues":0,"examples":[]}
     result["rows"].append(row);save()
     begin=time.perf_counter()
@@ -55,8 +56,7 @@ for level in ("high","medium"):
         row["status"]=err if re.fullmatch(r"[A-Z0-9_]{3,75}",err) else "OTHER_ERROR"
     finally:
         row["ms"]=round((time.perf_counter()-begin)*1000);save()
-    if row["status"]!="PASS":
-        break
+
 '@
 & py -3 -I -B -c $code $root $dest $r.nonce
 if ($LASTEXITCODE -ne 0) { throw 'HYDROGEN_BENCHMARK_FAILED' }

@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-hydrogen-benchmark.ps1",
-  "script_sha256": "c349897f7eb68376a6ad532d767f9ea475530c47aa1f9c7e06e3824cc8151d10",
+  "script_sha256": "97fcf95406ec76cdc397a09f4d593fddf0dbb52f38492ba6dde3a5e400bc64a3",
   "arguments": []
 }
