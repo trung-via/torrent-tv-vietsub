@@ -7,10 +7,10 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('agy-rule-audit-'+$rq.nonce)
+$run=Join-Path $root ('agy-teacher-native-audit-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
-import sys,pathlib,os,json,re,subprocess
+import sys,pathlib,os,json,re,subprocess,datetime,urllib.parse
 owner,run=map(pathlib.Path,sys.argv[1:])
 sys.path.insert(0,str(owner/"app/poc/p2-aisub"))
 from translator_gateway import preflight_antigravity
@@ -20,76 +20,74 @@ def read(p):
     except OSError:pass
     return ""
 history=pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"History"
-targets=[("1c6600358d1bc30e9228c1ec2c0b8027f1d2e8c6","agy-browser-headless-control-1124","agy-cdp9555-mcp-stdio-"),("edc92c5fe50bdd5cc6da8fa9fd82b5325c795ec6","agy-native-browser-readout-1124","agy-helper-local-"),("1c3b7c3887a29cf83f33b84360da6cb6fbc2e9f1","agy-native-browser-readout-1124","agy-helper-absolute-")]
-records=[]
-for sha,op,prefix in targets:
-    matches=[]
-    for f in history.glob("receipt-*.json"):
-        try:
-            q=json.loads(read(f))
-            if q.get("source_commit")==sha and q.get("operation")==op and q.get("result")=="SUCCESS" and re.fullmatch(r"[a-f0-9]{32}",q.get("nonce","")):matches.append(q["nonce"])
-        except (ValueError,TypeError):pass
-    if len(matches)==1:
-        p=run.parent/(prefix+matches[0])
-        raw=read(p/"agy-stdout.jsonl")
-        # Inspect error events separately from prose and prompts; no raw content exported.
-        errs=[read(p/"agy-stderr.txt"),read(p/"mcp-stderr.txt")]
-        for line in raw.splitlines():
-            try:x=json.loads(line)
-            except ValueError:continue
-            def scan(v,depth=0):
-                if depth>12:return
-                if isinstance(v,dict):
-                    kind=str(v.get("event",v.get("type",""))).lower()
-                    if kind in ("tool_error","error","assistant_error","tool_result","tool_response","function_response"):
-                        for k in ("error","output","result","content","message"):
-                            if k in v:errs.append(json.dumps(v[k]))
-                    for k,val in v.items():
-                        if k not in ("prompt","input","arguments","command","system_prompt"):scan(val,depth+1)
-                elif isinstance(v,list):
-                    for val in v:scan(val,depth+1)
-            scan(x)
-        records.append("\n".join(errs))
-log="\n".join(records)
-relative=int(bool(re.search(r"relative paths?.{0,100}(?:not supported|not allowed|invalid|absolute|required)|(?:invalid|unsupported).{0,70}relative paths?",log,re.I)))
-denied=int(bool(re.search(r"permission denied|access denied|sandbox.{0,80}(?:denied|blocked)|approval required|not permitted",log,re.I)))
-# Discover documented CLI options without starting a model.
+matches=[]
+for f in history.glob("receipt-*.json"):
+    try:
+        q=json.loads(read(f))
+        if q.get("source_commit")=="98df81d855901176d5cf50a71c83876ce6e73885" and q.get("operation")=="agy-browser-headless-control-1124" and q.get("result")=="SUCCESS" and re.fullmatch(r"[a-f0-9]{32}",q.get("nonce","")):matches.append(q["nonce"])
+    except (ValueError,TypeError):pass
+if len(matches)!=1:
+    print("TRN_PRIOR_HOLD");sys.exit(0)
+p=run.parent/("agy-cdp9555-mcp-stdio-"+matches[0])
+recipe=int(bool(read(p/"TEACHER_RECIPE.json")))
+selection=int(bool(read(p/"SELECTION.json")))
+result=int(bool(read(p/"RESULT.json")))
+trace=read(p/"mcp-trace.jsonl")
+calls=sum(1 for l in trace.splitlines() if '"ok": true' in l)
+# Reconcile the exact run's possible download before a new provider attempt.
+start=datetime.datetime.fromisoformat("2026-11-24T15:43:35+00:00").timestamp()
+end=datetime.datetime.fromisoformat("2026-11-24T15:46:42+00:00").timestamp()
+dirs={pathlib.Path.home()/"Downloads",p/"downloads"}
+try:
+    prefs=json.loads(read(run.parent/"CDP9555Profile"/"Default"/"Preferences"))
+    d=pathlib.Path(prefs["download"]["default_directory"])
+    if d.is_absolute():dirs.add(d)
+except (KeyError,TypeError,ValueError):pass
+try:
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
+        d=pathlib.Path(os.path.expandvars(winreg.QueryValueEx(k,"{374DE290-123F-4565-9164-39C4925E467B}")[0]))
+        if d.is_absolute():dirs.add(d)
+except OSError:pass
+found=set()
+for d in dirs:
+    try:
+        for f in d.iterdir():
+            if not f.is_file() or f.is_symlink() or f.suffix.lower() not in (".zip",".srt"):continue
+            st=f.stat()
+            if not (start<=st.st_ctime<=end or start<=st.st_mtime<=end):continue
+            try:
+                with open(str(f)+":Zone.Identifier",encoding="utf-8",errors="replace") as fh:
+                    ads=dict(x.split("=",1) for x in fh.read(8192).splitlines() if "=" in x)
+                if urllib.parse.urlsplit(ads.get("HostUrl","")).hostname=="dl.opensubtitles.org":found.add(str(f.resolve()).casefold())
+            except (OSError,ValueError):pass
+    except OSError:pass
+# Inspect only installed CLI documented flags and recognized MCP config structure.
 cli=preflight_antigravity()
 try:
-    p=subprocess.run([cli,"--help"],cwd=run,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=15,check=False)
-    helptext=p.stdout+"\n"+p.stderr
-    (run/"cli-help.txt").write_text(helptext,encoding="utf-8")
+    proc=subprocess.run([cli,"--help"],cwd=run,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=15,check=False)
+    helptext=proc.stdout+"\n"+proc.stderr
 except (OSError,subprocess.TimeoutExpired):helptext=""
-help_sandbox=int(bool(re.search(r"--sandbox\b",helptext)))
-help_config=int(bool(re.search(r"(?im)^\s*(?:config|settings|sandbox)\b",helptext)))
-# Inspect only named application configuration files; never auth, cookies, tokens, or account data.
+(run/"cli-help.txt").write_text(helptext,encoding="utf-8")
+opts=["--mcp-config","--strict-mcp-config","--allowed-tools","--disable-mcp","--mcp","--plugin","--plugins","--add-dir"]
+bits="".join(str(int(bool(re.search(re.escape(x)+r"(?![\w-])",helptext)))) for x in opts)
 home=pathlib.Path.home()
-app=pathlib.Path(os.environ.get("APPDATA",str(home)))
-local=pathlib.Path(os.environ.get("LOCALAPPDATA",str(home)))
-files=[home/".gemini"/"settings.json",home/".gemini"/"antigravity"/"settings.json",home/".gemini"/"antigravity-cli"/"settings.json",home/".antigravity"/"settings.json",home/".agy"/"settings.json",home/".config"/"agy"/"settings.json",home/".config"/"antigravity"/"settings.json",app/"Antigravity"/"User"/"settings.json",app/"agy"/"settings.json",local/"Antigravity"/"settings.json"]
-count=0;rules=0;rel=0;private=[]
-def walk(v,trail,active=False):
-    global rules,rel
-    if isinstance(v,dict):
-        for k,x in v.items():
-            if re.search(r"token|secret|password|credential|auth|cookie|account|api.?key",k,re.I):continue
-            nxt=active or bool(re.search(r"sandbox|permissions|allowlist|denylist|allowedPaths|deniedPaths",k,re.I))
-            if nxt and isinstance(x,(dict,list)):rules+=1
-            walk(x,trail+[k],nxt)
-    elif isinstance(v,list) and active:
-        for x in v:
-            if isinstance(x,str) and re.match(r"^(?:\.\.?[/\\]|~[/\\])",x):rel+=1
-            elif isinstance(x,dict):walk(x,trail,active)
-for i,f in enumerate(files):
-    raw=read(f)
-    if not raw:continue
-    try:v=json.loads(raw)
-    except ValueError:continue
+cfg=home/".gemini"/"config"/"mcp_config.json"
+settings=home/".gemini"/"antigravity-cli"/"settings.json"
+try:servers=json.loads(read(cfg)).get("mcpServers",{})
+except (ValueError,AttributeError):servers={}
+if not isinstance(servers,dict):servers={}
+wake=0;ttv=0;ver=0;disabled=0
+for k,v in servers.items():
     if not isinstance(v,dict):continue
-    count+=1;before=(rules,rel);walk(v,[])
-    private.append({"candidate_index":i,"sandbox_rule_nodes":rules-before[0],"relative_path_entries":rel-before[1]})
-(run/"config-audit-private.json").write_text(json.dumps({"receipt_logs":len(records),"explicit_relative_error":relative,"explicit_denial":denied,"configs":private}),encoding="utf-8")
-print(f"AGYRULE_L{len(records)}_D{denied}_R{relative}_H{help_sandbox}C{help_config}_J{count}_S{min(rules,99)}_P{min(rel,99)}")
+    if v.get("disabled") is True:disabled+=1;continue
+    args=v.get("args",[])
+    if not isinstance(args,list):continue
+    if any(isinstance(x,str) and "chrome-devtools-mcp" in x for x in args):
+        if any(isinstance(x,str) and "127.0.0.1:9444" in x for x in args):wake+=1
+        if any(isinstance(x,str) and "127.0.0.1:9555" in x for x in args):ttv+=1
+        if any(isinstance(x,str) and "chrome-devtools-mcp@1.14.0"==x for x in args):ver+=1
+print(f"TRN_Q{recipe}S{selection}R{result}C{min(calls,99)}D{min(len(found),99)}_H{bits}_G{min(len(servers),99)}W{wake}T{ttv}V{ver}X{disabled}")
 '@
 $f=Join-Path $run 'control.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
