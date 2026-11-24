@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "agy-odyssey-direct-test-c-1124",
+  "operation": "agy-neon-indexed-search-1124",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/agy-odyssey-direct-test-c-1124.ps1",
-  "script_sha256": "0f618a9d8e9486720ad307e133998c68fb53671c26739fa2c11592198fa5d451",
+  "script_path": "hostops/laptop-ops/operations/agy-neon-indexed-search-1124.ps1",
+  "script_sha256": "cdf46f9bc28702eb8a0da59730e2dfbbeb123c5d75fa90ee0d676808f4a3d3cb",
   "arguments": []
 }
