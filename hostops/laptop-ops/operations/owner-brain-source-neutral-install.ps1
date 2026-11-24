@@ -198,7 +198,30 @@ $oldPid = 0L
 if ($taskState -ceq 'Running') {
     if (-not (VerifiedHeartbeat -1 0)) { Hold 'OWNER_HEARTBEAT_NOT_VERIFIED' }
     $oldPid = [long](Get-Content -LiteralPath $healthPath -Raw | ConvertFrom-Json).pid
-} elseif (@(Workers).Count -ne 0) { Hold 'STOPPED_TASK_RESIDUAL_WORKERS' }
+} else {
+    # Ready can coexist with orphaned Python children. Validate their exact
+    # Owner SID, app script path and creation identity before touching the task.
+    $residual = @(Workers)
+    if ($residual.Count -gt 4) { Hold 'RESIDUAL_WORKER_SET_UNEXPECTED' }
+    $allowed = @((Join-Path $app 'owner_p3_p4_entrypoint.py'),
+                 (Join-Path $app 'owner_session_bridge.py'))
+    foreach ($w in $residual) {
+        $hits = @($allowed | Where-Object {
+            [string]$w.CommandLine -and
+            $w.CommandLine.IndexOf($_,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+        $sid = Invoke-CimMethod -InputObject $w -MethodName GetOwnerSid
+        if ($hits.Count -ne 1 -or -not $w.CreationDate -or
+            $sid.ReturnValue -ne 0 -or $sid.Sid -cne $ownerSid) {
+            Hold 'RESIDUAL_IDENTITY_UNVERIFIED'
+        }
+    }
+    if ($residual.Count -gt 0) {
+        Write-Output 'OWNER_BRAIN_R3_READY_RESIDUAL=VERIFIED_CLEANUP_PLANNED'
+    }
+    # The existing StopOwner transaction rechecks idle state, disables the
+    # task and revalidates each PID before stopping only these app workers.
+}
 # All 16 old R3 hashes must match, except the two files may already be the new target.
 foreach ($name in $baseline.Keys) {
     $file = InstalledFile $name
@@ -269,7 +292,7 @@ if ($LASTEXITCODE -ne 0 -or
     @($import | Where-Object { [string]$_ -ceq 'OWNER_BRAIN_R3_STAGED_OVERLAY=PASS' }).Count -ne 1) {
     Hold 'STAGED_OVERLAY_IMPORT_FAILED_OWNER_UNCHANGED'
 }
-Write-Output 'OWNER_BRAIN_R3_PREFLIGHT=PASS_OWNER_RUNNING_IDLE_STAGED_IMPORT'
+Write-Output 'OWNER_BRAIN_R3_PREFLIGHT=PASS_OWNER_IDLE_STAGED_IMPORT'
 
 if (-not (Test-Path -LiteralPath $backupRoot -PathType Container)) {
     [IO.Directory]::CreateDirectory($backupRoot) | Out-Null
