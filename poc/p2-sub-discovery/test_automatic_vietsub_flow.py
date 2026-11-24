@@ -466,6 +466,30 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual(self.gemini.calls, [])
         self.assertFalse(self.cache.exists())
 
+    def test_owner_bootstrap_parallel_opt_in_preserves_profile_and_first_window(self):
+        with mock.patch.dict("os.environ", {
+            "CI": "", "GITHUB_ACTIONS": "",
+        }, clear=True):
+            default = build_owner_auto_flow(
+                enabled=True, cache_root=self.cache,
+                state_root=self.root / "owner-state")
+            self.assertEqual(default.worker.parallel_batches, 1)
+            with mock.patch.dict("os.environ", {"TTV_LEAN120_PARALLEL_BATCHES": "3"}):
+                candidate = build_owner_auto_flow(
+                    enabled=True, cache_root=self.cache,
+                    state_root=self.root / "owner-state")
+            self.assertEqual(candidate.worker.parallel_batches, 3)
+            self.assertEqual(candidate.worker.first_window_cues, 50)
+            self.assertEqual(candidate.worker.profile, default.worker.profile)
+            with mock.patch.dict("os.environ", {"TTV_LEAN120_PARALLEL_BATCHES": "4"}):
+                with self.assertRaisesRegex(ValueError, "PARALLEL_LIMIT_INVALID"):
+                    build_owner_auto_flow(
+                        enabled=True, cache_root=self.cache,
+                        state_root=self.root / "owner-state")
+        self.assertFalse((self.root / "owner-state").exists())
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.gemini.calls, [])
+
     def test_owner_bootstrap_disabled_but_opensub_key_not_required(self):
         with mock.patch.dict("os.environ", {
             "CI": "", "GITHUB_ACTIONS": "",

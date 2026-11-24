@@ -12,6 +12,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import subprocess
+from threading import Barrier, Event, Lock
 
 from automatic_lean120_worker import AutomaticLean120Worker
 from assumed_source_handoff import AssumedEnglishSubtitle
@@ -89,6 +90,8 @@ class AutoLean120WorkerTests(unittest.TestCase):
             glossary=kwargs.pop("glossary", {"Fictional": "Hư cấu"}),
             runner=kwargs.pop("runner", self.provider),
             first_window_cues=kwargs.pop("first_window_cues", None),
+            parallel_batches=kwargs.pop("parallel_batches", 1),
+            preserve_hydrogen_jobs=kwargs.pop("preserve_hydrogen_jobs", False),
         )
 
     def folders(self):
@@ -406,6 +409,117 @@ class AutoLean120WorkerTests(unittest.TestCase):
         self.worker().run(handoff(1, OTHER))
         self.assertEqual(len(self.folders()), 3)
         self.assertEqual(len(self.provider.calls), 3)
+
+    def test_owner_profile_transition_reuses_finished_and_partial_jobs(self):
+        low = ModelProfile("antigravity", "gemini-4-hydrogen-low", "low")
+        completed, partial, fresh = handoff(1), handoff(175), handoff(1, OTHER)
+        old = self.worker(first_window_cues=50, preserve_hydrogen_jobs=True)
+        old.run(completed)
+        old.run(partial, max_new_windows=1)
+        new = self.worker(profile=low, first_window_cues=50,
+                          preserve_hydrogen_jobs=True)
+        self.assertEqual(new.profile_for_source(completed), PROFILE)
+        self.assertEqual(new.profile_for_source(partial), PROFILE)
+        self.assertEqual(new.job_fingerprint(partial), old.job_fingerprint(partial))
+        before = len(self.provider.calls)
+        self.assertTrue(new.run(completed).complete)
+        self.assertEqual(len(self.provider.calls), before)
+        self.assertTrue(new.run(partial).complete)
+        self.assertEqual([len(ids) for ids in self.provider.calls[before:]], [120, 5])
+        self.assertEqual(new.profile_for_source(fresh), low)
+        new.run(fresh)
+        self.assertEqual(old.profile_for_source(fresh), low)  # rollback reuses Low
+        self.assertEqual(len(self.folders()), 3)
+
+    def test_owner_profile_transition_never_replays_unknown_high_call(self):
+        source = handoff(1)
+        self.provider.fail_on = 1
+        with self.assertRaisesRegex(ValueError, "AGY_PROCESS_FAILED_RESULT_UNKNOWN"):
+            self.worker().run(source)
+        low = ModelProfile("antigravity", "gemini-4-hydrogen-low", "low")
+        candidate = self.worker(profile=low, preserve_hydrogen_jobs=True)
+        self.assertEqual(candidate.profile_for_source(source), PROFILE)
+        with self.assertRaisesRegex(ValueError, "UNCERTAIN_BATCH_MANUAL_RECONCILE"):
+            candidate.run(source)
+        self.assertEqual(len(self.provider.calls), 1)
+        self.assertEqual(len(self.folders()), 1)
+
+    def test_owner_profile_transition_holds_conflicting_existing_jobs(self):
+        source = handoff(1)
+        low = ModelProfile("antigravity", "gemini-4-hydrogen-low", "low")
+        self.worker().run(source)
+        self.worker(profile=low).run(source)  # deliberate isolated test
+        with self.assertRaisesRegex(ValueError, "PROFILE_STATE_AMBIGUOUS"):
+            self.worker(profile=low, preserve_hydrogen_jobs=True).run(source)
+        self.assertEqual(len(self.provider.calls), 2)
+
+    def test_parallel_batches_finish_out_of_order_but_publish_contiguous(self):
+        barrier = Barrier(3, timeout=5)
+        later_ready = Event()
+        finished = []
+        guard = Lock()
+        calls = []
+        def parallel(cmd, **kwargs):
+            prompt = json.loads(kwargs["input"].strip())["message"]["content"]
+            ids = [x["id"] for x in json.loads(prompt.split("\n", 1)[1])["target"]]
+            with guard:
+                calls.append(ids[0])
+            if ids[0] in (51, 171, 291):
+                barrier.wait()
+                if ids[0] == 51:
+                    if not later_ready.wait(5):
+                        raise RuntimeError("later window did not finish")
+                if ids[0] == 291:
+                    with guard:
+                        finished.append(ids[0])
+                    later_ready.set()
+                else:
+                    with guard:
+                        finished.append(ids[0])
+            return FakeAntigravity()(cmd, **kwargs)
+
+        src = handoff(410)
+        seen = []
+        result = self.worker(first_window_cues=50, parallel_batches=3, runner=parallel).run(
+            src, on_revision=seen.append)
+        self.assertTrue(result.complete)
+        self.assertEqual([r.translated_count for r in seen], [50, 170, 290, 410])
+        self.assertLess(finished.index(291), finished.index(51))
+        self.assertEqual(sorted(calls), [1, 51, 171, 291])
+        self.assertEqual(list(self.folders()[0].glob("result-*.json")), [])
+        self.assertEqual(list(self.folders()[0].glob("*.inflight")), [])
+
+    def test_parallel_failure_preserves_paid_later_result_without_replay(self):
+        barrier = Barrier(3, timeout=5)
+        calls = []
+        def fail_first(cmd, **kwargs):
+            prompt = json.loads(kwargs["input"].strip())["message"]["content"]
+            ids = [x["id"] for x in json.loads(prompt.split("\n", 1)[1])["target"]]
+            calls.append(ids[0])
+            if ids[0] != 1:
+                barrier.wait()
+            if ids[0] == 51:
+                raise ValueError("AGY_PROCESS_FAILED_RESULT_UNKNOWN")
+            return FakeAntigravity()(cmd, **kwargs)
+        src = handoff(410)
+        seen = []
+        worker = self.worker(first_window_cues=50, parallel_batches=3, runner=fail_first)
+        with self.assertRaisesRegex(ValueError, "AGY_PROCESS_FAILED_RESULT_UNKNOWN"):
+            worker.run(src, on_revision=seen.append)
+        folder = self.folders()[0]
+        self.assertEqual([r.translated_count for r in seen], [50])
+        self.assertTrue((folder / "batch-0002.inflight").is_file())
+        self.assertTrue((folder / "result-0003.json").is_file())
+        self.assertTrue((folder / "result-0004.json").is_file())
+        self.assertFalse((folder / "batch-0003.json").exists())
+        with self.assertRaisesRegex(ValueError, "UNCERTAIN_BATCH_MANUAL_RECONCILE"):
+            worker.run(src)
+        self.assertEqual(sorted(calls), [1, 51, 171, 291])
+
+    def test_parallel_pilot_still_only_calls_first_window(self):
+        self.worker(first_window_cues=50, parallel_batches=3).run(
+            handoff(410), max_new_windows=1)
+        self.assertEqual([len(x) for x in self.provider.calls], [50])
 
     def test_many_cues_are_progressive_no_manual_batch_stepping(self):
         src = handoff(1761)

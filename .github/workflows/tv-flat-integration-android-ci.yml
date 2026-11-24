@@ -20,12 +20,15 @@ jobs:
       github.repository == 'trung-via/torrent-tv-vietsub' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login == 'trung-via' &&
-      github.event.pull_request.base.ref == 'main' &&
-      (startsWith(github.event.pull_request.head.ref, 'feature/r0-flat-') ||
-       (github.event.pull_request.number == 178 &&
-        github.event.pull_request.head.ref == 'fix/full-flow-p2-p4-telemetry-20261121') ||
-       (github.event.pull_request.number == 179 &&
-        github.event.pull_request.head.ref == 'fix/p2-dual-candidates-20261122'))
+      ((github.event.pull_request.base.ref == 'main' &&
+        (startsWith(github.event.pull_request.head.ref, 'feature/r0-flat-') ||
+         (github.event.pull_request.number == 178 &&
+          github.event.pull_request.head.ref == 'fix/full-flow-p2-p4-telemetry-20261121') ||
+         (github.event.pull_request.number == 179 &&
+          github.event.pull_request.head.ref == 'fix/p2-dual-candidates-20261122'))) ||
+       (github.event.pull_request.number == 186 &&
+        github.event.pull_request.head.ref == 'feature/p2-lean120-parallel-20261124' &&
+        github.event.pull_request.base.ref == 'feature/brain-en-inbox-temporary-20261123'))
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -41,6 +44,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python -m unittest discover -s poc/p4-auto-sub -p 'test_p3_tv_*.py' -q
           if ($LASTEXITCODE -ne 0) { throw 'FLAT_P3_TV_SOURCE_TEST_FAIL' }
+          python -m unittest discover -s poc/p4-auto-sub -p 'test_session_loss_contract.py' -q
+          if ($LASTEXITCODE -ne 0) { throw 'FLAT_P4_SESSION_SOURCE_TEST_FAIL' }
           python -m unittest discover -s poc/g1-prod -p 'test_helper_blob_pin.py' -q
           if ($LASTEXITCODE -ne 0) { throw 'FLAT_G1_SOURCE_PIN_FAIL' }
           $builder = Join-Path $env:GITHUB_WORKSPACE 'poc\p4-auto-sub\build-p3-p4-cross-lane-on-runner.ps1'
@@ -66,12 +71,15 @@ jobs:
       github.repository == 'trung-via/torrent-tv-vietsub' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login == 'trung-via' &&
-      github.event.pull_request.base.ref == 'main' &&
-      (startsWith(github.event.pull_request.head.ref, 'feature/r0-flat-') ||
-       (github.event.pull_request.number == 178 &&
-        github.event.pull_request.head.ref == 'fix/full-flow-p2-p4-telemetry-20261121') ||
-       (github.event.pull_request.number == 179 &&
-        github.event.pull_request.head.ref == 'fix/p2-dual-candidates-20261122'))
+      ((github.event.pull_request.base.ref == 'main' &&
+        (startsWith(github.event.pull_request.head.ref, 'feature/r0-flat-') ||
+         (github.event.pull_request.number == 178 &&
+          github.event.pull_request.head.ref == 'fix/full-flow-p2-p4-telemetry-20261121') ||
+         (github.event.pull_request.number == 179 &&
+          github.event.pull_request.head.ref == 'fix/p2-dual-candidates-20261122'))) ||
+       (github.event.pull_request.number == 186 &&
+        github.event.pull_request.head.ref == 'feature/p2-lean120-parallel-20261124' &&
+        github.event.pull_request.base.ref == 'feature/brain-en-inbox-temporary-20261123'))
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 100
     steps:

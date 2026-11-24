@@ -110,9 +110,11 @@ class SignedP3ToOwner:
                     return TriggerDecision("WAIT", "BRAIN_EN_NOT_STAGED")
                 return TriggerDecision("HOLD", "BRAIN_EN_INVALID")
         # The existing P3 gate still enforces owner consent, explicit REQUESTED,
-        # rights, local VI and exact media. It will read the source again;
-        # no trust/filename from the signed event is injected into gate.
-        decision = self._bridge.on_current_selection_accepted(signal)
+        # rights, local VI and exact media. Reuse the trusted local snapshot
+        # already matched to this authenticated request; never re-read a
+        # potentially different film during the same acceptance transaction.
+        decision = self._bridge.on_current_selection_accepted(
+            signal, verified_snapshot=current)
         if decision.status == "DISPATCH":
             self._active_selection = selection
         return decision

@@ -119,7 +119,7 @@ class SignedIngressTests(unittest.TestCase):
     def test_signed_current_play_enqueues_persistent_per_film_job(self):
         result = self.adapter.on_wire(wire(), now_ms=WHEN)
         self.assertEqual(result.status, "DISPATCH")
-        self.assertEqual(self.read_count, 2)
+        self.assertEqual(self.read_count, 1)
         msg, = self.inbox()
         parsed = _parse_event(msg)
         self.assertEqual(parsed.tv_session_id, SESSION)
@@ -134,6 +134,25 @@ class SignedIngressTests(unittest.TestCase):
         # trusted metadata resolver supplies the exact filename on its own.
         self.assertNotIn(NAME, wire().decode())
         self.assertNotIn("owner-windows", wire().decode())
+
+    def test_a_b_a_acceptance_preserves_distinct_media_events(self):
+        for i, (session, torrent, name) in enumerate((
+            (SESSION, TORRENT, NAME),
+            ("d" * 32, "f" * 40, "Other.Movie.2026.1080p.mkv"),
+            ("e" * 32, TORRENT, NAME),
+        )):
+            self.state = snapshot(tv_session_id=session, torrent_hash=torrent,
+                                  video_name=name)
+            now = WHEN + i * 100
+            result = self.adapter.on_wire(
+                wire(tv_session_id=session, torrent_hash=torrent,
+                     nonce=str(i + 1) * 32, sent_at_ms=now), now_ms=now)
+            self.assertEqual(result.status, "DISPATCH")
+        self.assertEqual(self.read_count, 3)
+        events = [_parse_event(path) for path in self.inbox()]
+        self.assertEqual(len(events), 2)
+        self.assertEqual({e.selected_video_filename for e in events},
+                         {NAME, "Other.Movie.2026.1080p.mkv"})
 
     def test_open_video_or_next_only_identifies_without_search(self):
         for kind in ("PLAY_REQUEST_ACCEPTED", "NEXT_QUEUE_ITEM_ACCEPTED"):

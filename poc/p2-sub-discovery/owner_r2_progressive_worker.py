@@ -24,7 +24,9 @@ class R2ProgressiveWorker(AutomaticLean120Worker):
         super().__init__(
             state_root=existing.state_root, profile=existing.profile,
             glossary=existing.glossary, runner=existing.runner,
-            first_window_cues=existing.first_window_cues)
+            first_window_cues=existing.first_window_cues,
+            parallel_batches=existing.parallel_batches,
+            preserve_hydrogen_jobs=existing.preserve_hydrogen_jobs)
         self._scoped = local()
         self._emit = emit
 

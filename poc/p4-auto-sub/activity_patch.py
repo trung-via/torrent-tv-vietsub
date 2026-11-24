@@ -1,7 +1,7 @@
 """Bounded P4 PlayerActivity bridge overlay on *already G1+G2-patched* OMP.
 
 Source only: wires a trusted in-process offer entrypoint to the existing
-G1 bytes import and G2 reload/first-frame/rollback lifecycle. It DOES NOT
+G1 bytes import and a playback-clock cue overlay lifecycle. It DOES NOT
 create a socket, exported Android component or transport a file to the TV.
 """
 from __future__ import annotations
@@ -29,9 +29,146 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private var p4SessionId: String? = null
     private var p4PendingOffer: P4SubtitleOffer? = null
     private var p4PendingRequest: PlayRequest? = null
-    private var p4ExpectedRefresh: PlayRequest? = null
-    private var p4RegistryBefore: P1ProductionSubtitles.AutomaticBefore? = null
-    private var p4RegistryNewBytes: ByteArray? = null
+    private var p4ImportInFlight = false
+    private data class P4OverlayState(
+        val request: PlayRequest, val itemIndex: Int, val playbackEngine: PlayerEngine,
+        val sourceSha256: String, val timeline: P4CueTimeline,
+    )
+    private var p4OverlayState: P4OverlayState? = null
+    private var p4OverlayView: android.widget.TextView? = null
+    private var p4LastMuteMs = 0L
+    private val p4StylePrefs by lazy {
+        applicationContext.getSharedPreferences("p4-vietsub-style", android.content.Context.MODE_PRIVATE)
+    }
+    private fun p4BackgroundEnabled(): Boolean =
+        p4StylePrefs.getBoolean("translucent_background", false)
+    /** One rounded translucent patch per *visual* subtitle line.
+     * TextView's normal background spans the longest line and obscures video. */
+    private fun styledP4Text(text: String): CharSequence {
+        if (!p4BackgroundEnabled() || text.isEmpty()) return text
+        val density = resources.displayMetrics.density
+        val padded = android.text.SpannableString(text)
+        padded.setSpan(object : android.text.style.LineBackgroundSpan {
+            override fun drawBackground(
+                canvas: android.graphics.Canvas, paint: android.graphics.Paint,
+                left: Int, right: Int, top: Int, baseline: Int, bottom: Int,
+                value: CharSequence, start: Int, end: Int, lineNumber: Int,
+            ) {
+                // The callback is per rendered line, including automatic wrapping.
+                // Trim a trailing newline/whitespace so it does not extend the patch.
+                var last = end
+                while (last > start && value[last - 1].isWhitespace()) last--
+                if (last <= start) return
+                val lineWidth = paint.measureText(value, start, last)
+                val padX = 12f * density
+                val padY = 3f * density
+                val center = (left + right) / 2f
+                val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.argb(155, 0, 0, 0)
+                }
+                canvas.drawRoundRect(center - lineWidth / 2f - padX,
+                    top.toFloat() - padY, center + lineWidth / 2f + padX,
+                    bottom.toFloat() + padY, 8f * density, 8f * density, bg)
+            }
+        }, 0, padded.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return padded
+    }
+
+    private fun applyP4Background(view: android.widget.TextView) {
+        // No view-wide rectangle. Rebuild the per-line span without reloading media.
+        val raw = view.text.toString()
+        view.background = null
+        view.text = styledP4Text(raw)
+    }
+
+    private fun clearP4Overlay() {
+        handler.removeCallbacks(p4OverlayTick)
+        p4OverlayState = null
+        p4OverlayView?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        p4OverlayView = null
+    }
+
+    private fun ensureP4OverlayView(): android.widget.TextView {
+        p4OverlayView?.let { return it }
+        val video = findViewById<android.view.View>(R.id.player_video)
+        val parent = video.parent as android.widget.FrameLayout
+        val density = resources.displayMetrics.density
+        val margin = (32 * density).toInt()
+        val view = android.widget.TextView(this).apply {
+            gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 26f
+            setShadowLayer(4f, 1f, 2f, android.graphics.Color.BLACK)
+            maxWidth = resources.displayMetrics.widthPixels - 2 * margin
+            isFocusable = false
+            isClickable = false
+            visibility = android.view.View.GONE
+        }
+        val params = android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL)
+        params.bottomMargin = (54 * density).toInt()
+        parent.addView(view, parent.indexOfChild(video) + 1, params)
+        p4OverlayView = view
+        applyP4Background(view)
+        return view
+    }
+
+    /** Restore the exact movie's validated cached AI cues into the SAME overlay.
+     * No player reload and no P4 ledger acknowledgement on local restoration. */
+    private fun restoreP4SavedOverlay() {
+        if (p4OverlayState != null || p4ImportInFlight ||
+            closedSent || isFinishing || isDestroyed || !::session.isInitialized ||
+            engine !is VlcEngine) return
+        val r = session.request ?: return
+        val idx = index()
+        val saved = P1ProductionSubtitles.savedAutomaticOverlay(applicationContext, r, idx)
+            ?: return
+        val timeline = try {
+            P4SignedReceiver.parseTimeline(saved.first, saved.second)
+        } catch (_: IllegalArgumentException) { return }
+        if (session.request !== r || index() != idx || engine !is VlcEngine ||
+            p4OverlayState != null) return
+        ensureP4OverlayView()
+        p4OverlayState = P4OverlayState(r, idx, engine, "saved-local", timeline)
+        // Suppress native cached sidecar before the first overlay tick.
+        engine.selectSubtitle(null)
+        handler.removeCallbacks(p4OverlayTick)
+        handler.post(p4OverlayTick)
+        android.util.Log.i("TorrentTV-Vietsub", "P4_TV_SAVED_OVERLAY_RESTORED")
+    }
+
+    private val p4OverlayTick = object : Runnable {
+        override fun run() {
+            val state = p4OverlayState ?: return
+            if (closedSent || isFinishing || isDestroyed ||
+                !::session.isInitialized || session.request !== state.request ||
+                index() != state.itemIndex || engine !== state.playbackEngine ||
+                engine !is VlcEngine ||
+                P1ProductionSubtitles.automaticChoice(applicationContext,
+                    state.request, state.itemIndex) != "ON") {
+                clearP4Overlay()
+                return
+            }
+            val view = p4OverlayView ?: return
+            // Do not display two subtitle tracks. Direct engine selection
+            // does not invoke the user's PlayerSession track-choice callback.
+            val nativeSelected = engine.subtitleTracks().any { it.selected }
+            if (nativeSelected) {
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - p4LastMuteMs >= 500L) {
+                    p4LastMuteMs = now
+                    engine.selectSubtitle(null)
+                }
+            }
+            val text = if (nativeSelected || session.error != null) "" else
+                state.timeline.textAt(engine.positionMs)
+            if (view.text.toString() != text) view.text = styledP4Text(text)
+            view.visibility = if (text.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+            handler.postDelayed(this, 100L)
+        }
+    }
 
     private data class P4LanScope(
         val host: String, val port: Int, val sessionId: String,
@@ -190,6 +327,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                 applicationContext, current, index(), false)
         }
         unbindP4Session()
+        clearP4Overlay()
     }
 
     /** Only a later, private authenticated pairing flow may call this. */
@@ -214,23 +352,11 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         return true
     }
 
-    /** Discard an unacknowledged AI G1 import, including its SHA/ext registry. */
-    private fun restoreP4RegistryIfPending() {
-        val before = p4RegistryBefore
-        val applied = p4RegistryNewBytes
-        if (before != null && applied != null) {
-            P1ProductionSubtitles.rollbackAutomatic(applicationContext, before, applied)
-        }
-        p4RegistryBefore = null
-        p4RegistryNewBytes = null
-    }
-
     private fun abortP4Pending() {
         val offer = p4PendingOffer
         if (offer != null) p4SignedReceiver?.abortPending(offer.version, offer.payloadSha256)
         p4PendingOffer = null
         p4PendingRequest = null
-        p4ExpectedRefresh = null
     }
 
     private fun unbindP4Session() {
@@ -241,40 +367,15 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         p4LanScope?.readSecret?.fill(0)
         p4LanScope = null
         p4LanInFlight = false
-        restoreP4RegistryIfPending()
         abortP4Pending()
         p4SignedReceiver = null
         p4SessionId = null
     }
 
-    /** G2 first-frame callback already proved the refreshed PlayRequest is current. */
-    private fun acknowledgeP4FirstFrame(): Boolean {
-        val offer = p4PendingOffer ?: return false
-        val receiver = p4SignedReceiver ?: return false
-        val current = session.request ?: return false
-        if (current !== p4ExpectedRefresh) return false
-        val mediaKey = P1ProductionSubtitles.mediaKey(current, index())
-        val choice = P1ProductionSubtitles.automaticChoice(applicationContext, current, index())
-        val acknowledged = try {
-            receiver.acknowledgeFirstFrame(
-                p4SessionId.orEmpty(), mediaKey.orEmpty(), choice,
-                if (engine is VlcEngine) "VLC" else "OTHER",
-                offer.version, offer.payloadSha256
-            ) == "APPLIED_TO_G2"
-        } catch (_: IllegalArgumentException) { false }
-        if (!acknowledged) return false
-        // Only after the persisted first-frame ACK is this new registry valid.
-        p4RegistryBefore = null
-        p4RegistryNewBytes = null
-        abortP4Pending()
-        return true
-    }
-
     /**
      * Trusted in-process P4 handoff entrypoint, NOT an exported TV listener.
-     * An authenticated offer may start a background G1 file import, followed
-     * by the same-item G2 player reload. The receiver is still pending until
-     * onFirstFrameShown validates the new active VLC frame.
+     * An authenticated offer starts a background G1 file import, then swaps
+     * the Activity's cue timeline without touching the playback session.
      */
     internal fun receiveP4Revision(offer: P4SubtitleOffer): String {
         if (Looper.myLooper() != Looper.getMainLooper() ||
@@ -292,82 +393,63 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                 offer, sid, nowKey, choice,
                 if (engine is VlcEngine) "VLC" else "OTHER"
             ) { bytes, format ->
-                if (g2Recovery != null || p4PendingOffer != null ||
+                if (g2Recovery != null || p4PendingOffer != null || p4ImportInFlight ||
                     r.engine != EngineMode.VLC || engine !is VlcEngine ||
                     format !in listOf("srt", "vtt")) {
                     false
                 } else {
+                    val timeline = receiver.parseTimeline(bytes, format)
+                    val old = p4OverlayState
+                    if (old != null && old.request === r && old.itemIndex == idx &&
+                        old.sourceSha256 == offer.sourceSha256 &&
+                        !timeline.extends(old.timeline)) return@receive false
+                    // Create the view before any durable import; no playback reload.
+                    ensureP4OverlayView()
+                    val playbackEngine = engine
                     p4PendingOffer = offer
                     p4PendingRequest = r
+                    p4ImportInFlight = true
                     Thread {
-                        // Snapshot BEFORE G1's registry replaces and deletes old bytes.
-                        val snapshot = G2RefreshRecovery.capture(applicationContext, r, idx)
-                        val before = P1ProductionSubtitles.snapshotAutomaticBefore(
-                            applicationContext, r, idx, nowKey)
+                        val before = try {
+                            P1ProductionSubtitles.snapshotAutomaticBefore(
+                                applicationContext, r, idx, nowKey)
+                        } catch (_: Exception) { null }
                         val imported = try {
-                            snapshot != null && before != null &&
-                                P1ProductionSubtitles.importAutomaticBytes(
-                                    applicationContext, bytes, r, idx, nowKey)
+                            before != null && P1ProductionSubtitles.importAutomaticBytes(
+                                applicationContext, bytes, r, idx, nowKey)
                         } catch (_: Exception) { false }
                         runOnUiThread {
-                            if (p4PendingOffer !== offer || p4PendingRequest !== r ||
-                                closedSent || isFinishing || isDestroyed ||
-                                !::session.isInitialized || session.request !== r ||
-                                !G2RefreshDecision.matchesCurrent(
+                            p4ImportInFlight = false
+                            val current = p4PendingOffer === offer &&
+                                p4PendingRequest === r && p4SignedReceiver === receiver &&
+                                !closedSent && !isFinishing && !isDestroyed &&
+                                ::session.isInitialized && session.request === r &&
+                                engine === playbackEngine &&
+                                G2RefreshDecision.matchesCurrent(
                                     nowKey, P1ProductionSubtitles.mediaKey(session.request, index()),
-                                    idx, index(), engine is VlcEngine, closedSent) ||
+                                    idx, index(), engine is VlcEngine, closedSent) &&
                                 P1ProductionSubtitles.automaticChoice(
-                                    applicationContext, r, idx) != "ON" ||
-                                !imported || snapshot == null || before == null) {
+                                    applicationContext, r, idx) == "ON"
+                            val acknowledged = if (current && imported && before != null) {
+                                try {
+                                    receiver.acknowledgeOverlayInstalled(sid, nowKey, "ON", "VLC",
+                                        offer.version, offer.payloadSha256) == "OVERLAY_INSTALLED"
+                                } catch (_: Exception) { false }
+                            } else false
+                            if (!acknowledged) {
                                 if (imported && before != null) {
                                     P1ProductionSubtitles.rollbackAutomatic(
                                         applicationContext, before, bytes)
                                 }
-                                snapshot?.restoreOldFile()
-                                abortP4Pending()
+                                receiver.abortPending(offer.version, offer.payloadSha256)
+                                if (p4PendingOffer === offer) abortP4Pending()
                             } else {
-                                val fresh = G2RefreshInPlace.prepare(applicationContext, r, idx)
-                                if (fresh == null) {
-                                    P1ProductionSubtitles.rollbackAutomatic(
-                                        applicationContext, before, bytes)
-                                    snapshot.restoreOldFile()
-                                    abortP4Pending()
-                                } else {
-                                    p4RegistryBefore = before
-                                    p4RegistryNewBytes = bytes.clone()
-                                    try {
-                                        commitPendingSeek()
-                                        val ms = engine.positionMs.coerceAtLeast(0L)
-                                        val paused = !engine.playWhenReady
-                                        val audio = engine.audioTracks().firstOrNull { it.selected }
-                                        val audioPick = audio?.let {
-                                            TrackPick.of(it.label?.trim().orEmpty(),
-                                                it.language?.trim().orEmpty())
-                                        } ?: fresh.audioPick
-                                        val queue = fresh.queue.mapIndexed { i, item ->
-                                            item.copy(resumeMs = session.resumeOf(i))
-                                        }
-                                        val priorQueue = r.queue.mapIndexed { i, item ->
-                                            item.copy(resumeMs = session.resumeOf(i))
-                                        }
-                                        val newRequest = fresh.copy(
-                                            queue = queue, startAtMs = ms, audioPick = audioPick)
-                                        val previous = r.copy(
-                                            queue = priorQueue, startAtMs = ms, audioPick = audioPick)
-                                        snapshot.arm(newRequest, previous, paused)
-                                        p4ExpectedRefresh = newRequest
-                                        g2Recovery = snapshot
-                                        session.load(newRequest)
-                                        if (paused) engine.pause()
-                                        if (!paused) handler.postDelayed(g2RecoveryTimeout, 25_000L)
-                                        showMessage("Đang tự cập nhật Vietsub AI...", false)
-                                    } catch (_: Exception) {
-                                        if (!rollbackG2Refresh()) {
-                                            restoreP4RegistryIfPending()
-                                            abortP4Pending()
-                                        }
-                                    }
-                                }
+                                p4OverlayState = P4OverlayState(r, idx, playbackEngine,
+                                    offer.sourceSha256, timeline)
+                                abortP4Pending()
+                                handler.removeCallbacks(p4OverlayTick)
+                                handler.post(p4OverlayTick)
+                                android.util.Log.i("TorrentTV-Vietsub", "P4_TV_OVERLAY_INSTALLED")
                             }
                         }
                     }.start()
@@ -396,6 +478,14 @@ P4_MENU_ROWS = """        add(if (p4LanScope != null || p4ActivationInFlight)
         }
         // Explicit device-level revocation is an optional advanced action,
         // never a prerequisite for enabling Vietsub on the current movie.
+        add(if (p4BackgroundEnabled()) "Nền mờ phụ đề: Bật"
+                else "Nền mờ phụ đề: Tắt", "AD01.15") {
+            p4StylePrefs.edit().putBoolean(
+                "translucent_background", !p4BackgroundEnabled()).apply()
+            p4OverlayView?.let { applyP4Background(it) }
+            showMessage(if (p4BackgroundEnabled()) "Đã bật nền mờ phụ đề."
+                else "Đã tắt nền mờ phụ đề.", false)
+        }
         val savedPc = P4PairingStore(applicationContext).load()
         if (savedPc != null) {
             savedPc.deviceSecret.fill(0)
@@ -421,22 +511,20 @@ def patch_activity(original: str) -> str:
         FIELD_ANCHOR: (ACTIVITY_BRIDGE + FIELD_ANCHOR, "FIELD"),
         CLEAR_ANCHOR: (CLEAR_ANCHOR.replace(
             "        g2Recovery = null",
-            "        g2Recovery = null\n        restoreP4RegistryIfPending()\n        abortP4Pending()"), "CLEAR"),
-        FRAME_ANCHOR: (FRAME_ANCHOR.replace(
-            "            clearG2Recovery()",
-            "            if (p4PendingOffer == null || acknowledgeP4FirstFrame()) {\n" +
-            "                clearG2Recovery()\n            } else {\n" +
-            "                rollbackG2Refresh()\n            }"), "FRAME"),
+            "        g2Recovery = null\n        abortP4Pending()"), "CLEAR"),
+        FRAME_ANCHOR: (FRAME_ANCHOR, "FRAME"),
         DESTROY_ANCHOR: (DESTROY_ANCHOR.replace(
             "        handler.removeCallbacksAndMessages(null)",
-            "        unbindP4Session()\n        handler.removeCallbacksAndMessages(null)"), "DESTROY"),
+            "        clearP4Overlay()\n        unbindP4Session()\n        handler.removeCallbacksAndMessages(null)"), "DESTROY"),
         LOAD_ANCHOR: (LOAD_ANCHOR.replace(
             "        clearG2Recovery()",
             "        P4OwnerBootstrap.consume(applicationContext)\n" +
-            "        unbindP4Session()\n        clearG2Recovery()"), "LOAD"),
+            "        clearP4Overlay()\n        unbindP4Session()\n" +
+            "        clearG2Recovery()"), "LOAD"),
         ITEM_ANCHOR: (ITEM_ANCHOR.replace(
             "        clearG2Recovery()",
-            "        unbindP4Session()\n        clearG2Recovery()"), "ITEM"),
+            "        clearP4Overlay()\n        unbindP4Session()\n" +
+            "        clearG2Recovery()"), "ITEM"),
         MENU_ANCHOR: (MENU_ANCHOR + "\n" + P4_MENU_ROWS, "MENU"),
     }
     text = original

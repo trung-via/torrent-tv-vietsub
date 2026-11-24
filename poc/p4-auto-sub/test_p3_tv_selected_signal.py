@@ -24,10 +24,8 @@ def fake_p4_activity() -> str:
 class PlayerActivity {
     private var g2Recovery: G2RefreshRecovery? = null
     internal fun receiveP4Revision(offer: P4SubtitleOffer): String { return "" }
-    private fun acknowledgeP4FirstFrame(): Boolean {
-        if (!acknowledged) return false
-        // Only after the persisted first-frame ACK is this new registry valid.
-        return true
+    private fun installP4Overlay() {
+        android.util.Log.i("TorrentTV-Vietsub", "P4_TV_OVERLAY_INSTALLED")
     }
     private fun receiveP4CurrentOffer(): String {
         val choice = P1ProductionSubtitles.automaticChoice(applicationContext, r, idx)
@@ -102,6 +100,9 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('session.load(production.request, next)\n        P3SelectedMediaPublisher.accepted(', self.patched)
         self.assertIn('if (!switcher.goTo(i, itemTransition?.picks)) return\n        P3SelectedMediaPublisher.accepted(', self.patched)
         self.assertEqual(self.patched.count("P3SelectedMediaPublisher.accepted("), 2)
+        self.assertIn('"PLAY_REQUEST_ACCEPTED", engine is VlcEngine)\n        restoreP4SavedOverlay()', self.patched)
+        self.assertIn('"NEXT_QUEUE_ITEM_ACCEPTED", engine is VlcEngine)\n        restoreP4SavedOverlay()', self.patched)
+        self.assertEqual(self.patched.count("restoreP4SavedOverlay()"), 2)
         self.assertIn('P3SelectedMediaPublisher.closed(applicationContext)', self.patched)
         self.assertNotIn("P3SelectedMediaPublisher.accepted(", fake_p4_activity())
 
@@ -191,7 +192,7 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('val sampledAt = android.os.SystemClock.elapsedRealtime()', self.kt)
         self.assertIn('STATUS_TIMEOUT_MS = 2_000L', self.kt)
         for stage in ('P4_TV_ACTIVATE_NOT_READY', 'P4_TV_SESSION_ACCEPTED',
-                      'P4_TV_OFFER_RECEIVED_UNVERIFIED', 'P4_TV_G2_FIRST_FRAME_ACK'):
+                      'P4_TV_OFFER_RECEIVED_UNVERIFIED', 'P4_TV_OVERLAY_INSTALLED'):
             self.assertIn(stage, self.patched)
         self.assertNotIn('item.title', self.kt)
         self.assertNotIn('"video_filename"', self.kt)
@@ -229,6 +230,23 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn("if (result == null)", self.patched)
         self.assertIn("if (same) {", self.patched)
 
+    def test_g1_performance_candidate_build_uses_exact_owned_stacked_route(self):
+        workflow = (HERE.parents[1] / '.github/workflows/tv-flat-integration-android-ci.yml').read_text('utf-8')
+        builder = (HERE / 'build-p3-p4-cross-lane-on-runner.ps1').read_text('utf-8')
+        for anchor in ('feature/p2-lean120-parallel-20261124',
+                       'feature/brain-en-inbox-temporary-20261123'):
+            self.assertEqual(workflow.count(anchor), 2)
+            self.assertIn(anchor, builder)
+        self.assertIn('$requestedPr -eq 186', builder)
+        self.assertIn('$flat,$g1Performance', builder)
+        self.assertIn('receiver.acknowledgeOverlayInstalled(', builder)
+        self.assertIn('state.timeline.textAt(engine.positionMs)', builder)
+        self.assertIn('STOP: obsolete automatic reload hook still present', builder)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
+        self.assertIn("github.event.pull_request.user.login == 'trung-via'", workflow)
+        self.assertNotIn('pull_request_target:', workflow)
+        self.assertNotIn('adb install', builder.lower())
+
     def test_exact_pr178_build_only_ci_gate_without_adb_side_effect(self):
         repo = HERE.parents[1]
         workflow = (repo / '.github/workflows/tv-flat-integration-android-ci.yml').read_text('utf-8')
@@ -262,6 +280,17 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('"PC đã nhận tín hiệu tìm Vietsub. Đang chờ phụ đề..."', self.patched)
         self.assertIn('"PC chưa xác nhận yêu cầu Vietsub. Sẽ tự thử lại."', self.patched)
         self.assertIn('p3LastDelivery = null', self.patched)
+
+    def test_viewer_retry_refreshes_state_before_selection_at_send_time(self):
+        publisher = self.kt.split('private fun enqueue(', 1)[1].split(
+            'private fun postOnce(', 1)[0]
+        self.assertLess(publisher.index('postStatusOnce(paired, selected, true, "REQUESTED",'),
+                        publisher.index('delivered = postOnce(paired, selected, kind)'))
+        self.assertIn('statusSequence.incrementAndGet()', publisher)
+        status = self.kt.split('private fun enqueueStatus(', 1)[1].split(
+            'private fun randomHex', 1)[0]
+        self.assertLess(status.index('queue.execute {'),
+                        status.index('statusSequence.incrementAndGet()'))
 
     def test_manual_off_other_invalidates_inflight_p4_before_source_ready(self):
         self.assertIn("P1ProductionSubtitles.automaticChoice(", self.patched)

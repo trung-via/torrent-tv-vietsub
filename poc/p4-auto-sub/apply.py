@@ -152,8 +152,10 @@ NEW_COMMIT = '''        val p = prefs(ctx)
         }
         val old = p.getString("sha.$k", null)
         val oldExt = p.getString("ext.$k", null)
-        if (!p.edit().putString("sha.$k", v.sha).putString("ext.$k", v.ext)
-                .putString("selection.$k", "on").commit()) {'''
+        val edit = p.edit().putString("sha.$k", v.sha).putString("ext.$k", v.ext)
+            .putString("selection.$k", "on")
+        if (!automatic) edit.remove("ai.$k")
+        if (!edit.commit()) {'''
 
 
 def patch_g1(text: str) -> str:
@@ -216,7 +218,28 @@ def patch_g1(text: str) -> str:
 '''
     if text.count(choice_anchor) != 1:
         raise ValueError("P4_AUTOMATIC_CHOICE_ANCHOR_INVALID")
-    text = text.replace(choice_anchor, choice_method + choice_anchor, 1)
+    saved_overlay = '''    /** Reopen only an exact saved AI subtitle for the same VLC movie.
+     * The native sidecar is never trusted by filename alone. */
+    @Synchronized internal fun savedAutomaticOverlay(
+        ctx: Context, r: PlayRequest?, i: Int,
+    ): Pair<ByteArray, String>? {
+        val k = mediaKey(r, i) ?: return null
+        if (automaticChoice(ctx, r, i) != "ON") return null
+        val p = prefs(ctx)
+        if (p.getString("selection.$k", null) != "on") return null
+        val digest = p.getString("sha.$k", null) ?: return null
+        val ext = p.getString("ext.$k", null) ?: return null
+        if (!digestRx.matches(digest) || ext !in listOf("srt", "vtt")) return null
+        val f = file(ctx, k, Validated(ext, digest))
+        return try {
+            if (!f.isFile || !f.canRead() || f.length() !in 1L..MAX.toLong()) null
+            else f.readBytes().takeIf { validate(it) == Validated(ext, digest) }
+                ?.let { Pair(it, ext) }
+        } catch (_: Exception) { null }
+    }
+
+'''
+    text = text.replace(choice_anchor, choice_method + saved_overlay + choice_anchor, 1)
     if text.count("fun importSelected(") != 1 or text.count("fun importAutomaticBytes(") != 1:
         raise ValueError("P4_IMPORT_ENTRYPOINT_INVALID")
     return text
