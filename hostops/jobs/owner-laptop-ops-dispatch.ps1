@@ -129,7 +129,7 @@ if ($manifest.operation -ceq 'tr-ttv-teacher-receipt-readonly') {
     $orig = (& git show ($request.source_commit + ':hostops/laptop-ops/manifests/current.json') | Out-String)
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($orig)) { throw 'HOSTOPS_TEACHER_SOURCE_NOT_AVAILABLE' }
     $origManifest = $orig | ConvertFrom-Json
-    if ($origManifest.operation -cne 'agy-native-browser-readout-1124' -or $origManifest.script_path -cne 'hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1') { throw 'HOSTOPS_TEACHER_REQUEST_WRONG_OPERATION' }
+    if ($origManifest.operation -cne 'agy-native-browser-readout-1124' -or $origManifest.script_path -cnotin @('hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1','hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1')) { throw 'HOSTOPS_TEACHER_REQUEST_WRONG_OPERATION' }
     Write-Output ('HOSTOPS_TEACHER_SOURCE=' + $request.source_commit)
     Write-Output ('HOSTOPS_TEACHER_NONCE=' + $request.nonce)
     $receipt=$null
@@ -1278,7 +1278,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
 }
 # A Teacher wait is only an observation window. Keep the original request/nonce.
 if ($manifest.operation -ceq 'agy-native-browser-readout-1124' -and
-    $manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1') {
+    $manifest.script_path -cin @('hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1','hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1')) {
     Write-Output ('HOSTOPS_TEACHER_SOURCE=' + $commit)
     Write-Output ('HOSTOPS_TEACHER_NONCE=' + $nonce)
     Write-Output 'HOSTOPS_TEACHER_STATE=PENDING_RECEIPT_NO_RETRY'
