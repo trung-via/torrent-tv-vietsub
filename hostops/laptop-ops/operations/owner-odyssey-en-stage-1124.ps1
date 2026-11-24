@@ -66,7 +66,7 @@ def main():
         stage_brain_english(cache_root=cache,source_fingerprint=fp,video_name=media.filename,release_name=release,source_page=page,srt_file=src)
         status="STAGED"
     asset=acquire_brain_english(media,cache)
-    require(asset.sha256==expected and asset.cue_count==2009,"ODYSSEY_READBACK_FAILED")
+    require(asset.sha256==expected and asset.cues==2009,"ODYSSEY_READBACK_FAILED")
     print("ODYSSEY_"+status+"_EXACT_MEDIA")
 try: main()
 except Exception as e:
