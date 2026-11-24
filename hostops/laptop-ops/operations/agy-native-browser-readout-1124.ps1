@@ -1,200 +1,113 @@
-# Brain-owned catalog search using normal Chrome website, no AGY or download.
+# Reconcile exact trained attempt with Chrome download records and new subtitle artifacts.
+# No browser interaction, network call, file removal or production change.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
-$owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
-$root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('brain-cdp9555-detail-'+$rq.nonce)
-New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
-$code='CDP9555_NOT_READY'
-$profile=Join-Path $root 'CDP9555Profile'
-function ListenPid([int]$port){
- @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
-}
-$before9444=@(ListenPid 9444)
-$existing=@(ListenPid 9555)
-$started=$false
-if($false -and $existing.Count -eq 0){
- $chrome=@(
-   (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
-   (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
- )|Where-Object {Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
- if($chrome){
-  New-Item -ItemType Directory -Path $profile -Force|Out-Null
-  $profileArg='--user-data-dir="'+$profile+'"'
-  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','about:blank')|Out-Null
-  $started=$true
-  for($i=0;$i -lt 20;$i++){
-   Start-Sleep -Milliseconds 500
-   $existing=@(ListenPid 9555)
-   if($existing.Count -gt 0){break}
-  }
- }else{$code='CDP9555_CHROME_NOT_FOUND'}
-}
-$verified=$false
-if($existing.Count -eq 1){
- $proc=Get-CimInstance Win32_Process -Filter ("ProcessId="+$existing[0])
- $listeners=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
- if($proc -and $proc.Name -eq 'chrome.exe' -and $proc.CommandLine -match '(?:^|\s)--remote-debugging-port=9555(?:\s|$)' -and $proc.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}else{$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
-}elseif($existing.Count -gt 1){$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
-if($verified){
+$prior=@(Get-ChildItem -LiteralPath (Join-Path $spool 'History') -Filter 'receipt-*.json' -File | ForEach-Object {
+ if($_.Length -le 2048 -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+  try{$r=Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+   if($r.source_commit -ceq '2a439bf383842021ffdc6e5a9fc6fc221ed8c21e' -and $r.operation -ceq 'agy-browser-headless-control-1124' -and $r.result -ceq 'SUCCESS' -and $r.nonce -cmatch '^[a-f0-9]{32}$'){$r}
+  }catch{}
+ }
+})
+$code='ZIPQA_PRIOR_NOT_UNIQUE'
+if($prior.Count -eq 1){
+ $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
+ $run=Join-Path $root ('agy-cdp9555-mcp-stdio-'+$prior[0].nonce)
  $py=@'
-import sys,pathlib,os,json,re,subprocess,time,urllib.request,http.server,threading,secrets,queue
-owner,run=map(pathlib.Path,sys.argv[1:])
-def classify(value,prefix):
-    t=json.dumps(value,ensure_ascii=False).lower()
-    rules=[("ARG",r"invalid (?:arguments|params|parameters)|validation|expected number|required|invalid_type"),("PAGE",r"no page|page.{0,25}(?:not found|closed)|target closed|no selected"),("A11Y",r"accessibility|a11y|snapshot"),("TIME",r"timeout|timed out"),("PERM",r"permission|not allowed|denied"),("PROTO",r"protocol error|session closed")]
-    for label,pat in rules:
-        if re.search(pat,t):return prefix+"_"+label
-    return prefix+"_OTHER"
-class MCP:
-    def __init__(self,work):
-        self.q=queue.Queue()
-        self.seq=0
-        self.err=open(work/"mcp-stderr.txt","w",encoding="utf-8")
-        self.p=subprocess.Popen(["cmd.exe","/d","/c","npx","-y","chrome-devtools-mcp@1.13.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics"],cwd=work,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.err,text=True,encoding="utf-8",errors="replace",bufsize=1)
-        def reader():
-            for line in self.p.stdout:
-                try:
-                    x=json.loads(line)
-                    if isinstance(x,dict):self.q.put(x)
-                except ValueError:pass
-            self.q.put(None)
-        threading.Thread(target=reader,daemon=True).start()
-    def send(self,method,params=None,notification=False,timeout=25):
-        x={"jsonrpc":"2.0","method":method}
-        if params is not None:x["params"]=params
-        if not notification:
-            self.seq+=1
-            x["id"]=self.seq
-        self.p.stdin.write(json.dumps(x)+"\n")
-        self.p.stdin.flush()
-        if notification:return {}
-        until=time.monotonic()+timeout
-        while True:
-            remain=until-time.monotonic()
-            if remain<=0:raise TimeoutError(method)
-            try:y=self.q.get(timeout=remain)
-            except queue.Empty:raise TimeoutError(method)
-            if y is None:raise EOFError(method)
-            if y.get("id")!=self.seq:continue
-            if "error" in y:raise RuntimeError(classify(y["error"],"RPC"))
-            r=y.get("result")
-            if not isinstance(r,dict):raise RuntimeError("INVALID")
-            if r.get("isError"):raise RuntimeError(classify(r,"TOOL"))
-            return r
-    def call(self,name,args=None,timeout=30):
-        return self.send("tools/call",{"name":name,"arguments":args or {}},timeout=timeout)
-    def close(self):
-        # Closing stdio disconnects the MCP server; never call browser.close.
-        try:self.p.stdin.close()
-        except Exception:pass
-        try:self.p.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self.p.terminate()
-            try:self.p.wait(timeout=5)
-            except subprocess.TimeoutExpired:self.p.kill()
-        self.err.close()
-def main():
-    client=None
-    page_id=None
-    code="BRAIN_SEARCH_UNKNOWN"
-    marker="about:blank#TTV_BRAIN_"+secrets.token_hex(12)
-    def ident(r):
-        def walk(v):
-            if isinstance(v,dict):
-                if v.get("url")==marker:
-                    for k in ("id","pageId","page_id"):
-                        n=v.get(k)
-                        if isinstance(n,int) or isinstance(n,str) and n.isdecimal():return int(n)
-                for x in v.values():
-                    n=walk(x)
-                    if n is not None:return n
-            elif isinstance(v,list):
-                for x in v:
-                    n=walk(x)
-                    if n is not None:return n
-        n=walk(r.get("structuredContent",{}))
-        if n is not None:return n
-        for item in r.get("content",[]):
-            for line in item.get("text","").splitlines():
-                m=re.match(r"^\s*(?:[-*]\s*)?(\d+)\s*:\s*(.*)$",line)
-                if m and marker in m.group(2):return int(m.group(1))
-    def txt(r):return "\n".join(x.get("text","") for x in r.get("content",[]) if isinstance(x,dict))
+import sys,pathlib,json,re,sqlite3,zipfile,os,hashlib,datetime,urllib.parse
+root,run=map(pathlib.Path,sys.argv[1:])
+def read_json(p):
     try:
-        client=MCP(run)
-        client.send("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ttv-brain-catalog","version":"1.0"}},timeout=50)
-        client.send("notifications/initialized",notification=True)
-        schemas={x["name"]:x.get("inputSchema",{}) for x in client.send("tools/list").get("tools",[]) if isinstance(x,dict)}
-        page_id=ident(client.call("new_page",{"url":marker},timeout=25))
-        if page_id is None:page_id=ident(client.call("list_pages"))
-        if page_id is None:raise RuntimeError("NO_ID")
-        def call(name,args):
-            schema=schemas[name]
-            if "pageId" in schema.get("properties",{}):args={"pageId":page_id,**args}
-            return client.call(name,args)
-        # Use exact candidate URLs observed by the previous independent catalog run.
-        spool=pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"History"
-        prior=[]
-        for f in spool.glob("receipt-*.json"):
-            try:
-                rr=json.loads(f.read_text(encoding="utf-8-sig"))
-                if rr.get("source_commit")=="3fdb7db8ef21366196a5e92c69ff58ea0f23d52f" and rr.get("result")=="SUCCESS" and re.fullmatch(r"[a-f0-9]{32}",rr.get("nonce","")):prior.append(rr)
-            except (ValueError,OSError):pass
-        if len(prior)!=1:raise RuntimeError("PRIOR")
-        previous=run.parent/("brain-cdp9555-catalog-"+prior[0]["nonce"])/"catalog-private.txt"
-        raw=previous.read_text(encoding="utf-8")
-        data=None
-        for candidate in [raw]+re.findall(r"(?s)\x60\x60\x60(?:json)?\s*(.*?)\s*\x60\x60\x60",raw):
-            try:
-                obj=json.loads(candidate)
-                if isinstance(obj,str):obj=json.loads(obj)
-                if isinstance(obj,dict) and "rows" in obj:data=obj;break
-            except (ValueError,TypeError):pass
-        if not data:raise RuntimeError("PRIOR")
-        tags=[]
-        for wanted in ("14109322","14104608"):
-            matches=[(u,x["text"]) for x in data["rows"] for u in x["urls"] if re.match(r"https://(?:www\.)?opensubtitles\.org/en/subtitles/"+wanted+r"(?:/|$)",u)]
-            if not matches:
-                tags.append("MISSING");continue
-            url,row=matches[0]
-            call("navigate_page",{"url":url})
-            snap=txt(call("take_snapshot",{}))
-            if re.search(r"access denied|verify you are human|checking your browser|captcha|429 too many|403 forbidden|401 unauthorized",snap,re.I):
-                tags.append("DENY");break
-            (run/("detail-"+wanted+".txt")).write_text(snap,encoding="utf-8")
-            combined=row+"\n"+snap
-            group="OTHER"
-            for label,pat in [("AMZN",r"\bAMZN\b"),("MA",r"\bMA[ .-]WEB"),("ETHEL",r"\bETHEL\b"),("KYO",r"\bKyoGo\b"),("RDNYB",r"\bRDNYB\b"),("PAHE",r"\bPahe\b"),("ASTRID",r"\bASTRiD\b"),("BYNDR",r"\bBYNDR\b")]:
-                if re.search(pat,row,re.I):group=label;break
-            fps=int(bool(re.search(r"23[.,]976|24000/1001",combined,re.I)))
-            runtime=int(bool(re.search(r"02:25(?::00)?|145\s*(?:min|minute)|2\s*h(?:ours)?\s*25",combined,re.I)))
-            english=int(bool(re.search(r"\bEnglish\b|sublanguageid-eng",combined,re.I)))
-            web=int(bool(re.search(r"\bWEB[- .]?(?:DL|Rip)\b|\bAMZN\b|\bETHEL\b",row,re.I)))
-            tags.append(f"{group}F{fps}T{runtime}E{english}W{web}")
-        code="BRDETAIL_"+"_".join(tags)
-    except TimeoutError:code="BRAIN_SEARCH_TIMEOUT"
-    except Exception as e:
-        code="BRAIN_SEARCH_"+(str(e) if re.fullmatch(r"(?:RPC|TOOL)_[A-Z]+|NO_ID",str(e)) else "LOCALERR")
-    finally:
-        if client:
-            if page_id is not None:
-                try:client.call("close_page",{"pageId":page_id},timeout=10)
-                except Exception:pass
-            client.close()
-        print(code)
-if __name__=="__main__":main()
+        if p.is_file() and not p.is_symlink() and p.stat().st_size<4194304:return json.loads(p.read_text(encoding="utf-8-sig"))
+    except (OSError,ValueError):pass
+    return {}
+def movie(s):return bool(re.search(r"spider[\W_]*man|brand[\W_]*new[\W_]*day|14104608|14109322",s,re.I))
+rr=read_json(run/"RESULT.json")
+if not isinstance(rr,dict):rr={}
+if not run.is_dir():
+    print("ZIPQA_RUN_MISSING");sys.exit(0)
+# Exact workflow interval (UTC), with 30 s completion tolerance.
+start=datetime.datetime.fromisoformat("2026-11-24T14:27:39+00:00").timestamp()
+end=datetime.datetime.fromisoformat("2026-11-24T14:32:23+00:00").timestamp()
+profile=root/"CDP9555Profile"/"Default"
+pref=read_json(profile/"Preferences")
+default=pathlib.Path.home()/"Downloads"
+dirs={default,run/"downloads"}
+try:
+    p=pathlib.Path(pref["download"]["default_directory"])
+    if p.is_absolute() and p.is_dir():dirs.add(p)
+except (KeyError,TypeError):pass
+try:
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
+        p=pathlib.Path(os.path.expandvars(winreg.QueryValueEx(k,"{374DE290-123F-4565-9164-39C4925E467B}")[0]))
+        if p.is_absolute() and p.is_dir():dirs.add(p)
+except OSError:pass
+files={}
+def add(p,source,ident):
+    try:
+        if not p.is_file() or p.is_symlink() or p.suffix.lower() not in (".zip",".srt") or not 0<p.stat().st_size<=10000000:return
+        k=str(p.resolve()).casefold()
+        prev=files.get(k)
+        files[k]=(p,max(source,prev[1] if prev else 0),max(ident,prev[2] if prev else 0))
+    except OSError:pass
+dbstate=0; records=0; dl=0; complete=0
+try:
+    db=profile/"History"
+    if db.is_file():
+        c=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True,timeout=2)
+        c.execute("PRAGMA query_only=ON")
+        lo=int((start+11644473600)*1000000);hi=int((end+11644473600)*1000000)
+        # Read only download entries within this exact test interval.
+        for did,target,state,ref,tab,total,received in c.execute("SELECT id,target_path,state,referrer,tab_url,total_bytes,received_bytes FROM downloads WHERE start_time BETWEEN ? AND ?",(lo,hi)):
+            urls=[x[0] for x in c.execute("SELECT url FROM downloads_url_chains WHERE id=? ORDER BY chain_index",(did,))]
+            hosts=[urllib.parse.urlsplit(u).hostname for u in urls if u]
+            if not any(h in ("dl.opensubtitles.org","www.opensubtitles.org","opensubtitles.org") for h in hosts):continue
+            records+=1
+            direct=int("dl.opensubtitles.org" in hosts);dl=max(dl,direct)
+            ident=2 if any("14104608" in x for x in [str(ref),str(tab)]+urls) else 1 if movie(" ".join([str(target),str(ref),str(tab)]+urls)) else 0
+            if state==1 and received>0 and (total<=0 or received==total):
+                complete+=1;add(pathlib.Path(target),2 if direct else 1,ident)
+        c.close();dbstate=1
+except (OSError,sqlite3.Error,ValueError,TypeError):dbstate=2
+name=rr.get("downloaded_filename")
+for d in dirs:
+    try:
+        for p in d.iterdir():
+            if not (movie(p.name) or isinstance(name,str) and p.name==name):continue
+            st=p.stat()
+            if start<=st.st_ctime<=end or start<=st.st_mtime<=end:add(p,0,1 if movie(p.name) else 0)
+    except OSError:pass
+count=0;best=0;last=0;identity=0;source=0;en=0;zipcount=0
+for p,src,ident in files.values():
+    try:
+        blobs=[]
+        if p.suffix.lower()==".zip":
+            with zipfile.ZipFile(p) as z:
+                zipcount+=1
+                for i in z.infolist()[:100]:
+                    if i.filename.lower().endswith(".srt") and 0<i.file_size<=2000000 and not i.flag_bits&1:blobs.append((i.filename,z.read(i)))
+        else:blobs=[(p.name,p.read_bytes())]
+        for n,data in blobs:
+            text=data.decode("utf-8-sig",errors="replace")
+            ts=re.findall(r"(?m)^(\d{2}):(\d{2}):(\d{2})[,.]\d{3}\s+-->\s+(\d{2}):(\d{2}):(\d{2})[,.]\d{3}",text)
+            if not ts:continue
+            count+=1
+            words=re.findall(r"[A-Za-z]+",re.sub(r"<[^>]*>"," ",text).lower())
+            eng=sum(w in {"the","you","and","to","i","is","it","we","that","what","of","me","in","my","have","not","are"} for w in words)
+            is_en=int(len(words)>30 and eng/len(words)>0.12)
+            if (ident,src,len(ts))>(identity,source,best):
+                identity=ident;source=src;best=len(ts);en=is_en
+                t=ts[-1];last=int(t[3])*3600+int(t[4])*60+int(t[5])
+    except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):pass
+print(f"ZIPQA_DB{dbstate}_R{min(records,9)}_D{dl}_K{min(complete,9)}_F{min(len(files),9)}_Z{min(zipcount,9)}_S{min(count,9)}_C{min(best,99999)}_T{last}_I{identity}_P{source}_E{en}")
 '@
- $f=Join-Path $run 'control.py'
- [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
- $out=@(& py -3 -I -B $f $owner $run 2> (Join-Path $run 'python-stderr.txt'))
- if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}else{$code='MCP_HEADLESS_LOCAL_ERROR'}
+ $out=@($py | & py -3 -I -B - $root $run 2>$null)
+ if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,90}$'){$code=[string]$out[0]}else{$code='ZIPQA_PARSE_ERROR'}
 }
-$after9444=@(ListenPid 9444)
-$stable=if(($before9444 -join ',') -ceq ($after9444 -join ',')){1}else{0}
-$code=$code+'_P9555'+[int]$verified+'_START'+[int]$started+'_P9444STABLE'+$stable
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
