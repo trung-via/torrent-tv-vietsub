@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "tr-ttv-teacher-receipt-readonly",
+  "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1",
-  "script_sha256": "c080dbfbc0976952e411de76e454f74086aaa1b6fefa68ce116e3f787effd7f0",
+  "script_sha256": "a9423d51eec032da617e802a218424b902c87ff0874923c4c557c6dd50e35810",
   "arguments": []
 }
