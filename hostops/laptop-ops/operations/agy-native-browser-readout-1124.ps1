@@ -1,169 +1,71 @@
-# TR-TTV.04a: Owner-approved, isolated Chrome 9555 environment repair/probe.
-# Do not edit global settings, touch production, or access a website.
+# TR-TTV.04a exact prior smoke readout, no provider or browser actions.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
-$owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-04a-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-04a-readout-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
-function Listener([int]$port){
-  @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
-}
-$before9444=@(Listener 9444)
-$before9555=@(Listener 9555)
-$task=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\'
-$ownerState=[string]$task.State
-$profile=Join-Path $root 'CDP9555Profile'
-$active9555=@($before9555)
-$started9555=0
-$verified=$false
-$code='TR04A_9555_NO_LISTENER'
-if($active9555.Count -eq 0){
- $chrome=@(
-   (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
-   (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
- )|Where-Object {Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
- if($chrome){
-  New-Item -ItemType Directory -Path $profile -Force|Out-Null
-  $profileArg='--user-data-dir="'+$profile+'"'
-  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','about:blank')|Out-Null
-  $started9555=1
-  for($i=0;$i -lt 20;$i++){
-   Start-Sleep -Milliseconds 500
-   $active9555=@(Listener 9555)
-   if($active9555.Count -gt 0){break}
-  }
- }else{$code='TR04A_9555_CHROME_NOT_FOUND'}
-}
-if($active9555.Count -gt 1){$code='TR04A_9555_MULTIPLE_PID'}
-if($active9555.Count -eq 1){
- $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
- $listeners=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
- if(-not $p -or $p.Name -ne 'chrome.exe'){$code='TR04A_9555_NOT_CHROME'}
- elseif(-not $p.CommandLine -or $p.CommandLine -notmatch '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|$)'){$code='TR04A_9555_PORT_FLAG_MISMATCH'}
- elseif($p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -lt 0){$code='TR04A_9555_PROFILE_MISMATCH'}
- elseif(@($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -ne 0){$code='TR04A_9555_NONLOOPBACK'}
- else{$verified=$true}
-}
-if($verified){
 $py=@'
-import sys,pathlib,os,json,re,subprocess,hashlib,shutil,urllib.request
-owner,run=map(pathlib.Path,sys.argv[1:])
-sys.path.insert(0,str(owner/"app/poc/p2-aisub"))
-from translator_gateway import preflight_antigravity,_validated_antigravity_alias
+import sys,pathlib,os,json,re
+root,run=map(pathlib.Path,sys.argv[1:])
 def read(p):
-    if not p.is_file(): return {}
-    if p.is_symlink() or p.stat().st_size>4194304: raise ValueError("CONFIG_UNSAFE")
-    x=json.loads(p.read_text(encoding="utf-8-sig"))
-    if not isinstance(x,dict): raise ValueError("CONFIG_NOT_OBJECT")
-    return x
-def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else "MISSING"
-def write(p,x):p.write_text(json.dumps(x,ensure_ascii=True,indent=2)+"\n",encoding="utf-8")
+    if not p.is_file() or p.is_symlink() or p.stat().st_size>16777216:return ""
+    return p.read_text(encoding="utf-8-sig",errors="replace")
 def probe():
-    cli=preflight_antigravity()
-    ps=shutil.which("pwsh")
-    if not ps:return "TR04A_NO_PWSH"
-    env=dict(os.environ)
-    for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GEMINI_BASE_URL","AGY_ADC_AUTH","GOOGLE_CLOUD_PROJECT","GOOGLE_CLOUD_QUOTA_PROJECT"):env.pop(k,None)
-    env["TTV_AGY_CLI"]=str(cli)
-    helpcmd="& $env:TTV_AGY_CLI --help; exit $LASTEXITCODE"
-    q=subprocess.run([ps,"-NoProfile","-NonInteractive","-Command",helpcmd],env=env,cwd=run,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=20)
-    helptext=q.stdout+"\n"+q.stderr
-    (run/"cli-help.txt").write_text(helptext,encoding="utf-8")
-    home=pathlib.Path.home()
-    settings=home/".gemini"/"antigravity-cli"/"settings.json"
-    shared=home/".gemini"/"config"/"config.json"
-    global_mcp=home/".gemini"/"config"/"mcp_config.json"
-    paths=[settings,shared,global_mcp]
-    before=[sha(p) for p in paths]
-    config=read(settings); sharedconfig=read(shared); servers=read(global_mcp).get("mcpServers",{})
-    if not isinstance(servers,dict):return "TR04A_MCP_SCHEMA_UNKNOWN"
-    if "ttv-browser" in servers:return "TR04A_GLOBAL_TTV_CONFLICT"
-    # Identify exact relative rule, with structural locations only, no exported values.
+    history=pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"History"
     hits=[]
-    def scan(v,trail,idx):
-        if isinstance(v,dict):
-            for k,x in v.items():scan(x,trail+[k],idx)
-        elif isinstance(v,list):
-            for i,x in enumerate(v):scan(x,trail+[i],idx)
-        elif isinstance(v,str) and re.search(r"(?<![A-Za-z0-9_./\\])\.git[/\\]aios[/\\]?(?=[)\s]*$)",v):hits.append((idx,trail,v))
-    scan(config,[],0);scan(sharedconfig,[],1)
-    session_flag=bool(re.search(r"(?m)^\s*--?settings(?:[ =\t]|$)",helptext))
-    # Retain actual documented CLI flag evidence in the private run directory.
-    write(run/"config-audit.json",{"relative_rule_locations":[{"source":i,"path":[str(v) for v in t]} for i,t,_ in hits],"session_settings_flag":session_flag,"global_mcp_count":len(servers),"global_ttv_conflict":False})
-    agents=run/".agents";agents.mkdir()
-    write(agents/"mcp_config.json",{"mcpServers":{"ttv-browser":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.14.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics"]}}})
-    # Confirm loopback Chrome without reading tabs or visiting a website.
-    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open("http://127.0.0.1:9555/json/version",timeout=3) as f:version=json.load(f)
-    if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9555/"):return "TR04A_ENDPOINT_UNVERIFIED"
-    if not session_flag:
-        return "TR04A_NO_SESSION_FLAG_R%dS%d"%(sum(i==0 for i,_,_ in hits),sum(i==1 for i,_,_ in hits))
-    if any(i!=0 for i,_,_ in hits):return "TR04A_SHARED_RULE_NEEDS_SCOPE"
-    if not hits:return "TR04A_RULE_NOT_LOCATED"
-    # Only transform an exact file rule. Keep its original allow/deny/ask intent.
-    for idx,t,val in hits:
-        if not re.fullmatch(r"(?:read_file|write_file)\(\.git[/\\]aios[/\\]?\)",val):
-            return "TR04A_RULE_FORM_UNKNOWN"
-        if len(t)!=3 or t[0]!="permissions" or t[1] not in ("allow","deny","ask") or not isinstance(t[2],int):return "TR04A_RULE_SCOPE_UNKNOWN"
-        config[t[0]][t[1]][t[2]]=val[:val.index("(")+1]+(run/".git"/"aios").as_posix()+")"
-    perms=config.setdefault("permissions",{})
-    if not isinstance(perms,dict):return "TR04A_PERM_SCHEMA_UNKNOWN"
-    for key in ("allow","deny","ask"):
-        if not isinstance(perms.get(key,[]),list):return "TR04A_PERM_SCHEMA_UNKNOWN"
-    # Respect any existing explicit deny or ask; no global wildcard grant.
-    for key in ("deny","ask"):
-        for rule in perms.get(key,[]):
-            if isinstance(rule,str) and (rule.startswith("mcp(ttv-browser") or rule=="mcp(*)"):return "TR04A_EXISTING_RESTRICTION"
-    # Grant only the read-only smoke tool in this session.
-    allowed=perms.setdefault("allow",[])
-    if "mcp(ttv-browser/list_pages)" not in allowed:allowed.append("mcp(ttv-browser/list_pages)")
-    if config.get("agentMode")=="auto":config.pop("agentMode")
-    override=run/"session-settings.json"
-    write(override,config)
-    # Avoid retaining unrelated configuration outside the private run; never upload.
-    env["TTV_SESSION_SETTINGS"]=str(override)
-    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-neon-high","high")
-    prompt="Owner-authorized isolated environment smoke. Call only native MCP ttv-browser/list_pages once, using Chrome 9555. Do not call other tools, navigate, download, read any page, modify settings, or access Chrome 9444. Report exact tool result status only, or stop if denied."
-    env["TTV_AGY_SMOKE_PROMPT"]=prompt
-    cmd="& $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --print-timeout 45s --output-format stream-json -p $env:TTV_AGY_SMOKE_PROMPT; exit $LASTEXITCODE"
-    try:
-        p=subprocess.run([ps,"-NoProfile","-NonInteractive","-Command",cmd],env=env,cwd=run,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=65)
-    except subprocess.TimeoutExpired:return "TR04A_SMOKE_TIMEOUT"
-    finally:
-        # The full copied settings can contain unrelated private data; remove only our copy.
-        override.unlink(missing_ok=True)
-    (run/"agy-stdout.jsonl").write_text(p.stdout,encoding="utf-8")
-    (run/"agy-stderr.txt").write_text(p.stderr,encoding="utf-8")
-    if [sha(x) for x in paths]!=before:return "TR04A_GLOBAL_CONFIG_DRIFT"
-    raw=p.stdout+"\n"+p.stderr
-    if "non-absolute file path" in raw:return "TR04A_SANDBOX_STILL_FAIL"
-    if re.search(r"permission check failed|auto-denied|user denied permission",raw,re.I):return "TR04A_MCP_STILL_DENIED"
-    if "not available for this account" in raw:return "TR04A_AUTO_STILL_ACTIVE"
-    # Do not equate a model claim or process exit with a tool result.
+    for f in history.glob("receipt-*.json"):
+        try:
+            q=json.loads(read(f))
+            if q.get("source_commit")=="58d67750746e404a228d135ccdb7f27b9c06f62b" and q.get("operation")=="agy-native-browser-readout-1124" and q.get("result")=="SUCCESS" and re.fullmatch(r"[a-f0-9]{32}",q.get("nonce","")):hits.append(q["nonce"])
+        except (ValueError,TypeError,OSError):pass
+    if len(hits)!=1:return "TR04AR_PRIOR_HOLD"
+    p=root/("tr-ttv-04a-"+hits[0])
+    summary=json.loads(read(p/"smoke-summary.json"))
+    raw=read(p/"agy-stdout.jsonl")
+    err=read(p/"agy-stderr.txt")
+    helptext=read(p/"cli-help.txt")
     events=[]
-    for line in p.stdout.splitlines():
-        try:events.append(json.loads(line))
+    for line in raw.splitlines():
+        try:
+            v=json.loads(line)
+            if isinstance(v,dict):events.append(v)
         except ValueError:pass
-    write(run/"smoke-summary.json",{"exit":p.returncode,"event_types":[e.get("event",e.get("type","")) for e in events if isinstance(e,dict)],"global_config_unchanged":True,"auto_flag_removed":True})
-    return "TR04A_SMOKE_CAPTURED_R%d_E%d"%(len(hits),max(0,min(255,p.returncode)))
+    # Never export raw logs or page data. Classify observable errors and CLI option description.
+    combined=raw+"\n"+err
+    patterns=[
+      ("U",r"unknown (?:argument|option|flag)|unrecognized (?:argument|option)|unexpected argument"),
+      ("S",r"(?:settings|config).{0,100}(?:invalid|failed|cannot|error|not found)|(?:failed|invalid|error).{0,100}(?:settings|config)"),
+      ("P",r"permission|auto.denied|not permitted"),
+      ("T",r"timeout|timed out|deadline exceeded"),
+      ("Q",r"quota|rate limit|resource.exhausted|429"),
+      ("M",r"(?:mcp|ttv-browser).{0,100}(?:failed|unavailable|not found|error|denied)"),
+      ("B",r"sandbox.{0,100}(?:error|failed|invalid)|non-absolute file path"),
+      ("N",r"no output produced|no response|no final"),
+      ("A",r"authentication|unauthorized|login required|not signed in")]
+    flags="".join(k+str(int(bool(re.search(rx,combined,re.I)))) for k,rx in patterns)
+    # Examine tool result status structurally, not model claims.
+    steps=sum(e.get("event")=="step_update" for e in events)
+    results=[e for e in events if e.get("event")=="result"]
+    settingsline=[x.strip() for x in helptext.splitlines() if re.match(r"^\s*--?settings(?:[ =\t]|$)",x)]
+    sl=" ".join(settingsline).lower()
+    kind=1 if re.search(r"json|file|path",sl) else 2 if sl else 0
+    # Preserve relevant text in a local report for owner if needed.
+    report={"source":str(p.name),"summary":summary,"event_shapes":[{"event":e.get("event"),"keys":sorted(e.keys()),"nested_keys":{k:sorted(v.keys()) for k,v in e.items() if isinstance(v,dict)}} for e in events],"settings_help":settingsline,"error_flags":flags,"stderr":err}
+    (run/"readout.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    return f"TR04AR_E{int(summary.get('exit',255))}_N{min(len(events),999)}_S{min(steps,999)}_R{len(results)}_H{kind}_{flags}"
 try:print(probe())
 except Exception as e:
-    (run/"probe-error.txt").write_text(type(e).__name__+": "+str(e),encoding="utf-8")
-    print("TR04A_LOCAL_ERROR")
+    (run/"readout-error.txt").write_text(type(e).__name__+": "+str(e),encoding="utf-8")
+    print("TR04AR_LOCAL_ERROR")
 '@
 $f=Join-Path $run 'control.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
-$out=@(& py -3 -I -B $f $owner $run 2> (Join-Path $run 'python-stderr.txt'))
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}else{$code='TR04A_LOCAL_ERROR'}
-}
-$stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
-$stable9555=[int](($active9555 -join ',') -ceq (@(Listener 9555) -join ','))
-$stableOwner=[int]($ownerState -ceq [string](Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\').State)
-$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9555
+$out=@(& py -3 -I -B $f $root $run 2> (Join-Path $run 'python-stderr.txt'))
+$code='TR04AR_LOCAL_ERROR'
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
