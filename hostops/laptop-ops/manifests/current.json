@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "agy-hydrogen-tooltrace-1124",
+  "operation": "opensubtitles-spiderman-http-control-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/agy-hydrogen-tooltrace-1124.ps1",
-  "script_sha256": "2f021ea36c695151afd8f0bfd5ae487b3661245f38322a0980a4db789c56e8c0",
+  "script_path": "hostops/laptop-ops/operations/opensubtitles-spiderman-http-control-1124.ps1",
+  "script_sha256": "c71f80a46d8e6b1915fc7fe09f4ede868a2fc86fcbaeb048605722206b7a15a2",
   "arguments": []
 }
