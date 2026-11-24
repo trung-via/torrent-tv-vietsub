@@ -42,20 +42,43 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     }
     private fun p4BackgroundEnabled(): Boolean =
         p4StylePrefs.getBoolean("translucent_background", false)
+    /** One rounded translucent patch per *visual* subtitle line.
+     * TextView's normal background spans the longest line and obscures video. */
+    private fun styledP4Text(text: String): CharSequence {
+        if (!p4BackgroundEnabled() || text.isEmpty()) return text
+        val density = resources.displayMetrics.density
+        val padded = android.text.SpannableString(text)
+        padded.setSpan(object : android.text.style.LineBackgroundSpan {
+            override fun drawBackground(
+                canvas: android.graphics.Canvas, paint: android.graphics.Paint,
+                left: Int, right: Int, top: Int, baseline: Int, bottom: Int,
+                value: CharSequence, start: Int, end: Int, lineNumber: Int,
+            ) {
+                // The callback is per rendered line, including automatic wrapping.
+                // Trim a trailing newline/whitespace so it does not extend the patch.
+                var last = end
+                while (last > start && value[last - 1].isWhitespace()) last--
+                if (last <= start) return
+                val lineWidth = paint.measureText(value, start, last)
+                val padX = 12f * density
+                val padY = 3f * density
+                val center = (left + right) / 2f
+                val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.argb(155, 0, 0, 0)
+                }
+                canvas.drawRoundRect(center - lineWidth / 2f - padX,
+                    top.toFloat() - padY, center + lineWidth / 2f + padX,
+                    bottom.toFloat() + padY, 8f * density, 8f * density, bg)
+            }
+        }, 0, padded.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return padded
+    }
+
     private fun applyP4Background(view: android.widget.TextView) {
-        val d = resources.displayMetrics.density
-        val enabled = p4BackgroundEnabled()
-        view.background = if (enabled) android.graphics.drawable.GradientDrawable().apply {
-            setColor(android.graphics.Color.argb(155, 0, 0, 0))
-            cornerRadius = 8f * d
-        } else null
-        val horizontal = ((if (enabled) 12 else 0) * d).toInt()
-        val vertical = ((if (enabled) 4 else 0) * d).toInt()
-        view.setPadding(horizontal, vertical, horizontal, vertical)
-        (view.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let {
-            it.bottomMargin = (54 * d).toInt() - vertical
-            view.layoutParams = it
-        }
+        // No view-wide rectangle. Rebuild the per-line span without reloading media.
+        val raw = view.text.toString()
+        view.background = null
+        view.text = styledP4Text(raw)
     }
 
     private fun clearP4Overlay() {
@@ -141,7 +164,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             }
             val text = if (nativeSelected || session.error != null) "" else
                 state.timeline.textAt(engine.positionMs)
-            if (view.text.toString() != text) view.text = text
+            if (view.text.toString() != text) view.text = styledP4Text(text)
             view.visibility = if (text.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
             handler.postDelayed(this, 100L)
         }
