@@ -115,11 +115,11 @@ try:
         return good[0] if len(good)==1 else (None,0)
     before=candidates()
     prompt="One authorized English subtitle acquisition benchmark for a different movie: The Odyssey (2026), BDRip-HEVC 1080p, Jaskier is a dub label. No subtitle ID is supplied. Use only ordinary OpenSubtitles.org browsing in existing Chrome 9555. A ready Python helper is in mcp_client.py: from mcp_client import Browser; with Browser(pathlib.Path.cwd()) as b: use b.call(name,args), b.text(result), b.schemas. Use one Python execution, one tab. First identify the correct title/year/IMDb and filter English; the ordinary catalog pattern /en/search/sublanguageid-eng/imdbid-<digits> works once the IMDb is known. Inspect actual detail; prefer matching BluRay cut/source/FPS/runtime; identical release group/codec wording is not required. Do not accept WEB if cut/timing conflicts. Before clicking download, save SELECTION.json with selected_subtitle_id (digits from real detail URL), detail_url, title, year, language, release_match (boolean for metadata, not playback sync), actual_test (brief evidence). Follow the website-issued normal download link on dl.opensubtitles.org; do not invent URLs. Navigation interruption can still mean a successful ZIP download. Do not click twice. Stop on denial/login/CAPTCHA/401/403/429/payment; no bypass or direct API/HTTP, no credentials, no unrelated tabs, no 9444. Write RESULT.json with status (DOWNLOADED, DOWNLOAD_FAILED, NO_MATCH, ACCESS_DENIED, AUTH_REQUIRED, CDP_FAILED, OTHER), stage, observed_http_status, download_host, selected_subtitle_id, release_match, downloaded_filename if known and brief actual_test. The host independently verifies new ZIP/SRT. Minimize reasoning and tool calls; aim for 60 seconds. No translation or production changes."
-    args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","110s","--output-format","stream-json","-p",prompt]
+    args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
     start=time.monotonic()
     wall_start=time.time()
     try:
-        p=subprocess.run(args,env=env,cwd=run,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=130,check=False)
+        p=subprocess.run(args,env=env,cwd=run,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=270,check=False)
     except subprocess.TimeoutExpired as e:
         # Reconcile a completed physical download even when AGY timed out.
         p=None
