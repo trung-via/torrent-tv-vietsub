@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
   "operation": "agy-native-browser-readout-1124",
-  "category": "diagnostics",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/agy-native-browser-readout-1124.ps1",
-  "script_sha256": "0a74085d246e22249e487169477406f5bb841977771a53c6cd563f61f1c41e1b",
+  "script_sha256": "d1344293e55fe78472a12c328154663fd3457f8024c0e6c335bb36e531ece06a",
   "arguments": []
 }
