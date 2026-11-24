@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-hydrogen-benchmark",
+  "operation": "owner-g1-186-install",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-hydrogen-benchmark.ps1",
-  "script_sha256": "97fcf95406ec76cdc397a09f4d593fddf0dbb52f38492ba6dde3a5e400bc64a3",
+  "script_path": "hostops/laptop-ops/operations/owner-g1-186-install.ps1",
+  "script_sha256": "85eee3f8b7e5f8888a92263a0f932d2de3529efa70d9b1e3103bccf2ec0aa324",
   "arguments": []
 }
