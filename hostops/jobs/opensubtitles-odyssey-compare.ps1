@@ -91,12 +91,38 @@ function Probe([string]$name,[string]$url,[bool]$browser) {
     Write-Output ("OS_COMPARE_" + $name + "_CUES=" + $cues)
     Write-Output ("OS_COMPARE_" + $name + "_DIGEST=" + $digest)
 }
-try {
-    Probe 'ODYSSEY_DIRECT_PLAIN' 'https://dl.opensubtitles.org/en/download/file/1962752152' $false
-    Probe 'ODYSSEY_DIRECT_BROWSER_UA' 'https://dl.opensubtitles.org/en/download/file/1962752152' $true
-    Probe 'ODYSSEY_DETAIL_BROWSER_UA' 'https://www.opensubtitles.org/en/subtitles/14190981/the-odyssey-en' $true
-    Probe 'SPIDERMAN_DETAIL_BROWSER_UA' 'https://www.opensubtitles.org/en/subtitles/14097898/spider-man-brand-new-day-en' $true
-    Write-Output 'OS_COMPARE_REQUESTS=4_NO_API_NO_AGY_NO_WRITE'
+# Explicit Owner request: persist one verified English Odyssey subtitle on the
+# dedicated runner; no TV, OwnerAgent, provider or other film's cache mutation.
+$targetRoot = Join-Path $env:RUNNER_WORKSPACE '_omp-fast-cache\\odyssey-english-2026'
+if (-not (Test-Path -LiteralPath $targetRoot)) {
+    New-Item -ItemType Directory -Path $targetRoot -ErrorAction Stop | Out-Null
+}
+$dest = Join-Path $targetRoot 'The.Odyssey.2026.1080p.AMZN.WEB-DL.DDP5.1.H.264-KyoGo.en.srt'
+$expectedCues = 2009
+if (Test-Path -LiteralPath $dest -PathType Leaf) {
+    $existing = [IO.File]::ReadAllBytes($dest)
+    $existingCues = [regex]::Matches([Text.Encoding]::UTF8.GetString($existing),'(?m)^\\d{2}:\\d{2}:\\d{2},\\d{3}\\s+-->\\s+\\d{2}:\\d{2}:\\d{2},\\d{3}').Count
+    if ($existingCues -ne $expectedCues) { throw 'ODYSSEY_EXISTING_EN_INVALID_NO_OVERWRITE' }
+    Write-Output 'ODYSSEY_EN=ALREADY_STAGED_VALID'
+    Write-Output ('ODYSSEY_EN_SHA256=' + (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant())
+} else {
+    $url = 'https://dl.opensubtitles.org/en/download/file/1962752152'
+    $temp = Join-Path $targetRoot ('odyssey-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing -TimeoutSec 45 -ErrorAction Stop
+        $raw = [IO.File]::ReadAllBytes($temp)
+        if ($raw.Length -lt 100000 -or $raw.Length -gt 500000) { throw 'ODYSSEY_EN_SIZE_INVALID' }
+        $head = [Text.Encoding]::UTF8.GetString($raw,0,[Math]::Min($raw.Length,256))
+        if ($head -match '(?i)<!doctype|<html') { throw 'ODYSSEY_EN_HTML_NOT_SUBTITLE' }
+        $count = [regex]::Matches([Text.Encoding]::UTF8.GetString($raw),'(?m)^\\d{2}:\\d{2}:\\d{2},\\d{3}\\s+-->\\s+\\d{2}:\\d{2}:\\d{2},\\d{3}').Count
+        if ($count -ne $expectedCues) { throw 'ODYSSEY_EN_CUES_INVALID' }
+        Move-Item -LiteralPath $temp -Destination $dest -ErrorAction Stop
+        Write-Output 'ODYSSEY_EN=DOWNLOADED_VALID'
+        Write-Output ('ODYSSEY_EN_CUES=' + $count)
+        Write-Output ('ODYSSEY_EN_SHA256=' + (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant())
+    } finally { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+}
+Write-Output 'ODYSSEY_EN_SCOPE=RUNNER_PRIVATE_STAGE_NO_OWNER_OR_TV_CHANGE'
 } finally {
     $client.Dispose()
     $handler.Dispose()
