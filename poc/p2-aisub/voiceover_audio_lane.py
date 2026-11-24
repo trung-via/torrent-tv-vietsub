@@ -37,6 +37,7 @@ class VoiceoverAudioLane:
         # Native P4 media key and P2 worker media key differ in the R2 flow.
         # Bind only an already-verified film/source mapping, never by SHA alone.
         self._aliases: dict[tuple[str, str], str] = {}
+        self._preferred: tuple[str, str] | None = None
         # TV session is deliberately NOT part of cache identity. Revisit A
         # reuses its WAV, but a stale session can never obtain its bytes.
         self._entries: dict[tuple[str, str, int],
@@ -62,6 +63,10 @@ class VoiceoverAudioLane:
             if old is not None and old != worker_media_key:
                 raise ValueError("P4_VOICE_MEDIA_BINDING_COLLISION")
             self._aliases[key] = worker_media_key
+            self._preferred = (worker_media_key, source_sha256)
+            if len(self._aliases) > 128:
+                victim = next(k for k in self._aliases if k != key)
+                del self._aliases[victim]
 
     def on_audio_ready(self, revision: TranslationRevision,
                        cue: NarrationCue, receipt: AudioReceipt) -> None:
@@ -85,7 +90,12 @@ class VoiceoverAudioLane:
                         raise ValueError("P4_VOICE_REVISION_COLLISION")
                     return
             if previous is None and len(self._entries) >= _MAX_ENTRIES:
-                raise ValueError("P4_VOICE_CATALOG_FULL")
+                # Evict memory metadata only, never committed WAV files.
+                victim = next((k for k in self._entries
+                               if k[:2] != self._preferred), None)
+                if victim is None:
+                    raise ValueError("P4_VOICE_CATALOG_FULL_CURRENT_FILM")
+                del self._entries[victim]
             self._entries[key] = (revision, cue, receipt)
 
     def manifest(self, feed: SessionRevisionFeed, *, signer,

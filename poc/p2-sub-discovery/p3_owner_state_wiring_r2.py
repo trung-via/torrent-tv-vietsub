@@ -72,7 +72,8 @@ def compose_owner_redmi_status(**kwargs) -> R2OwnerP3StatusComposition:
         device_secret=secret, supplied={},
         authenticated_vietsub_factory=registry.resolve_ai_default,
         authenticated_progressive_factory=registry.resolve_progressive,
-        authenticated_variant_factory=registry.resolve_variant)
+        authenticated_variant_factory=registry.resolve_variant,
+        recycle_sessions=voiceover_lane is not None)
     handler = make_p3_p4_handler_r0(
         gateway, wiring.signal, wiring.cache, wiring.ingress,
         voiceover_lane=voiceover_lane)

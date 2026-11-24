@@ -67,6 +67,7 @@ class AuthenticatedProgressiveSource:
     source_sha256: str
     subscribe: Callable[[SessionRevisionFeed], None]
     refresh: Callable[[], None] | None = None
+    validate_voice: Callable[[], None] | None = None
 
 
 def derive_session_secret(device_secret: bytes, session_id: str,
@@ -138,7 +139,11 @@ class PairedActivation:
                  authenticated_source_factory: Callable[[str], AssumedEnglishSubtitle] | None = None,
                  authenticated_vietsub_factory: Callable[[str], VerifiedVietsubReady] | None = None,
                  authenticated_progressive_factory: Callable[[str], AuthenticatedProgressiveSource | None] | None = None,
-                 authenticated_variant_factory: Callable[[str, str], VerifiedVietsubReady | None] | None = None):
+                 authenticated_variant_factory: Callable[[str, str], VerifiedVietsubReady | None] | None = None,
+                 recycle_sessions: bool = False):
+        if type(recycle_sessions) is not bool:
+            raise ValueError("P4_SESSION_RECYCLE_FLAG_INVALID")
+        self.__recycle_sessions = recycle_sessions
         if not isinstance(device_secret, bytes) or len(device_secret) != 32:
             raise ValueError("P4_DEVICE_SECRET_INVALID")
         if len(supplied) > 32 or any(
@@ -185,6 +190,8 @@ class PairedActivation:
         self.__feeds: dict[str, SessionRevisionFeed] = {}
         self.__voice_nonces: dict[tuple[str, str], float] = {}
         self.__refreshers: dict[str, Callable[[], None]] = {}
+        self.__voice_refreshers: dict[str, Callable[[], None]] = {}
+        self.__last_used: dict[str, float] = {}
         self.__seen: dict[str,float] = {}
         self.__lock = Lock()
 
@@ -250,7 +257,9 @@ class PairedActivation:
                                                 candidate.source_sha256)
                             or not callable(candidate.subscribe)
                             or (candidate.refresh is not None
-                                and not callable(candidate.refresh))):
+                                and not callable(candidate.refresh))
+                            or (candidate.validate_voice is not None
+                                and not callable(candidate.validate_voice))):
                         raise ValueError("P4_PROGRESSIVE_SOURCE_MISMATCH")
                     progressive = candidate
             ready = None
@@ -277,7 +286,16 @@ class PairedActivation:
             if source is None and ready is None and progressive is None:
                 raise ValueError("P4_ASSUMED_SOURCE_MISSING")
             if len(self.__feeds)>=16:
-                raise ValueError("P4_TOO_MANY_SESSIONS")
+                if not self.__recycle_sessions:
+                    raise ValueError("P4_TOO_MANY_SESSIONS")
+                # Only the one-TV Owner recycles an old memory session.
+                victim = min(self.__feeds, key=lambda sid: self.__last_used.get(sid, 0.0))
+                self.__feeds.pop(victim, None)
+                self.__refreshers.pop(victim, None)
+                self.__voice_refreshers.pop(victim, None)
+                self.__last_used.pop(victim, None)
+                self.__voice_nonces = {k: v for k, v in self.__voice_nonces.items()
+                                      if k[0] != victim}
             self.__seen[nonce]=now
             sid=secrets.token_urlsafe(24)
             source_sha = (ready.source_sha256 if ready is not None else
@@ -288,26 +306,37 @@ class PairedActivation:
                 session_id=sid,media_key=media,
                 source_sha256=source_sha,pairing_secret=session_key)
             self.__feeds[sid]=feed
+            self.__last_used[sid] = now
         if ready is not None:
             try:
                 # Existing P4 signed feed; no Gemini/OpenSubtitles repeat.
                 feed.publish(ready.as_final_revision())
             except Exception:
-                with self.__lock: self.__feeds.pop(sid,None)
+                with self.__lock:
+                    self.__feeds.pop(sid, None)
+                    self.__last_used.pop(sid, None)
                 raise ValueError("P4_READY_FEED_PUBLISH_FAILED") from None
         if progressive is not None:
             try:
                 progressive.subscribe(feed)
             except Exception:
-                with self.__lock: self.__feeds.pop(sid,None)
-                raise ValueError("P4_PROGRESSIVE_FEED_BIND_FAILED") from None
-            if progressive.refresh is not None:
                 with self.__lock:
+                    self.__feeds.pop(sid, None)
+                    self.__last_used.pop(sid, None)
+                raise ValueError("P4_PROGRESSIVE_FEED_BIND_FAILED") from None
+            with self.__lock:
+                if sid not in self.__feeds:
+                    raise ValueError("P4_PROGRESSIVE_FEED_BIND_FAILED")
+                if progressive.refresh is not None:
                     self.__refreshers[sid] = progressive.refresh
+                if progressive.validate_voice is not None:
+                    self.__voice_refreshers[sid] = progressive.validate_voice
         if source is not None and self.__on_activate is not None:
             try: self.__on_activate(feed,source)
             except Exception:
-                with self.__lock:self.__feeds.pop(sid,None)
+                with self.__lock:
+                    self.__feeds.pop(sid, None)
+                    self.__last_used.pop(sid, None)
                 raise ValueError("P4_TRANSLATION_START_FAILED") from None
         response = {
             "schema":"TTV-P4-ACTIVATED-V2" if variant_mode else "TTV-P4-ACTIVATED-V1",
@@ -357,9 +386,10 @@ class PairedActivation:
                 if now - ts < 600.0
             }
             token = (session_id, nonce)
-            if token in self.__voice_nonces or len(self.__voice_nonces) >= 1024:
+            if token in self.__voice_nonces or len(self.__voice_nonces) >= 8192:
                 return False
             self.__voice_nonces[token] = now
+            self.__last_used[session_id] = now
         return True
 
     def sign_voiceover(self, feed: SessionRevisionFeed, revision: object,
@@ -393,11 +423,29 @@ class PairedActivation:
             if session_id not in self.__feeds:
                 return False
             refresh = self.__refreshers.get(session_id)
-        if refresh is None:
-            return True
         try:
-            refresh()
+            if refresh is not None:
+                refresh()
+            with self.__lock:
+                if session_id not in self.__feeds:
+                    return False
+                self.__last_used[session_id] = time.monotonic()
             return True
+        except Exception:
+            return False
+
+    def validate_voice_for(self, session_id: str) -> bool:
+        """Check live scope, not every P2 checkpoint for each WAV."""
+        with self.__lock:
+            if session_id not in self.__feeds:
+                return False
+            check = self.__voice_refreshers.get(session_id) or self.__refreshers.get(session_id)
+        if check is None:
+            return False
+        try:
+            check()
+            with self.__lock:
+                return session_id in self.__feeds
         except Exception:
             return False
 
@@ -491,7 +539,7 @@ def make_paired_handler(
                     sid, self.headers.get("X-P4-Nonce"),
                     self.headers.get("X-P4-Authorization"), scope):
                 self.send_error(401); return
-            if not controller.refresh_for(sid):
+            if not controller.validate_voice_for(sid):
                 report("P4_VOICE_CURRENT_SOURCE_HOLD")
                 self.send_error(403); return
             try:

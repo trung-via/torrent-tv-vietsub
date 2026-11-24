@@ -139,6 +139,47 @@ class PairedAudioLaneTests(unittest.TestCase):
                                    | {"X-P4-After-Cue": "1"})[0], 401)
         self.assertEqual(self._get(url, {"X-P4-After-Cue": "0001"})[0], 400)
 
+    def test_voice_read_uses_lightweight_current_validator_and_recycles_old_sessions(self):
+        events = []
+        self.gateway = PairedActivation(
+            device_secret=MASTER, supplied={}, recycle_sessions=True,
+            authenticated_progressive_factory=lambda media:
+                AuthenticatedProgressiveSource(
+                    media, self.source_sha, lambda feed: None,
+                    refresh=lambda: events.append("checkpoint"),
+                    validate_voice=lambda: events.append("current")))
+        sessions = []
+        for n in range(18):
+            nonce = format(n + 100, "032x")
+            result = self.gateway.activate({
+                "schema": "TTV-P4-ACTIVATE-V1", "media_key": MEDIA,
+                "nonce": nonce,
+                "auth": activation_request_mac(MASTER, MEDIA, nonce)})
+            sessions.append(result["session_id"])
+        self.assertIsNone(self.gateway.feed_for(sessions[0]))
+        self.sid = sessions[-1]
+        self.secret = derive_session_secret(MASTER, self.sid, MEDIA, self.source_sha)
+        self.assertEqual(self._get("/p4/voice/" + self.sid,
+                                   self._auth("manifest:0", "1"*32))[0], 200)
+        self.assertEqual(events, ["current"])
+        self.assertTrue(self.gateway.refresh_for(self.sid))
+        self.assertEqual(events, ["current", "checkpoint"])
+
+    def test_catalog_capacity_evicts_inactive_memory_not_wav(self):
+        from unittest.mock import patch
+        import voiceover_audio_lane
+        other = Revision("media." + "e"*64, self.source_sha)
+        other_cue = plan_voiceover(other, voice_id=DEFAULT_VOICE_CACHE_ID).new_cues[0]
+        other_receipt, _ = self.store.synthesize(other_cue, [[0.2]*480])
+        with patch.object(voiceover_audio_lane, "_MAX_ENTRIES", 1):
+            self.lane.bind_verified_media(worker_media_key=other.media_key,
+                                          tv_media_key=other.media_key,
+                                          source_sha256=self.source_sha)
+            self.lane.on_audio_ready(other, other_cue, other_receipt)
+        self.assertEqual(self.store.read(self.cue), self.receipt)
+        self.assertEqual(self.store.read(other_cue), other_receipt)
+        self.assertEqual(len(self.lane._entries), 1)
+
     def test_tv_off_prevents_audio_but_keeps_verified_wav(self):
         self.enabled = False
         wav_url = "/p4/audio/" + self.sid + "/" + self.cue.tts_key
