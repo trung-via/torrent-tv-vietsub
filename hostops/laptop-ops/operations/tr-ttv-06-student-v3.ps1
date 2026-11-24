@@ -1,4 +1,4 @@
-# TR-TTV.06 V3: Neon High Teacher control, identical Student V3 prompt and checks.
+# TR-TTV.07b: Neon High source comparison, SubtitleCat only.
 # Never edit shared settings or touch Owner production.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -8,7 +8,7 @@ $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | C
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-06-ironman2-teacher-v3-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-07b-ironman2-subtitlecat-neon-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 function Listener([int]$port){
   @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
@@ -22,7 +22,7 @@ $profile=Join-Path $root 'CDP9555Profile'
 $active9555=@(Listener 9555)
 $started9555=0
 $verified=$false
-$code='TR06T3_BROWSER_NOT_VERIFIED'
+$code='TR07SC_BROWSER_NOT_VERIFIED'
 if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
 elseif($active9555.Count -eq 1){
  $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
@@ -116,17 +116,22 @@ def probe():
     # One ordinary pre-existing provider tab only. Do not reload, rotate or solve a challenge.
     with opener.open("http://127.0.0.1:9555/json/list",timeout=3) as f:tabs=json.load(f)
     pages=[t for t in tabs if t.get("type")=="page"]
-    site=[t for t in pages if urllib.parse.urlsplit(t.get("url","")).hostname in ("www.opensubtitles.org","opensubtitles.org")]
-    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR06T3_ACCESS_BLOCKED_PRE"
-    if len(site)!=1:return "TR06T3_TASK_TAB_AMBIGUOUS"
+    cat_hosts={"www.subtitlecat.com","subtitlecat.com"}
+    os_hosts={"www.opensubtitles.org","opensubtitles.org"}
+    host=lambda t:urllib.parse.urlsplit(t.get("url","")).hostname
+    site=[t for t in pages if host(t) in cat_hosts]
+    if not site:site=[t for t in pages if host(t) in os_hosts]
+    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR07SC_ACCESS_BLOCKED_PRE"
+    if len(site)!=1:return "TR07SC_TASK_TAB_AMBIGUOUS"
     target=site[0]
     u=urllib.parse.urlsplit(target.get("url",""))
-    if u.scheme!="https" or not re.search(r"subtitles",target.get("title",""),re.I):return "TR06T3_TASK_TAB_UNVERIFIED"
+    if u.scheme!="https":return "TR07SC_TASK_TAB_UNVERIFIED"
+    initial_host=u.hostname
     # Keep original browser download preferences unchanged; snapshot known download directory.
     prefs=read(profile/"Default"/"Preferences")
     download=prefs.get("download",{})
     dest=pathlib.Path(os.path.expandvars(download.get("default_directory") or str(home/"Downloads")))
-    if not dest.is_absolute() or not dest.is_dir():return "TR06T3_DOWNLOAD_DIR_UNVERIFIED"
+    if not dest.is_absolute() or not dest.is_dir():return "TR07SC_DOWNLOAD_DIR_UNVERIFIED"
     dirs={dest}
     resultdir=run/"browser-downloads";resultdir.mkdir()
     write(run/"task-binding.json",{"cdp_target_id":target.get("id"),"initial_url":target.get("url"),"download_directory":str(dest),"existing_profile":True,"cold_profile":False})
@@ -147,28 +152,9 @@ def probe():
                     blobs=[z.read(i) for i in z.infolist()[:100] if i.filename.lower().endswith(".srt") and 0<i.file_size<=2000000 and not i.flag_bits&1]
             return max((len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2}[,.]\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}[,.]\d{3}",data)) for data in blobs),default=0)
         except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):return 0
-    def verify_new_download(before,after,selected_id):
-        # Only accept one newly created artifact, not pre-existing or overwritten names.
-        # Chrome's origin metadata must bind the download to the normal issued link
-        # and candidate; no guess at a provider URL and no model-only success.
-        good=[]
-        for key,(size,mtime) in after.items():
-            if key in before or not 0<size<=10000000:continue
-            f=pathlib.Path(key)
-            try:
-                with open(str(f)+":Zone.Identifier","r",encoding="utf-8",errors="replace") as stream:
-                    fields=dict(x.split("=",1) for x in stream.read(8192).splitlines() if "=" in x)
-                u=urllib.parse.urlsplit(fields.get("HostUrl",""))
-                ref=fields.get("ReferrerUrl","")
-                if u.scheme!="https" or u.hostname!="dl.opensubtitles.org":continue
-                if not re.search(r"(?<!\d)"+re.escape(selected_id)+r"(?!\d)",u.path+" "+u.query+" "+ref):continue
-                cues=cue_count(f)
-                if cues:good.append((f,cues))
-            except (OSError,ValueError):pass
-        return good[0] if len(good)==1 else (None,0)
     downloads=run/"downloads";downloads.mkdir()
     before=candidates()
-    prompt="You are the English subtitle acquisition Student for Torrent TV Vietsub, Recipe V3. Owner-supplied exact target release: Iron Man 2 2010 REPACK 1080p BluRay x264-nikt0. Film Iron Man 2 (2010), English. Treat REPACK, BluRay, 1080p, x264 and nikt0 as release evidence, not a generic title-only request. Video FPS, duration, byte size and file extension are unknown. No IMDb ID, subtitle ID, candidate URL, previous answer or cached subtitle is provided. Independently find an appropriate English subtitle using ordinary authorized OpenSubtitles website interaction, choosing your own method. Use only the existing dedicated Chrome CDP 9555 and authorized ttv-browser MCP. First list_pages, use the one existing ordinary OpenSubtitles tab and its numeric pageId. Do not modify other tabs, endpoints, profiles, settings or download preferences. If challenge, denial, login or payment blocks ordinary access, stop and report; never bypass or retry via another route.\n\nCompare actual candidate title, year, language, release source, REPACK edition, release group, resolution and codec. Prioritize exact nikt0 REPACK release, or a candidate with explicitly documented compatibility with this edition. Distinguish a generic BluRay candidate from a release match. Reject conflicting editions, cuts or timing. Do not download a merely title-matched or unsupported candidate; if exact or evidenced compatible release is not found, report NO_CONFIDENT_MATCH and evidence. Do not invent video FPS or duration or assert playback sync without actual playback evidence. Use concise visible DOM reads as useful. Inspect selected candidate detail before download and bind evidence to that candidate rather than other search rows. Use only the site's ordinary authorized download action once; stop acquisition once received. Ignore ads, do not guess endpoints, inspect hidden data or circumvent denial.\n\nReturn concise structured result even on failure: status, observed title/year/language, selected candidate reference discovered this run, exact observed release names, evidence for REPACK/source/group/resolution/codec, candidate FPS/duration or null, video FPS/duration null, release_match=EXACT_METADATA or EVIDENCED_COMPATIBLE or UNKNOWN or CONFLICT, playback_sync=UNVERIFIED, actual actions, errors and usage if available. Distinguish access blocked from no match. No extra report files, no arbitrary benchmark deadline."
+    prompt="You are the English subtitle acquisition Student for Torrent TV Vietsub, Recipe V3. Owner-supplied exact target release: Iron Man 2 2010 REPACK 1080p BluRay x264-nikt0. Film Iron Man 2 (2010), English. Treat REPACK, BluRay, 1080p, x264 and nikt0 as release evidence, not a generic title-only request. Video FPS, duration, byte size and file extension are unknown. No IMDb ID, subtitle ID, candidate URL, previous answer or cached subtitle is provided. Independently find an appropriate English subtitle using ordinary authorized www.subtitlecat.com website interaction only, choosing your own method. Use the English source or English subtitle, not machine-translated non-English variants. Use only the existing dedicated Chrome CDP 9555 and authorized ttv-browser MCP. First list_pages, use the one existing SubtitleCat tab if present; otherwise reuse the one existing dedicated OpenSubtitles task tab by navigating its numeric pageId to https://www.subtitlecat.com/. Do not search OpenSubtitles or any other source. Do not modify other tabs, endpoints, profiles, settings or download preferences. No previously found candidate, ID or answer is supplied. If challenge, denial, login or payment blocks ordinary access, stop and report; never bypass or retry via another route.\n\nCompare actual candidate title, year, language, release source, REPACK edition, release group, resolution and codec. Prioritize exact nikt0 REPACK release, or a candidate with explicitly documented compatibility with this edition. Distinguish a generic BluRay candidate from a release match. Reject conflicting editions, cuts or timing. Do not download a merely title-matched or unsupported candidate; if exact or evidenced compatible release is not found, report NO_CONFIDENT_MATCH and evidence. Do not invent video FPS or duration or assert playback sync without actual playback evidence. Use concise visible DOM reads as useful. Inspect selected candidate detail before download and bind evidence to that candidate rather than other search rows. Use only the site's ordinary authorized download action once; stop acquisition once received. Ignore ads, do not guess endpoints, inspect hidden data or circumvent denial.\n\nReturn concise structured result even on failure: status, observed title/year/language, selected candidate reference discovered this run, exact observed release names, evidence for REPACK/source/group/resolution/codec, candidate FPS/duration or null, video FPS/duration null, release_match=EXACT_METADATA or EVIDENCED_COMPATIBLE or UNKNOWN or CONFLICT, playback_sync=UNVERIFIED, actual actions, errors and usage if available. Distinguish access blocked from no match. No extra report files, no arbitrary benchmark deadline."
     (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
@@ -218,7 +204,7 @@ def probe():
     # Require evidence of the preflight tab in the first actual MCP output.
     first=str(first_pages or "")
     pages_seen=re.findall(r"(?m)^\s*\d+:\s*(.+)$",first)
-    bound=int(sum(bool(re.search(r"https://(?:www\.)?opensubtitles\.org(?:/[^\s)]*)?(?:[)\s]|$)",line,re.I)) for line in pages_seen)==1)
+    bound=int(sum(bool(re.search(r"https://"+re.escape(initial_host)+r"(?:/[^\s)]*)?(?:[)\s]|$)",line,re.I)) for line in pages_seen)==1)
     named=int(server_names=={"ttv-browser"})
     history=profile/"Default"/"History"
     rows=[];history_ok=0
@@ -234,27 +220,30 @@ def probe():
                 rows.append(item)
             con.close();history_ok=1
         except (OSError,sqlite3.Error):pass
-    artifacts=[];observed_ids=set()
+    artifacts=[];physical=[]
+    # SubtitleCat links may use filename paths rather than numeric subtitle IDs.
+    # Accept only new SRT/ZIP with actual first-party provenance; do not infer release match from download alone.
+    def refs(urls):
+        result=[]
+        for url in urls:
+            try:
+                u=urllib.parse.urlsplit(str(url).strip("\x00"))
+                if u.scheme=="https" and u.hostname in cat_hosts and u.path not in ("","/"):
+                    result.append(u.path)
+            except ValueError:pass
+        return list(dict.fromkeys(result))
+    def add(f,links,provenance):
+        if not links or any(v["filename"]==f.name for v in artifacts):return
+        c=cue_count(f)
+        if not c:return
+        artifacts.append({"filename":f.name,"candidate_refs":links,"bytes":f.stat().st_size,"sha256":sha(f),"cues":c,"provenance":provenance})
     for row in rows:
         if row["state"]!=1 or row["received_bytes"]<=0:continue
         f=pathlib.Path(row["target_path"])
         if not f.is_file() or f.is_symlink() or not f.resolve().is_relative_to(dest.resolve()):continue
-        if str(f.resolve()) in before or f.stat().st_size>10000000:continue
-        c=cue_count(f)
-        if not c:continue
-        ids=set()
-        for url in row["chain"]:
-            u=urllib.parse.urlsplit(url)
-            if u.scheme=="https" and u.hostname in ("dl.opensubtitles.org","www.opensubtitles.org","opensubtitles.org"):
-                match=re.search(r"/(?:download/sub|subtitleserve/sub)/([1-9]\d{3,10})(?:/|$)",u.path)
-                if match:ids.add(match.group(1))
-        if len(ids)!=1:continue
-        selected=next(iter(ids))
-        observed_ids.add(selected)
-        artifacts.append({"filename":f.name,"candidate_id":selected,"bytes":f.stat().st_size,"sha256":sha(f),"cues":c})
-    # Independently inspect new files in the initially empty dedicated download directory.
-    # ADS provenance is supplementary when Chrome's live History is unavailable.
-    physical=[]
+        if str(f.resolve()) in before or not 0<f.stat().st_size<=10000000:continue
+        # Require at least one first-party provider link in the actual download chain.
+        add(f,refs(row["chain"]),"ChromeHistory")
     for f in dest.iterdir():
         if not f.is_file() or f.is_symlink() or f.suffix.lower() not in (".srt",".zip"):continue
         if str(f.resolve()) in before or f.stat().st_mtime<wall_start-1 or not 0<f.stat().st_size<=10000000:continue
@@ -265,23 +254,22 @@ def probe():
         try:
             with open(str(f)+":Zone.Identifier","r",encoding="utf-8",errors="replace") as z:
                 ads=dict(v.split("=",1) for v in z.read(8192).splitlines() if "=" in v)
-            u=urllib.parse.urlsplit(ads.get("HostUrl","").strip("\x00"))
-            match=re.search(r"/(?:download/sub|subtitleserve/sub)/([1-9]\d{3,10})(?:/|$)",u.path)
-            if u.scheme=="https" and u.hostname in ("dl.opensubtitles.org","www.opensubtitles.org","opensubtitles.org") and match:
-                sid=match.group(1);observed_ids.add(sid)
-                artifacts.append({"filename":f.name,"candidate_id":sid,"bytes":f.stat().st_size,"sha256":sha(f),"cues":c,"provenance":"Zone.Identifier"})
+            # Referrer alone is not download provenance. Require first-party HostUrl.
+            add(f,refs([ads.get("HostUrl","")]),"Zone.Identifier")
         except (OSError,ValueError):pass
-    # Do not export or copy a prior file. Preserve independently verified new artifacts only.
     for artifact in artifacts:
         src=dest/artifact["filename"]
         if src.is_file() and not src.is_symlink() and sha(src)==artifact["sha256"]:
             shutil.copy2(src,resultdir/src.name)
             artifact["copied_to_job"]=True
-    # Candidate title/language evidence needs an observed result/detail link, not just a file.
+    def related(line,artifact):
+        norm=urllib.parse.unquote(str(line)).casefold()
+        keys=[artifact["filename"]]+[urllib.parse.unquote(x) for x in artifact["candidate_refs"]]
+        return any(len(k)>8 and k.casefold() in norm for k in keys)
     titlematch=0
     for item in outputs:
         out=str(item.get("output",""))
-        if re.search(r"\biron[ ._-]*man[ ._-]*2\b",out,re.I) and re.search(r"\benglish\b|\beng\b",out,re.I) and any(re.search(r"(?<!\d)"+re.escape(x)+r"(?!\d)",out) for x in observed_ids):
+        if re.search(r"\biron[ ._-]*man[ ._-]*2\b",out,re.I) and re.search(r"\benglish\b|\beng\b",out,re.I) and any(related(out,x) for x in artifacts):
             titlematch=1
     # Capture observed release clues without promoting them to playback-sync proof.
     release_candidates=[]
@@ -292,7 +280,7 @@ def probe():
                 release_candidates.append({"event":item["event"],"observed_release_text":line[:2000]})
     # Conservative exact-release evidence: same observed line binds actual downloaded ID and full release.
     exact_re=r"iron[ ._-]*man[ ._-]*2[ ._-]+2010[ ._-]+repack[ ._-]+1080p[ ._-]+blu[ ._-]*ray[ ._-]+x264[ ._-]+nikt0\b"
-    exact=int(any(re.search(exact_re,line,re.I) and any(re.search(r"(?<!\d)"+re.escape(x)+r"(?!\d)",line) for x in observed_ids) for item in outputs for line in str(item.get("output","")).splitlines()))
+    exact=int(any(re.search(exact_re,line,re.I) and any(related(line,x) for x in artifacts) for item in outputs for line in str(item.get("output","")).splitlines()))
     elapsed=round(time.monotonic()-start)
     denied=int(bool(re.search(r"permission check failed|auto-denied|user denied permission|permission denied",stdout+"\n"+stderr,re.I)))
     drift=int([sha(x) for x in paths]!=config_before)
@@ -301,11 +289,11 @@ def probe():
     challenge=bool(re.search(r"making sure you.re not a bot|/\.within\.website/|anti.bot challenge|captcha",access_evidence,re.I))
     provider_access="ACCESS_BLOCKED" if challenge else "SITE_TAB_OBSERVED"
     selection_evaluation="NOT_TESTED" if challenge else "RELEASE_METADATA_UNVERIFIED"
-    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-neon-high","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V3","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Iron Man 2","year":2010,"release":"Iron Man 2 2010 REPACK 1080p BluRay x264-nikt0","release_origin":"OWNER_SUPPLIED","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-neon-high","provider":"SubtitleCat","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V3","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Iron Man 2","year":2010,"release":"Iron Man 2 2010 REPACK 1080p BluRay x264-nikt0","release_origin":"OWNER_SUPPLIED","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
     write(run/"BRAIN_TEACHER_REPORT.json",report)
-    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Neon High teacher benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Neon High SubtitleCat teacher benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
-    return f"TR06T3_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}E{exact}I{bound}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
+    return f"TR07SC_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}E{exact}I{bound}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
 
 try:print(probe())
 except Exception as e:
