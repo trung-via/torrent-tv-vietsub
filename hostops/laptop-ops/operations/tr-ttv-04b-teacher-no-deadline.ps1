@@ -1,4 +1,4 @@
-# TR-TTV.05b: Owner-approved blind acquisition, fixed Torrent TV port 9555; fresh profile for a blind benchmark only when port is idle.
+# TR-TTV.05b V2: reuse the verified dedicated 9555 profile and its ordinary provider tab.
 # Never edit shared settings or touch Owner production.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -8,7 +8,7 @@ $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | C
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-05b-hailmary-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-05b-hailmary-v2-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 function Listener([int]$port){
   @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
@@ -18,49 +18,21 @@ $before9555=@(Listener 9555)
 $task=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\'
 $ownerState=[string]$task.State
 $hostTask=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-Laptop-HostOps' -TaskPath '\'
-$profile=Join-Path $run 'ChromeBlindProfile'
-$downloadDir=Join-Path $run 'browser-downloads'
+$profile=Join-Path $root 'CDP9555Profile'
 $active9555=@(Listener 9555)
 $started9555=0
 $verified=$false
-$code='TR05H_9555_BUSY_NO_RETRY'
-# Pending legitimate provider access and task-tab/download binding. Do not rotate profile to retry a blocked provider.
-$code='TR05V2_ACCESS_PREFLIGHT_REQUIRED'
-if($false){
+$code='TR05V2_BROWSER_NOT_VERIFIED'
 if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
-elseif($active9555.Count -eq 0){
- $chrome=@(
-   (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
-   (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
- )|Where-Object {Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
- if($chrome){
-  if((Test-Path -LiteralPath $profile) -or (Test-Path -LiteralPath $downloadDir)){throw 'BLIND_PROFILE_NOT_FRESH'}
-  New-Item -ItemType Directory -Path (Join-Path $profile 'Default') -ErrorAction Stop|Out-Null
-  New-Item -ItemType Directory -Path $downloadDir -ErrorAction Stop|Out-Null
-  $prefs=@{download=@{default_directory=$downloadDir;prompt_for_download=$false;directory_upgrade=$true};browser=@{check_default_browser=$false}}
-  [IO.File]::WriteAllText((Join-Path $profile 'Default\Preferences'),($prefs|ConvertTo-Json -Depth 4 -Compress),[Text.UTF8Encoding]::new($false))
-  $profileArg='--user-data-dir="'+$profile+'"'
-  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','about:blank')|Out-Null
-  $started9555=1
-  for($i=0;$i -lt 30;$i++){
-   Start-Sleep -Milliseconds 500
-   $active9555=@(Listener 9555)
-   if($active9555.Count -gt 0){break}
-  }
-  $code='TR04C_NO_LISTENER'
-  if($active9555.Count -eq 1){
-   $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
-   $listeners=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
-   if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)' -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
-   else{$code='TR04C_PROFILE_MISMATCH'}
-  }
- }else{$code='TR04C_CHROME_MISSING'}
-}
+elseif($active9555.Count -eq 1){
+ $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
+ $ls=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
+ if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)' -and @($ls|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
 }
 if($verified){
 $py=@'
 import sys,pathlib,os,json,re,subprocess,hashlib,shutil,urllib.request,urllib.parse,time,zipfile,sqlite3
-owner,run=map(pathlib.Path,sys.argv[1:])
+owner,run,profile=map(pathlib.Path,sys.argv[1:])
 sys.path.insert(0,str(owner/"app/poc/p2-aisub"))
 from translator_gateway import preflight_antigravity,_validated_antigravity_alias
 def read(p):
@@ -129,7 +101,7 @@ def probe():
         for rule in perms.get(key,[]):
             if isinstance(rule,str) and (rule.startswith("mcp(ttv-browser") or rule=="mcp(*)"):return "TR04A_EXISTING_RESTRICTION"
     # Explicit tool grants limited to this benchmark and native 9555 server.
-    tools=("list_pages","new_page","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","close_page","evaluate_script")
+    tools=("list_pages","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","evaluate_script")
     for k in ("deny","ask"):
         if any(isinstance(v,str) and (v.startswith("mcp(ttv-browser") or v=="mcp(*)") for v in perms.get(k,[])):return "TR04B_EXISTING_RESTRICTION"
     allowed=perms.setdefault("allow",[])
@@ -141,12 +113,23 @@ def probe():
     write(override,config)
     env["TTV_SESSION_SETTINGS"]=str(override)
     env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
-    # The new dedicated profile has an initially empty download directory.
+    # One ordinary pre-existing provider tab only. Do not reload, rotate or solve a challenge.
     with opener.open("http://127.0.0.1:9555/json/list",timeout=3) as f:tabs=json.load(f)
     pages=[t for t in tabs if t.get("type")=="page"]
-    if len(pages)!=1 or pages[0].get("url")!="about:blank":return "TR04C_NOT_BLANK"
-    dirs={run/"browser-downloads"}
-    if any((run/"browser-downloads").iterdir()):return "TR04C_DOWNLOAD_DIR_DIRTY"
+    site=[t for t in pages if urllib.parse.urlsplit(t.get("url","")).hostname in ("www.opensubtitles.org","opensubtitles.org")]
+    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR05V2_ACCESS_BLOCKED_PRE"
+    if len(site)!=1:return "TR05V2_TASK_TAB_AMBIGUOUS"
+    target=site[0]
+    u=urllib.parse.urlsplit(target.get("url",""))
+    if u.scheme!="https" or u.path.rstrip("/") not in ("/en","/en/search/subs") or not re.search(r"subtitles",target.get("title",""),re.I):return "TR05V2_TASK_TAB_UNVERIFIED"
+    # Keep original browser download preferences unchanged; snapshot known download directory.
+    prefs=read(profile/"Default"/"Preferences")
+    download=prefs.get("download",{})
+    dest=pathlib.Path(os.path.expandvars(download.get("default_directory") or str(home/"Downloads")))
+    if not dest.is_absolute() or not dest.is_dir():return "TR05V2_DOWNLOAD_DIR_UNVERIFIED"
+    dirs={dest}
+    resultdir=run/"browser-downloads";resultdir.mkdir()
+    write(run/"task-binding.json",{"cdp_target_id":target.get("id"),"initial_url":target.get("url"),"download_directory":str(dest),"existing_profile":True,"cold_profile":False})
     def candidates():
         found={}
         for d in dirs:
@@ -185,7 +168,7 @@ def probe():
         return good[0] if len(good)==1 else (None,0)
     downloads=run/"downloads";downloads.mkdir()
     before=candidates()
-    prompt="You are the English subtitle acquisition agent for Torrent TV Vietsub. Input: Project Hail Mary (2026), English. Video release name from the player's Files screen: Project.Hail.Mary.2026.WEBRip.720p-New-Team; 6.8 GB, WEBRip, 720p, New-Team. FPS, duration, IMDb ID, subtitle ID, candidate URL, prior answer and cached subtitle are not supplied. Independently find an appropriate English subtitle from OpenSubtitles using ordinary authorized website interaction. Choose your own search method. Use the fixed Torrent TV Chrome CDP 9555 and authorized MCP endpoint ttv-browser. Use only the task tab and job-specific download directory. A reused profile is not a cold-profile blind test. Do not change endpoints or profiles to evade access restrictions.\n\nObtain the numeric pageId from list_pages or new_page; include the required pageId when navigating. Use the normal authorized website entry point. If a challenge, explicit denial, authentication or payment requirement prevents access, stop and report ACCESS_BLOCKED or AUTH_REQUIRED as appropriate. Do not retry through another endpoint or attempt to bypass a restriction.\nSearch using the film title and year; distinguish similarly named films and episodes. Compare candidate language, release source, cut, frame rate, duration and coverage where evidence is available. Prefer exact release or verified synchronization; do not invent missing metadata. Distinguish candidate match from playback sync.\nRead the visible page efficiently. If useful, extract concise candidate rows with a permitted DOM read rather than repeatedly reading unchanged full snapshots. Inspect the selected candidate detail page before using a normal website-issued download action. Respect site access limits, authentication requirements and tool permissions. Do not guess endpoints, access hidden browser data, use unauthorized network inspection or circumvent denial. Ignore unrelated ads and streaming links.\nDownload once through the normal authorized site flow. If a new file has been received, stop further acquisition; do not download again for confirmation. The host verifies completion and file integrity.\nReturn a concise structured final answer even if unsuccessful or a tool is unavailable: status, observed film and release, candidate reference discovered in this run, observed FPS/duration, matching evidence and limitations, actions actually performed, errors, and usage if available. Return null for unknown fields. Do not claim synchronization without evidence. Do not write extra report files or call network inspection merely to generate a report. No arbitrary benchmark deadline. Suggested status values: DOWNLOADED_REPORTED, NO_MATCH, ACCESS_BLOCKED, ACCESS_DENIED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE, UNKNOWN. ACCESS_BLOCKED is not NO_MATCH."
+    prompt="You are the English subtitle acquisition agent for Torrent TV Vietsub. Input: Project Hail Mary (2026), English. Video release name from the player's Files screen: Project.Hail.Mary.2026.WEBRip.720p-New-Team; 6.8 GB, WEBRip, 720p, New-Team. FPS, duration, IMDb ID, subtitle ID, candidate URL, prior answer and cached subtitle are not supplied. Independently find an appropriate English subtitle from OpenSubtitles using ordinary authorized website interaction. Choose your own search method. Use the fixed Torrent TV Chrome CDP 9555 and authorized MCP endpoint ttv-browser. First list_pages, then use only the existing ordinary OpenSubtitles homepage tab identified by its URL/title; do not open, close or use unrelated tabs. Use the site's ordinary download action and leave browser download settings unchanged; the host captures new files into the job-specific result folder. A reused profile is not a cold-profile blind test. Do not change endpoints or profiles to evade access restrictions.\n\nObtain the numeric pageId from list_pages; include the required pageId when navigating. Use the already open normal authorized website entry point, do not reload it merely to check access. If a challenge, explicit denial, authentication or payment requirement prevents access, stop and report ACCESS_BLOCKED or AUTH_REQUIRED as appropriate. Do not retry through another endpoint or attempt to bypass a restriction.\nSearch using the film title and year; distinguish similarly named films and episodes. Compare candidate language, release source, cut, frame rate, duration and coverage where evidence is available. Prefer exact release or verified synchronization; do not invent missing metadata. Distinguish candidate match from playback sync.\nRead the visible page efficiently. If useful, extract concise candidate rows with a permitted DOM read rather than repeatedly reading unchanged full snapshots. Inspect the selected candidate detail page before using a normal website-issued download action. Respect site access limits, authentication requirements and tool permissions. Do not guess endpoints, access hidden browser data, use unauthorized network inspection or circumvent denial. Ignore unrelated ads and streaming links.\nDownload once through the normal authorized site flow. If a new file has been received, stop further acquisition; do not download again for confirmation. The host verifies completion and file integrity.\nReturn a concise structured final answer even if unsuccessful or a tool is unavailable: status, observed film and release, candidate reference discovered in this run, observed FPS/duration, matching evidence and limitations, actions actually performed, errors, and usage if available. Return null for unknown fields. Do not claim synchronization without evidence. Do not write extra report files or call network inspection merely to generate a report. No arbitrary benchmark deadline. Suggested status values: DOWNLOADED_REPORTED, NO_MATCH, ACCESS_BLOCKED, ACCESS_DENIED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE, UNKNOWN. ACCESS_BLOCKED is not NO_MATCH."
     (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
@@ -232,19 +215,20 @@ def probe():
         res=event.get("result")
         if event.get("event")=="result" and isinstance(res,dict):
             if isinstance(res.get("response"),str):final.append(res["response"])
-    # The first MCP list_pages result must itself show a single blank page.
+    # Require evidence of the preflight tab in the first actual MCP output.
     first=str(first_pages or "")
     pages_seen=re.findall(r"(?m)^\s*\d+:\s*(.+)$",first)
-    blank=int(len(pages_seen)==1 and re.fullmatch(r"about:blank(?:\s+\[selected\])?",pages_seen[0].strip()) is not None)
+    bound=int(sum(bool(re.search(r"https://(?:www\.)?opensubtitles\.org/en(?:/search/subs)?(?:[)\s]|$)",line,re.I)) for line in pages_seen)==1)
     named=int(server_names=={"ttv-browser"})
-    # Browser history in the unique profile and actual new file are independent of final JSON.
-    history=run/"ChromeBlindProfile"/"Default"/"History"
+    history=profile/"Default"/"History"
     rows=[];history_ok=0
     if history.is_file():
         try:
             con=sqlite3.connect(history.resolve().as_uri()+"?mode=ro",uri=True,timeout=3)
             con.row_factory=sqlite3.Row
-            for row in con.execute("select id,target_path,state,received_bytes,total_bytes from downloads order by id"):
+            # Chrome epoch in microseconds. Only downloads begun after this job started.
+            cutoff=int((wall_start+11644473600)*1000000)
+            for row in con.execute("select id,target_path,state,received_bytes,total_bytes,start_time from downloads where start_time>=? order by id",(cutoff,)):
                 item=dict(row)
                 item["chain"]=[x[0] for x in con.execute("select url from downloads_url_chains where id=? order by chain_index",(row["id"],))]
                 rows.append(item)
@@ -254,7 +238,7 @@ def probe():
     for row in rows:
         if row["state"]!=1 or row["received_bytes"]<=0:continue
         f=pathlib.Path(row["target_path"])
-        if not f.is_file() or f.is_symlink() or not f.resolve().is_relative_to((run/"browser-downloads").resolve()):continue
+        if not f.is_file() or f.is_symlink() or not f.resolve().is_relative_to(dest.resolve()):continue
         if str(f.resolve()) in before or f.stat().st_size>10000000:continue
         c=cue_count(f)
         if not c:continue
@@ -271,9 +255,9 @@ def probe():
     # Independently inspect new files in the initially empty dedicated download directory.
     # ADS provenance is supplementary when Chrome's live History is unavailable.
     physical=[]
-    for f in (run/"browser-downloads").iterdir():
+    for f in dest.iterdir():
         if not f.is_file() or f.is_symlink() or f.suffix.lower() not in (".srt",".zip"):continue
-        if str(f.resolve()) in before or not 0<f.stat().st_size<=10000000:continue
+        if str(f.resolve()) in before or f.stat().st_mtime<wall_start-1 or not 0<f.stat().st_size<=10000000:continue
         c=cue_count(f)
         if not c:continue
         physical.append({"filename":f.name,"bytes":f.stat().st_size,"cues":c})
@@ -287,6 +271,12 @@ def probe():
                 sid=match.group(1);observed_ids.add(sid)
                 artifacts.append({"filename":f.name,"candidate_id":sid,"bytes":f.stat().st_size,"sha256":sha(f),"cues":c,"provenance":"Zone.Identifier"})
         except (OSError,ValueError):pass
+    # Do not export or copy a prior file. Preserve independently verified new artifacts only.
+    for artifact in artifacts:
+        src=dest/artifact["filename"]
+        if src.is_file() and not src.is_symlink() and sha(src)==artifact["sha256"]:
+            shutil.copy2(src,resultdir/src.name)
+            artifact["copied_to_job"]=True
     # Candidate title/language evidence needs an observed result/detail link, not just a file.
     titlematch=0
     for item in outputs:
@@ -306,13 +296,13 @@ def probe():
     # A file may be acquired despite a missing final answer or a later tool error.
     access_evidence="\n".join(str(v.get("output","")) for v in outputs)
     challenge=bool(re.search(r"making sure you.re not a bot|/\.within\.website/|anti.bot challenge|captcha",access_evidence,re.I))
-    provider_access="ACCESS_BLOCKED" if challenge else "UNVERIFIED"
+    provider_access="ACCESS_BLOCKED" if challenge else "SITE_TAB_OBSERVED"
     selection_evaluation="NOT_TESTED" if challenge else "UNVERIFIED"
-    report={"source_commit":os.environ.get("TTV_SOURCE_SHA",""),"model":"gemini-4-hydrogen-low","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V2","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_blank":bool(blank),"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"release":"Project.Hail.Mary.2026.WEBRip.720p-New-Team","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    report={"source_commit":os.environ.get("TTV_SOURCE_SHA",""),"model":"gemini-4-hydrogen-low","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V2","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"release":"Project.Hail.Mary.2026.WEBRip.720p-New-Team","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
     write(run/"BRAIN_STUDENT_REPORT.json",report)
     (run/"BRAIN_STUDENT_FULL_RESPONSE.md").write_text("# Hydrogen Low student benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
-    return f"TR05V2_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}I{blank}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
+    return f"TR05V2_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}I{bound}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
 
 try:print(probe())
 except Exception as e:
@@ -321,7 +311,7 @@ except Exception as e:
 '@
 $f=Join-Path $run 'control.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
-$out=@(& py -3 -I -B $f $owner $run 2> (Join-Path $run 'python-stderr.txt'))
+$out=@(& py -3 -I -B $f $owner $run $profile 2> (Join-Path $run 'python-stderr.txt'))
 if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}else{$code='TR04A_LOCAL_ERROR'}
 }
 $stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
