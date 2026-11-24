@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/tr-ttv-04b-teacher-no-deadline.ps1",
-  "script_sha256": "1b8628661d1b6709407414992c0d70d2c502e16b261236e788ecd657ac08fe7a",
+  "script_sha256": "72278b1a4a0d7314574598e25ce6d33aef5c80fac56da5db25a3e6d9853e0f1e",
   "arguments": []
 }
