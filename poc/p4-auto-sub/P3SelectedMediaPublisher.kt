@@ -213,7 +213,6 @@ internal object P3SelectedMediaPublisher {
                               isActive: Boolean, actualChoice: String) {
         val gen = generation.get()
         val sampledAt = android.os.SystemClock.elapsedRealtime()
-        val sequence = statusSequence.incrementAndGet()
         queue.execute {
             if (generation.get() != gen || (isActive && active !== selected) ||
                 !enabled(ctx) || (actualChoice == "REQUESTED" && !selected.requestedByViewer) ||
@@ -226,7 +225,8 @@ internal object P3SelectedMediaPublisher {
                     (actualChoice == "REQUESTED" && !selected.requestedByViewer)) {
                     return@execute
                 }
-                postStatusOnce(paired, selected, isActive, actualChoice, sequence)
+                postStatusOnce(paired, selected, isActive, actualChoice,
+                    statusSequence.incrementAndGet())
             } catch (_: Exception) {
                 // Signed status is best-effort, expiry on PC is fail-closed.
             } finally {
@@ -259,6 +259,14 @@ internal object P3SelectedMediaPublisher {
                         (kind != "PLAYBACK_CLOSED" && active !== selected) ||
                         (kind == "VIEWER_VIETSUB_REQUESTED" &&
                             !selected.requestedByViewer)) return@execute
+                    if (kind == "VIEWER_VIETSUB_REQUESTED") {
+                        // Refresh the exact current intent at send time. A queued
+                        // heartbeat may have expired while the previous film closed.
+                        postStatusOnce(paired, selected, true, "REQUESTED",
+                            statusSequence.incrementAndGet())
+                        if (generation.get() != gen || active !== selected ||
+                            !selected.requestedByViewer) return@execute
+                    }
                     delivered = postOnce(paired, selected, kind)
                 } catch (_: Exception) {
                     // Never leak torrent data, private HTTP details or

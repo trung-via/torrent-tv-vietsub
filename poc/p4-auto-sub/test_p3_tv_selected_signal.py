@@ -281,6 +281,17 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn('"PC chưa xác nhận yêu cầu Vietsub. Sẽ tự thử lại."', self.patched)
         self.assertIn('p3LastDelivery = null', self.patched)
 
+    def test_viewer_retry_refreshes_state_before_selection_at_send_time(self):
+        publisher = self.kt.split('private fun enqueue(', 1)[1].split(
+            'private fun postOnce(', 1)[0]
+        self.assertLess(publisher.index('postStatusOnce(paired, selected, true, "REQUESTED",'),
+                        publisher.index('delivered = postOnce(paired, selected, kind)'))
+        self.assertIn('statusSequence.incrementAndGet()', publisher)
+        status = self.kt.split('private fun enqueueStatus(', 1)[1].split(
+            'private fun randomHex', 1)[0]
+        self.assertLess(status.index('queue.execute {'),
+                        status.index('statusSequence.incrementAndGet()'))
+
     def test_manual_off_other_invalidates_inflight_p4_before_source_ready(self):
         self.assertIn("P1ProductionSubtitles.automaticChoice(", self.patched)
         self.assertIn('index()) != "ON") {', self.patched)
