@@ -339,6 +339,61 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         Write-Output ('HOSTOPS_BRAIN_R2_INSTALLED_MISSING=' + $result.missing)
         Write-Output ('HOSTOPS_BRAIN_R2_INSTALLED_INVALID=' + $result.invalid)
     }
+    if ($receipt.operation -ceq 'owner-brain-neutral-diagnostic') {
+        $p = Join-Path $outbox ('owner-neutral-diag-' + $nonce + '.json')
+        $item = Get-Item -LiteralPath $p -Force
+        if ($item.Length -le 0 -or $item.Length -gt 1024 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'NEUTRAL_DIAG_RECEIPT_INVALID' }
+        $r = Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+        if ($r.schema -cne 'TTV-OWNER-NEUTRAL-DIAG-V1' -or $r.nonce -cne $nonce -or
+            $r.reason -cnotin @('NO_LOG',
+    'UNCLASSIFIED',
+    'NOT_FOUND',
+    'PINNED_SOURCE_HASH_MISMATCH',
+    'PINNED_SOURCE_PATH_INVALID',
+    'TRUSTED_SOURCE_BRANCH_DRIFT',
+    'NETWORK_FETCH_FAILED',
+    'PS_RUNTIME_ERROR',
+    'ROLLED_BACK',
+    'HOLD_DIRECTORY_INVALID',
+    'HOLD_FILE_INVALID',
+    'HOLD_OWNER_TASK_IDENTITY_DRIFT',
+    'HOLD_PENDING_OWNER_EVENTS',
+    'HOLD_OWNER_TASK_STATE_UNKNOWN',
+    'HOLD_RESIDUAL_WORKER_SET_UNEXPECTED',
+    'HOLD_RESIDUAL_IDENTITY_UNVERIFIED',
+    'HOLD_RESIDUAL_TASK_REENABLED',
+    'HOLD_RESIDUAL_CHANGED',
+    'HOLD_RESIDUAL_NOT_STOPPED',
+    'HOLD_INTERACTIVE_OWNER_REQUIRED',
+    'HOLD_OWNER_TASK_NOT_RUNNING_OR_READY',
+    'HOLD_OWNER_HEARTBEAT_NOT_VERIFIED',
+    'HOLD_STOPPED_TASK_RESIDUAL_WORKERS',
+    'HOLD_PINNED_DOWNLOAD_HASH_DRIFT',
+    'HOLD_INSTALLED_ENTRYPOINT_SHA_DRIFT',
+    'HOLD_STAGED_SOURCE_SHA_DRIFT',
+    'HOLD_STAGED_OVERLAY_IMPORT_FAILED_OWNER_UNCHANGED',
+    'HOLD_BACKUP_HASH_INVALID',
+    'HOLD_OWNER_NOT_STOPPED_DURING_APPLY',
+    'HOLD_SOURCE_CHANGED_DURING_APPLY',
+    'HOLD_NEW_MODULE_PATH_CONFLICT',
+    'HOLD_INSTALLED_BASELINE_CHANGED',
+    'HOLD_TEMP_COPY_DRIFT',
+    'HOLD_POST_REPLACE_HASH_CHANGED',
+    'HOLD_OFFLINE_IMPORT_FAILED',
+    'HOLD_FRESH_OWNER_NOT_VERIFIED',
+    'HOLD_ROLLBACK_NEW_FILE_DRIFT',
+    'HOLD_ROLLBACK_BACKUP_DRIFT',
+    'HOLD_ROLLBACK_INSTALLED_DRIFT',
+    'HOLD_ROLLBACK_ORIGINAL_HASH_CHANGED',
+    'HOLD_ROLLBACK_OWNER_HEARTBEAT_FAILED_TASK_HOLD') -or
+            $r.prior -cnotin @('NOT_FOUND','OTHER','FAILED_NO_RETRY','SUCCESS') -or
+            $r.task -cnotin @('Ready','Disabled','Running','Queued','Unknown') -or
+            $r.agy -cnotin @('OLD','NEW','DRIFT','MISSING') -or
+            $r.inbox -cnotin @('OLD','NEW','DRIFT','MISSING')) { throw 'NEUTRAL_DIAG_RECEIPT_INVALID' }
+        foreach ($f in @('reason','prior','task','agy','inbox')) {
+            Write-Output ('HOSTOPS_NEUTRAL_DIAG_' + $f.ToUpperInvariant() + '=' + $r.$f)
+        }
+    }
     if ($receipt.operation -ceq 'owner-runtime-audit') {
         $auditPath = Join-Path $outbox ('owner-runtime-' + $nonce + '.json')
         if (-not (Test-Path -LiteralPath $auditPath -PathType Leaf)) {
