@@ -4,8 +4,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$source = 'c707f0844eb8032e999054ece61dcc7e5ef8543f'
-$expectedApkHash = '1335be27ae336b85d5cd0114a93286516849ca74e97ad87f49bf1b113ec19bad'
+$source = '3693820edbf5efb3286f6f830753589c90bd80ce'
+$expectedApkHash = '110c41d94b1dfd4ba345401d2a029d0496af41ef1fb732fcf9b8a768654f90a2'
 $expectedCert = '8bf6937801524fd7c264b55855bb35a2133c242114fb66b5fa9f1907e334fd84'
 $pkg = 'com.spacesarmat.omp.test'
 $adb = 'C:\TOOL\Android-SDK\platform-tools\adb.exe'
