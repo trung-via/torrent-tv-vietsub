@@ -12,7 +12,7 @@ if ($request.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or $request.nonce -cno
 $base = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\VieNeuBenchmark'
 $root = Join-Path $base ('benchmark-'+$request.nonce)
 New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
-$rec = [ordered]@{schema='TTV-VIENEU-BENCHMARK-V1';nonce=[string]$request.nonce;status='ENV_MISSING';stage='PREFLIGHT';sdk='NONE';precision='FP32';threads=4;model_sha='NONE';codec_sha='NONE';init_ms=0;first_ms=0;audio_ms=0;synth_ms=0;rtf_milli=0;cue_count=0;peak_mib=0;sample_rate=0;elapsed_s=0}
+$rec = [ordered]@{schema='TTV-VIENEU-BENCHMARK-V1';nonce=[string]$request.nonce;status='ENV_MISSING';stage='PREFLIGHT';sdk='NONE';precision='FP32';threads=8;model_sha='NONE';codec_sha='NONE';init_ms=0;first_ms=0;audio_ms=0;synth_ms=0;rtf_milli=0;cue_count=0;peak_mib=0;sample_rate=0;elapsed_s=0;prior_error='UNKNOWN';error_kind='NONE'}
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $code = @'
 import ctypes, json, os, sys, time, wave
@@ -26,7 +26,7 @@ def write(d):
     tmp.write_text(json.dumps(d), encoding="utf-8")
     tmp.replace(root / "metrics.json")
 d = dict(status="RUNNING", stage="IMPORT", sdk="NONE", precision="FP32",
-         threads=4, model_sha="NONE", codec_sha="NONE", init_ms=0,
+         threads=8, model_sha="NONE", codec_sha="NONE", init_ms=0,
          first_ms=0, audio_ms=0, synth_ms=0, rtf_milli=0, cue_count=0,
          peak_mib=0, sample_rate=0)
 write(d)
@@ -41,8 +41,9 @@ try:
     write(d)
     model = "pnnbao-ump/VieNeu-TTS-v3-Turbo"
     codec = "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX"
-    api = hf.HfApi()
-    pins = {r: api.model_info(r, token=False).sha for r in (model, codec)}
+    # Reuse the exact weights already observed in the first benchmark.
+    pins = {model: "61b85e3d937fbbacb387714180e8182823512523",
+            codec: "ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae"}
     import re
     assert all(re.fullmatch(r"[0-9a-f]{40}", v or "") for v in pins.values())
     d["model_sha"], d["codec_sha"] = pins[model], pins[codec]
@@ -52,13 +53,14 @@ try:
         if repo_id in pins:
             kwargs["revision"] = pins[repo_id]
             kwargs["token"] = False
+            kwargs["local_files_only"] = True
         return original(repo_id, *args, **kwargs)
     hf.hf_hub_download = pinned
     d["stage"] = "MODEL_INIT"
     write(d)
     from vieneu import Vieneu
     t = time.perf_counter()
-    engine = Vieneu(mode="v3turbo", backend="onnx", device="cpu", precision="fp32", threads=4)
+    engine = Vieneu(mode="v3turbo", backend="onnx", device="cpu", precision="fp32", threads=8)
     d["init_ms"] = int((time.perf_counter()-t)*1000)
     assert engine.backend == "onnx"
     d["sample_rate"] = int(engine.sample_rate)
@@ -100,18 +102,45 @@ try:
         c=PMC(); c.cb=ctypes.sizeof(c)
         kernel=ctypes.windll.kernel32
         kernel.GetCurrentProcess.restype=wintypes.HANDLE
-        if ctypes.windll.psapi.GetProcessMemoryInfo(kernel.GetCurrentProcess(), ctypes.byref(c), c.cb):
-            d["peak_mib"] = int(c.PeakWorkingSetSize/(1024*1024))
+        # HANDLE is pointer-sized; default ctypes int arguments truncate it.
+        # Telemetry must not abort a successfully synthesized cue.
+        try:
+            mem = ctypes.windll.psapi.GetProcessMemoryInfo
+            mem.argtypes = [wintypes.HANDLE, ctypes.POINTER(PMC), wintypes.DWORD]
+            mem.restype = wintypes.BOOL
+            if mem(kernel.GetCurrentProcess(), ctypes.byref(c), c.cb):
+                d["peak_mib"] = int(c.PeakWorkingSetSize/(1024*1024))
+        except (OSError, OverflowError, ctypes.ArgumentError):
+            pass
         write(d)
     d["status"] = "BENCHMARK_COMPLETE"
     d["stage"] = "DONE"
     write(d)
-    engine.close()
+    close = getattr(engine, "close", None)
+    if callable(close):
+        try: close()
+        except Exception: pass
 except Exception:
     d["status"] = "BENCHMARK_FAILED"
     write(d)
     raise
 '@
+# Classify the prior run's traceback locally without emitting private paths.
+# Match the exact failed receipt by its measured cue count and model pin.
+try {
+    $prior = @(Get-ChildItem -LiteralPath $base -Directory -Filter 'benchmark-*' | Where-Object { $_.FullName -ne $root } | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 5)
+    foreach ($dir in $prior) {
+        $metrics = Join-Path $dir.FullName 'metrics.json'
+        $err = Join-Path $dir.FullName 'stderr.txt'
+        if (-not (Test-Path -LiteralPath $metrics -PathType Leaf) -or -not (Test-Path -LiteralPath $err -PathType Leaf)) { continue }
+        $m = Get-Content -LiteralPath $metrics -Raw | ConvertFrom-Json
+        if ($m.status -ceq 'BENCHMARK_FAILED' -and $m.cue_count -eq 1 -and $m.init_ms -eq 53285) {
+            $tail = (Get-Content -LiteralPath $err -Tail 35 | Out-String)
+            $rec.prior_error = if ($tail -match 'GetProcessMemoryInfo|ctypes\.ArgumentError|OverflowError') {'MEMORY_TELEMETRY'} elseif ($tail -match 'MemoryError|bad_alloc|out of memory') {'MEMORY_EXHAUSTED'} elseif ($tail -match 'AssertionError') {'ASSERTION'} else {'OTHER'}
+            break
+        }
+    }
+} catch {}
 try {
     $pointer = Join-Path $base 'sdk385-ready.txt'
     if (Test-Path -LiteralPath $pointer -PathType Leaf) {
@@ -132,6 +161,7 @@ try {
             $si.Environment['HF_HUB_DISABLE_IMPLICIT_TOKEN']='1'
             $si.Environment['HF_HUB_DISABLE_TELEMETRY']='1'
             $si.Environment['HF_HUB_DOWNLOAD_TIMEOUT']='30'
+            $si.Environment['HF_HUB_OFFLINE']='1'
             $si.Environment.Remove('PYTHONPATH') | Out-Null
             $si.Environment.Remove('HF_TOKEN') | Out-Null
             $p=[Diagnostics.Process]::Start($si)
@@ -146,6 +176,10 @@ try {
                 if(Test-Path -LiteralPath $metrics -PathType Leaf){
                     $m=Get-Content -LiteralPath $metrics -Raw | ConvertFrom-Json
                     foreach($field in @('status','stage','sdk','precision','threads','model_sha','codec_sha','init_ms','first_ms','audio_ms','synth_ms','rtf_milli','cue_count','peak_mib','sample_rate')){$rec[$field]=$m.$field}
+                }
+                $tail = (Get-Content -LiteralPath (Join-Path $root 'stderr.txt') -Tail 35 | Out-String)
+                if ($p.ExitCode -ne 0) {
+                    $rec.error_kind = if ($tail -match 'MemoryError|bad_alloc|out of memory') {'MEMORY_EXHAUSTED'} elseif ($tail -match 'LocalEntryNotFoundError|OfflineModeIsEnabled') {'CACHE_MISSING'} elseif ($tail -match 'AssertionError') {'ASSERTION'} elseif ($tail -match 'ctypes\.ArgumentError|OverflowError') {'MEMORY_TELEMETRY'} else {'OTHER'}
                 }
                 if(-not $finished){$rec.status='BENCHMARK_TIMEOUT'}
                 elseif($p.ExitCode -ne 0){$rec.status='BENCHMARK_FAILED'}

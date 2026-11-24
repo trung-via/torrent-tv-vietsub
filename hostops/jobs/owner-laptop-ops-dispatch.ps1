@@ -236,12 +236,15 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         if ($v.schema -cne 'TTV-VIENEU-BENCHMARK-V1' -or $v.nonce -cne $nonce -or
             $v.status -cnotin @('BENCHMARK_COMPLETE','BENCHMARK_FAILED','BENCHMARK_TIMEOUT','ENV_MISSING','RAM_LOW','PROBE_EXCEPTION') -or
             $v.stage -cnotin @('PREFLIGHT','IMPORT','MODEL_RESOLVE','MODEL_INIT','SYNTHESIS','DONE') -or
-            $v.sdk -cnotin @('NONE','3.8.5') -or $v.precision -cne 'FP32' -or $v.threads -ne 4 -or
+            $v.sdk -cnotin @('NONE','3.8.5') -or $v.precision -cne 'FP32' -or $v.threads -ne 8 -or
             $v.model_sha -cnotmatch '^(NONE|[a-f0-9]{40})$' -or $v.codec_sha -cnotmatch '^(NONE|[a-f0-9]{40})$') { throw 'VIENEU_BENCHMARK_SCOPE_INVALID' }
+        foreach($field in @('prior_error','error_kind')) {
+            if ($v.$field -cnotin @('UNKNOWN','NONE','MEMORY_TELEMETRY','MEMORY_EXHAUSTED','ASSERTION','CACHE_MISSING','OTHER')) { throw 'VIENEU_BENCHMARK_ERROR_INVALID' }
+        }
         foreach($name in @('init_ms','first_ms','audio_ms','synth_ms','rtf_milli','cue_count','peak_mib','sample_rate','elapsed_s')){
             if ($v.$name -lt 0 -or $v.$name -gt 6000000) { throw 'VIENEU_BENCHMARK_METRIC_INVALID' }
         }
-        foreach($name in @('status','stage','sdk','precision','threads','model_sha','codec_sha','init_ms','first_ms','audio_ms','synth_ms','rtf_milli','cue_count','peak_mib','sample_rate','elapsed_s')){
+        foreach($name in @('status','stage','sdk','precision','threads','model_sha','codec_sha','init_ms','first_ms','audio_ms','synth_ms','rtf_milli','cue_count','peak_mib','sample_rate','elapsed_s','prior_error','error_kind')){
             Write-Output ('HOSTOPS_VIENEU_BENCHMARK_' + $name.ToUpperInvariant() + '=' + $v.$name)
         }
     }
