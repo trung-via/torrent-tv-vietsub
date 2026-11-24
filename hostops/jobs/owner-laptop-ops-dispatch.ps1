@@ -228,6 +228,16 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-lan-rebind-and-neutral-install') {
+        $file = Join-Path $outbox ('lan-rebind-' + $nonce + '.json')
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Length -le 0 -or $item.Length -gt 768 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'LAN_REBIND_RECEIPT_INVALID' }
+        $r = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        if ($r.schema -cne 'TTV-LAN-REBIND-RECEIPT-V1' -or $r.nonce -cne $nonce -or $r.pc -cnotin @('REBIND_APPLIED','EXISTING_ENDPOINT') -or $r.owner -cne 'READY_FRESH' -or $r.modules -cne 'TWO_NEW_VERIFIED' -or $r.tv -cnotin @('NOT_NEEDED','ADB_NOT_READY','STAGED_PENDING_PLAYER_IMPORT','STAGE_FAILED_ROLLED_BACK','STAGE_FAILED_RECONCILE')) { throw 'LAN_REBIND_RECEIPT_INVALID' }
+        foreach ($field in @('pc','owner','modules','tv')) {
+            Write-Output ('HOSTOPS_LAN_REBIND_' + $field.ToUpperInvariant() + '=' + $r.$field)
+        }
+    }
     if ($receipt.operation -ceq 'owner-brain-r2-startup-trace') {
         $file = Join-Path $outbox ('owner-brain-startup-' + $nonce + '.json')
         if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {

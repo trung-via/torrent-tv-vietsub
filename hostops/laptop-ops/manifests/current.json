@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-brain-r2-startup-trace",
-  "category": "diagnostics",
+  "operation": "owner-lan-rebind-and-neutral-install",
+  "category": "device-lan",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-brain-r2-startup-trace.ps1",
-  "script_sha256": "0255858072be5449e9afe22ceeac1d544e8ac00596069c5f1bd12439895bd388",
+  "script_path": "hostops/laptop-ops/operations/owner-lan-rebind-and-neutral-install.ps1",
+  "script_sha256": "c4eb173bc735b701da1e0a67f092bed937b62a8a724b858086b1a28d1d8e8084",
   "arguments": []
 }
