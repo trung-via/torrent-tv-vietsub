@@ -1,4 +1,4 @@
-# One explicitly requested Spider-Man subtitle acquisition, then existing EN Inbox.
+# Brain-selected direct HTTP subtitle acquisition, then existing EN Inbox. NO AGY execution.
 # No translation, cache deletion, torrent add, TV event, or playback change.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -8,7 +8,11 @@ $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $request = Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 if ($request.nonce -cnotmatch '^[0-9a-f]{32}$') { throw 'STAGE_REQUEST_INVALID' }
 $code = @'
-import json, pathlib, re, sys, hashlib, subprocess, tempfile, os
+import json, pathlib, re, sys, hashlib, tempfile, io, zipfile
+from html.parser import HTMLParser
+from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.parse import urljoin, urlsplit, unquote
+from urllib.error import HTTPError, URLError
 root, cache = map(pathlib.Path, sys.argv[1:3])
 app = root / 'app'
 sys.path[:0] = [str(app / 'poc/p2-sub-discovery'), str(app / 'poc/p2-aisub'), str(app / 'poc/p3-vietsub-trigger')]
@@ -16,9 +20,8 @@ from matcher import Media
 from owner_torrserver_readonly import OwnerLocalTorrServer, OwnerTorrServerReader, _local_post
 from owner_selected_file_resolver import _fingerprint
 from brain_english_inbox import stage_brain_english, acquire_brain_english, BrainEnglishUnavailable
-from agy_opensubtitles_acquisition import acquire_english, AgyEnglishUnavailable, _result
-from translator_gateway import preflight_antigravity
-from lean120_api import load_profile
+from agy_opensubtitles_acquisition import _validate_source, AgyEnglishUnavailable
+from opensubtitles import validate_timed_text
 out = dict(schema='TTV-OWNER-EN-STAGE-V1', status='NOT_RUN', media='UNVERIFIED', cues=0, bytes=0, reason='NONE')
 def finish(status, reason='NONE'):
     out.update(status=status, reason=reason)
@@ -82,29 +85,80 @@ try:
         finish('READY_EXISTING')
     except BrainEnglishUnavailable as exc:
         if str(exc)!='BRAIN_EN_NOT_STAGED': finish('HOLD','EXISTING_INBOX_CONFLICT')
-    profile=load_profile(app/'poc/p2-aisub/translator_profile.json')
-    if profile.provider!='antigravity': finish('HOLD','PROFILE_NOT_AGY')
-    exe=preflight_antigravity()
-    captured={}
-    def runner(cmd, **kw):
-        # One acquisition attempt, no automatic retries. Use the existing agent
-        # prompt + a user-selected candidate hint; never force a mismatched release.
-        msg=json.loads(kw['input'])
-        msg['message']['content'] += '\nOwner selected this candidate for a first check: https://subdl.com/es/s/info/Jl0rB5lBK4/spider-man-brand-new-day . Use another permitted source if it does not match or is not downloadable. Never invent source bytes.'
-        kw['input']=json.dumps(msg,ensure_ascii=False)+'\n'
-        kw['timeout']=240
-        cmd=list(cmd)
-        cmd[cmd.index('--print-timeout')+1]='3m'
-        p=subprocess.run(cmd,**kw)
-        if p.returncode==0: captured.update(_result(p.stdout))
-        return p
-    asset=acquire_english(media,cache_root=cache,model=profile.model,thinking_level=profile.thinking_level,runner=runner,executable=exe)
+    # Brain-selected public detail page. Follow only an actual exposed download URL.
+    page='https://subdl.com/s/info/Jl0rB5lBK4/spider-man-brand-new-day'
+    def allowed(url):
+        p=urlsplit(url)
+        return p.scheme=='https' and p.hostname in ('subdl.com','www.subdl.com','dl.subdl.com','download.subdl.com') and not p.username and not p.password and p.port in (None,443)
+    class Redirect(HTTPRedirectHandler):
+        def redirect_request(self,req,fp,code,msg,headers,newurl):
+            if not allowed(newurl): raise ValueError('BRAIN_DOWNLOAD_REDIRECT_UNVERIFIED')
+            return super().redirect_request(req,fp,code,msg,headers,newurl)
+    opener=build_opener(Redirect())
+    def get(url,cap):
+        if not allowed(url): finish('HOLD','BRAIN_DOWNLOAD_URL_UNVERIFIED')
+        try:
+            with opener.open(Request(url,headers={'User-Agent':'TorrentTV-Brain/1.0','Accept':'*/*'}),timeout=15) as r:
+                data=r.read(cap+1)
+                if len(data)>cap: finish('HOLD','BRAIN_DOWNLOAD_TOO_LARGE')
+                return data,r.geturl()
+        except HTTPError as e:
+            finish('HOLD','BRAIN_DOWNLOAD_HTTP_'+str(e.code))
+        except (URLError,TimeoutError,OSError):
+            finish('HOLD','BRAIN_DOWNLOAD_UNREACHABLE')
+    raw,actual_page=get(page,3_000_000)
+    html=raw.decode('utf-8','replace')
+    class Links(HTMLParser):
+        def __init__(self):
+            super().__init__();self.links=[]
+        def handle_starttag(self,tag,attrs):
+            a=dict(attrs)
+            if tag=='a' and a.get('href'):
+                self.links.append(a['href'])
+    parser=Links();parser.feed(html)
+    links=set()
+    for href in parser.links:
+        u=urljoin(actual_page,href)
+        if allowed(u) and (urlsplit(u).hostname in ('dl.subdl.com','download.subdl.com') or urlsplit(u).path.lower().endswith(('.zip','.srt'))):
+            links.add(u)
+    if not links:
+        finish('HOLD','BRAIN_PUBLIC_DOWNLOAD_LINK_NOT_EXPOSED')
+    if len(links)!=1:
+        finish('HOLD','BRAIN_PUBLIC_DOWNLOAD_LINK_AMBIGUOUS')
+    download=next(iter(links))
+    data,actual_url=get(download,5_000_000)
+    candidates=[]
+    def consider(filename,content):
+        release=pathlib.PurePosixPath(filename.replace('\\','/')).name
+        if not target(release) or not release.lower().endswith('.srt'): return
+        if re.search(r'(?i)(?:^|[. _-])(sdh|hi|forced)(?:[. _-]|$)',release): return
+        try:
+            # Do not fabricate a release name. Reuse the deployed match gate.
+            _validate_source(media,{'release_name':release,'source_page':page})
+            text=content.decode('utf-8-sig')
+            content=text.encode('utf-8')
+            cues=validate_timed_text(content,'srt')
+            if cues<500: return
+        except (ValueError,UnicodeError): return
+        candidates.append((release,content,cues))
+    if zipfile.is_zipfile(io.BytesIO(data)):
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            if len(z.infolist())>50: finish('HOLD','BRAIN_ARCHIVE_TOO_MANY_FILES')
+            for entry in z.infolist():
+                if not entry.is_dir() and entry.filename.lower().endswith('.srt') and 0<entry.file_size<=1_000_000:
+                    consider(entry.filename,z.read(entry))
+    else:
+        consider(unquote(urlsplit(actual_url).path.rsplit('/',1)[-1]),data)
+    if len(candidates)!=1:
+        finish('HOLD','BRAIN_SRT_MATCH_NOT_UNIQUE')
+    release,content,cues=candidates[0]
+    digest=hashlib.sha256(content).hexdigest()
     with tempfile.TemporaryDirectory(prefix='.en-stage-',dir=cache) as folder:
         f=pathlib.Path(folder)/'english.srt'
-        f.write_bytes(asset.contents)
-        stage_brain_english(cache_root=cache,source_fingerprint=fp,video_name=name,release_name=captured['release_name'],source_page=captured['source_page'],srt_file=f)
+        f.write_bytes(content)
+        stage_brain_english(cache_root=cache,source_fingerprint=fp,video_name=name,release_name=release,source_page=page,srt_file=f)
     verify=acquire_brain_english(media,cache)
-    if verify.sha256!=asset.sha256: finish('HOLD','STAGE_HASH_DRIFT')
+    if verify.sha256!=digest: finish('HOLD','STAGE_HASH_DRIFT')
     out.update(cues=verify.cues,bytes=len(verify.contents))
     finish('READY_EXACT_MEDIA')
 except (AgyEnglishUnavailable,BrainEnglishUnavailable) as exc:

@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/owner-spiderman-en-stage.ps1",
-  "script_sha256": "6a2a74513a4df9c1bd674afe50e789e4c0eb936bf1b7db83482a6de13bed365a",
+  "script_sha256": "96cf2e176726068fe3c105be55d4215ca1761f20686eb61a3ddc9fea6020205f",
   "arguments": []
 }
