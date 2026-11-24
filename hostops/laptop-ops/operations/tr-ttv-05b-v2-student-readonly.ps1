@@ -29,43 +29,26 @@ def main():
     if r.get("model")!="gemini-4-hydrogen-low":return "TR05QA_MODEL_MISMATCH"
     if r.get("recipe_version")!="V2":return "TR05QA_RECIPE_MISMATCH"
     arts=r.get("artifacts",[])
-    if len(arts)!=1:return "TR05QA_ARTIFACT_NOT_UNIQUE"
-    a=arts[0]; name=a["filename"]
-    if pathlib.Path(name).name!=name:return "TR05QA_PATH_INVALID"
-    f=run/"browser-downloads"/name
-    if not f.is_file() or f.is_symlink() or not 0<f.stat().st_size<=10000000:return "TR05QA_COPY_MISSING"
-    raw=f.read_bytes()
-    if hashlib.sha256(raw).hexdigest()!=a["sha256"]:return "TR05QA_HASH_MISMATCH"
-    if f.suffix.lower()==".srt": blobs=[raw]
-    elif f.suffix.lower()==".zip":
-        with zipfile.ZipFile(f) as z:
-            blobs=[z.read(i) for i in z.infolist()[:100] if i.filename.lower().endswith(".srt") and 0<i.file_size<=2000000 and not i.flag_bits&1]
-    else:return "TR05QA_FORMAT_UNKNOWN"
-    sys.path[:0]=[str(owner/"app/poc/p2-sub-discovery"),str(owner/"app/poc/p2-aisub")]
-    from opensubtitles import validate_timed_text
-    from cue_pipeline import parse_cues
-    matches=[]
-    for b in blobs:
-        try:
-            count=validate_timed_text(b,"srt")
-            if count!=a["cues"] or count!=len(parse_cues(b,"srt")):continue
-            t=re.findall(rb"(?m)^(\d{2}):(\d{2}):(\d{2})[,.]\d{3}\s+-->\s+(\d{2}):(\d{2}):(\d{2})[,.]\d{3}",b)
-            if len(t)!=count:continue
-            first=min(int(h)*3600+int(m)*60+int(s) for h,m,s,_,_,_ in t)
-            last=max(int(h)*3600+int(m)*60+int(s) for _,_,_,h,m,s in t)
-            matches.append((count,first,last))
-        except Exception:pass
-    if len(matches)!=1:return "TR05QA_SRT_NOT_UNIQUE_VALID"
-    count,first,last=matches[0]
-    clues=[str(v.get("observed_release_text","")) for v in r.get("observed_release_candidates",[]) if isinstance(v,dict)]
-    exact=int(any(re.search(r"project[ ._-]+hail[ ._-]+mary[ ._-]+2026[ ._-]+webrip[ ._-]+720p[ ._-]+new[ ._-]+team",v,re.I) for v in clues))
-    final=r.get("final_response",[])
-    final_present=int(isinstance(final,list) and any(isinstance(v,str) and v.strip() for v in final))
-    full=run/"BRAIN_STUDENT_FULL_RESPONSE.md"
-    full_present=int(full.is_file() and not full.is_symlink() and full.stat().st_size>0)
-    tools=r.get("tool_names",[])
-    # Only public-safe scalar/boolean observations; never export dialogue, path, IDs, URLs or raw tool outputs.
-    return f"TR05QA_C{count}F{first}L{last}E{exact}R{final_present}M{full_present}K{len(tools)}Q{int(r.get('title_language_evidence',False))}"
+    if len(arts)!=1:return "TR06_PRIOR_ARTIFACT_NOT_UNIQUE"
+    sid=str(arts[0].get("candidate_id",""))
+    if not re.fullmatch(r"[1-9]\d{3,10}",sid):return "TR06_CANDIDATE_UNBOUND"
+    names={"list_pages":"L","select_page":"P","navigate_page":"N","take_snapshot":"S","click":"C","fill":"F","press_key":"K","wait_for":"W","evaluate_script":"E"}
+    seq="".join(names.get(x,"X") for x in r.get("tool_names",[]))[:20]
+    outputs=r.get("tool_outcomes",[])
+    linked=[str(v.get("output","")) for v in outputs if isinstance(v,dict) and re.search(r"(?<!\d)"+re.escape(sid)+r"(?!\d)",str(v.get("output","")))]
+    text="\n".join(linked)
+    # Conservative scalar evidence; no raw content, media ID or URL leaves the host.
+    rel=int(bool(re.search(r"project[ ._-]+hail[ ._-]+mary[ ._-]+2026[ ._-]+webrip[ ._-]+720p[ ._-]+new[ ._-]+team",text,re.I)))
+    group=int(bool(re.search(r"new[ ._-]+team",text,re.I)))
+    web=int(bool(re.search(r"web[ ._-]*(?:rip|dl)",text,re.I)))
+    fps=int(bool(re.search(r"\b(?:23\.976|24\.000|25\.000|29\.970|30\.000)\b|\b(?:fps|frame rate)\b",text,re.I)))
+    final="\n".join(v for v in r.get("final_response",[]) if isinstance(v,str))
+    claims=int(bool(re.search(r"\b(?:downloaded_reported|downloaded|download successful)\b",final,re.I)))
+    uncertain=int(bool(re.search(r"not (?:verified|confirmed|available|provided|known)|unverified|unknown|not supplied|cannot confirm",final,re.I)))
+    # Count model-event errors, not arbitrary words in webpage output.
+    errors=sum(bool(v.get("error")) for v in outputs if isinstance(v,dict))
+    return f"TR06_SEQ{seq}_L{len(linked)}E{rel}G{group}W{web}F{fps}C{claims}U{uncertain}X{errors}"
+
 try: print(main())
 except Exception: print("TR05QA_PRIVATE_ERROR")
 '@
