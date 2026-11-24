@@ -43,23 +43,45 @@ function RunBounded([string]$exe,[string[]]$argv,[string]$tag,[int]$seconds) {
     } finally { $p.Dispose() }
 }
 try {
-    $py = Get-Command py.exe -ErrorAction SilentlyContinue
-    if ($py) {
-        foreach ($version in @('3.14','3.13','3.12','3.11')) {
+    # Scheduled task PATH may omit the py launcher. Resolve the running
+    # Owner's executable first, then known installed Python directories.
+    $candidates = [Collections.Generic.List[string]]::new()
+    $workers = @(Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -match '^python(?:w)?\.exe$' -and
+        [string]$_.CommandLine -match '(?i)owner_p3_p4_entrypoint\.py' -and
+        [string]$_.CommandLine -match '(?i)TorrentTVVietsub'
+    })
+    foreach ($worker in $workers) {
+        $sid = Invoke-CimMethod -InputObject $worker -MethodName GetOwnerSid
+        if ($sid.ReturnValue -eq 0 -and $sid.Sid -ceq $id.User.Value -and $worker.ExecutablePath) {
+            $candidates.Add([string]$worker.ExecutablePath)
+        }
+    }
+    foreach ($tag in @('314','313','312','311')) {
+        $candidates.Add((Join-Path $env:ProgramFiles ('Python'+$tag+'\python.exe')))
+        $candidates.Add((Join-Path $env:LOCALAPPDATA ('Programs\Python\Python'+$tag+'\python.exe')))
+    }
+    $candidates = @($candidates | Select-Object -Unique | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+    if ($candidates.Count -gt 0) {
+        $ordinal=0
+        foreach ($python in $candidates) {
+            $ordinal++
+
             if ($clock.Elapsed.TotalSeconds -gt 300) { $rec.status='TIME_BUDGET'; break }
-            $tag = $version.Replace('.','')
-            $probe = RunBounded $py.Source @('-'+$version,'-c','import sys; print(sys.version.split()[0])') ('probe'+$tag) 8
+            $tag = [string]$ordinal
+            $probe = RunBounded $python @('-c','import sys; print(sys.version.split()[0])') ('probe'+$tag) 8
             if ($probe -ne 0) { continue }
+            $rec.python = (Get-Content -LiteralPath (Join-Path $root ('probe'+$tag+'.stdout.txt')) -Raw).Trim()
             $venv = Join-Path $root ('py'+$tag)
-            $rc = RunBounded $py.Source @('-'+$version,'-m','venv',$venv) ('venv'+$tag) 45
+            $rc = RunBounded $python @('-m','venv',$venv) ('venv'+$tag) 45
             if ($rc -ne 0) { $rec.status='VENV_FAILED'; continue }
             $exe = Join-Path $venv 'Scripts\python.exe'
-            $args = @('-m','pip','--isolated','install','--only-binary=:all:','--index-url','https://pypi.org/simple','--timeout','15','--retries','1','--no-input','vieneu==3.8.5')
+            $pipArgs = @('-m','pip','--isolated','install','--only-binary=:all:','--index-url','https://pypi.org/simple','--timeout','15','--retries','1','--no-input','vieneu==3.8.5')
             # Resolve wheels without touching global Python or compiling source.
-            $rc = RunBounded $exe ($args+@('--dry-run','--report',(Join-Path $root ('plan'+$tag+'.json')))) ('resolve'+$tag) 70
+            $rc = RunBounded $exe ($pipArgs+@('--dry-run','--report',(Join-Path $root ('plan'+$tag+'.json')))) ('resolve'+$tag) 70
             if ($rc -ne 0) { $rec.status=if($rc -eq 124){'RESOLVE_TIMEOUT'}else{'WHEEL_RESOLUTION_FAILED'}; continue }
             $rec.python = (Get-Content -LiteralPath (Join-Path $root ('probe'+$tag+'.stdout.txt')) -Raw).Trim()
-            $rc = RunBounded $exe $args ('install'+$tag) 150
+            $rc = RunBounded $exe $pipArgs ('install'+$tag) 150
             if ($rc -ne 0) { $rec.status=if($rc -eq 124){'INSTALL_TIMEOUT'}else{'INSTALL_FAILED'}; break }
             $rc = RunBounded $exe @('-c','from importlib.metadata import version; import numpy, soundfile, onnxruntime; from vieneu import Vieneu; print(version("vieneu")); print(version("onnxruntime")); assert "CPUExecutionProvider" in onnxruntime.get_available_providers()') ('import'+$tag) 25
             if ($rc -ne 0) { $rec.status='IMPORT_FAILED'; break }
