@@ -1,5 +1,5 @@
-# AGY self-audit and repair of its isolated MCP integration; one permitted acquisition after smoke.
-# Preserve the dedicated Chrome profile and existing authorization.
+# Independent stdio MCP protocol test using a local fixture only.
+# No external website access or changes to the existing Chrome profile.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
@@ -7,7 +7,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('agy-cdp9555-mcp-repair-'+$rq.nonce)
+$run=Join-Path $root ('mcp-cdp9555-stdio-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='CDP9555_NOT_READY'
 $profile=Join-Path $root 'CDP9555Profile'
@@ -42,143 +42,130 @@ if($existing.Count -eq 1){
 }elseif($existing.Count -gt 1){$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
 if($verified){
  $py=@'
-import sys,pathlib,os,json,re,subprocess,time,urllib.request,hashlib,zipfile,shutil,http.server,threading,secrets
+import sys,pathlib,os,json,re,subprocess,time,urllib.request,http.server,threading,secrets,queue
 owner,run=map(pathlib.Path,sys.argv[1:])
-sys.path[:0]=[str(owner/"app/poc/p2-aisub")]
-from translator_gateway import preflight_antigravity,_validated_antigravity_alias
-try:
-    cli=preflight_antigravity()
-    model=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
-    env=dict(os.environ)
-    for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GEMINI_BASE_URL","AGY_ADC_AUTH","GOOGLE_CLOUD_PROJECT","GOOGLE_CLOUD_QUOTA_PROJECT"):env.pop(k,None)
-    downloads=run/"downloads"
-    downloads.mkdir()
-    try:
-        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open("http://127.0.0.1:9555/json/version",timeout=3) as resp:
-            version=json.load(resp)
-        if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9555/"):
-            print("CDP9555_ENDPOINT_UNVERIFIED");sys.exit(0)
-    except Exception:
-        print("CDP9555_ENDPOINT_UNREACHABLE");sys.exit(0)
-    config=run/".agents"
-    config.mkdir()
-    (config/"mcp_config.json").write_text(json.dumps({"mcpServers":{"ttv-chrome9555":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.13.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics","--log-file="+str(run/"mcp-debug.log")],"tools":{name:{"eager":True} for name in ("new_page","list_pages","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","close_page")}}}}),encoding="utf-8")
-    # Snapshot metadata only for subtitle-shaped files in the dedicated profile's ordinary download location.
-    default=pathlib.Path.home()/"Downloads"
-    try:
-        prefs=run.parent/"CDP9555Profile"/"Default"/"Preferences"
-        pref=json.loads(prefs.read_text(encoding="utf-8"))
-        d=pathlib.Path(pref.get("download",{}).get("default_directory",str(default)))
-        if d.is_absolute() and d.is_dir():default=d
-    except Exception:pass
-    def candidates():
-        try:return {f.name:(f.stat().st_size,f.stat().st_mtime_ns) for f in default.iterdir() if f.is_file() and not f.is_symlink() and f.suffix.lower() in (".srt",".zip")}
-        except Exception:return {}
-    before=candidates()
-    history=pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"History"
-    matches=[]
-    for f in history.glob("receipt-*.json"):
-        try:
-            if f.is_symlink() or f.stat().st_size>2048:continue
-            q=json.loads(f.read_text(encoding="utf-8-sig"))
-            if q.get("source_commit")=="677608fbd0a6c50993a0d81ba20fe384add8cd65" and re.fullmatch(r"[a-f0-9]{32}",str(q.get("nonce",""))):matches.append(q)
+class MCP:
+    def __init__(self,work):
+        self.q=queue.Queue()
+        self.seq=0
+        self.err=open(work/"mcp-stderr.txt","w",encoding="utf-8")
+        self.p=subprocess.Popen(["cmd.exe","/d","/c","npx","-y","chrome-devtools-mcp@1.13.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics"],cwd=work,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.err,text=True,encoding="utf-8",errors="replace",bufsize=1)
+        def reader():
+            for line in self.p.stdout:
+                try:
+                    x=json.loads(line)
+                    if isinstance(x,dict):self.q.put(x)
+                except ValueError:pass
+            self.q.put(None)
+        threading.Thread(target=reader,daemon=True).start()
+    def send(self,method,params=None,notification=False,timeout=25):
+        x={"jsonrpc":"2.0","method":method}
+        if params is not None:x["params"]=params
+        if not notification:
+            self.seq+=1
+            x["id"]=self.seq
+        self.p.stdin.write(json.dumps(x)+"\n")
+        self.p.stdin.flush()
+        if notification:return {}
+        until=time.monotonic()+timeout
+        while True:
+            remain=until-time.monotonic()
+            if remain<=0:raise TimeoutError(method)
+            try:y=self.q.get(timeout=remain)
+            except queue.Empty:raise TimeoutError(method)
+            if y is None:raise EOFError(method)
+            if y.get("id")!=self.seq:continue
+            if "error" in y:raise RuntimeError("RPC_ERROR")
+            r=y.get("result")
+            if not isinstance(r,dict) or r.get("isError"):raise RuntimeError("TOOL_ERROR")
+            return r
+    def call(self,name,args=None,timeout=30):
+        return self.send("tools/call",{"name":name,"arguments":args or {}},timeout=timeout)
+    def close(self):
+        # Closing stdio disconnects the MCP server; never call browser.close.
+        try:self.p.stdin.close()
         except Exception:pass
-    prior=run/"prior"
-    prior.mkdir()
-    if len(matches)==1:
-        oldrun=run.parent/("agy-cdp9555-mcp-auth-"+matches[0]["nonce"])
-        for name in ("agy-stdout.jsonl","agy-stderr.txt","mcp-debug.log","RESULT.json"):
-            f=oldrun/name
-            if f.is_file() and not f.is_symlink() and f.stat().st_size<=4194304:shutil.copyfile(f,prior/name)
-    marker="TTV_MCP_"+secrets.token_hex(8)
-    route="/"+secrets.token_hex(16)
+        try:self.p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.p.terminate()
+            try:self.p.wait(timeout=5)
+            except subprocess.TimeoutExpired:self.p.kill()
+        self.err.close()
+def main():
+    flags={k:0 for k in ("init","list","new","snapshot","hit","close")}
+    stage="ENDPOINT"
+    outcome="FAIL"
+    client=None
+    srv=None
+    fixture=None
+    page_id=None
     visits=[]
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
-        def do_GET(self):
-            if self.path!=route:
-                self.send_error(404);return
-            data=("<html><title>MCP fixture</title><body><h1>"+marker+"</h1></body></html>").encode()
-            visits.append(self.headers.get("User-Agent",""))
-            self.send_response(200);self.send_header("Content-Type","text/html");self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data)
-    srv=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
-    threading.Thread(target=srv.serve_forever,daemon=True).start()
-    fixture=f"http://127.0.0.1:{srv.server_port}{route}"
-    prompt=("Owner authorizes you, AGY, to diagnose and repair your Chrome DevTools MCP integration in this disposable workspace, then perform one normal OpenSubtitles acquisition using the signed-in Chrome 9555. Previous run had new_page tool trace, no snapshot, no click, no valid RESULT.json and no verified download. Read prior/ logs locally; identify actual tool result and failure, not just tool name. Do not export logs or inspect credentials, cookies, storage, unrelated browser tabs, private profile data or other projects. Fix only workspace MCP config or create a small workspace-only MCP stdio client if native tool loading is unreliable; the client must invoke the real Chrome DevTools MCP server tools (initialize, tools/list, tools/call), attached only to http://127.0.0.1:9555. Do not use direct Playwright, CDP commands for website navigation, /browser, HTTP clients for provider, other profiles, OpenSubs CLI or REST API. Do not disable permission checks or sandbox. Use new_page and take_snapshot on this local fixture: "+fixture+". Extract its h1 text from actual MCP response, write the observed text (only that text) to SMOKE.txt. Do not use HTTP clients or fabricate marker. If smoke fails, stop and write diagnosis and RESULT.json. If smoke succeeds, use the same MCP on a new tab to visit www.opensubtitles.org normally using the existing signed-in profile; search for Spider-Man: Brand New Day (2026), EN, WEB-DL 1080p, selezen release, MovieDalen audio label if applicable. Verify release and timing evidence, report NO_MATCH if not found. Use the ordinary website's actual download link once if matching, including dl.opensubtitles.org only if supplied by website; stop at any access denial, login prompt, CAPTCHA, quota or payment. No bypass or retry after restriction. Do not touch 9444 or close the browser or pre-existing tabs; close only tabs you create. Do not change account/profile/download settings. Save actual new file in downloads/ if browser allows, otherwise report downloaded_filename basename from actual new file. No old files or fabricated results. Write SETUP.md with exact cause, actual tool response category, repair, reproducible MCP config/commands and observations (no secrets). Always write RESULT.json even if failed, with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status integer or null, download_host hostname or null, release_match boolean, downloaded_filename basename or null, method and actual_test. Do not translate or change OwnerBridge/TV. Use genuine observations only.")
-    args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
     start=time.monotonic()
     try:
-        p=subprocess.run(args,env=env,cwd=run,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=270,check=False)
-    except subprocess.TimeoutExpired as e:
-        for name,raw in (("agy-stdout.jsonl",e.stdout),("agy-stderr.txt",e.stderr)):
-            if raw is not None:
-                (run/name).write_bytes(raw if isinstance(raw,bytes) else raw.encode("utf-8"))
-        srv.shutdown();srv.server_close()
-        print("CDP9555_TIMEOUT_RESULT_UNKNOWN");sys.exit(0)
-    srv.shutdown();srv.server_close()
-    (run/"agy-stdout.jsonl").write_text(p.stdout,encoding="utf-8")
-    (run/"agy-stderr.txt").write_text(p.stderr,encoding="utf-8")
-    records=[]
-    for line in p.stdout.splitlines():
-        try:
-            x=json.loads(line)
-            if isinstance(x,dict):records.append(x)
-        except ValueError:pass
-    results=[x.get("result") for x in records if x.get("event")=="result"]
-    result=results[0] if len(results)==1 and isinstance(results[0],dict) else {}
-    rr={}
-    try:
-        rr=json.loads((run/"RESULT.json").read_text(encoding="utf-8-sig"))
-        if not isinstance(rr,dict):rr={}
-    except Exception:pass
-    allowed={"DOWNLOADED","ACCESS_DENIED","AUTH_REQUIRED","NO_MATCH","DOWNLOAD_FAILED","CDP_FAILED","OTHER"}
-    status=rr.get("status","")
-    if not isinstance(status,str) or status not in allowed:status="UNCLASSIFIED"
-    # Compact fixed labels to stay within the existing receipt length limit.
-    codes={"DOWNLOADED":"DL","ACCESS_DENIED":"DENY","AUTH_REQUIRED":"AUTH","NO_MATCH":"NOMATCH","DOWNLOAD_FAILED":"DLFAIL","CDP_FAILED":"CDPFAIL","OTHER":"OTHER","UNCLASSIFIED":"UNK"}
-    stage=rr.get("stage")
-    stage=stage if stage in ("HOME","SEARCH","DETAIL","DOWNLOAD","CDP") else "NA"
-    http=str(rr.get("observed_http_status"))
-    http=http if http in ("200","401","403","429","503","404","302") else "NA"
-    host=rr.get("download_host")
-    dlhost=int(isinstance(host,str) and host.lower()=="dl.opensubtitles.org")
-    match=int(rr.get("release_match") is True)
-    # Copy only the newly created exact reported download, never unrelated preexisting files.
-    name=rr.get("downloaded_filename")
-    after=candidates()
-    if status=="DOWNLOADED" and isinstance(name,str) and name==pathlib.Path(name).name and name not in before and name in after and after[name][0]<=10000000:
-        src=default/name
-        if src.is_file() and not src.is_symlink():shutil.copyfile(src,downloads/name)
-    cues=0
-    files=0
-    for f in downloads.iterdir():
-        if f.is_file() and not f.is_symlink() and f.stat().st_size<=10000000 and f.suffix.lower() in (".srt",".zip"):
-            files+=1
-            try:
-                if f.suffix.lower()==".srt":blobs=[f.read_bytes()]
-                else:
-                    with zipfile.ZipFile(f) as z:
-                        blobs=[z.read(i) for i in [x for x in z.infolist() if x.filename.lower().endswith(".srt") and x.file_size<=2000000][:5]]
-                for data in blobs:
-                    cues=max(cues,len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}",data)))
-            except Exception:pass
-    nodes=[]
-    def walk(x):
-        if isinstance(x,dict):
-            nodes.append(x)
-            for v in x.values():walk(v)
-        elif isinstance(x,list):
-            for v in x:walk(v)
-    walk([x for x in records if x.get("event") not in ("user","result","assistant")])
-    names=[str(v).lower() for x in nodes for k,v in x.items() if k.lower() in ("name","tool_name","toolname","step_type") and isinstance(v,str)]
-    mcp=int(any("new_page" in v or "navigate_page" in v or "take_snapshot" in v for v in names))
-    smoke=run/"SMOKE.txt"
-    sm=int(smoke.is_file() and not smoke.is_symlink() and smoke.stat().st_size<256 and smoke.read_text(encoding="utf-8-sig",errors="replace").strip()==marker and any("Chrome/" in ua for ua in visits))
-    setup=int((run/"SETUP.md").is_file())
-    report=int(bool(rr))
-    print(f"9555FIX_{codes[status]}_{stage}_H{http}_S{sm}_R{report}_A{setup}_M{match}_F{min(files,9)}_C{min(cues,99999)}_{round(time.monotonic()-start)}S")
-except Exception:print("MCP_HEADLESS_LOCAL_ERROR")
+        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open("http://127.0.0.1:9555/json/version",timeout=3) as resp:v=json.load(resp)
+        if not str(v.get("Browser","")).startswith("Chrome/") or not str(v.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9555/"):raise RuntimeError("ENDPOINT")
+        marker="TTV_MCP_"+secrets.token_hex(16)
+        route="/"+secrets.token_hex(16)
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_GET(self):
+                if self.path!=route:self.send_error(404);return
+                visits.append(self.headers.get("User-Agent",""))
+                body=("<html><title>TTV local MCP</title><h1>"+marker+"</h1></html>").encode()
+                self.send_response(200);self.send_header("Content-Type","text/html");self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body)
+        srv=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
+        threading.Thread(target=srv.serve_forever,daemon=True).start()
+        fixture=f"http://127.0.0.1:{srv.server_port}{route}"
+        stage="SPAWN"
+        client=MCP(run)
+        stage="INIT"
+        init=client.send("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ttv-local-smoke","version":"1.0"}},timeout=50)
+        if not init.get("protocolVersion") or not init.get("serverInfo"):raise RuntimeError("INIT_INVALID")
+        flags["init"]=1
+        client.send("notifications/initialized",notification=True)
+        stage="LIST"
+        tools=client.send("tools/list")
+        schemas={x["name"]:x.get("inputSchema",{}) for x in tools.get("tools",[]) if isinstance(x,dict) and isinstance(x.get("name"),str)}
+        for name in ("new_page","take_snapshot","close_page"):
+            if name not in schemas:raise RuntimeError("TOOL_MISSING")
+        flags["list"]=1
+        stage="NEW"
+        result=client.call("new_page",{"url":fixture},timeout=40)
+        flags["new"]=1
+        # Only match the exact newly created fixture URL, never record existing tabs.
+        def identify(r):
+            for item in r.get("content",[]):
+                if not isinstance(item,dict) or item.get("type")!="text":continue
+                for line in item.get("text","").splitlines():
+                    match=re.match(r"^\s*(\d+)\s*:\s*"+re.escape(fixture)+r"(?:\s|$)",line)
+                    if match:return int(match.group(1))
+            return None
+        page_id=identify(result)
+        if page_id is None and "list_pages" in schemas:
+            page_id=identify(client.call("list_pages"))
+        stage="SNAP"
+        result=client.call("take_snapshot")
+        flags["snapshot"]=int(any(marker in x.get("text","") for x in result.get("content",[]) if isinstance(x,dict) and x.get("type")=="text"))
+        flags["hit"]=int(any("Chrome/" in ua for ua in visits))
+        if flags["snapshot"] and flags["hit"]:outcome="PASS"
+        else:outcome="MISMATCH"
+        stage="DONE"
+    except TimeoutError:outcome="TIMEOUT"
+    except EOFError:outcome="EOF"
+    except Exception as e:
+        outcome=str(e) if str(e) in ("RPC_ERROR","TOOL_ERROR","TOOL_MISSING","INIT_INVALID","ENDPOINT") else "LOCALERR"
+    finally:
+        if client:
+            if page_id is not None:
+                try:client.call("close_page",{"pageId":page_id},timeout=10);flags["close"]=1
+                except Exception:pass
+            client.close()
+        if srv:srv.shutdown();srv.server_close()
+        flags["hit"]=int(any("Chrome/" in ua for ua in visits))
+        (run/"RESULT.json").write_text(json.dumps({"outcome":outcome,"stage":stage,**flags,"elapsed_s":round(time.monotonic()-start)}),encoding="utf-8")
+        print(f"MCPSTD_{outcome}_{stage}_I{flags['init']}_L{flags['list']}_N{flags['new']}_S{flags['snapshot']}_H{flags['hit']}_C{flags['close']}")
+if __name__=="__main__":main()
 '@
  $f=Join-Path $run 'control.py'
  [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
