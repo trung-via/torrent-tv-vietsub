@@ -12,6 +12,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import subprocess
+from threading import Barrier, Event, Lock
 
 from automatic_lean120_worker import AutomaticLean120Worker
 from assumed_source_handoff import AssumedEnglishSubtitle
@@ -89,6 +90,7 @@ class AutoLean120WorkerTests(unittest.TestCase):
             glossary=kwargs.pop("glossary", {"Fictional": "Hư cấu"}),
             runner=kwargs.pop("runner", self.provider),
             first_window_cues=kwargs.pop("first_window_cues", None),
+            parallel_batches=kwargs.pop("parallel_batches", 1),
         )
 
     def folders(self):
@@ -406,6 +408,74 @@ class AutoLean120WorkerTests(unittest.TestCase):
         self.worker().run(handoff(1, OTHER))
         self.assertEqual(len(self.folders()), 3)
         self.assertEqual(len(self.provider.calls), 3)
+
+    def test_parallel_batches_finish_out_of_order_but_publish_contiguous(self):
+        barrier = Barrier(3, timeout=5)
+        later_ready = Event()
+        finished = []
+        guard = Lock()
+        calls = []
+        def parallel(cmd, **kwargs):
+            prompt = json.loads(kwargs["input"].strip())["message"]["content"]
+            ids = [x["id"] for x in json.loads(prompt.split("\\n", 1)[1])["target"]]
+            with guard:
+                calls.append(ids[0])
+            if ids[0] in (51, 171, 291):
+                barrier.wait()
+                if ids[0] == 51:
+                    if not later_ready.wait(5):
+                        raise RuntimeError("later window did not finish")
+                if ids[0] == 291:
+                    with guard:
+                        finished.append(ids[0])
+                    later_ready.set()
+                else:
+                    with guard:
+                        finished.append(ids[0])
+            return FakeAntigravity()(cmd, **kwargs)
+
+        src = handoff(410)
+        seen = []
+        result = self.worker(first_window_cues=50, parallel_batches=3, runner=parallel).run(
+            src, on_revision=seen.append)
+        self.assertTrue(result.complete)
+        self.assertEqual([r.translated_count for r in seen], [50, 170, 290, 410])
+        self.assertLess(finished.index(291), finished.index(51))
+        self.assertEqual(sorted(calls), [1, 51, 171, 291])
+        self.assertEqual(list(self.folders()[0].glob("result-*.json")), [])
+        self.assertEqual(list(self.folders()[0].glob("*.inflight")), [])
+
+    def test_parallel_failure_preserves_paid_later_result_without_replay(self):
+        barrier = Barrier(3, timeout=5)
+        calls = []
+        def fail_first(cmd, **kwargs):
+            prompt = json.loads(kwargs["input"].strip())["message"]["content"]
+            ids = [x["id"] for x in json.loads(prompt.split("\\n", 1)[1])["target"]]
+            calls.append(ids[0])
+            if ids[0] != 1:
+                barrier.wait()
+            if ids[0] == 51:
+                raise ValueError("AGY_PROCESS_FAILED_RESULT_UNKNOWN")
+            return FakeAntigravity()(cmd, **kwargs)
+        src = handoff(410)
+        seen = []
+        worker = self.worker(first_window_cues=50, parallel_batches=3, runner=fail_first)
+        with self.assertRaisesRegex(ValueError, "AGY_PROCESS_FAILED_RESULT_UNKNOWN"):
+            worker.run(src, on_revision=seen.append)
+        folder = self.folders()[0]
+        self.assertEqual([r.translated_count for r in seen], [50])
+        self.assertTrue((folder / "batch-0002.inflight").is_file())
+        self.assertTrue((folder / "result-0003.json").is_file())
+        self.assertTrue((folder / "result-0004.json").is_file())
+        self.assertFalse((folder / "batch-0003.json").exists())
+        with self.assertRaisesRegex(ValueError, "UNCERTAIN_BATCH_MANUAL_RECONCILE"):
+            worker.run(src)
+        self.assertEqual(sorted(calls), [1, 51, 171, 291])
+
+    def test_parallel_pilot_still_only_calls_first_window(self):
+        self.worker(first_window_cues=50, parallel_batches=3).run(
+            handoff(410), max_new_windows=1)
+        self.assertEqual([len(x) for x in self.provider.calls], [50])
 
     def test_many_cues_are_progressive_no_manual_batch_stepping(self):
         src = handoff(1761)

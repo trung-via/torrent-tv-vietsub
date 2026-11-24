@@ -10,6 +10,7 @@ public repository in an owner-ACL-protected directory. No secrets are logged.
 """
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -19,10 +20,10 @@ import secrets
 from typing import Callable, Mapping
 
 from assumed_source_handoff import AssumedEnglishSubtitle
-from cue_pipeline import parse_cues
+from cue_pipeline import apply_translations, parse_cues
 from lean120_api import ModelProfile
 from translator_gateway import Runner, _prompt, preflight_provider, provider_enabled, translate_window
-from progressive_handoff import ProgressiveSubtitleSession, SubtitleRevision
+from progressive_handoff import ProgressiveSubtitleSession, SubtitleRevision, TranslationWindow
 
 _SAFE_JOB = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -78,7 +79,8 @@ class AutomaticLean120Worker:
     def __init__(self, *, state_root: Path, profile: ModelProfile,
                  glossary: Mapping[str, str],
                  runner: Runner | None = None,
-                 first_window_cues: int | None = None) -> None:
+                 first_window_cues: int | None = None,
+                 parallel_batches: int = 1) -> None:
         if not isinstance(state_root, Path) or not state_root.is_absolute():
             raise ValueError("AUTO_LEAN120_ABSOLUTE_PRIVATE_STATE_REQUIRED")
         if not provider_enabled(profile.provider):
@@ -91,6 +93,9 @@ class AutomaticLean120Worker:
                 type(first_window_cues) is not int
                 or not 1 <= first_window_cues <= 120):
             raise ValueError("AUTO_LEAN120_FIRST_WINDOW_CUE_LIMIT_INVALID")
+        if type(parallel_batches) is not int or not 1 <= parallel_batches <= 3:
+            raise ValueError("AUTO_LEAN120_PARALLEL_LIMIT_INVALID")
+        self.parallel_batches = parallel_batches
         self.state_root = state_root
         self.profile = profile
         self.glossary = dict(glossary)
@@ -187,7 +192,59 @@ class AutomaticLean120Worker:
         lock = folder / "active.lock"
         # An existing/stale lock is deliberately NOT broken or auto-replayed.
         _write_new_synced(lock, b"TTV-P2-LOCK-V1\n")
+        # First cue window is always prioritized alone. Later windows may run
+        # concurrently; each independently durable result is stored before
+        # returning to the ordered commit loop. P4 sees only contiguous revisions.
+        futures: dict[int, Future[dict[int, str]]] = {}
+        pool = None
+
+        def provider(window: TranslationWindow) -> dict[int, str]:
+            if self.runner is None:
+                return translate_window(window, self.profile, glossary=self.glossary)
+            return translate_window(window, self.profile, glossary=self.glossary,
+                                    runner=self.runner)
+
+        def translated_result(window: TranslationWindow) -> dict[int, str]:
+            version = window.number
+            inflight = folder / f"batch-{version:04d}.inflight"
+            ready = folder / f"result-{version:04d}.json"
+            if ready.exists():
+                if not inflight.is_file() or ready.is_symlink() or not ready.is_file() or not 0 < ready.stat().st_size <= 256 * 1024:
+                    raise ValueError("AUTO_LEAN120_PARALLEL_RESULT_INVALID")
+                data = json.loads(ready.read_bytes())
+                if (not isinstance(data, dict) or
+                        set(data) != {"schema", "job", "version", "translations", "sha256"} or
+                        data["schema"] != "TTV-P2-LEAN120-RESULT-V1" or
+                        data["job"] != digest or type(data["version"]) is not int or
+                        data["version"] != version or
+                        not isinstance(data["translations"], list) or
+                        len(data["translations"]) != len(window.ids) or
+                        hashlib.sha256(_json_bytes(data["translations"])).hexdigest() != data["sha256"]):
+                    raise ValueError("AUTO_LEAN120_PARALLEL_RESULT_INVALID")
+                translations = {}
+                for row, expected in zip(data["translations"], window.ids):
+                    if (not isinstance(row, dict) or set(row) != {"id", "vi"} or
+                            type(row["id"]) is not int or row["id"] != expected or
+                            not isinstance(row["vi"], str)):
+                        raise ValueError("AUTO_LEAN120_PARALLEL_RESULT_INVALID")
+                    translations[expected] = row["vi"]
+                apply_translations(window.target, {str(k): v for k, v in translations.items()})
+                return translations
+            if inflight.exists():
+                raise ValueError("AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE")
+            _write_new_synced(inflight, _json_bytes({
+                "schema": "TTV-P2-INFLIGHT-V1", "job": digest, "version": version}))
+            translations = provider(window)
+            rows = [{"id": i, "vi": translations[i]} for i in window.ids]
+            _commit_new(ready, _json_bytes({
+                "schema": "TTV-P2-LEAN120-RESULT-V1", "job": digest, "version": version,
+                "translations": rows, "sha256": hashlib.sha256(_json_bytes(rows)).hexdigest(),
+            }))
+            return translations
+
         try:
+            if self.parallel_batches > 1 and max_new_windows is None:
+                pool = ThreadPoolExecutor(max_workers=self.parallel_batches)
             for window in session.windows:
                 # Pilot means the FIRST window of this source across ALL
                 # invocations, not one fresh API call on every rerun.
@@ -223,21 +280,30 @@ class AutomaticLean120Worker:
                     # deleting its in-flight marker is fully recoverable.
                     inflight.unlink(missing_ok=True)
                 else:
-                    if inflight.exists():
-                        raise ValueError("AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE")
-                    _write_new_synced(inflight, _json_bytes({
-                        "schema": "TTV-P2-INFLIGHT-V1", "job": digest,
-                        "version": version}))
-                    # If provider errors, process dies, output is invalid or
-                    # checkpoint commit fails, keep marker. Unknown provider
-                    # effects must never be blindly replayed or consume quota twice.
-                    if self.runner is None:
-                        translations = translate_window(
-                            window, self.profile, glossary=self.glossary)
+                    if version == 1:
+                        # Keep existing first-window recovery and pilot semantics.
+                        if inflight.exists():
+                            raise ValueError("AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE")
+                        _write_new_synced(inflight, _json_bytes({
+                            "schema": "TTV-P2-INFLIGHT-V1", "job": digest, "version": version}))
+                        translations = provider(window)
+                    elif pool is None:
+                        translations = translated_result(window)
                     else:
-                        translations = translate_window(
-                            window, self.profile, glossary=self.glossary,
-                            runner=self.runner)
+                        if version not in futures:
+                            # Submit at most one bounded group. Stop admission
+                            # at any pre-existing ambiguous effect or checkpoint.
+                            for planned in session.windows[version - 1:version - 1 + self.parallel_batches]:
+                                n = planned.number
+                                cp = folder / f"batch-{n:04d}.json"
+                                marker = folder / f"batch-{n:04d}.inflight"
+                                ready = folder / f"result-{n:04d}.json"
+                                if cp.exists() or (marker.exists() and not ready.is_file()):
+                                    break
+                                futures[n] = pool.submit(translated_result, planned)
+                            if version not in futures:
+                                raise ValueError("AUTO_LEAN120_UNCERTAIN_BATCH_MANUAL_RECONCILE")
+                        translations = futures.pop(version).result()
                     revision = session.commit(
                         window, translations, expected_version=version - 1,
                         source_sha256=source.source_sha256, media_key=source.media_key)
@@ -250,6 +316,9 @@ class AutomaticLean120Worker:
                         "payload_sha256": revision.sha256,
                     }))
                     inflight.unlink()
+                # A committed checkpoint is authoritative even if cleanup
+                # was interrupted. Results are NOT part of the P4 checkpoint glob.
+                (folder / f"result-{version:04d}.json").unlink(missing_ok=True)
                 # Replayed versions also reach a freshly authenticated P4
                 # session; nothing is resent to the provider for cached windows.
                 if on_revision is not None:
@@ -280,4 +349,8 @@ class AutomaticLean120Worker:
                 _commit_new(result, final.payload)
             return final
         finally:
+            # Cancel unstarted work; drain already-started calls so their
+            # result/unknown-effect marker is preserved before releasing lock.
+            if pool is not None:
+                pool.shutdown(wait=True, cancel_futures=True)
             lock.unlink(missing_ok=True)
