@@ -133,7 +133,7 @@ class PairedP3P4HttpsIntegrationTests(unittest.TestCase):
         status, body = self.request("POST", "/p3/selection", raw,
                                     {"Content-Type":"application/json"})
         self.assertEqual((status, body), (204, b""))
-        self.assertEqual(self.reads, ["owner_tv", "owner_tv"])
+        self.assertEqual(self.reads, ["owner_tv"])
         [event] = list((self.owner / "inbox").glob("event-*.json"))
         parsed = _parse_event(event)
         self.assertEqual(parsed.tv_session_id, SESSION)
