@@ -51,7 +51,9 @@ class _RollingReceipt:
 
 class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
     def __init__(self, *, read_verified_current_playback: Callable,
-                 on_status: Callable[[str], None] | None = None):
+                 on_status: Callable[[str], None] | None = None,
+                 voiceover_lane: object | None = None,
+                 voiceover_consumer: object | None = None):
         super().__init__(
             read_verified_current_playback=read_verified_current_playback)
         if on_status is not None and not callable(on_status):
@@ -59,6 +61,11 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         self._rolling: dict[str, _RollingReceipt] = {}
         self._flow: object | None = None
         self._on_status = on_status
+        if voiceover_lane is not None and not callable(
+                getattr(voiceover_lane, "bind_verified_media", None)):
+            raise P3ReadyRejected("P4_VOICE_MEDIA_BINDER_INVALID")
+        self._voiceover_lane = voiceover_lane
+        self._voiceover_consumer = voiceover_consumer
 
     def _status(self, code: str) -> None:
         """Only source-owned enum; status reporting cannot affect delivery."""
@@ -248,7 +255,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         except Exception:
             raise P3ReadyRejected("P4_ROLLING_CHECKPOINT_NOT_VERIFIED") from None
 
-    def _restore_current_checkpoint(self, media_key: str) -> str | None:
+    def _restore_current_checkpoint(self, media_key: str, *, restore_voice: bool = False) -> str | None:
         with self._lock:
             flow = self._flow
         if flow is None:
@@ -278,6 +285,14 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                                    current.file_index)
         self._current(media, current.tv_session_id, fingerprint)
         handoff = self._recover_handoff(flow, fingerprint, media)
+        if handoff is not None and self._voiceover_lane is not None:
+            # Current signed TV + cached English receipt have already passed
+            # their R2 checks. The worker cache key differs from P4 media key;
+            # persist this mapping in the one Owner before voice GET.
+            self._voiceover_lane.bind_verified_media(
+                worker_media_key=handoff.media_key,
+                tv_media_key=media_key,
+                source_sha256=handoff.source_sha256)
         if handoff is None:
             # May be a VI source or an early request before EN cache exists.
             # The original completed-VI factory is still allowed to resolve.
@@ -294,7 +309,9 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             with self._lock:
                 if media_key not in self._rolling:
                     if len(self._rolling) >= 16:
-                        raise P3ReadyRejected("P4_ROLLING_REGISTRY_FULL")
+                        if self._voiceover_lane is None:
+                            raise P3ReadyRejected("P4_ROLLING_REGISTRY_FULL")
+                        del self._rolling[next(iter(self._rolling))]
                     self._rolling[media_key] = _RollingReceipt(
                         media, current.tv_session_id, fingerprint, media_key,
                         file, root, handoff.source_sha256, handoff.cue_count,
@@ -310,6 +327,15 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             # A live producer may have published a newer batch concurrently.
             if exc.args != ("P4_ROLLING_OLDER_REVISION",):
                 raise
+        # Activation reoffers durable VI, not every polling GET.
+        if restore_voice and self._voiceover_consumer is not None:
+            try:
+                prefer = getattr(self._voiceover_consumer, "prioritize", None)
+                if callable(prefer):
+                    prefer(revision.media_key, revision.source_sha256)
+                self._voiceover_consumer.offer(revision)
+            except Exception:
+                self._status("VOICEOVER_CACHE_RESTORE_FAILED")
 
     @classmethod
     def _cached_en(cls, flow: object, fingerprint: str,
@@ -409,7 +435,9 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             receipt = self._rolling.get(key)
             if (receipt is None or receipt.tv_session != tv_session_id):
                 if receipt is None and len(self._rolling) >= 16:
-                    raise P3ReadyRejected("P4_ROLLING_REGISTRY_FULL")
+                    if self._voiceover_lane is None:
+                        raise P3ReadyRejected("P4_ROLLING_REGISTRY_FULL")
+                    del self._rolling[next(iter(self._rolling))]
                 receipt = _RollingReceipt(
                     media, tv_session_id, source_fingerprint, key,
                     file, root, handoff.source_sha256, handoff.cue_count,
@@ -439,7 +467,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
 
     def resolve_progressive(self, media_key: str
                             ) -> AuthenticatedProgressiveSource | None:
-        status = self._restore_current_checkpoint(media_key)
+        status = self._restore_current_checkpoint(media_key, restore_voice=True)
         with self._lock:
             receipt = self._rolling.get(media_key)
         if receipt is None or receipt.media_key != media_key:
@@ -455,7 +483,10 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         self._file(receipt.source_root, receipt.source_file,
                    sha=receipt.source_sha256, cues=receipt.source_cues)
 
+        bound_feed = None
+
         def subscribe(feed: SessionRevisionFeed) -> None:
+            nonlocal bound_feed
             if (not isinstance(feed, SessionRevisionFeed)
                     or feed.media_key != media_key
                     or feed.source_sha256 != receipt.source_sha256):
@@ -465,19 +496,30 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                 raise P3ReadyRejected("P4_ROLLING_NATIVE_MEDIA_KEY_CHANGED")
             with self._lock:
                 live = self._rolling.get(media_key)
-                if live is not receipt or len(live.feeds) >= 8:
+                if live is not receipt:
                     raise P3ReadyRejected("P4_ROLLING_SUBSCRIBER_CHANGED")
+                if len(live.feeds) >= 8:
+                    if self._voiceover_lane is None:
+                        raise P3ReadyRejected("P4_ROLLING_SUBSCRIBER_CHANGED")
+                    live.feeds.pop(0)
                 if live.latest is not None:
                     feed.publish(live.latest)
                 live.feeds.append(feed)
+                bound_feed = feed
 
-        def refresh() -> None:
-            # This runs only for an authenticated P4 GET. Revalidate current
-            # film/consent and feed only pre-existing P2 checkpoints; a
-            # missing callback must never strand the TV on an older revision.
+        def validate_voice() -> None:
+            # Verified WAVs are scoped by the original EN receipt. Each
+            # request still checks live film, consent and subscription.
             current = self._current(receipt.media, receipt.tv_session, receipt.fingerprint)
             if p4_key_from_verified_current(receipt.media, current) != media_key:
                 raise P3ReadyRejected("P4_ROLLING_NATIVE_MEDIA_KEY_CHANGED")
+            with self._lock:
+                live = self._rolling.get(media_key)
+                if live is not receipt or bound_feed is None or bound_feed not in live.feeds:
+                    raise P3ReadyRejected("P4_ROLLING_SUBSCRIBER_CHANGED")
+
+        def refresh() -> None:
+            validate_voice()
             self._file(receipt.source_root, receipt.source_file,
                        sha=receipt.source_sha256, cues=receipt.source_cues)
             self._restore_current_checkpoint(media_key)
@@ -488,4 +530,4 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
 
         return AuthenticatedProgressiveSource(
             media_key=media_key, source_sha256=receipt.source_sha256,
-            subscribe=subscribe, refresh=refresh)
+            subscribe=subscribe, refresh=refresh, validate_voice=validate_voice)

@@ -22,6 +22,11 @@ ACTIVATION_CLIENT_FILE = "P4ActivationClient.kt"
 PAIRING_STORE_FILE = "P4PairingStore.kt"
 OWNER_BOOTSTRAP_FILE = "P4OwnerBootstrap.kt"
 TLS_CLIENT_FILE = "P4PinnedTls.kt"
+VOICE_RECEIVER_FILE = "P4VoiceoverReceiver.kt"
+VOICE_LAN_CLIENT_FILE = "P4VoiceoverLanClient.kt"
+VOICE_AUDIO_FILE = "P4VoiceoverAudioTrack.kt"
+VOICE_CLOCK_FILE = "P4VoiceoverTimeline.kt"
+VOICE_CONTROLLER_FILE = "P4VoiceoverController.kt"
 
 OLD_HEAD = '''    @Synchronized fun importSelected(ctx: Context, uri: Uri, r: PlayRequest, i: Int): Boolean {
         val k = mediaKey(r, i) ?: return false
@@ -231,7 +236,8 @@ def run(root: Path, *, apply: bool = False) -> None:
     g2 = pkg / "G2RefreshInPlace.kt"
     g2_recovery = pkg / "G2RefreshRecovery.kt"
     activity = pkg / "PlayerActivity.kt"
-    if not all(p.is_file() for p in (g1, g2, g2_recovery, activity)):
+    vlc_engine = pkg / "VlcEngine.kt"
+    if not all(p.is_file() for p in (g1, g2, g2_recovery, activity, vlc_engine)):
         raise ValueError("P4_G1_G2_COMPOSITE_SOURCE_REQUIRED")
     existing = g1.read_bytes()
     if len(existing) > 100_000:
@@ -246,6 +252,10 @@ def run(root: Path, *, apply: bool = False) -> None:
                       (RECEIVER_FILE, LAN_CLIENT_FILE, LEDGER_FILE,
                        ACTIVATION_CLIENT_FILE, PAIRING_STORE_FILE,
                        OWNER_BOOTSTRAP_FILE, TLS_CLIENT_FILE)]
+    # Preserve the historic P4 TLS source set and add optional narration files.
+    native_sources.extend(Path(__file__).with_name(name) for name in
+                          (VOICE_RECEIVER_FILE, VOICE_LAN_CLIENT_FILE,
+                           VOICE_AUDIO_FILE, VOICE_CLOCK_FILE, VOICE_CONTROLLER_FILE))
     native_targets = [pkg / p.name for p in native_sources]
     if any(not p.is_file() for p in native_sources) or any(p.exists() for p in native_targets):
         raise ValueError("P4_NATIVE_SOURCE_MISSING_OR_PRESENT")
@@ -265,6 +275,35 @@ def run(root: Path, *, apply: bool = False) -> None:
     activity_nl = "\r\n" if b"\r\n" in raw_activity else "\n"
     patched_activity = patch_module.patch_activity(
         original_activity.replace("\r\n", "\n")).replace("\n", activity_nl)
+    # Exact upstream VLC hook: duck original audio to 30% only while a
+    # verified narration cue is speaking. No player replacement or stream remux.
+    duck_anchor = "    private fun setAudio(es: Int) {"
+    existing_vlc = vlc_engine.read_text(encoding="utf-8-sig")
+    if existing_vlc.count(duck_anchor) != 1 or "p4VoiceoverDuck(" in existing_vlc:
+        raise ValueError("P4_VOICE_VLC_VOLUME_HOOK_INVALID")
+    duck_method = """    private var p4VoiceOriginalVolume: Int? = null
+
+    /** Preserve the actual VLC volume; a muted movie stays muted. */
+    internal fun p4VoiceoverDuck(on: Boolean) {
+        if (released) return
+        call {
+            if (on) {
+                if (p4VoiceOriginalVolume == null) {
+                    val original = mp.volume
+                    if (original >= 0) {
+                        p4VoiceOriginalVolume = original
+                        mp.volume = original * 30 / 100
+                    }
+                }
+            } else {
+                p4VoiceOriginalVolume?.let { mp.volume = it }
+                p4VoiceOriginalVolume = null
+            }
+        }
+    }
+
+"""
+    patched_vlc = existing_vlc.replace(duck_anchor, duck_method + duck_anchor, 1)
     print("P4_G1_G2_OVERLAY_PREFLIGHT_PASS source_sha256=" +
           hashlib.sha256(existing).hexdigest() + " dry_run=" + str(not apply))
     if not apply:
@@ -276,6 +315,7 @@ def run(root: Path, *, apply: bool = False) -> None:
     activity.write_bytes(
         (b"\xef\xbb\xbf" if raw_activity.startswith(b"\xef\xbb\xbf") else b"") +
         patched_activity.encode("utf-8"))
+    vlc_engine.write_text(patched_vlc, encoding="utf-8", newline="")
     print("P4_NATIVE_ACTIVITY_BRIDGE_SOURCE_APPLIED_NOT_ANDROID_BUILT_NOT_TV")
 
 

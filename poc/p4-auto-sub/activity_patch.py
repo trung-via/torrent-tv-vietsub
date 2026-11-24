@@ -40,6 +40,11 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     private var p4LanScope: P4LanScope? = null
     private var p4LanGeneration = 0
     private var p4LanInFlight = false
+    private var p4VoiceController: P4VoiceoverController? = null
+    private var p4VoiceMode = "SUBS"
+    private var p4VoiceSubHidden = false
+    private var p4VoiceRestoreSub: String? = null
+    private var p4VoiceDucked = false
     private var p4ActivationInFlight = false
     private var p4ActivationGeneration = 0
     private val p4LanPoll = object : Runnable {
@@ -102,6 +107,96 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             // Pull model: no inbound port/listener on the TV and no auto-start.
             handler.postDelayed(this, 6_000L)
         }
+    }
+
+    /** This Activity alone owns speech; Android AudioTrack shares its lifecycle. */
+    private val p4VoiceTick = object : Runnable {
+        override fun run() {
+            val scope = p4LanScope ?: return
+            val r = if (::session.isInitialized) session.request else null
+            val media = if (r == null) null else
+                P1ProductionSubtitles.mediaKey(r, index())
+            val on = !closedSent && !isFinishing && !isDestroyed &&
+                r != null && media != null && engine is VlcEngine &&
+                P1ProductionSubtitles.automaticChoice(
+                    applicationContext, r, index()) == "ON"
+            if (!on) {
+                p4VoiceController?.close()
+                p4VoiceController = null
+                if (p4VoiceDucked) {
+                    (engine as? VlcEngine)?.p4VoiceoverDuck(false)
+                    p4VoiceDucked = false
+                }
+                return
+            }
+            val audible = p4VoiceController?.tick(
+                scope.sessionId, media.orEmpty(), engine.positionMs,
+                engine.playWhenReady && session.firstFrame, engine.isBuffering
+            ) == true
+            if (p4VoiceMode == "VOICE" &&
+                p4VoiceController?.hasPreparedAudio != true) restoreP4VoiceCaption()
+            // G2 may hot-reload the same movie with new external subtitle IDs.
+            // In VOICE-only mode hide AI captions without marking user OFF:
+            // doing so via session.selectSubtitle would revoke the P4 feed.
+            if (p4VoiceMode == "VOICE" && session.firstFrame &&
+                p4VoiceController?.hasPreparedAudio == true && !p4VoiceSubHidden) {
+                val selected = engine.subtitleTracks().firstOrNull { it.selected }
+                if (selected != null) {
+                    p4VoiceRestoreSub = selected.id
+                    engine.selectSubtitle(null)
+                    p4VoiceSubHidden = true
+                }
+            }
+            if (audible != p4VoiceDucked) {
+                (engine as? VlcEngine)?.p4VoiceoverDuck(audible)
+                p4VoiceDucked = audible
+            }
+            handler.postDelayed(this, 150L)
+        }
+    }
+
+    private fun p4ResetVoiceOnSeek() {
+        val scope = p4LanScope ?: return
+        val r = if (::session.isInitialized) session.request else null
+        val media = if (r == null) null else P1ProductionSubtitles.mediaKey(r, index())
+        if (media != null) p4VoiceController?.seeked(scope.sessionId, media)
+        if (p4VoiceDucked) (engine as? VlcEngine)?.p4VoiceoverDuck(false)
+        p4VoiceDucked = false
+    }
+
+    private fun restoreP4VoiceCaption() {
+        if (!p4VoiceSubHidden) return
+        val restored = engine.subtitleTracks().firstOrNull {
+            it.id == p4VoiceRestoreSub
+        }?.id
+        if (restored != null) engine.selectSubtitle(restored)
+        p4VoiceSubHidden = false
+        p4VoiceRestoreSub = null
+    }
+
+    private fun setP4VoiceMode(next: String) {
+        if (next !in setOf("SUBS", "VOICE", "BOTH", "ORIGINAL")) return
+        if (next == "ORIGINAL") {
+            stopP4LanSession()
+            engine.selectSubtitle(null)
+            p4VoiceMode = "ORIGINAL"
+            showMessage("Đã chọn âm gốc. Tắt Vietsub AI và thuyết minh.", false)
+            return
+        }
+        if (p4LanScope == null || p4VoiceController == null) {
+            showMessage("Bật Vietsub AI để chọn phụ đề hoặc giọng đọc.", true)
+            return
+        }
+        if (p4VoiceMode == "VOICE" && next != "VOICE") restoreP4VoiceCaption()
+        p4VoiceMode = next
+        p4VoiceController?.setMode(next)
+        if (next == "VOICE") p4VoiceSubHidden = false
+        val label = when (next) {
+            "SUBS" -> "Chỉ Vietsub AI"
+            "VOICE" -> "Chỉ thuyết minh Ngọc Linh"
+            else -> "Vietsub AI + thuyết minh Ngọc Linh"
+        }
+        showMessage("Chế độ: " + label, false)
     }
 
     // Pairing is imported only from an app-private one-shot file staged by the
@@ -177,6 +272,18 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
         }
         p4LanGeneration++
         p4LanScope = P4LanScope(host, port, sessionId, secret.clone(), certPinSha256)
+        p4VoiceController = P4VoiceoverController(
+            host, port, sessionId,
+            P1ProductionSubtitles.mediaKey(r, index()).orEmpty(),
+            sourceSha256, secret, certPinSha256,
+            onUnavailable = {
+                restoreP4VoiceCaption()
+                showMessage("Đang thử kết nối lại giọng AI; giữ Vietsub.", false)
+            })
+        p4VoiceMode = "SUBS"
+        p4VoiceSubHidden = false
+        p4VoiceRestoreSub = null
+        handler.post(p4VoiceTick)
         handler.post(p4LanPoll)
         return true
     }
@@ -234,6 +341,14 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
     }
 
     private fun unbindP4Session() {
+        handler.removeCallbacks(p4VoiceTick)
+        p4VoiceController?.close()
+        p4VoiceController = null
+        if (p4VoiceDucked) (engine as? VlcEngine)?.p4VoiceoverDuck(false)
+        p4VoiceDucked = false
+        p4VoiceSubHidden = false
+        p4VoiceRestoreSub = null
+        p4VoiceMode = "SUBS"
         handler.removeCallbacks(p4LanPoll)
         p4LanGeneration++
         p4ActivationGeneration++
@@ -356,6 +471,8 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
                                             queue = priorQueue, startAtMs = ms, audioPick = audioPick)
                                         snapshot.arm(newRequest, previous, paused)
                                         p4ExpectedRefresh = newRequest
+                                        p4VoiceSubHidden = false
+                                        p4VoiceRestoreSub = null
                                         g2Recovery = snapshot
                                         session.load(newRequest)
                                         if (paused) engine.pause()
@@ -393,6 +510,12 @@ P4_MENU_ROWS = """        add(if (p4LanScope != null || p4ActivationInFlight)
             } else {
                 beginP4Activation()
             }
+        }
+        if (p4LanScope != null) {
+            add("Vietsub AI (phụ đề)", "AD01.20") { setP4VoiceMode("SUBS") }
+            add("Thuyết minh Ngọc Linh", "AD01.21") { setP4VoiceMode("VOICE") }
+            add("Vietsub AI + thuyết minh", "AD01.22") { setP4VoiceMode("BOTH") }
+            add("Chỉ âm gốc (tắt AI)", "AD01.23") { setP4VoiceMode("ORIGINAL") }
         }
         // Explicit device-level revocation is an optional advanced action,
         // never a prerequisite for enabling Vietsub on the current movie.
@@ -446,6 +569,16 @@ def patch_activity(original: str) -> str:
             raise ValueError("P4_ACTIVITY_ANCHOR_" + tag)
     for old, (new, tag) in anchors.items():
         text = _once(text, old, new, tag)
+    # Pinned native OMP has two explicit t seeks and a pending seek closure.
+    # The small synthetic overlay fixture may omit all three.
+    seek_count = original.count("engine.seekTo(t)")
+    pending_count = original.count("seeker.take()?.let { engine.seekTo(it) }")
+    if seek_count or pending_count:
+        if seek_count != 2 or pending_count != 1:
+            raise ValueError("P4_VOICE_SEEK_ANCHOR_DRIFT")
+        text = text.replace("engine.seekTo(t)", "p4ResetVoiceOnSeek(); engine.seekTo(t)")
+        text = text.replace("seeker.take()?.let { engine.seekTo(it) }",
+                            "seeker.take()?.let { p4ResetVoiceOnSeek(); engine.seekTo(it) }")
     if text.count("internal fun receiveP4Revision(") != 1:
         raise ValueError("P4_ACTIVITY_ENTRYPOINT_INVALID")
     return text

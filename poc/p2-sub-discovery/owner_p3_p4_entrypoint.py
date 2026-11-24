@@ -42,6 +42,10 @@ from owner_session_bridge import (
     install_owner_full_diagnostics, owner_full_trace,
 )
 from p3_owner_state_wiring_r2 import compose_owner_redmi_status
+from voiceover_audio_store import VoiceoverWavStore
+from voiceover_audio_lane import VoiceoverAudioLane
+from voiceover_fanout import DualSubtitleVoiceConsumer, VieNeuBatchConsumer
+from voiceover_vieneu import VieNeuOnnxSession, DEFAULT_VOICE_CACHE_ID
 from lan_revision_feed import private_lan_ip
 
 
@@ -128,6 +132,29 @@ def _pair_and_stage_identity(owner_root: Path) -> tuple[bytes, str, int, Path, P
             private / "pc-cert.pem", private / "pc-key.pem")
 
 
+def build_optional_vieneu_lane(*, cache_root: Path):
+    """Build the ONE Owner's optional Ngọc Linh TTS consumer without starting it.
+
+    Imported SDK/model weights remain untouched until the existing P2 worker
+    publishes a committed VI revision. The registered WAVs use the same P4
+    HTTPS listener as subtitles, never a second service or AGY job.
+    """
+    if not isinstance(cache_root, Path) or not cache_root.is_absolute():
+        raise OwnerEntrypointBlocked("P4_VOICE_CACHE_ROOT_REQUIRED")
+    store = VoiceoverWavStore(cache_root / "vieneu-ngoc-linh-wav")
+    lane = VoiceoverAudioLane(store=store, voice_id=DEFAULT_VOICE_CACHE_ID)
+    tts = VieNeuOnnxSession()
+    batch = VieNeuBatchConsumer(
+        wav_store=store, tts=tts, voice_id=DEFAULT_VOICE_CACHE_ID,
+        on_audio_ready=lane.on_audio_ready,
+        status=lambda code: owner_full_trace("VOICEOVER_STATUS", code=code))
+    consumer = DualSubtitleVoiceConsumer(
+        subtitle_sink=lambda _handoff, _revision: None,
+        voice_sink=batch, voice_id=DEFAULT_VOICE_CACHE_ID,
+        status=lambda code: owner_full_trace("VOICEOVER_STATUS", code=code))
+    return consumer, lane, tts
+
+
 def build_private_composition(*, owner_root: Path,
                               policy_file: Path,
                               private_media_root: Path,
@@ -158,6 +185,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--owner-root", required=True)
     parser.add_argument("--cache-root", required=True)
     parser.add_argument("--state-root", required=True)
+    # This approved G3 candidate uses the existing F6 launcher unchanged.
+    # Keep an explicit rollback switch; preflight still never opens TTS.
+    parser.add_argument("--enable-vieneu-voiceover",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="Ngoc Linh v3 Turbo ONNX/CPU; --no-enable-vieneu-voiceover disables it")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--start-lan", action="store_true")
     mode.add_argument("--preflight-only", action="store_true")
@@ -201,6 +233,18 @@ def main(argv: list[str] | None = None) -> int:
         if not verified.owner_auto_allowed():
             raise OwnerEntrypointBlocked("P3_P4_OWNER_AUTO_DISABLED")
         key, host, port, cert, pem = _pair_and_stage_identity(owner)
+        voice_consumer = None
+        voice_lane = None
+        voice_tts = None
+        if args.enable_vieneu_voiceover and args.start_lan:
+            try:
+                voice_consumer, voice_lane, voice_tts = build_optional_vieneu_lane(
+                    cache_root=cache)
+                owner_full_trace("VOICEOVER_STATUS", code="VOICEOVER_LANE_CONFIGURED")
+            except Exception as exc:
+                owner_full_trace("VOICEOVER_LANE_START_FAILED", error=exc)
+                # Optional voice preparation must never block subtitle Owner.
+                voice_consumer = voice_lane = voice_tts = None
         wiring = compose_owner_redmi_status(
             p4_gateway=None, paired_device_secret=key,
             torrserver_reader=reader,
@@ -210,7 +254,9 @@ def main(argv: list[str] | None = None) -> int:
             verified_local_vi_state=verified.verified_local_vi_state,
             locate_owner_pinned_files=verified.locate_owner_pinned_files,
             selected_file_inspector=verified.inspect_verified_file,
-            enable_verified_vietsub_ready=True)
+            enable_verified_vietsub_ready=True,
+            voiceover_consumer=voice_consumer,
+            voiceover_lane=voice_lane)
         print("P3_P4_PRIVATE_OWNER_POLICY_PAIRING_VERIFIED")
         if args.preflight_only:
             # Owner-only deployment gate: verify genuine private policy and
@@ -218,10 +264,16 @@ def main(argv: list[str] | None = None) -> int:
             # media, contacting providers or starting a background worker.
             print("P3_P4_OWNER_PREFLIGHT=PASS_NO_LAN_NO_PROVIDER")
             return 0
-        run_owner_p3_p4_runtime(
-            wiring=wiring, owner_root=owner, cache_root=cache,
-            state_root=state, host=host, port=port,
-            tls_cert=cert, tls_key=pem, explicit_start_lan=True)
+        try:
+            run_owner_p3_p4_runtime(
+                wiring=wiring, owner_root=owner, cache_root=cache,
+                state_root=state, host=host, port=port,
+                tls_cert=cert, tls_key=pem, explicit_start_lan=True)
+        finally:
+            if voice_consumer is not None:
+                voice_consumer.close(wait=True)
+            if voice_tts is not None:
+                voice_tts.close()
     except (ValueError, OSError, RuntimeError, TypeError, KeyError,
             json.JSONDecodeError) as exc:
         owner_full_trace("OWNER_P3_P4_STARTUP_FAILED", error=exc)

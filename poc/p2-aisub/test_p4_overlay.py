@@ -128,6 +128,9 @@ class P4SourcePatchTest(unittest.TestCase):
         (pkg / "G2RefreshInPlace.kt").write_text("object G2RefreshInPlace {}")
         (pkg / "G2RefreshRecovery.kt").write_text("object G2RefreshRecovery {}")
         (pkg / "PlayerActivity.kt").write_text(fake_g2_activity())
+        (pkg / "VlcEngine.kt").write_text(
+            "class VlcEngine {\n    private fun setAudio(es: Int) {}\n}\n",
+            encoding="utf-8")
         return pkg
 
     def test_dry_run_no_changes_then_apply_only_disposable_source(self):
@@ -148,6 +151,15 @@ class P4SourcePatchTest(unittest.TestCase):
             self.assertTrue((pkg/module.ACTIVATION_CLIENT_FILE).is_file())
             self.assertTrue((pkg/module.PAIRING_STORE_FILE).is_file())
             self.assertTrue((pkg/module.OWNER_BOOTSTRAP_FILE).is_file())
+            self.assertTrue((pkg/module.VOICE_RECEIVER_FILE).is_file())
+            self.assertTrue((pkg/module.VOICE_LAN_CLIENT_FILE).is_file())
+            self.assertTrue((pkg/module.VOICE_AUDIO_FILE).is_file())
+            self.assertTrue((pkg/module.VOICE_CONTROLLER_FILE).is_file())
+            self.assertTrue((pkg/module.VOICE_CLOCK_FILE).is_file())
+            vlc = (pkg / "VlcEngine.kt").read_text("utf-8")
+            self.assertIn("p4VoiceoverDuck(on: Boolean)", vlc)
+            self.assertIn("mp.volume = original * 30 / 100", vlc)
+            self.assertIn("p4VoiceOriginalVolume?.let { mp.volume = it }", vlc)
             bootstrap=(pkg/module.OWNER_BOOTSTRAP_FILE).read_text(encoding="utf-8")
             self.assertIn("internal object P4OwnerBootstrap",bootstrap)
             self.assertIn("P4PairingStore(ctx)",bootstrap)
