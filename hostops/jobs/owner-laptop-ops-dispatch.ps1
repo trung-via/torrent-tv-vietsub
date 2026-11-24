@@ -240,7 +240,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
         $diag = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
         $fields = @('schema','nonce','observed_utc_epoch','status',
-                    'stage','kind','code','boots','failures','worker','progressive')
+                    'stage','kind','code','boots','failures','worker','progressive','bind_state','listener')
         if ($diag.schema -cne 'TTV-OWNER-BRAIN-R2-STARTUP-DIAG-V1' -or
             $diag.nonce -cne $nonce -or
             (@($diag.PSObject.Properties.Name | Sort-Object) -join ',') -cne
@@ -248,6 +248,8 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             $diag.status -cnotin @('NO_MATCHING_STARTUP','LOG_MISSING',
                 'LOG_NOT_READABLE','BOOT_OBSERVED',
                 'FAILURE_TRACE_OBSERVED','BOUNDS_INVALID') -or
+            $diag.bind_state -cnotin @('UNKNOWN','LOCAL_ADDRESS_PRESENT','LOCAL_ADDRESS_MISSING') -or
+            $diag.listener -cnotin @('UNKNOWN','NONE','OTHER','TORRENT_TV_OWNED') -or
             $diag.stage -cnotmatch '^[A-Z][A-Z0-9_]{2,75}$' -or
             $diag.kind -cnotmatch '^[A-Za-z][A-Za-z0-9_]{2,50}$' -or
             $diag.code -cnotmatch '^[A-Z][A-Z0-9_]{2,90}$' -or
@@ -268,6 +270,8 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         Write-Output ('HOSTOPS_BRAIN_STARTUP_STAGE=' + $diag.stage)
         Write-Output ('HOSTOPS_BRAIN_STARTUP_KIND=' + $diag.kind)
         Write-Output ('HOSTOPS_BRAIN_STARTUP_CODE=' + $diag.code)
+        Write-Output ('HOSTOPS_BRAIN_BIND_STATE=' + $diag.bind_state)
+        Write-Output ('HOSTOPS_BRAIN_LISTENER=' + $diag.listener)
         Write-Output ('HOSTOPS_BRAIN_STARTUP_BOOT_COUNT=' + $diag.boots)
         Write-Output ('HOSTOPS_BRAIN_STARTUP_FAILURE_COUNT=' + $diag.failures)
         Write-Output ('HOSTOPS_BRAIN_P2_WORKER_FIRST50=' + $diag.worker)

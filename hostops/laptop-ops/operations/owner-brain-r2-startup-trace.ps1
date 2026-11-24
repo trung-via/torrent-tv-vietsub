@@ -76,7 +76,11 @@ if (-not (Test-Path -LiteralPath $logFile -PathType Leaf)) {
                     'OwnerRuntimeBlocked','OwnerEntrypointBlocked',
                     'KeyError','AssertionError','PermissionError')
                 $kind = if ($name -in $known) { $name } else { 'OTHER' }
-                if ($value -match '^([A-Z][A-Z0-9_]{4,90})(?:$|\s)') {
+                if ($name -ceq 'OSError' -and $value -match '\[WinError ([0-9]{1,5})\]') {
+                    $code = 'WINERROR_' + $Matches[1]
+                } elseif ($name -ceq 'OSError' -and $value -match '\[Errno ([0-9]{1,5})\]') {
+                    $code = 'ERRNO_' + $Matches[1]
+                } elseif ($value -match '^([A-Z][A-Z0-9_]{4,90})(?:$|\s)') {
                     $code = [string]$Matches[1]
                 } elseif ($name -ceq 'TypeError' -and
                     $value.Contains('unexpected keyword argument') -and
@@ -125,6 +129,31 @@ foreach ($rule in @(
     if ($rule[2] -ceq 'worker') { $worker = $result }
     else { $progressive = $result }
 }
+# Local endpoint metadata only; never emit IP, port, PID, or command line.
+$bindState = 'UNKNOWN'
+$listener = 'UNKNOWN'
+try {
+    $bindFile = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\P4\gateway-bind.txt'
+    $bind = (Get-Content -LiteralPath $bindFile -Raw).Trim()
+    if ($bind -match '^(\d{1,3}(?:\.\d{1,3}){3}):(\d{4,5})$') {
+        $address = $Matches[1]; $port = [int]$Matches[2]
+        $addresses = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop)
+        $bindState = if ($address -in @($addresses.IPAddress)) { 'LOCAL_ADDRESS_PRESENT' } else { 'LOCAL_ADDRESS_MISSING' }
+        $all = @(Get-NetTCPConnection -State Listen -ErrorAction Stop)
+        $hits = @($all | Where-Object { $_.LocalPort -eq $port -and $_.LocalAddress -in @($address,'0.0.0.0','::') })
+        $listener = if ($hits.Count -eq 0) { 'NONE' } else { 'OTHER' }
+        foreach ($hit in $hits) {
+            $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$hit.OwningProcess) -ErrorAction Stop
+            if ($null -eq $proc) { continue }
+            $sid = Invoke-CimMethod -InputObject $proc -MethodName GetOwnerSid
+            if ($sid.ReturnValue -eq 0 -and $sid.Sid -ceq $id.User.Value -and
+                [string]$proc.CommandLine -match '(?i)TorrentTVVietsub' -and
+                [string]$proc.CommandLine -match '(?i)owner_p3_p4_entrypoint\.py|owner_session_bridge\.py|paired_activation\.py|p4_[a-z_]+\.py|lan_revision_feed\.py') {
+                $listener = 'TORRENT_TV_OWNED'
+            }
+        }
+    }
+} catch {}
 $record = [ordered]@{
     schema = 'TTV-OWNER-BRAIN-R2-STARTUP-DIAG-V1'
     nonce = [string]$request.nonce
@@ -137,6 +166,8 @@ $record = [ordered]@{
     failures = $failureCount
     worker = $worker
     progressive = $progressive
+    bind_state = $bindState
+    listener = $listener
 }
 $out = Join-Path $spool ('Receipts\owner-brain-startup-' + $request.nonce + '.json')
 if (Test-Path -LiteralPath $out) { throw 'OWNER_STARTUP_DIAG_RECEIPT_EXISTS' }
