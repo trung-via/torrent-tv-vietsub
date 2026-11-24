@@ -48,7 +48,7 @@ sys.path[:0]=[str(owner/"app/poc/p2-aisub")]
 from translator_gateway import preflight_antigravity,_validated_antigravity_alias
 try:
     cli=preflight_antigravity()
-    model=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
+    model=_validated_antigravity_alias("gemini-4-neon-high","high")
     env=dict(os.environ)
     for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GEMINI_BASE_URL","AGY_ADC_AUTH","GOOGLE_CLOUD_PROJECT","GOOGLE_CLOUD_QUOTA_PROJECT"):env.pop(k,None)
     downloads=run/"downloads"
@@ -114,7 +114,7 @@ try:
             except (OSError,ValueError):pass
         return good[0] if len(good)==1 else (None,0)
     before=candidates()
-    prompt="One authorized English subtitle acquisition benchmark for a different movie: The Odyssey (2026), BDRip-HEVC 1080p, Jaskier is a dub label. No subtitle ID is supplied. Use only ordinary OpenSubtitles.org browsing in existing Chrome 9555. A ready Python helper is in mcp_client.py: from mcp_client import Browser; with Browser(pathlib.Path.cwd()) as b: use b.call(name,args), b.text(result), b.schemas. Use one Python execution, one tab. First identify the correct title/year/IMDb and filter English; the ordinary catalog pattern /en/search/sublanguageid-eng/imdbid-<digits> works once the IMDb is known. Inspect actual detail; prefer matching BluRay cut/source/FPS/runtime; identical release group/codec wording is not required. Do not accept WEB if cut/timing conflicts. Before clicking download, save SELECTION.json with selected_subtitle_id (digits from real detail URL), detail_url, title, year, language, release_match (boolean for metadata, not playback sync), actual_test (brief evidence). Follow the website-issued normal download link on dl.opensubtitles.org; do not invent URLs. Navigation interruption can still mean a successful ZIP download. Do not click twice. Stop on denial/login/CAPTCHA/401/403/429/payment; no bypass or direct API/HTTP, no credentials, no unrelated tabs, no 9444. Write RESULT.json with status (DOWNLOADED, DOWNLOAD_FAILED, NO_MATCH, ACCESS_DENIED, AUTH_REQUIRED, CDP_FAILED, OTHER), stage, observed_http_status, download_host, selected_subtitle_id, release_match, downloaded_filename if known and brief actual_test. The host independently verifies new ZIP/SRT. Minimize reasoning and tool calls; aim for 60 seconds. No translation or production changes."
+    prompt="You are the Teacher (Gemini 4 Neon High) in a Brain Training benchmark. Demonstrate one authorized English subtitle acquisition for The Odyssey (2026), BDRip-HEVC 1080p; Jaskier is a dub label. No subtitle ID supplied. Use ordinary OpenSubtitles.org website with the existing signed-in Chrome 9555 only. A verified helper is ready: from mcp_client import Browser; with Browser(pathlib.Path.cwd()) as b: use b.call(name,args), b.text(result), b.schemas. You may choose the normal supported workflow, not a workaround for denied tools. If authorization is denied, stop and report exact error. Identify title/year/IMDb, English catalog, inspect real candidate detail and prefer matching source/cut/FPS/runtime; do not insist on identical codec or release group if evidence supports compatibility. Save SELECTION.json before clicking download with selected_subtitle_id, detail_url, title, year, language, release_match (metadata only), actual_test. Follow the actual website-issued dl.opensubtitles.org link; do not guess URL or repeat successful download. Browser navigation interruption can still mean ZIP saved. Write RESULT.json with status, stage, observed_http_status, download_host, selected_subtitle_id, release_match, downloaded_filename and actual_test. Also save TEACHER_RECIPE.json with the reusable steps, actual tool names and arguments with sensitive values removed, decision rules, failure cases, timing, and what Hydrogen Low needs to reproduce; no hardcoded candidate ID in reusable instructions. This is for verified imitation, not model weight training. Use the normal authorized sandbox and tools, never disable sandbox or bypass permission checks. Stop on 401/403/429, login, CAPTCHA, payment, or denial. No direct provider API/HTTP, no credentials, no unrelated tabs, no 9444, no translation or production changes. If blocked, report the actual error and supported configuration remedy instead of claiming success."
     args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
     start=time.monotonic()
     wall_start=time.time()
@@ -189,7 +189,7 @@ try:
             x=json.loads(line)
             if isinstance(x,dict) and x.get("ok") is True:trace.append(x.get("tool"))
     except Exception:pass
-    print(f"GEN2_{codes[status]}_M{match}_F{files}_C{min(cues,99999)}_S{max(selected_at,0)}_D{max(acquired_at-selected_at,0) if files and selected_at>=0 else 0}_T{round(time.monotonic()-start)}_X{int(p is None)}")
+    print(f"TEACHER_{codes[status]}_M{match}_F{files}_C{min(cues,99999)}_S{max(selected_at,0)}_D{max(acquired_at-selected_at,0) if files and selected_at>=0 else 0}_T{round(time.monotonic()-start)}_X{int(p is None)}")
 except Exception:print("MCP_HEADLESS_LOCAL_ERROR")
 '@
  $f=Join-Path $run 'control.py'
