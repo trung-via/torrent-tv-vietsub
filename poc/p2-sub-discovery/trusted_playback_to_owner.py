@@ -52,6 +52,7 @@ class TrustedPlaybackToOwner:
 
     def on_current_selection_accepted(
         self, verified_viewer_request: AuthenticatedSelectionSignal | None = None,
+        *, verified_snapshot: PlaybackSelected | None = None,
     ) -> TriggerDecision:
         """Enqueue ONLY after the signed per-film on-TV viewer tap.
 
@@ -64,7 +65,7 @@ class TrustedPlaybackToOwner:
                 or verified_viewer_request.kind != "VIEWER_VIETSUB_REQUESTED"):
             return TriggerDecision("SKIP", "NO_VERIFIED_VIEWER_REQUEST")
         try:
-            event = self.read_current()
+            event = verified_snapshot if verified_snapshot is not None else self.read_current()
         except Exception:
             # The trusted source may have been disconnected; do not leak
             # private OMP/TorrServer details or invent an active session.
