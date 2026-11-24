@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-srt-parser-install",
+  "operation": "owner-vieneu-int8-benchmark",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-srt-parser-install.ps1",
-  "script_sha256": "e937d39f26db2a68d9295e3e7346b87aa62f61677f2f456d8712e015d839039d",
+  "script_path": "hostops/laptop-ops/operations/owner-vieneu-int8-benchmark.ps1",
+  "script_sha256": "74e7492cc5c2a91509fac9ce1e226bf42582770de6bf740f41833ef194d12663",
   "arguments": []
 }

@@ -261,6 +261,19 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             Write-Output ('HOSTOPS_VIENEU_BENCHMARK_' + $name.ToUpperInvariant() + '=' + $v.$name)
         }
     }
+    if ($receipt.operation -ceq 'owner-vieneu-int8-benchmark') {
+        $file = Join-Path $outbox ('r43-mixed-' + $nonce + '.json')
+        if(Test-Path -LiteralPath $file -PathType Leaf){
+            $item=Get-Item -LiteralPath $file -Force
+            if($item.Length -gt 2048 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'R43_RECEIPT_INVALID'}
+            $q=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+            if($q.nonce -cne $nonce){throw 'R43_NONCE_INVALID'}
+            foreach($key in @('prior_wavs','prior_bad','prior_clip_ppm_max','prior_rms_min_milli','baseline_ok','baseline_fail','baseline_max_ms','mixed_ok','mixed_fail','mixed_max_ms','mixed_min_free_mib','mixed_peak_cpu_pct','torr_pid','established_before','established_after')){
+                if($q.$key -lt 0 -or $q.$key -gt 1000000){throw 'R43_METRIC_INVALID'}
+                Write-Output ('HOSTOPS_R43_'+$key.ToUpperInvariant()+'='+[int]$q.$key)
+            }
+        } else {Write-Output 'HOSTOPS_R43_RECEIPT=MISSING'}
+    }
     if ($receipt.operation -ceq 'owner-vieneu-provision') {
         $file = Join-Path $outbox ('vieneu-provision-' + $nonce + '.json')
         $item = Get-Item -LiteralPath $file -Force

@@ -10,7 +10,7 @@ $spool = Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $request = Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 if ($request.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or $request.nonce -cnotmatch '^[0-9a-f]{32}$') { throw 'VIENEU_REQUEST_INVALID' }
 $base = Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\VieNeuBenchmark'
-$root = Join-Path $base ('int8-benchmark-'+$request.nonce)
+$root = Join-Path $base ('r43-mixed-'+$request.nonce)
 New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
 $rec = [ordered]@{schema='TTV-VIENEU-BENCHMARK-V1';nonce=[string]$request.nonce;status='ENV_MISSING';stage='PREFLIGHT';sdk='NONE';precision='INT8';threads=8;model_sha='NONE';codec_sha='NONE';init_ms=0;first_ms=0;audio_ms=0;synth_ms=0;rtf_milli=0;cue_count=0;peak_mib=0;sample_rate=0;elapsed_s=0;prior_error='UNKNOWN';error_kind='NONE'}
 $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -53,7 +53,7 @@ try:
         if repo_id in pins:
             kwargs["revision"] = pins[repo_id]
             kwargs["token"] = False
-            kwargs["local_files_only"] = repo_id == codec
+            kwargs["local_files_only"] = True
         return original(repo_id, *args, **kwargs)
     hf.hf_hub_download = pinned
     d["stage"] = "MODEL_INIT"
@@ -74,6 +74,81 @@ try:
         "Ch\u00fang ta c\u00f9ng \u0111i ti\u1ebfp, \u0111\u1eebng d\u1eebng l\u1ea1i.",
         "T\u00f4i s\u1ebd quay l\u1ea1i ngay khi m\u1ecdi vi\u1ec7c \u0111\u00e3 \u0111\u01b0\u1ee3c gi\u1ea3i quy\u1ebft."
     ]
+
+    import threading, urllib.request, math
+    q = dict(prior_wavs=0, prior_bad=0, prior_clip_ppm_max=0, prior_rms_min_milli=1000,
+             baseline_ok=0, baseline_fail=0, baseline_max_ms=0, mixed_ok=0, mixed_fail=0, mixed_max_ms=0,
+             mixed_min_free_mib=0, mixed_peak_cpu_pct=0, torr_pid=0, established_before=0, established_after=0)
+    def quality(path):
+        with wave.open(str(path), "rb") as f:
+            assert f.getnchannels()==1 and f.getsampwidth()==2 and f.getframerate()==48000
+            a=np.frombuffer(f.readframes(f.getnframes()),dtype="<i2").astype(np.float64)
+        assert len(a)>0
+        rms=float(np.sqrt(np.mean((a/32768)**2)))
+        clip=round(1000000*np.mean(np.abs(a)>=32760))
+        return rms,clip
+    prior=os.environ.get("TTV_PRIOR_ROOT","")
+    if prior:
+        for i in range(1,4):
+            try:
+                rms,clip=quality(Path(prior)/f"sample-{i}.wav")
+                q["prior_wavs"]+=1
+                q["prior_clip_ppm_max"]=max(q["prior_clip_ppm_max"],clip)
+                q["prior_rms_min_milli"]=min(q["prior_rms_min_milli"],round(1000*rms))
+                if rms<0.005 or clip>1000: q["prior_bad"]+=1
+            except Exception: q["prior_bad"]+=1
+    if not q["prior_wavs"]: q["prior_rms_min_milli"]=0
+    q["torr_pid"]=int(os.environ.get("TTV_TORR_PID","0"))
+    q["established_before"]=int(os.environ.get("TTV_TORR_EST","0"))
+    port=int(os.environ.get("TTV_TORR_PORT","0"))
+    class MS(ctypes.Structure):
+        _fields_=[("length",wintypes.DWORD),("load",wintypes.DWORD)]+[(n,ctypes.c_uint64) for n in ("totalPhys","availPhys","totalPageFile","availPageFile","totalVirtual","availVirtual","availExtendedVirtual")]
+    def memfree():
+        x=MS(); x.length=ctypes.sizeof(x)
+        return int(x.availPhys//1048576) if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(x)) else 0
+    def cpu_ticks():
+        a,b,c=wintypes.FILETIME(),wintypes.FILETIME(),wintypes.FILETIME()
+        if not ctypes.windll.kernel32.GetSystemTimes(ctypes.byref(a),ctypes.byref(b),ctypes.byref(c)): return None
+        return tuple((x.dwHighDateTime<<32)|x.dwLowDateTime for x in (a,b,c))
+    def health(prefix):
+        if not port: return
+        t=time.perf_counter()
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/echo",timeout=1) as res:
+                res.read(128)
+                assert res.status==200
+            q[prefix+"_ok"]+=1
+        except Exception: q[prefix+"_fail"]+=1
+        q[prefix+"_max_ms"]=max(q[prefix+"_max_ms"],round(1000*(time.perf_counter()-t)))
+    for _ in range(5):
+        health("baseline"); time.sleep(.4)
+    stop=threading.Event()
+    def monitor():
+        prev=cpu_ticks()
+        while not stop.is_set():
+            health("mixed")
+            free=memfree()
+            if free: q["mixed_min_free_mib"]=min(q["mixed_min_free_mib"] or free,free)
+            now=cpu_ticks()
+            if prev and now:
+                idle,kernel,user=(now[i]-prev[i] for i in range(3))
+                if kernel+user>0: q["mixed_peak_cpu_pct"]=max(q["mixed_peak_cpu_pct"],round(100*(1-idle/(kernel+user))))
+            prev=now
+            stop.wait(.5)
+    def save_quality():
+        (root/"r43-mixed.json").write_text(json.dumps(q),encoding="utf-8")
+    save_quality()
+
+    texts = texts + [
+      "Hom nay troi dep, chung ta se bat dau mot hanh trinh moi.",
+      "Hãy nói cho tôi biết chuyện gì đã xảy ra ở đây.",
+      "Đừng lo lắng, chúng ta vẫn còn đủ thời gian để chuẩn bị.",
+      "Một lát nữa tôi sẽ trở lại và giải thích mọi chuyện.",
+      "Cảm ơn bạn đã giúp đỡ tôi trong suốt thời gian qua.",
+      "Nếu có thay đổi, hãy báo ngay cho mọi người biết."
+    ]
+    texts = texts * 3
+    worker=threading.Thread(target=monitor,daemon=True); worker.start()
     for i, text in enumerate(texts):
         t = time.perf_counter()
         chunks = []
@@ -113,6 +188,7 @@ try:
         except (OSError, OverflowError, ctypes.ArgumentError):
             pass
         write(d)
+    stop.set(); worker.join(3); save_quality()
     d["status"] = "BENCHMARK_COMPLETE"
     d["stage"] = "DONE"
     write(d)
@@ -161,14 +237,32 @@ try {
             $si.Environment['HF_HUB_DISABLE_IMPLICIT_TOKEN']='1'
             $si.Environment['HF_HUB_DISABLE_TELEMETRY']='1'
             $si.Environment['HF_HUB_DOWNLOAD_TIMEOUT']='30'
-            $si.Environment.Remove('HF_HUB_OFFLINE') | Out-Null
+            $si.Environment['HF_HUB_OFFLINE']='1'
+            $si.Environment['TTV_PRIOR_ROOT']=''
+            $priorMatches = @(Get-ChildItem -LiteralPath $base -Directory -Filter 'int8-benchmark-*' | Where-Object {
+                try {
+                    $mm = Get-Content -LiteralPath (Join-Path $_.FullName 'metrics.json') -Raw | ConvertFrom-Json
+                    $mm.status -ceq 'BENCHMARK_COMPLETE' -and $mm.cue_count -eq 3 -and $mm.audio_ms -eq 7040 -and $mm.synth_ms -eq 2063 -and $mm.model_sha -ceq '61b85e3d937fbbacb387714180e8182823512523'
+                } catch { $false }
+            })
+            if($priorMatches.Count -eq 1){$si.Environment['TTV_PRIOR_ROOT']=$priorMatches[0].FullName}
+            $si.Environment['TTV_TORR_PID']='0';$si.Environment['TTV_TORR_PORT']='0';$si.Environment['TTV_TORR_EST']='0'
+            $ts = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.ProcessName -like 'TorrServer*'})
+            if($ts.Count -eq 1){
+                $si.Environment['TTV_TORR_PID']=[string]$ts[0].Id
+                $tcp = @(Get-NetTCPConnection -OwningProcess $ts[0].Id -ErrorAction SilentlyContinue)
+                $ports = @($tcp | Where-Object {$_.State -eq 'Listen'} | Select-Object -ExpandProperty LocalPort -Unique)
+                if($ports -contains 8090){$si.Environment['TTV_TORR_PORT']='8090'}
+                elseif($ports.Count -eq 1){$si.Environment['TTV_TORR_PORT']=[string]$ports[0]}
+                $si.Environment['TTV_TORR_EST']=[string]@($tcp | Where-Object {$_.State -eq 'Established' -and [string]$_.LocalPort -eq $si.Environment['TTV_TORR_PORT']}).Count
+            }
             $si.Environment.Remove('PYTHONPATH') | Out-Null
             $si.Environment.Remove('HF_TOKEN') | Out-Null
             $p=[Diagnostics.Process]::Start($si)
             try {
                 $stdout=$p.StandardOutput.ReadToEndAsync()
                 $stderr=$p.StandardError.ReadToEndAsync()
-                $finished=$p.WaitForExit(450000)
+                $finished=$p.WaitForExit(150000)
                 if(-not $finished){$p.Kill($true);$p.WaitForExit()}
                 [IO.File]::WriteAllText((Join-Path $root 'stdout.txt'),$stdout.GetAwaiter().GetResult())
                 [IO.File]::WriteAllText((Join-Path $root 'stderr.txt'),$stderr.GetAwaiter().GetResult())
@@ -188,6 +282,19 @@ try {
         }
     }
 } catch {$rec.status='PROBE_EXCEPTION'}
+$mixed = Join-Path $root 'r43-mixed.json'
+if(Test-Path -LiteralPath $mixed -PathType Leaf){
+    $q=Get-Content -LiteralPath $mixed -Raw | ConvertFrom-Json
+    if($q.torr_pid -gt 0){
+        $connections=@(Get-NetTCPConnection -OwningProcess $q.torr_pid -ErrorAction SilentlyContinue | Where-Object {$_.State -eq 'Established' -and [string]$_.LocalPort -eq $si.Environment['TTV_TORR_PORT']})
+        $q.established_after=$connections.Count
+    }
+    $q.torr_pid=if($q.torr_pid -gt 0){1}else{0}
+    $q | Add-Member -NotePropertyName nonce -NotePropertyValue $request.nonce
+    $dest=Join-Path $spool ('Receipts\r43-mixed-'+$request.nonce+'.json')
+    [IO.File]::WriteAllText($dest+'.tmp',($q|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+    [IO.File]::Move($dest+'.tmp',$dest)
+}
 $rec.elapsed_s=[int]$clock.Elapsed.TotalSeconds
 $out=Join-Path $spool ('Receipts\vieneu-benchmark-'+$request.nonce+'.json')
 if(Test-Path -LiteralPath $out){throw 'VIENEU_RECEIPT_EXISTS'}
