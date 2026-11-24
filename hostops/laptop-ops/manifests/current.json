@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "agy-spiderman-model-compare-1124",
-  "category": "owner-maintenance",
+  "operation": "agy-spiderman-browser-readout-1124",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/agy-spiderman-model-compare-1124.ps1",
-  "script_sha256": "69291b97a8ab7bf71c194c5c9fc2ee5b6a7e0c2d622781527bb80ba1e070fea4",
+  "script_path": "hostops/laptop-ops/operations/agy-spiderman-browser-readout-1124.ps1",
+  "script_sha256": "83c5a7be88f823a330f5f361ae9c4eb6c833798b25e710f09788245ee1f5db99",
   "arguments": []
 }
