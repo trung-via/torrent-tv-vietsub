@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g1-186-install",
+  "operation": "owner-current-film-retest-reset",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-g1-186-install.ps1",
-  "script_sha256": "191491bd52639f9e2f9ec6dba2e9977528629f8614e0f3eea992c572e9360293",
+  "script_path": "hostops/laptop-ops/operations/owner-current-film-retest-reset.ps1",
+  "script_sha256": "ed4f895a552162ed809d958a474d38c7a5ebc9466ad1fef4f2805bdc917d0e33",
   "arguments": []
 }
