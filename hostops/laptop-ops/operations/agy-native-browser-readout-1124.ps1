@@ -7,7 +7,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('agy-helper-local-'+$rq.nonce)
+$run=Join-Path $root ('agy-path-audit-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='CDP9555_NOT_READY'
 $profile=Join-Path $root 'CDP9555Profile'
@@ -188,63 +188,60 @@ print(f"HELPER_{'PASS' if n and v and p and c else 'FAIL'}_{stage}_N{n}V{v}P{p}C
 '@
  [IO.File]::WriteAllText((Join-Path $run 'helper_probe.py'),$probe,[Text.UTF8Encoding]::new($false))
  $py=@'
-import sys,pathlib,os,json,re,time,subprocess
+import sys,pathlib,os,json,re
 owner,run=map(pathlib.Path,sys.argv[1:])
-sys.path.insert(0,str(owner/"app/poc/p2-aisub"))
-from translator_gateway import preflight_antigravity,_validated_antigravity_alias
 def read(p):
     try:
         if p.is_file() and p.stat().st_size<=4194304:return p.read_text(encoding="utf-8-sig",errors="replace")
     except OSError:pass
     return ""
-def rows(p):
-    out=[]
-    for line in read(p).splitlines():
-        try:
-            x=json.loads(line)
-            if isinstance(x,dict):out.append(x)
-        except ValueError:pass
-    return out
-def classify(log):
-    for label,pat in [("REL",r"relative paths?.{0,120}(?:not supported|not allowed|invalid|absolute|required)|(?:invalid|unsupported).{0,70}relative paths?|sandbox.{0,80}relative path"),("QUOTA",r"resource.exhausted|quota.exceeded|rate.limit.exceeded|usage limit|capacity exhausted"),("DENY",r"permission denied|access denied|sandbox.{0,80}(?:denied|blocked)|approval required|not permitted"),("TIME",r"timed out|deadline exceeded|timeout exceeded|execution timeout"),("PY",r"Traceback \(most recent call last\)|ModuleNotFoundError|SyntaxError|NameError|ImportError"),("SHELL",r"not recognized as (?:an internal|the name)|command not found|cannot find the path|unexpected token|no such file"),("MCP",r"PAGE_SCOPE_REQUIRED|NO_PAGE_ID|TOOL_ARG|RPC_ARG|broken pipe|ECONNREFUSED")]:
-        if re.search(pat,log,re.I|re.S):return label
-    return "UNK"
-def log_for(p):
-    events=rows(p/"agy-stdout.jsonl")
-    return read(p/"agy-stderr.txt")+"\n"+read(p/"mcp-stderr.txt")+"\n"+json.dumps([x for x in events if str(x.get("event","")).lower() in ("result","tool_result","tool_error","error","assistant_error")])
-prev="NA"
 history=pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"History"
 old=[]
 for f in history.glob("receipt-*.json"):
     try:
         q=json.loads(read(f))
-        if q.get("source_commit")=="1c6600358d1bc30e9228c1ec2c0b8027f1d2e8c6" and q.get("operation")=="agy-browser-headless-control-1124" and q.get("result")=="SUCCESS" and re.fullmatch(r"[a-f0-9]{32}",q.get("nonce","")):old.append(q["nonce"])
+        if q.get("source_commit")=="edc92c5fe50bdd5cc6da8fa9fd82b5325c795ec6" and q.get("operation")=="agy-native-browser-readout-1124" and q.get("result")=="SUCCESS" and re.fullmatch(r"[a-f0-9]{32}",q.get("nonce","")):old.append(q["nonce"])
     except (ValueError,TypeError):pass
-if len(old)==1:prev=classify(log_for(run.parent/("agy-cdp9555-mcp-stdio-"+old[0])))
-cli=preflight_antigravity()
-model=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
-env=dict(os.environ)
-for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GEMINI_BASE_URL","AGY_ADC_AUTH","GOOGLE_CLOUD_PROJECT","GOOGLE_CLOUD_QUOTA_PROJECT"):env.pop(k,None)
-prompt="Run this single local diagnostic command in the current workspace: py -3 -I -B helper_probe.py . The prewritten test opens its own Chrome 9555 tab, reads a loopback page and closes that tab. Use your normal authorized shell tool and existing sandbox. Do not modify files, settings, sandbox or permissions. Do not access external websites. If permission or execution is denied, stop and report it. Return the command outcome only."
-args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
-start=time.monotonic()
-try:
-    p=subprocess.run(args,env=env,cwd=run,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=270,check=False)
-    (run/"agy-stdout.jsonl").write_text(p.stdout,encoding="utf-8")
-    (run/"agy-stderr.txt").write_text(p.stderr,encoding="utf-8")
-    rc=int(p.returncode==0)
-except subprocess.TimeoutExpired as e:
-    rc=0
-    for name,raw in (("agy-stdout.jsonl",e.stdout),("agy-stderr.txt",e.stderr)):
-        if raw is not None:(run/name).write_bytes(raw if isinstance(raw,bytes) else raw.encode("utf-8"))
-reason=classify(log_for(run))
-try:
-    q=json.loads(read(run/"PROBE_RESULT.json"))
-    ok=int(all(q.get(k)==1 for k in ("n","v","p","c")))
-except (ValueError,TypeError):ok=0
-trace=rows(run/"mcp-trace.jsonl")
-n,v,sn,c=[int(any(x.get("tool")==k and x.get("ok") for x in trace)) for k in ("new_page","navigate_page","take_snapshot","close_page")]
-print(f"AGYLOCAL_{'PASS' if ok and n and v and sn and c else 'FAIL'}_P{prev}_R{reason}_N{n}V{v}S{sn}C{c}_E{rc}_T{round(time.monotonic()-start)}")
+if len(old)!=1:
+    print("AGYPATH_PRIOR_HOLD");sys.exit(0)
+p=run.parent/("agy-helper-local-"+old[0])
+events=[]
+for line in read(p/"agy-stdout.jsonl").splitlines():
+    try:
+        x=json.loads(line)
+        if isinstance(x,dict):events.append(x)
+    except ValueError:pass
+# Inspect nested output, excluding the user prompt and instructions.
+texts=[]; kinds=set(); calls=0; replies=0
+def walk(x,depth=0):
+    global calls,replies
+    if depth>12:return
+    if isinstance(x,dict):
+        if str(x.get("role","")).lower() in ("user","system","developer"):return
+        if str(x.get("event","")).lower() in ("user","system","init","session_start"):return
+        for k,v in x.items():
+            if k.lower() in ("event","type"):
+                if isinstance(v,str):
+                    kinds.add(v.lower())
+                    if v.lower() in ("tool_use","tool_call","tool_start","tool_request","function_call"):calls+=1
+                    if v.lower() in ("tool_result","tool_error","tool_end","tool_response","function_response"):replies+=1
+            if k.lower() not in ("prompt","system_prompt","instructions","input","arguments","command"):walk(v,depth+1)
+    elif isinstance(x,list):
+        for v in x:walk(v,depth+1)
+    elif isinstance(x,str):texts.append(x)
+for e in events:walk(e)
+log=read(p/"agy-stderr.txt")+"\n"+read(p/"mcp-stderr.txt")+"\n"+"\n".join(texts)
+flags={
+ "REL":r"relative paths?.{0,120}(?:not supported|not allowed|invalid|absolute|required)|(?:invalid|unsupported).{0,70}relative paths?|sandbox.{0,80}relative path",
+ "DENY":r"permission denied|access denied|sandbox.{0,80}(?:denied|blocked)|approval required|not permitted|not authorized|requires approval",
+ "SHELL":r"not recognized as (?:an internal|the name)|command not found|cannot find the path|unexpected token|no such file",
+ "PY":r"Traceback \(most recent call last\)|ModuleNotFoundError|SyntaxError|NameError|ImportError",
+ "TIME":r"timed out|deadline exceeded|timeout exceeded|execution timeout",
+ "REFUSE":r"(?:cannot|unable to|can.t|could not).{0,90}(?:run|execute|shell|command)|(?:no|not have).{0,70}(?:shell|execution|terminal).{0,50}(?:tool|access|permission)",
+ "QUOTA":r"resource.exhausted|quota.exceeded|rate.limit.exceeded|usage limit|capacity exhausted",
+}
+hit={k:int(bool(re.search(v,log,re.I|re.S))) for k,v in flags.items()}
+print("AGYPATH_AUDIT_"+''.join(k[0]+str(hit[k]) for k in flags)+"_C"+str(min(calls,99))+"_R"+str(min(replies,99))+"_E"+str(min(len(events),99)))
 '@
  $f=Join-Path $run 'control.py'
  [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
