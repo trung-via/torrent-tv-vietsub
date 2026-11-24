@@ -1,4 +1,4 @@
-# TR-TTV.05b: Owner-approved blind acquisition, new Chrome profile 9558.
+# TR-TTV.05b: Owner-approved blind acquisition, fixed Torrent TV port 9555; fresh profile for a blind benchmark only when port is idle.
 # Never edit shared settings or touch Owner production.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -20,12 +20,12 @@ $ownerState=[string]$task.State
 $hostTask=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-Laptop-HostOps' -TaskPath '\'
 $profile=Join-Path $run 'ChromeBlindProfile'
 $downloadDir=Join-Path $run 'browser-downloads'
-$active9558=@(Listener 9558)
-$started9558=0
+$active9555=@(Listener 9555)
+$started9555=0
 $verified=$false
-$code='TR04C_PORT_BUSY'
+$code='TR05H_9555_BUSY_NO_RETRY'
 if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
-elseif($active9558.Count -eq 0){
+elseif($active9555.Count -eq 0){
  $chrome=@(
    (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
    (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
@@ -37,18 +37,18 @@ elseif($active9558.Count -eq 0){
   $prefs=@{download=@{default_directory=$downloadDir;prompt_for_download=$false;directory_upgrade=$true};browser=@{check_default_browser=$false}}
   [IO.File]::WriteAllText((Join-Path $profile 'Default\Preferences'),($prefs|ConvertTo-Json -Depth 4 -Compress),[Text.UTF8Encoding]::new($false))
   $profileArg='--user-data-dir="'+$profile+'"'
-  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9558','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','about:blank')|Out-Null
-  $started9558=1
+  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','about:blank')|Out-Null
+  $started9555=1
   for($i=0;$i -lt 30;$i++){
    Start-Sleep -Milliseconds 500
-   $active9558=@(Listener 9558)
-   if($active9558.Count -gt 0){break}
+   $active9555=@(Listener 9555)
+   if($active9555.Count -gt 0){break}
   }
   $code='TR04C_NO_LISTENER'
-  if($active9558.Count -eq 1){
-   $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9558[0])
-   $listeners=@(Get-NetTCPConnection -LocalPort 9558 -State Listen -ErrorAction SilentlyContinue)
-   if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9558(?:\s|"|\z)' -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
+  if($active9555.Count -eq 1){
+   $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
+   $listeners=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
+   if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)' -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
    else{$code='TR04C_PROFILE_MISMATCH'}
   }
  }else{$code='TR04C_CHROME_MISSING'}
@@ -87,7 +87,7 @@ def probe():
     config_before=[sha(p) for p in paths]
     config=read(settings); sharedconfig=read(shared); servers=read(global_mcp).get("mcpServers",{})
     if not isinstance(servers,dict):return "TR04A_MCP_SCHEMA_UNKNOWN"
-    if "ttv-student-9558" in servers:return "TR04A_GLOBAL_TTV_CONFLICT"
+    if "ttv-browser" in servers:return "TR04A_GLOBAL_TTV_CONFLICT"
     # Identify exact relative rule, with structural locations only, no exported values.
     hits=[]
     def scan(v,trail,idx):
@@ -101,11 +101,11 @@ def probe():
     # Retain actual documented CLI flag evidence in the private run directory.
     write(run/"config-audit.json",{"relative_rule_locations":[{"source":i,"path":[str(v) for v in t]} for i,t,_ in hits],"session_settings_flag":session_flag,"global_mcp_count":len(servers),"global_ttv_conflict":False})
     agents=run/".agents";agents.mkdir()
-    write(agents/"mcp_config.json",{"mcpServers":{"ttv-student-9558":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.14.0","--browser-url=http://127.0.0.1:9558","--no-usage-statistics"]}}})
+    write(agents/"mcp_config.json",{"mcpServers":{"ttv-browser":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.14.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics"]}}})
     # Confirm loopback Chrome without reading tabs or visiting a website.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open("http://127.0.0.1:9558/json/version",timeout=3) as f:version=json.load(f)
-    if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9558/"):return "TR04A_ENDPOINT_UNVERIFIED"
+    with opener.open("http://127.0.0.1:9555/json/version",timeout=3) as f:version=json.load(f)
+    if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9555/"):return "TR04A_ENDPOINT_UNVERIFIED"
     if not session_flag:
         return "TR04A_NO_SESSION_FLAG_R%dS%d"%(sum(i==0 for i,_,_ in hits),sum(i==1 for i,_,_ in hits))
     if any(i!=0 for i,_,_ in hits):return "TR04A_SHARED_RULE_NEEDS_SCOPE"
@@ -123,14 +123,14 @@ def probe():
     # Respect any existing explicit deny or ask; no global wildcard grant.
     for key in ("deny","ask"):
         for rule in perms.get(key,[]):
-            if isinstance(rule,str) and (rule.startswith("mcp(ttv-student-9558") or rule=="mcp(*)"):return "TR04A_EXISTING_RESTRICTION"
+            if isinstance(rule,str) and (rule.startswith("mcp(ttv-browser") or rule=="mcp(*)"):return "TR04A_EXISTING_RESTRICTION"
     # Explicit tool grants limited to this benchmark and native 9555 server.
     tools=("list_pages","new_page","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","close_page","evaluate_script")
     for k in ("deny","ask"):
-        if any(isinstance(v,str) and (v.startswith("mcp(ttv-student-9558") or v=="mcp(*)") for v in perms.get(k,[])):return "TR04B_EXISTING_RESTRICTION"
+        if any(isinstance(v,str) and (v.startswith("mcp(ttv-browser") or v=="mcp(*)") for v in perms.get(k,[])):return "TR04B_EXISTING_RESTRICTION"
     allowed=perms.setdefault("allow",[])
     for tool in tools:
-        rule="mcp(ttv-student-9558/"+tool+")"
+        rule="mcp(ttv-browser/"+tool+")"
         if rule not in allowed:allowed.append(rule)
     if config.get("agentMode")=="auto":config.pop("agentMode")
     override=run/"session-settings.json"
@@ -138,7 +138,7 @@ def probe():
     env["TTV_SESSION_SETTINGS"]=str(override)
     env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
     # The new dedicated profile has an initially empty download directory.
-    with opener.open("http://127.0.0.1:9558/json/list",timeout=3) as f:tabs=json.load(f)
+    with opener.open("http://127.0.0.1:9555/json/list",timeout=3) as f:tabs=json.load(f)
     pages=[t for t in tabs if t.get("type")=="page"]
     if len(pages)!=1 or pages[0].get("url")!="about:blank":return "TR04C_NOT_BLANK"
     dirs={run/"browser-downloads"}
@@ -181,7 +181,7 @@ def probe():
         return good[0] if len(good)==1 else (None,0)
     downloads=run/"downloads";downloads.mkdir()
     before=candidates()
-    prompt="You are the English subtitle acquisition agent for Torrent TV Vietsub. Input: Project Hail Mary (2026), English. Video release name from the player's Files screen: Project.Hail.Mary.2026.WEBRip.720p-New-Team; 6.8 GB, WEBRip, 720p, New-Team. FPS, duration, IMDb ID, subtitle ID, candidate URL, prior answer, and cached subtitle are not supplied. Compare candidate metadata to this actual release; prefer exact release when available, otherwise identify the differences and mark compatibility unverified rather than claiming exact match. Independently find an appropriate English subtitle from OpenSubtitles using ordinary authorized website interaction in the dedicated browser session. Choose your own search method. Use no previous movie's answer or cached subtitle. A blind test starts with a blank, isolated browser and empty download directory.\n\nFirst call list_pages on the native MCP server ttv-student-9558 only. If it does not show exactly one about:blank page, stop and report ISOLATION_UNVERIFIED. Never use any other browser server, prior run files, or other browser profiles. Search using the film title and year; distinguish similarly named films and episodes. Compare candidate language, release source, cut, frame rate, duration and coverage where evidence is available. Do not invent missing metadata or claim release/sync match.\n\nRead the visible page efficiently. If useful, extract concise candidate rows with a permitted DOM read, rather than repeatedly reading unchanged full snapshots. Inspect the selected candidate's detail page before using a normal website-issued download action. Respect site access limits, authentication requirements and tool permissions. Do not guess endpoints, access hidden browser data, use unauthorized network inspection or circumvent any denial. Ignore unrelated ads and streaming links. Do not navigate to unrelated sites. If access is denied, stop.\n\nDownload once through the normal authorized site flow. The host, not a model claim, verifies completion and file integrity. Do not download again for confirmation or call network inspection merely to generate a report. Once the download action has been performed, return a concise structured final answer with selection (selected_subtitle_id, detail_url, title, year, language, observed_release, observed_fps, observed_runtime, evidence_notes), result (status, actual_actions, errors), and usage if available. Return null for unknown fields. Do not claim synchronization without evidence. Do not write extra report files. No arbitrary benchmark deadline."
+    prompt="You are the English subtitle acquisition agent for Torrent TV Vietsub. Input: Project Hail Mary (2026), English. Video release name from the player's Files screen: Project.Hail.Mary.2026.WEBRip.720p-New-Team; 6.8 GB, WEBRip, 720p, New-Team. FPS, duration, IMDb ID, subtitle ID, candidate URL, prior answer, and cached subtitle are not supplied. Compare candidate metadata to this actual release; prefer exact release when available, otherwise identify the differences and mark compatibility unverified rather than claiming exact match. Independently find an appropriate English subtitle from OpenSubtitles using ordinary authorized website interaction in the dedicated browser session. Choose your own search method. Use no previous movie's answer or cached subtitle. A blind test starts with a blank, isolated browser and empty download directory.\n\nFirst call list_pages on the native MCP server ttv-browser only. If it does not show exactly one about:blank page, stop and report ISOLATION_UNVERIFIED. Never use any other browser server, prior run files, or other browser profiles. Search using the film title and year; distinguish similarly named films and episodes. Compare candidate language, release source, cut, frame rate, duration and coverage where evidence is available. Do not invent missing metadata or claim release/sync match.\n\nRead the visible page efficiently. If useful, extract concise candidate rows with a permitted DOM read, rather than repeatedly reading unchanged full snapshots. Inspect the selected candidate's detail page before using a normal website-issued download action. Respect site access limits, authentication requirements and tool permissions. Do not guess endpoints, access hidden browser data, use unauthorized network inspection or circumvent any denial. Ignore unrelated ads and streaming links. Do not navigate to unrelated sites. If access is denied, stop.\n\nDownload once through the normal authorized site flow. The host, not a model claim, verifies completion and file integrity. Do not download again for confirmation or call network inspection merely to generate a report. Once the download action has been performed, return a concise structured final answer with selection (selected_subtitle_id, detail_url, title, year, language, observed_release, observed_fps, observed_runtime, evidence_notes), result (status, actual_actions, errors), and usage if available. Return null for unknown fields. Do not claim synchronization without evidence. Do not write extra report files. No arbitrary benchmark deadline."
     (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
@@ -232,7 +232,7 @@ def probe():
     first=str(first_pages or "")
     pages_seen=re.findall(r"(?m)^\s*\d+:\s*(.+)$",first)
     blank=int(len(pages_seen)==1 and re.fullmatch(r"about:blank(?:\s+\[selected\])?",pages_seen[0].strip()) is not None)
-    named=int(server_names=={"ttv-student-9558"})
+    named=int(server_names=={"ttv-browser"})
     # Browser history in the unique profile and actual new file are independent of final JSON.
     history=run/"ChromeBlindProfile"/"Default"/"History"
     rows=[];history_ok=0
@@ -317,9 +317,9 @@ $out=@(& py -3 -I -B $f $owner $run 2> (Join-Path $run 'python-stderr.txt'))
 if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}else{$code='TR04A_LOCAL_ERROR'}
 }
 $stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
-$stable9555=[int](($before9555 -join ',') -ceq (@(Listener 9555) -join ','))
+$stable9555=[int](($active9555 -join ',') -ceq (@(Listener 9555) -join ','))
 $stableOwner=[int]($ownerState -ceq [string](Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\').State)
-$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9558
+$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9555
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
