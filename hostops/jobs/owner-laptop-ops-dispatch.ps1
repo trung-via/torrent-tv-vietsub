@@ -1062,6 +1062,14 @@ throw 'HOSTOPS_OWNER_OPS_TIMEOUT_UNKNOWN_EFFECT_NO_RETRY'
         }
         Write-Output 'HOSTOPS_VIENEU_MODEL_LOAD=NOT_ATTEMPTED'
     }
+    if ($receipt.operation -ceq 'owner-spiderman-en-stage') {
+        $file = Join-Path $outbox ('en-stage-' + $nonce + '.json')
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Length -le 0 -or $item.Length -gt 1024 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'EN_STAGE_RECEIPT_INVALID' }
+        $r = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        if ($r.schema -cne 'TTV-OWNER-EN-STAGE-V1' -or $r.nonce -cne $nonce -or $r.status -cnotin @('READY_EXISTING','READY_EXACT_MEDIA','HOLD') -or $r.media -cnotin @('EXACT_METADATA','UNVERIFIED') -or $r.reason -cnotmatch '^[A-Z][A-Z0-9_]{2,100}$' -or [int]$r.cues -lt 0 -or [int]$r.cues -gt 50000 -or [int]$r.bytes -lt 0 -or [int]$r.bytes -gt 10000000) { throw 'EN_STAGE_RECEIPT_INVALID' }
+        foreach ($field in @('status','media','cues','bytes','reason')) { Write-Output ('HOSTOPS_EN_STAGE_' + $field.ToUpperInvariant() + '=' + $r.$field) }
+    }
     if ($receipt.operation -ceq 'owner-lan-rebind-and-neutral-install') {
         $file = Join-Path $outbox ('lan-rebind-' + $nonce + '.json')
         $item = Get-Item -LiteralPath $file -Force
