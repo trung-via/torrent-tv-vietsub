@@ -1,4 +1,4 @@
-# TR-TTV.04b: one Owner-approved teacher benchmark, isolated Chrome 9555.
+# TR-TTV.04c: Owner-approved blind acquisition, new Chrome profile 9556.
 # Never edit shared settings or touch Owner production.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -8,7 +8,7 @@ $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | C
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-04b-nodeadline-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-04c-blind-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 function Listener([int]$port){
   @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
@@ -17,37 +17,41 @@ $before9444=@(Listener 9444)
 $before9555=@(Listener 9555)
 $task=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\'
 $ownerState=[string]$task.State
-$profile=Join-Path $root 'CDP9555Profile'
-$active9555=@($before9555)
-$started9555=0
+$hostTask=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-Laptop-HostOps' -TaskPath '\'
+$profile=Join-Path $run 'ChromeBlindProfile'
+$downloadDir=Join-Path $run 'browser-downloads'
+$active9556=@(Listener 9556)
+$started9556=0
 $verified=$false
-$code='TR04A_9555_NO_LISTENER'
-if($active9555.Count -eq 0){
+$code='TR04C_PORT_BUSY'
+if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
+elseif($active9556.Count -eq 0){
  $chrome=@(
    (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
    (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
  )|Where-Object {Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
  if($chrome){
-  New-Item -ItemType Directory -Path $profile -Force|Out-Null
+  if((Test-Path -LiteralPath $profile) -or (Test-Path -LiteralPath $downloadDir)){throw 'BLIND_PROFILE_NOT_FRESH'}
+  New-Item -ItemType Directory -Path (Join-Path $profile 'Default') -ErrorAction Stop|Out-Null
+  New-Item -ItemType Directory -Path $downloadDir -ErrorAction Stop|Out-Null
+  $prefs=@{download=@{default_directory=$downloadDir;prompt_for_download=$false;directory_upgrade=$true};browser=@{check_default_browser=$false}}
+  [IO.File]::WriteAllText((Join-Path $profile 'Default\Preferences'),($prefs|ConvertTo-Json -Depth 4 -Compress),[Text.UTF8Encoding]::new($false))
   $profileArg='--user-data-dir="'+$profile+'"'
-  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','about:blank')|Out-Null
-  $started9555=1
-  for($i=0;$i -lt 20;$i++){
+  Start-Process -FilePath $chrome -ArgumentList @($profileArg,'--remote-debugging-port=9556','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','about:blank')|Out-Null
+  $started9556=1
+  for($i=0;$i -lt 30;$i++){
    Start-Sleep -Milliseconds 500
-   $active9555=@(Listener 9555)
-   if($active9555.Count -gt 0){break}
+   $active9556=@(Listener 9556)
+   if($active9556.Count -gt 0){break}
   }
- }else{$code='TR04A_9555_CHROME_NOT_FOUND'}
-}
-if($active9555.Count -gt 1){$code='TR04A_9555_MULTIPLE_PID'}
-if($active9555.Count -eq 1){
- $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
- $listeners=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
- if(-not $p -or $p.Name -ne 'chrome.exe'){$code='TR04A_9555_NOT_CHROME'}
- elseif(-not $p.CommandLine -or $p.CommandLine -notmatch '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|$)'){$code='TR04A_9555_PORT_FLAG_MISMATCH'}
- elseif($p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -lt 0){$code='TR04A_9555_PROFILE_MISMATCH'}
- elseif(@($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -ne 0){$code='TR04A_9555_NONLOOPBACK'}
- else{$verified=$true}
+  $code='TR04C_NO_LISTENER'
+  if($active9556.Count -eq 1){
+   $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9556[0])
+   $listeners=@(Get-NetTCPConnection -LocalPort 9556 -State Listen -ErrorAction SilentlyContinue)
+   if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9556(?:\s|"|\z)' -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){$verified=$true}
+   else{$code='TR04C_PROFILE_MISMATCH'}
+  }
+ }else{$code='TR04C_CHROME_MISSING'}
 }
 if($verified){
 $py=@'
@@ -80,7 +84,7 @@ def probe():
     shared=home/".gemini"/"config"/"config.json"
     global_mcp=home/".gemini"/"config"/"mcp_config.json"
     paths=[settings,shared,global_mcp]
-    before=[sha(p) for p in paths]
+    config_before=[sha(p) for p in paths]
     config=read(settings); sharedconfig=read(shared); servers=read(global_mcp).get("mcpServers",{})
     if not isinstance(servers,dict):return "TR04A_MCP_SCHEMA_UNKNOWN"
     if "ttv-browser" in servers:return "TR04A_GLOBAL_TTV_CONFLICT"
@@ -97,11 +101,11 @@ def probe():
     # Retain actual documented CLI flag evidence in the private run directory.
     write(run/"config-audit.json",{"relative_rule_locations":[{"source":i,"path":[str(v) for v in t]} for i,t,_ in hits],"session_settings_flag":session_flag,"global_mcp_count":len(servers),"global_ttv_conflict":False})
     agents=run/".agents";agents.mkdir()
-    write(agents/"mcp_config.json",{"mcpServers":{"ttv-browser":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.14.0","--browser-url=http://127.0.0.1:9555","--no-usage-statistics"]}}})
+    write(agents/"mcp_config.json",{"mcpServers":{"ttv-browser":{"command":"cmd.exe","args":["/d","/c","npx","-y","chrome-devtools-mcp@1.14.0","--browser-url=http://127.0.0.1:9556","--no-usage-statistics"]}}})
     # Confirm loopback Chrome without reading tabs or visiting a website.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open("http://127.0.0.1:9555/json/version",timeout=3) as f:version=json.load(f)
-    if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9555/"):return "TR04A_ENDPOINT_UNVERIFIED"
+    with opener.open("http://127.0.0.1:9556/json/version",timeout=3) as f:version=json.load(f)
+    if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9556/"):return "TR04A_ENDPOINT_UNVERIFIED"
     if not session_flag:
         return "TR04A_NO_SESSION_FLAG_R%dS%d"%(sum(i==0 for i,_,_ in hits),sum(i==1 for i,_,_ in hits))
     if any(i!=0 for i,_,_ in hits):return "TR04A_SHARED_RULE_NEEDS_SCOPE"
@@ -128,30 +132,17 @@ def probe():
     for tool in tools:
         rule="mcp(ttv-browser/"+tool+")"
         if rule not in allowed:allowed.append(rule)
-    # No broad file permission change: exact output files in the isolated run only.
-    for name in ("SELECTION.json","RESULT.json","TEACHER_RECIPE.json"):
-        rule="write_file("+(run/name).as_posix()+")"
-        if rule not in allowed:allowed.append(rule)
     if config.get("agentMode")=="auto":config.pop("agentMode")
     override=run/"session-settings.json"
     write(override,config)
     env["TTV_SESSION_SETTINGS"]=str(override)
     env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-neon-high","high")
-    # Snapshot metadata only for subtitle-shaped files in the dedicated profile's ordinary download location.
-    default=pathlib.Path.home()/"Downloads"
-    try:
-        prefs=run.parent/"CDP9555Profile"/"Default"/"Preferences"
-        pref=json.loads(prefs.read_text(encoding="utf-8"))
-        d=pathlib.Path(pref.get("download",{}).get("default_directory",str(default)))
-        if d.is_absolute() and d.is_dir():default=d
-    except Exception:pass
-    dirs={default,pathlib.Path.home()/"Downloads"}
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
-            d=pathlib.Path(os.path.expandvars(winreg.QueryValueEx(k,"{374DE290-123F-4565-9164-39C4925E467B}")[0]))
-            if d.is_absolute() and d.is_dir():dirs.add(d)
-    except OSError:pass
+    # The new dedicated profile has an initially empty download directory.
+    with opener.open("http://127.0.0.1:9556/json/list",timeout=3) as f:tabs=json.load(f)
+    pages=[t for t in tabs if t.get("type")=="page"]
+    if len(pages)!=1 or pages[0].get("url")!="about:blank":return "TR04C_NOT_BLANK"
+    dirs={run/"browser-downloads"}
+    if any((run/"browser-downloads").iterdir()):return "TR04C_DOWNLOAD_DIR_DIRTY"
     def candidates():
         found={}
         for d in dirs:
@@ -190,7 +181,7 @@ def probe():
         return good[0] if len(good)==1 else (None,0)
     downloads=run/"downloads";downloads.mkdir()
     before=candidates()
-    prompt="Teacher benchmark, Spider-Man: Brand New Day (2026), IMDb tt22084616, WEB-DL 1080p seleZen, expected 23.976 fps and approx 145 min. No subtitle ID supplied. Use only native MCP server ttv-browser configured for the dedicated Chrome 9555; never call wake-browser or any other browser server, shell-based browser helper, or access ChatGPT tabs or 9444. If ttv-browser is unavailable or denied, stop with CDP_FAILED and explain the exact error. Create one own tab, identify its page id and use that id for all page tools; close only your own tab. Use evaluate_script only to read the rendered DOM of your own OpenSubtitles tab (visible title, text, release metadata and website-issued link). Never use it to send requests, access cookies, tokens, browser storage, hidden credentials, other tabs, or bypass site restrictions. Find English subtitle via ordinary OpenSubtitles.org browsing, inspect actual candidate detail for title/year/language/source/cut/fps/runtime and select compatible evidence. If the evidence does not establish a compatible release, stop NO_MATCH. Do not invent a release or metadata. No hard-coded subtitle ID. Before clicking save SELECTION.json with selected_subtitle_id, detail_url, title exactly Spider-Man: Brand New Day, year 2026, language English, release_match boolean (metadata only), actual_test, observed_release, observed_fps, observed_runtime, evidence_notes. Follow actual website-issued dl.opensubtitles.org download link, once only. No direct API/HTTP, guessed URL, credentials, or bypass. Stop on login, CAPTCHA, denial, 401/403/429/payment. Save RESULT.json with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage, observed_http_status, download_host, selected_subtitle_id, release_match, downloaded_filename, actual_test; save TEACHER_RECIPE.json with actual native MCP tools, reproducible search/selection steps, decision rules, errors and timing, no answer ID in reusable steps. Use normal authorized tools and keep sandbox. For the JSON files use only the normal file-writing tool, only the three named paths inside your working directory. If denied, stop, do not try another tool. Return a final answer including status, observed evidence, actual tool calls and outcomes, timing, errors, and the reusable recipe. Do not include private page contents, tokens or credentials. Do not change MCP settings. No translation or production changes. Report honestly."
+    prompt="Find and download an English subtitle from OpenSubtitles.org for the following video: Resident.Evil.2026.2026.1080p.AMZN.WEB-DL.H.264-EniaHD.mkv (Resident Evil, 2026; AMZN WEB-DL, EniaHD, 1080p, H.264; approximately 6.9 GB). No IMDb ID, subtitle ID, candidate URL, prior recipe, FPS or runtime is provided. Independently choose the search and selection method, do not assume missing release metadata, and distinguish a title match from a verified release or playback synchronization. Use normal website access through the native ttv-browser MCP in this dedicated fresh browser session only. Do not access other browser servers, tabs outside this session, or prior run files. No direct API, guessed download URL, credentials or bypass of site restrictions. Stop on explicit access denial, CAPTCHA, login/payment requirement, or tool denial; do not circumvent it. evaluate_script is limited to reading visible rendered page data and website-issued links on this session's public pages, not requests or browser storage. Download only a legitimate website-provided English subtitle, once. No time deadline. Return your final response as a JSON object containing selection (selected_subtitle_id, detail_url, title, year, language, release_match, observed_release, observed_fps, observed_runtime, evidence_notes), result (status, selected_subtitle_id, observed_http_status, downloaded_filename, stage), teacher_recipe (actual steps, tools used, observations, decisions, errors, timing), and usage if available. Use null for unknown fields. Status must be one of DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER. Report even if no file was downloaded. No need to write JSON files yourself. Do not include credentials or private browser data."
     (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
@@ -217,11 +208,53 @@ def probe():
         except ValueError:pass
     results=[x.get("result") for x in records if x.get("event")=="result"]
     result=results[0] if len(results)==1 and isinstance(results[0],dict) else {}
-    rr={}
-    try:
-        rr=json.loads((run/"RESULT.json").read_text(encoding="utf-8-sig"))
-        if not isinstance(rr,dict):rr={}
-    except Exception:pass
+    # Read the final structured answer, not model-written files or previous sessions.
+    excluded={"prompt","input","arguments","thinking","reasoning","thought","signature","instructions","system","user","env","credentials"}
+    def walk(v,trail=()):
+        if isinstance(v,dict):
+            for k,x in v.items():
+                if k.lower() not in excluded:yield from walk(x,trail+(k,))
+        elif isinstance(v,list):
+            for i,x in enumerate(v):yield from walk(x,trail+(str(i),))
+        elif isinstance(v,str):yield trail,v
+    final=[]
+    for event in records:
+        if event.get("event",event.get("type",""))!="result":continue
+        for trail,v in walk(event):
+            key=re.sub(r"[^a-z0-9]","",(trail[-1] if trail else "").lower())
+            if key in {"text","response","final","finalresponse","message","output","content","result"}:final.append(v)
+    structured={}
+    def find_answer(v):
+        if isinstance(v,dict):
+            if isinstance(v.get("selection"),dict) and isinstance(v.get("result"),dict):return v
+            for k,x in v.items():
+                if k.lower() in excluded:continue
+                found=find_answer(x)
+                if found:return found
+        elif isinstance(v,list):
+            for x in v:
+                found=find_answer(x)
+                if found:return found
+        return {}
+    for event in reversed(records):
+        if event.get("event",event.get("type",""))=="result":
+            structured=find_answer(event)
+            if structured:break
+    if not structured:
+        for text in reversed(final):
+            for match in re.finditer(r"\{",text):
+                try:
+                    val,_=json.JSONDecoder().raw_decode(text[match.start():])
+                    if isinstance(val,dict) and isinstance(val.get("selection"),dict) and isinstance(val.get("result"),dict):
+                        structured=val;break
+                except ValueError:pass
+            if structured:break
+    rr=structured.get("result",{})
+    selection=structured.get("selection",{})
+    recipe=structured.get("teacher_recipe",{})
+    write(run/"SELECTION.json",selection)
+    write(run/"RESULT.json",rr)
+    write(run/"TEACHER_RECIPE.json",recipe)
     allowed={"DOWNLOADED","ACCESS_DENIED","AUTH_REQUIRED","NO_MATCH","DOWNLOAD_FAILED","CDP_FAILED","OTHER"}
     status=rr.get("status","")
     if not isinstance(status,str) or status not in allowed:status="UNCLASSIFIED"
@@ -236,20 +269,16 @@ def probe():
     match=int(rr.get("release_match") is True)
     # Dynamic selection, never default to a previous movie's subtitle ID.
     reported_status=status
-    selection={}
-    try:
-        selection=json.loads((run/"SELECTION.json").read_text(encoding="utf-8-sig"))
-        if not isinstance(selection,dict):selection={}
-    except (OSError,ValueError):pass
     selected_id=str(selection.get("selected_subtitle_id") or rr.get("selected_subtitle_id") or "")
     detail=urllib.parse.urlsplit(str(selection.get("detail_url","")))
     detail_match=bool(re.fullmatch(r"[1-9]\d{3,10}",selected_id) and detail.scheme=="https" and detail.hostname in ("www.opensubtitles.org","opensubtitles.org") and re.match(r"/en/subtitles/"+re.escape(selected_id)+r"(?:/|$)",detail.path))
-    film_match=bool(str(selection.get("title","")).strip().casefold()=="spider-man: brand new day" and str(selection.get("year"))=="2026" and str(selection.get("language","")).casefold() in ("english","en","eng"))
-    selection_match=bool(detail_match and film_match and selection.get("release_match") is True)
+    film_match=bool(str(selection.get("title","")).strip().casefold()=="resident evil" and str(selection.get("year"))=="2026" and str(selection.get("language","")).casefold() in ("english","en","eng"))
+    selection_match=bool(detail_match and film_match)
+    release_match=bool(selection_match and selection.get("release_match") is True and selection.get("observed_release"))
     match=int(selection_match)
     selected_at=-1
     if selection_match:
-        selected_at=max(0,round((run/"SELECTION.json").stat().st_mtime-wall_start))
+        selected_at=-1  # selection recovered from final response; exact selection time unverified
     after=candidates()
     blocked=status in ("ACCESS_DENIED","AUTH_REQUIRED") or http in ("401","403","429")
     f,cues=verify_new_download(before,after,selected_id) if selection_match and not blocked else (None,0)
@@ -262,9 +291,9 @@ def probe():
     if not files:
         cues=0
         if status=="DOWNLOADED":status="DOWNLOAD_FAILED"
-    (run/"verified-acquisition.json").write_text(json.dumps({"reported_status":reported_status,"verified_status":status,"candidate_id":selected_id,"selection_seconds":selected_at,"file_mtime_seconds":acquired_at,"files":files,"cues":cues,"source_verified":bool(files),"playback_sync_verified":False,"cli_timed_out":p is None}),encoding="utf-8")
+    (run/"verified-acquisition.json").write_text(json.dumps({"reported_status":reported_status,"verified_status":status,"candidate_id":selected_id,"selection_seconds":selected_at,"file_mtime_seconds":acquired_at,"files":files,"cues":cues,"source_verified":bool(files),"release_match_reported":release_match,"playback_sync_verified":False,"cli_timed_out":p is None}),encoding="utf-8")
     elapsed=round(time.monotonic()-start)
-    recipe=read(run/"TEACHER_RECIPE.json") if (run/"TEACHER_RECIPE.json").is_file() else {}
+    recipe=recipe if isinstance(recipe,dict) else {}
     # Preserve the final and tool-output record locally; omit reasoning and private browser payloads from public receipts.
     excluded={"prompt","input","arguments","thinking","reasoning","thought","signature","instructions","system","user","env","credentials"}
     def walk(v,trail=()):
@@ -282,14 +311,14 @@ def probe():
             last=re.sub(r"[^a-z0-9]","",(trail[-1] if trail else "").lower())
             if kind=="result" and last in {"text","response","final","finalresponse","message","output","content","result"}:final.append(v)
             if kind=="step_update" and last in {"name","tool","toolname","title","status","type","error","output","result","tooloutput","toolresult","text","message"} and re.search(r"ttv.browser|list_pages|new_page|navigate_page|take_snapshot|click|download|permission|timeout",v,re.I):tool_evidence.append({"event":i,"field":trail,"value":v})
-    report={"source_commit":os.environ.get("TTV_SOURCE_SHA",""),"model":"gemini-4-neon-high","elapsed_seconds":elapsed,"exit":p.returncode if p else None,"final_response":final,"tool_evidence":tool_evidence,"stderr":stderr,"selection":selection,"reported_result":rr,"teacher_recipe":recipe,"verified_acquisition":read(run/"verified-acquisition.json"),"event_count":len(records)}
+    report={"source_commit":os.environ.get("TTV_SOURCE_SHA",""),"model":"gemini-4-neon-high","elapsed_seconds":elapsed,"exit":p.returncode if p else None,"final_response":final,"tool_evidence":tool_evidence,"stderr":stderr,"selection":selection,"reported_result":rr,"teacher_recipe":recipe,"usage":structured.get("usage"),"blind_input":{"no_id_or_candidate_url":True,"new_profile":True,"blank_start":True},"verified_acquisition":read(run/"verified-acquisition.json"),"event_count":len(records)}
     write(run/"BRAIN_TEACHER_REPORT.json",report)
-    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Teacher benchmark TR-TTV.04b\n\n## Final response\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool evidence and result\n\n"+json.dumps({k:v for k,v in report.items() if k!="final_response"},ensure_ascii=False,indent=2),encoding="utf-8")
-    drift=int([sha(x) for x in paths]!=before)
+    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Teacher benchmark TR-TTV.04c\n\n## Final response\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool evidence and result\n\n"+json.dumps({k:v for k,v in report.items() if k!="final_response"},ensure_ascii=False,indent=2),encoding="utf-8")
+    drift=int([sha(x) for x in paths]!=config_before)
     errtext=stdout+"\n"+stderr
     if re.search(r"permission check failed|auto-denied|user denied permission|permission denied",errtext,re.I):status="CDP_FAILED"
     # A physical file proves acquisition only, not exact playback sync or full recipe quality.
-    return f"TR04T_{codes[status]}_M{match}F{files}C{min(cues,99999)}R{int(bool(recipe))}N{min(len(records),999)}T{elapsed}X{int(p is None)}G{drift}"
+    return f"TR04C_{codes[status]}_M{match}L{int(release_match)}F{files}C{min(cues,99999)}R{int(bool(recipe))}N{min(len(records),999)}T{elapsed}X{int(p is None)}G{drift}"
 
 try:print(probe())
 except Exception as e:
@@ -302,9 +331,9 @@ $out=@(& py -3 -I -B $f $owner $run 2> (Join-Path $run 'python-stderr.txt'))
 if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}else{$code='TR04A_LOCAL_ERROR'}
 }
 $stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
-$stable9555=[int](($active9555 -join ',') -ceq (@(Listener 9555) -join ','))
+$stable9555=[int](($before9555 -join ',') -ceq (@(Listener 9555) -join ','))
 $stableOwner=[int]($ownerState -ceq [string](Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\').State)
-$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9555
+$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9556
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
