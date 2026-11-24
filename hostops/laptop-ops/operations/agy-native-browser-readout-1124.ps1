@@ -116,7 +116,44 @@ for p,src,ident in files.values():
                 identity=ident;source=src;best=len(ts);en=is_en
                 t=ts[-1];last=int(t[3])*3600+int(t[4])*60+int(t[5])
     except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):pass
-print(f"ZIPORIGIN_ADS{ads}_HOST{ahost}_ID{aid}_F{min(len(files),9)}_C{min(best,99999)}_T{last}")
+def cue_count(f):
+    try:
+        if f.suffix.lower()==".srt":blobs=[f.read_bytes()]
+        else:
+            with zipfile.ZipFile(f) as z:
+                blobs=[z.read(i) for i in z.infolist()[:100] if i.filename.lower().endswith(".srt") and 0<i.file_size<=2000000 and not i.flag_bits&1]
+        return max((len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2}[,.]\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}[,.]\d{3}",data)) for data in blobs),default=0)
+    except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):return 0
+def verify_new_download(before,after,selected_id):
+    # Only accept one newly created artifact, not pre-existing or overwritten names.
+    # Chrome's origin metadata must bind the download to the normal issued link
+    # and candidate; no guess at a provider URL and no model-only success.
+    good=[]
+    for key,(size,mtime) in after.items():
+        if key in before or not 0<size<=10000000:continue
+        f=pathlib.Path(key)
+        try:
+            with open(str(f)+":Zone.Identifier","r",encoding="utf-8",errors="replace") as stream:
+                fields=dict(x.split("=",1) for x in stream.read(8192).splitlines() if "=" in x)
+            u=urllib.parse.urlsplit(fields.get("HostUrl",""))
+            ref=fields.get("ReferrerUrl","")
+            if u.scheme!="https" or u.hostname!="dl.opensubtitles.org":continue
+            if not re.search(r"(?<!\d)"+re.escape(selected_id)+r"(?!\d)",u.path+" "+u.query+" "+ref):continue
+            cues=cue_count(f)
+            if cues:good.append((f,cues))
+        except (OSError,ValueError):pass
+    return good[0] if len(good)==1 else (None,0)
+
+# Offline replay: use exact time-filtered artifact set from prior real run.
+# No provider call; reject reused file and different candidate ID.
+after={str(p.resolve()):(p.stat().st_size,p.stat().st_mtime_ns) for p,_,_ in files.values()}
+f,cues=verify_new_download({},after,"14104608")
+oldf,oldc=verify_new_download(after,after,"14104608")
+wrongf,wrongc=verify_new_download({},after,"999999999")
+ok=int(f is not None and cues==1777)
+reject_old=int(oldf is None and oldc==0)
+reject_wrong=int(wrongf is None and wrongc==0)
+print(f"ZIPREPLAY_OLDFAIL{int(rr.get('status')=='DOWNLOAD_FAILED')}_NEW{ok}_C{cues}_REUSE{reject_old}_WRONG{reject_wrong}")
 '@
  $out=@($py | & py -3 -I -B - $root $run 2>$null)
  if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,90}$'){$code=[string]$out[0]}else{$code='ZIPQA_PARSE_ERROR'}
