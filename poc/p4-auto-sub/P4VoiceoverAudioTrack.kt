@@ -4,6 +4,7 @@ package com.spacesarmat.omp.player
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.media.PlaybackParams
 import java.util.TreeMap
 
 /**
@@ -18,8 +19,15 @@ import java.util.TreeMap
 internal class P4VoiceoverAudioTrack {
     internal class Prepared private constructor(
         val offer: P4VoiceoverOffer, private val player: AudioTrack,
+        private val frames: Int,
     ) {
         private var running = false
+        internal fun complete(): Boolean = player.playbackHeadPosition >= frames
+        internal fun setSpeed(speed: Float) {
+            if (speed > 1.0f) {
+                player.playbackParams = PlaybackParams().setSpeed(speed).setPitch(1.0f)
+            }
+        }
         internal fun play() {
             if (!running) {
                 player.play()
@@ -79,7 +87,7 @@ internal class P4VoiceoverAudioTrack {
                         track.state != AudioTrack.STATE_INITIALIZED) {
                         throw IllegalStateException("P4_VOICE_AUDIO_TRACK_NOT_READY")
                     }
-                    return Prepared(offer, track)
+                    return Prepared(offer, track, pcmLength / 2)
                 } catch (exc: Exception) {
                     track.release()
                     throw exc
@@ -88,10 +96,13 @@ internal class P4VoiceoverAudioTrack {
         }
     }
 
-    private val pending = TreeMap<Long, Prepared>()
+    private val pending = TreeMap<Pair<Long, Int>, Prepared>(
+        compareBy<Pair<Long, Int>> { it.first }.thenBy { it.second })
     private var active: Prepared? = null
     private val queuedKeys = mutableSetOf<String>()
     internal val isSpeaking: Boolean get() = active != null
+    internal val hasAudio: Boolean get() = active != null || pending.isNotEmpty()
+    internal val hasCapacity: Boolean get() = pending.size < 8
 
     /** Main-thread only. No silent overwrite of another cue at the same time. */
     internal fun enqueue(prepared: Prepared): Boolean {
@@ -100,11 +111,11 @@ internal class P4VoiceoverAudioTrack {
             prepared.close()
             return true
         }
-        if (pending.size >= 8 || pending.containsKey(offer.startMs)) {
+        if (pending.size >= 8) {
             prepared.close()
             return false
         }
-        pending[offer.startMs] = prepared
+        pending[offer.startMs to offer.cueNumber] = prepared
         queuedKeys.add(offer.ttsKey)
         return true
     }
@@ -114,8 +125,8 @@ internal class P4VoiceoverAudioTrack {
         val current = active
         if (current != null) {
             val cue = current.offer
-            val speechEnd = minOf(cue.endMs, cue.startMs + cue.durationMs.toLong() + 150L)
-            if (positionMs < cue.startMs - 500L || positionMs >= speechEnd) {
+            if (current.complete() || positionMs < cue.startMs - 500L ||
+                positionMs >= cue.endMs + 150L) {
                 current.close()
                 active = null
             } else {
@@ -141,6 +152,13 @@ internal class P4VoiceoverAudioTrack {
                 "PLAY" -> {
                     val ready = pending.pollFirstEntry().value
                     try {
+                        val speed = P4VoiceoverTimeline.speedToFit(
+                            positionMs, cue.startMs, cue.endMs, cue.durationMs)
+                        if (speed == null) {
+                            ready.close()
+                            continue
+                        }
+                        ready.setSpeed(speed)
                         ready.play()
                         active = ready
                         return true

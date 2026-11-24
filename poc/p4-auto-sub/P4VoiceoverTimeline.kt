@@ -10,6 +10,15 @@ internal object P4VoiceoverTimeline {
         previousMs != null &&
         (currentMs + 500L < previousMs || currentMs - previousMs > 2_500L)
 
+    /** Do not begin a late cue that cannot finish at <=1.25x. */
+    fun speedToFit(positionMs: Long, startMs: Long, endMs: Long,
+                   durationMs: Int): Float? {
+        val remaining = endMs - maxOf(positionMs, startMs)
+        if (remaining <= 0 || durationMs <= 0) return null
+        val speed = maxOf(1.0, durationMs.toDouble() / remaining)
+        return if (speed <= 1.25) speed.toFloat() else null
+    }
+
     fun decision(
         positionMs: Long, startMs: Long, endMs: Long,
         playing: Boolean, buffering: Boolean,

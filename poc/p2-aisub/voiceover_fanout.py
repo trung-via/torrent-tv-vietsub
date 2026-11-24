@@ -171,7 +171,7 @@ class VieNeuBatchConsumer:
             if (self.on_audio_ready is not None
                     and assess_voice_fit(
                         cue_duration_ms=cue.end_ms - cue.start_ms,
-                        audio_duration_ms=present.duration_ms) == "PLAY_AS_IS"):
+                        audio_duration_ms=present.duration_ms) in ("PLAY_AS_IS", "TIME_STRETCH")):
                 try:
                     self.on_audio_ready(revision, cue, present)
                 except Exception:

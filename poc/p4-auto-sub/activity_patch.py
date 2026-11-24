@@ -133,7 +133,7 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             // In VOICE-only mode hide AI captions without marking user OFF:
             // doing so via session.selectSubtitle would revoke the P4 feed.
             if (p4VoiceMode == "VOICE" && session.firstFrame &&
-                !p4VoiceSubHidden) {
+                p4VoiceController?.hasPreparedAudio == true && !p4VoiceSubHidden) {
                 val selected = engine.subtitleTracks().firstOrNull { it.selected }
                 if (selected != null) {
                     p4VoiceRestoreSub = selected.id
@@ -265,8 +265,15 @@ ACTIVITY_BRIDGE = """    /** P4: no external listener yet. Bound to THIS Activit
             P1ProductionSubtitles.mediaKey(r, index()).orEmpty(),
             sourceSha256, secret, certPinSha256,
             onUnavailable = {
-                setP4VoiceMode("SUBS")
-                showMessage("PC chưa có luồng thuyết minh, Vietsub AI vẫn hoạt động.", false)
+                if (p4VoiceSubHidden) {
+                    val restored = engine.subtitleTracks().firstOrNull {
+                        it.id == p4VoiceRestoreSub
+                    }?.id
+                    if (restored != null) engine.selectSubtitle(restored)
+                    p4VoiceSubHidden = false
+                    p4VoiceRestoreSub = null
+                }
+                showMessage("Đang thử kết nối lại giọng AI; giữ Vietsub.", false)
             })
         p4VoiceMode = "SUBS"
         p4VoiceSubHidden = false

@@ -31,7 +31,10 @@ internal class P4VoiceoverController(
     private var inflight = false
     private var lastFetchAt = 0L
     private var lastPosition: Long? = null
-    private var unavailable = false
+    private var failures = 0
+    private var failedCue = -1
+    private var failedCueAttempts = 0
+    internal val hasPreparedAudio: Boolean get() = player.hasAudio
 
     internal fun setMode(next: String) {
         require(next in setOf("SUBS", "VOICE", "BOTH")) { "P4_VOICE_MODE_INVALID" }
@@ -43,9 +46,13 @@ internal class P4VoiceoverController(
         // WAV cache remains on the PC and can be rebound to this film later.
         if (next == "SUBS") {
             player.reset()
-        } else {
-            cursor = 0 // Revisit only cues not yet expired on the live clock.
+            receiver.resetForSeek(sid, mediaKey)
+            cursor = 0
         }
+        failures = 0
+        failedCue = -1
+        failedCueAttempts = 0
+        lastFetchAt = 0L
     }
 
     /**
@@ -66,13 +73,14 @@ internal class P4VoiceoverController(
             seeked(activeSession, activeMedia)
         }
         lastPosition = positionMs
-        if (mode == "SUBS" || unavailable) {
+        if (mode == "SUBS") {
             player.reset()
             return false
         }
         val speaking = player.tick(positionMs, playing, buffering)
         val now = SystemClock.uptimeMillis()
-        if (!playing || buffering || inflight || now - lastFetchAt < 1800L) {
+        if (!playing || buffering || inflight || !player.hasCapacity ||
+            now - lastFetchAt < (if (failures > 0) 5_000L else 1800L)) {
             return speaking
         }
         lastFetchAt = now
@@ -86,10 +94,12 @@ internal class P4VoiceoverController(
                 main.post {
                     if (closed || generation != token) return@post
                     inflight = false
-                    if (exc is P4LanSessionExpired ||
-                        exc is P4LanAuthorizationRejected) {
-                        unavailable = true
+                    failures++
+                    // A stale heartbeat or interrupted LAN is not permanent.
+                    if (failures == 3) {
                         player.reset()
+                        receiver.resetForSeek(sid, mediaKey)
+                        cursor = 0
                         onUnavailable("P4_VOICE_OWNER_AUDIO_UNAVAILABLE")
                     }
                 }
@@ -97,7 +107,8 @@ internal class P4VoiceoverController(
             }
             main.post {
                 if (closed || generation != token) return@post
-                processPage(page, token, positionMs)
+                failures = 0
+                processPage(page, token, lastPosition ?: positionMs)
             }
         }.start()
         return speaking
@@ -135,8 +146,7 @@ internal class P4VoiceoverController(
                         null
                     }
                     main.post {
-                        if (closed || generation != token || mode == "SUBS" ||
-                            unavailable) {
+                        if (closed || generation != token || mode == "SUBS") {
                             prepared?.close()
                             return@post
                         }
@@ -148,13 +158,29 @@ internal class P4VoiceoverController(
                                 }
                                 if (outcome == "P4_VOICE_QUEUED_NOT_AUDIBLE_PROOF") {
                                     cursor = selected.cueNumber
+                                    failedCue = -1
+                                    failedCueAttempts = 0
+                                    lastFetchAt = 0L // bounded lookahead, not 1.8s per cue
                                 } else if (outcome == "P4_VOICE_DUPLICATE") {
                                     // Receiver did not call enqueue: release the
                                     // newly prepared track, then skip this cue.
                                     prepared.close()
                                     cursor = selected.cueNumber
+                                    lastFetchAt = 0L
                                 } else if (outcome != "P4_VOICE_NOT_QUEUED") {
                                     prepared.close()
+                                }
+                            } else {
+                                if (failedCue != selected.cueNumber) {
+                                    failedCue = selected.cueNumber
+                                    failedCueAttempts = 0
+                                }
+                                failedCueAttempts++
+                                // A bad WAV cannot starve later cues.
+                                if (failedCueAttempts >= 2) {
+                                    cursor = selected.cueNumber
+                                    failedCue = -1
+                                    failedCueAttempts = 0
                                 }
                             }
                         } catch (_: Exception) {
@@ -180,6 +206,9 @@ internal class P4VoiceoverController(
         player.reset()
         receiver.resetForSeek(sid, mediaKey)
         lastPosition = null
+        failures = 0
+        failedCue = -1
+        failedCueAttempts = 0
         lastFetchAt = 0L
     }
 
