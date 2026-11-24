@@ -1,4 +1,4 @@
-# Brain-selected OpenSubtitles direct-download URI to exact Owner EN Inbox. No AGY acquisition.
+# Read-only actual staged EN parser regression; no download, translation or mutation.
 # No translation, cache deletion, torrent add, TV event, or playback change.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -79,71 +79,42 @@ try:
     media=Media(config.profile_id,tor,idx,name,torrent_title=actual.torrent_title)
     out['media']='EXACT_METADATA'
     fp=_fingerprint(*media.key)
+    # Read-only real-file regression. Load the exact patched module in memory.
+    import types
+    from cue_pipeline import parse_cues as installed_parse
+    asset=acquire_brain_english(media,cache)
+    out.update(cues=asset.cues,bytes=len(asset.contents))
     try:
-        asset=acquire_brain_english(media,cache)
-        out.update(cues=asset.cues, bytes=len(asset.contents))
-        finish('READY_EXISTING')
-    except BrainEnglishUnavailable as exc:
-        if str(exc)!='BRAIN_EN_NOT_STAGED': finish('HOLD','EXISTING_INBOX_CONFLICT')
-    # Brain-chosen legacy direct-download URL for the owner's exact subtitle ID.
-    # Confirmed pattern on public OpenSubtitles user reports; no speculative file ID.
-    # No API and no AGY: one bounded HTTP request directly to dl.opensubtitles.org.
-    page='https://www.opensubtitles.org/en/subtitles/14097898/spider-man-brand-new-day-en'
-    download='https://dl.opensubtitles.org/en/download/sub/14097898'
-    def allowed(url):
-        p=urlsplit(url)
-        return p.scheme=='https' and p.hostname in ('opensubtitles.org','www.opensubtitles.org','dl.opensubtitles.org','download.opensubtitles.org') and not p.username and not p.password and p.port in (None,443)
-    class Redirect(HTTPRedirectHandler):
-        def redirect_request(self,req,fp,code,msg,headers,newurl):
-            if not allowed(newurl): raise ValueError('BRAIN_DOWNLOAD_REDIRECT_UNVERIFIED')
-            return super().redirect_request(req,fp,code,msg,headers,newurl)
-    opener=build_opener(Redirect())
-    def get(url,cap):
-        if not allowed(url): finish('HOLD','BRAIN_DOWNLOAD_URL_UNVERIFIED')
-        try:
-            with opener.open(Request(url,headers={'User-Agent':'TorrentTV-Brain/1.0','Accept':'application/zip,application/octet-stream,text/plain'}),timeout=18) as r:
-                data=r.read(cap+1)
-                if len(data)>cap: finish('HOLD','BRAIN_DOWNLOAD_TOO_LARGE')
-                return data,r.geturl()
-        except HTTPError as e:
-            finish('HOLD','BRAIN_DOWNLOAD_HTTP_'+str(e.code))
-        except (URLError,TimeoutError,OSError):
-            finish('HOLD','BRAIN_DOWNLOAD_UNREACHABLE')
-    data,actual_url=get(download,5_000_000)
-    candidates=[]
-    def consider(filename,content):
-        release=pathlib.PurePosixPath(filename.replace('\\','/')).name
-        if not target(release) or not release.lower().endswith('.srt'): return
-        if re.search(r'(?i)(?:^|[. _-])(sdh|hi|forced)(?:[. _-]|$)',release): return
-        try:
-            # Do not fabricate a release name. Reuse the deployed match gate.
-            _validate_source(media,{'release_name':release,'source_page':page})
-            text=content.decode('utf-8-sig')
-            content=text.encode('utf-8')
-            cues=validate_timed_text(content,'srt')
-            if cues<500: return
-        except (ValueError,UnicodeError): return
-        candidates.append((release,content,cues))
-    if zipfile.is_zipfile(io.BytesIO(data)):
-        with zipfile.ZipFile(io.BytesIO(data)) as z:
-            if len(z.infolist())>50: finish('HOLD','BRAIN_ARCHIVE_TOO_MANY_FILES')
-            for entry in z.infolist():
-                if not entry.is_dir() and entry.filename.lower().endswith('.srt') and 0<entry.file_size<=1_000_000:
-                    consider(entry.filename,z.read(entry))
+        installed_parse(asset.contents,'srt')
+    except ValueError as exc:
+        if str(exc)!='SRT_SEQUENCE_REQUIRED': finish('HOLD','BASELINE_OTHER_PARSER_ERROR')
     else:
-        consider(unquote(urlsplit(actual_url).path.rsplit('/',1)[-1]),data)
-    if len(candidates)!=1:
-        finish('HOLD','BRAIN_SRT_MATCH_NOT_UNIQUE')
-    release,content,cues=candidates[0]
-    digest=hashlib.sha256(content).hexdigest()
-    with tempfile.TemporaryDirectory(prefix='.en-stage-',dir=cache) as folder:
-        f=pathlib.Path(folder)/'english.srt'
-        f.write_bytes(content)
-        stage_brain_english(cache_root=cache,source_fingerprint=fp,video_name=name,release_name=release,source_page=page,srt_file=f)
+        finish('HOLD','BASELINE_NO_LONGER_REPRODUCES')
+    module=types.ModuleType('_candidate_cue_pipeline')
+    sys.modules[module.__name__]=module
+    exec(compile("\"\"\"P2-AISUB.1: local-only timed SRT/VTT cue QA and translated-text import.\n\nNo model/provider call, ASR, network, background processing or APK/TV effects.\nA separate opt-in translator must create the cue-indexed JSON. This module\nvalidates and imports only, preserving exact source timestamps and ordering.\n\"\"\"\nfrom __future__ import annotations\nimport argparse\nfrom dataclasses import dataclass, replace\nimport json\nfrom pathlib import Path\nimport re\n\nMAX_CUES = 2000\nMAX_BYTES = 1_000_000\nSRT_TIME = re.compile(r\"^(\\d{2}):(\\d{2}):(\\d{2}),(\\d{3})$\")\nVTT_TIME = re.compile(r\"^(?:(\\d{2}):)?(\\d{2}):(\\d{2})\\.(\\d{3})$\")\nARROW = re.compile(r\"^(\\S+) --> (\\S+)(.*)$\")\n\n\n@dataclass(frozen=True)\nclass Cue:\n    number: int\n    start_ms: int\n    end_ms: int\n    text: str\n    identifier: str = \"\"\n    settings: str = \"\"\n\n\ndef _decode(data: bytes) -> str:\n    if len(data) > MAX_BYTES:\n        raise ValueError(\"INPUT_TOO_LARGE\")\n    try:\n        s = data.decode(\"utf-8-sig\")\n    except UnicodeDecodeError as e:\n        raise ValueError(\"UTF8_REQUIRED\") from e\n    if \"\\x00\" in s:\n        raise ValueError(\"BINARY_INPUT_NOT_ALLOWED\")\n    return s.replace(\"\\r\\n\", \"\\n\").replace(\"\\r\", \"\\n\")\n\n\ndef _time_ms(s: str, fmt: str) -> int:\n    m = (SRT_TIME if fmt == \"srt\" else VTT_TIME).fullmatch(s)\n    if not m:\n        raise ValueError(\"MALFORMED_TIMESTAMP\")\n    parts = m.groups()\n    if fmt == \"srt\":\n        h, minute, sec, ms = (int(v) for v in parts)\n    else:\n        h = int(parts[0] or 0)\n        minute, sec, ms = (int(x) for x in parts[1:])\n    if minute > 59 or sec > 59:\n        raise ValueError(\"INVALID_TIME_RANGE\")\n    return ((h * 60 + minute) * 60 + sec) * 1000 + ms\n\n\ndef _time_text(ms: int, fmt: str) -> str:\n    hours, rem = divmod(ms, 3600000)\n    minutes, rem = divmod(rem, 60000)\n    seconds, millis = divmod(rem, 1000)\n    if hours > 99:\n        raise ValueError(\"HOURS_OUT_OF_RANGE\")\n    separator = \",\" if fmt == \"srt\" else \".\"\n    return f\"{hours:02d}:{minutes:02d}:{seconds:02d}{separator}{millis:03d}\"\n\n\ndef parse_cues(data: bytes, fmt: str) -> tuple[Cue, ...]:\n    if fmt not in (\"srt\", \"vtt\"):\n        raise ValueError(\"UNSUPPORTED_FORMAT\")\n    s = _decode(data).strip(\"\\n\")\n    blocks = re.split(r\"\\n[ \\t]*\\n+\", s)\n    if fmt == \"vtt\":\n        if not blocks or not re.fullmatch(r\"WEBVTT[^\\n]*\", blocks[0]):\n            raise ValueError(\"VTT_HEADER_REQUIRED\")\n        blocks = blocks[1:]\n    if not blocks or not blocks[0] or len(blocks) > MAX_CUES:\n        raise ValueError(\"NO_CUES_OR_TOO_MANY\")\n    cues: list[Cue] = []\n    prev_start = -1\n    for i, block in enumerate(blocks, 1):\n        lines = block.split(\"\\n\")\n        identifier = \"\"\n        if fmt == \"srt\":\n            # External SRT indices are labels, not translation IDs. Real\n            # releases can start at zero, skip/duplicate numbers or omit\n            # labels entirely. Assign stable 1-based IDs by source order;\n            # never sort, remove cues or alter their timestamps/text.\n            if re.fullmatch(r\"[0-9]+\", lines[0].strip()):\n                if len(lines) < 3:\n                    raise ValueError(\"SRT_SEQUENCE_REQUIRED\")\n                timing, content = lines[1], lines[2:]\n            elif ARROW.fullmatch(lines[0]):\n                timing, content = lines[0], lines[1:]\n            else:\n                raise ValueError(\"SRT_SEQUENCE_REQUIRED\")\n        else:\n            if lines[0].startswith((\"NOTE\", \"STYLE\", \"REGION\")):\n                raise ValueError(\"VTT_UNSUPPORTED_BLOCK\")\n            if \" --> \" in lines[0]:\n                timing, content = lines[0], lines[1:]\n            else:\n                if len(lines) < 3 or not lines[0].strip():\n                    raise ValueError(\"VTT_IDENTIFIER_OR_CUE_INVALID\")\n                identifier, timing, content = lines[0], lines[1], lines[2:]\n        if not content or not all(t.strip() for t in content):\n            raise ValueError(\"EMPTY_CUE_TEXT\")\n        m = ARROW.fullmatch(timing)\n        if not m:\n            raise ValueError(\"TIMING_ARROW_REQUIRED\")\n        start, end = _time_ms(m[1], fmt), _time_ms(m[2], fmt)\n        settings = m[3]\n        if fmt == \"srt\" and settings:\n            raise ValueError(\"SRT_SETTINGS_INVALID\")\n        if end <= start or start < prev_start:\n            raise ValueError(\"INVALID_CUE_DURATION_OR_ORDER\")\n        prev_start = start\n        cues.append(Cue(i, start, end, \"\\n\".join(content), identifier, settings))\n    return tuple(cues)\n\n\ndef apply_translations(cues: tuple[Cue, ...], translations: dict[str, str]) -> tuple[Cue, ...]:\n    if not isinstance(translations, dict):\n        raise ValueError(\"TRANSLATION_MAP_REQUIRED\")\n    wanted = {str(c.number) for c in cues}\n    if set(translations) != wanted:\n        raise ValueError(\"MISSING_OR_EXTRA_TRANSLATED_CUE\")\n    out: list[Cue] = []\n    for c in cues:\n        text = translations[str(c.number)]\n        if (not isinstance(text, str) or not text.strip()\n            or len(text) > 2000 or any(ch in text for ch in (\"\\x00\", \"<\", \">\"))\n            or \"\\r\" in text):\n            raise ValueError(\"PLAIN_UTF8_TRANSLATION_REQUIRED\")\n        out.append(replace(c, text=text.strip()))\n    return tuple(out)\n\n\ndef render(cues: tuple[Cue, ...], fmt: str) -> bytes:\n    if fmt not in (\"srt\", \"vtt\"):\n        raise ValueError(\"UNSUPPORTED_FORMAT\")\n    sections = []\n    for c in cues:\n        line = f\"{_time_text(c.start_ms, fmt)} --> {_time_text(c.end_ms, fmt)}\"\n        if fmt == \"vtt\":\n            line += c.settings\n            if c.identifier:\n                line = c.identifier + \"\\n\" + line\n        else:\n            line = str(c.number) + \"\\n\" + line\n        sections.append(line + \"\\n\" + c.text)\n    header = \"WEBVTT\\n\\n\" if fmt == \"vtt\" else \"\"\n    return (header + \"\\n\\n\".join(sections) + \"\\n\").encode(\"utf-8\")\n\n\ndef main() -> int:\n    p = argparse.ArgumentParser(description=\"Offline cue translation import; no AI calls\")\n    p.add_argument(\"--input\", type=Path, required=True)\n    p.add_argument(\"--translations\", type=Path, required=True)\n    p.add_argument(\"--output\", type=Path, required=True)\n    p.add_argument(\"--confirm\", required=True)\n    args = p.parse_args()\n    if args.confirm != \"LOCAL_OFFLINE_ONE_FILE\":\n        p.error(\"EXPLICIT_ONE_FILE_CONSENT_REQUIRED\")\n    if args.input.suffix.lower() not in (\".srt\", \".vtt\") or args.output.suffix.lower() != args.input.suffix.lower():\n        p.error(\"SAME_SRT_OR_VTT_FORMAT_REQUIRED\")\n    paths = [x.resolve() for x in (args.input, args.translations, args.output)]\n    if len(set(paths)) != 3 or args.output.exists():\n        p.error(\"OUTPUT_MUST_BE_NEW_AND_DISTINCT\")\n    fmt = args.input.suffix.lower()[1:]\n    cues = parse_cues(args.input.read_bytes(), fmt)\n    translations = json.loads(_decode(args.translations.read_bytes()))\n    data = render(apply_translations(cues, translations), fmt)\n    with args.output.open(\"xb\") as f:\n        f.write(data)\n    print(f\"LOCAL_CUE_QA_PASS format={fmt} cues={len(cues)} no_cloud_or_tv_effect\")\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n", 'candidate_cue_pipeline.py','exec'),module.__dict__)
+    try:
+        cues=module.parse_cues(asset.contents,'srt')
+        roundtrip=module.parse_cues(module.render(cues,'srt'),'srt')
+    except ValueError as exc:
+        reason=str(exc)
+        finish('HOLD',reason if re.fullmatch(r'[A-Z][A-Z0-9_]{2,90}',reason) else 'CANDIDATE_PARSER_ERROR')
+    if len(cues)!=asset.cues or cues!=roundtrip: finish('HOLD','CANDIDATE_CUE_DRIFT')
+    if tuple(c.number for c in cues)!=tuple(range(1,len(cues)+1)): finish('HOLD','CANDIDATE_ID_DRIFT')
+    # Independent extract from original ordered timing lines, not rendered source.
+    original=asset.contents.decode('utf-8-sig').replace('\r\n','\n').replace('\r','\n')
+    pairs=[]
+    for block in re.split(r'\n[ \t]*\n+', original.strip('\n')):
+        lines=block.split('\n')
+        for i,line in enumerate(lines[:2]):
+            m=module.ARROW.fullmatch(line)
+            if m:
+                pairs.append((module._time_ms(m[1],'srt'),module._time_ms(m[2],'srt'),'\n'.join(lines[i+1:])))
+                break
+    if pairs!=[(c.start_ms,c.end_ms,c.text) for c in cues]: finish('HOLD','CANDIDATE_TIMELINE_OR_TEXT_DRIFT')
     verify=acquire_brain_english(media,cache)
-    if verify.sha256!=digest: finish('HOLD','STAGE_HASH_DRIFT')
-    out.update(cues=verify.cues,bytes=len(verify.contents))
-    finish('READY_EXACT_MEDIA')
+    if verify.sha256!=asset.sha256: finish('HOLD','SOURCE_CHANGED_DURING_CHECK')
+    finish('READY_EXISTING','PARSER_PATCH_PASS')
 except (AgyEnglishUnavailable,BrainEnglishUnavailable) as exc:
     reason=str(exc)
     finish('HOLD',reason if re.fullmatch(r'(?:AGY_EN|BRAIN_EN)_[A-Z0-9_]{2,80}',reason) else 'ACQUISITION_UNCLASSIFIED')
