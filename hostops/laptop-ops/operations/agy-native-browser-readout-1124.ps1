@@ -5,7 +5,7 @@ if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-04b-readout-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-04b-denial-audit-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import sys,pathlib,os,json,re
@@ -32,29 +32,49 @@ def probe():
     raw=read(p/"agy-stdout.jsonl")
     err=read(p/"agy-stderr.txt")
     helptext=read(p/"cli-help.txt")
-    status=acq.get("verified_status","UNCLASSIFIED")
-    codes={"DOWNLOADED":"DL","ACCESS_DENIED":"DENY","AUTH_REQUIRED":"AUTH","NO_MATCH":"NM","DOWNLOAD_FAILED":"DF","CDP_FAILED":"CDP","OTHER":"OTHER","UNCLASSIFIED":"UNK"}
-    if status not in codes:status="UNCLASSIFIED"
-    # Only bounded status/counts go to public receipts. Full report stays private.
-    files=int(acq.get("files",0));cues=int(acq.get("cues",0))
-    recipeok=int(isinstance(recipe,dict) and bool(recipe))
-    hasselection=int(isinstance(sel,dict) and bool(sel))
-    resultok=int(isinstance(rr,dict) and bool(rr))
-    finalok=int(isinstance(final,list) and any(isinstance(v,str) and v.strip() for v in final))
-    ev=int(report.get("event_count",0));elapsed=int(report.get("elapsed_seconds",0))
-    # Read only exact CLI help line and nearby descriptions; no provider call.
-    ls=helptext.splitlines()
-    opts=[]
-    for n,line in enumerate(ls):
-        if "--print-timeout" in line:
-            opts.append("\n".join(ls[max(0,n-1):n+4]))
-    opt="\n".join(opts)
-    unlimited=int(bool(re.search(r"(?i)(?:0|zero|none|unlimited|infinite|disable|no timeout).{0,50}(?:timeout|disable|unlimited|infinite)|(?:timeout|disable).{0,50}(?:0|zero|none|unlimited|infinite)",opt)))
-    deny=int(bool(re.search(r"permission check failed|user denied permission|auto-denied|permission denied",raw+"\n"+err,re.I)))
-    timed=int(bool(acq.get("cli_timed_out")) or bool(re.search(r"print.timeout|response timeout|deadline exceeded",err,re.I)))
-    # Report the actual prior run outcome even when shared-config drift suppressed it.
-    (run/"result-summary.json").write_text(json.dumps({"status":status,"verified_acquisition":acq,"recipe_present":bool(recipeok),"selection_present":bool(hasselection),"result_present":bool(resultok),"final_present":bool(finalok),"cli_help_timeout":opts,"prior_global_config_drift":True,"permission_denial":bool(deny)},ensure_ascii=True,indent=2),encoding="utf-8")
-    return f"TR04R_{codes[status]}_F{files}C{min(cues,99999)}R{recipeok}S{hasselection}J{resultok}A{finalok}N{min(ev,999)}T{elapsed}D{deny}X{timed}H{unlimited}"
+    # Match explicit denial text, not prompt instructions or a generic permission mention.
+    def leaves(x):
+        if isinstance(x,dict):
+            for k,v in x.items():
+                if k.lower() not in {"prompt","input","arguments","thinking","reasoning","thought","signature","instructions","system","user","env","credentials"}:yield from leaves(v)
+        elif isinstance(x,list):
+            for v in x:yield from leaves(v)
+        elif isinstance(x,str):yield x
+    denial=r"permission check failed|user denied permission|auto-denied|permission denied|not permitted"
+    tools=("list_pages","new_page","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","close_page","evaluate_script","get_network_request","list_network_requests")
+    mask=0;filemask=0;other=0;rows=[];hits=0
+    for n,line in enumerate(raw.splitlines()):
+        try:e=json.loads(line)
+        except ValueError:continue
+        if not isinstance(e,dict):continue
+        for s in leaves(e):
+            if not re.search(denial,s,re.I):continue
+            hits+=1
+            names=[]
+            for match in re.finditer(r"(?:mcp\s*[(\"']?\s*ttv-browser[/\\]|ttv-browser[/\\])([a-z_]+)",s,re.I):
+                name=match.group(1).lower();names.append(name)
+                if name in tools:mask|=1<<tools.index(name)
+                else:other|=1
+            if re.search(r"\b(?:write_file|write|save_file|create_file|replace)\b",s,re.I):filemask|=1
+            if re.search(r"\b(?:read_file|read|view_file)\b",s,re.I):filemask|=2
+            if re.search(r"\b(?:run_command|shell|terminal|exec|execute_command)\b",s,re.I):filemask|=4
+            if re.search(r"wake-browser|9444",s,re.I):other|=2
+            if re.search(r"SELECTION\.json",s,re.I):filemask|=8
+            if re.search(r"RESULT\.json",s,re.I):filemask|=16
+            if re.search(r"TEACHER_RECIPE\.json",s,re.I):filemask|=32
+            if not names and not re.search(r"write_file|read_file|run_command|shell|terminal|wake-browser|9444",s,re.I):other|=4
+            rows.append({"event":n,"tool_names":names,"denial":s[:2000]})
+    # Stderr is separate from event text; keep local exact excerpts only.
+    if re.search(denial,err,re.I):
+        rows.append({"event":"stderr","denial":err[:4000]})
+    # Inspect enrolled helper's execution ceiling without running or altering it.
+    helper=pathlib.Path(os.environ["LOCALAPPDATA"])/"TorrentTVVietsub"/"OwnerBridge"/"Maintenance"/"owner-laptop-ops-helper.ps1"
+    h=read(helper)
+    relevant=[line.strip() for line in h.splitlines() if re.search(r"timeout|deadline|WaitForExit|Wait-Process|Stop-Process|ExecutionTimeLimit|Start-Process",line,re.I)]
+    helperkill=int(bool(re.search(r"\.Kill\s*\(|\bStop-Process\b",h,re.I)))
+    helperwait=int(bool(re.search(r"WaitForExit\s*\(\s*[^)\s]+|Wait-Process[^\r\n]*-Timeout|Wait-Job[^\r\n]*-Timeout",h,re.I)))
+    (run/"denial-and-helper-audit.json").write_text(json.dumps({"source":str(p.name),"denials":rows,"tool_map":tools,"tool_mask":mask,"file_mask":filemask,"other_mask":other,"helper_found":bool(h),"helper_relevant_lines":relevant,"helper_kill":bool(helperkill),"helper_bounded_wait":bool(helperwait)},ensure_ascii=False,indent=2),encoding="utf-8")
+    return f"TR04P_N{min(hits,999)}_M{mask:X}_F{filemask:X}_O{other:X}_H{int(bool(h))}K{helperkill}W{helperwait}"
 
 try:print(probe())
 except Exception as e:
@@ -66,6 +86,16 @@ $f=Join-Path $run 'control.py'
 $out=@(& py -3 -I -B $f $root $run 2> (Join-Path $run 'python-stderr.txt'))
 $code='TR04AR_LOCAL_ERROR'
 if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,65}$'){$code=[string]$out[0]}
+$task=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-Laptop-HostOps' -TaskPath '\' -ErrorAction SilentlyContinue
+$lim=if($task){[string]$task.Settings.ExecutionTimeLimit}else{''}
+$lm=if($lim -eq 'PT0S'){0}elseif($lim -match '^PT(\d+)H'TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
+[IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+Write-Output $code
+){[int]$Matches[1]*60}elseif($lim -match '^PT(\d+)M'TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
+[IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+Write-Output $code
+){[int]$Matches[1]}else{999}
+$code=$code+'_L'+$lm
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
