@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-vieneu-benchmark",
-  "category": "owner-maintenance",
+  "operation": "owner-p2-block-trace-readonly",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-vieneu-benchmark.ps1",
-  "script_sha256": "0447685e55b467f3c0d96af837fc07d25735ca7ca7bd57cd3d54d082486b3d37",
+  "script_path": "hostops/laptop-ops/operations/owner-p2-block-trace-readonly.ps1",
+  "script_sha256": "e3856d33fb69d8bbc264c766dc1d4ced4fcb366bb76bd1b2e1dc3e084212e629",
   "arguments": []
 }
