@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g1-delta-1124",
+  "operation": "owner-odyssey-en-stage-1124",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-g1-delta-1124.ps1",
-  "script_sha256": "c1f386c37e41d30f5d00bb4937fd842166be985c929dcb8bda996f33253d997b",
+  "script_path": "hostops/laptop-ops/operations/owner-odyssey-en-stage-1124.ps1",
+  "script_sha256": "3af8d5800b8c2cc259357313b3270a6e8a283fb7632141a71340e1b2bd731803",
   "arguments": []
 }
