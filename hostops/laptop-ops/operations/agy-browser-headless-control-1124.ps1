@@ -1,5 +1,5 @@
-# Dedicated Torrent TV Chrome CDP 9555 startup and local AGY browser fixture.
-# No external provider requests or modifications to the 9444 profile.
+# One normal website acquisition test on the established dedicated CDP 9555 profile.
+# Respect provider authorization; no CLI/API, alternate identity, or access-control circumvention.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
@@ -7,7 +7,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('agy-cdp9555-'+$rq.nonce)
+$run=Join-Path $root ('agy-cdp9555-live-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='CDP9555_NOT_READY'
 $profile=Join-Path $root 'CDP9555Profile'
@@ -42,7 +42,7 @@ if($existing.Count -eq 1){
 }elseif($existing.Count -gt 1){$code='CDP9555_PORT_OR_PROFILE_CONFLICT'}
 if($verified){
  $py=@'
-import sys,pathlib,os,json,re,subprocess,time,urllib.request,http.server,threading,secrets,hashlib
+import sys,pathlib,os,json,re,subprocess,time,urllib.request,hashlib,zipfile,urllib.parse
 owner,run=map(pathlib.Path,sys.argv[1:])
 sys.path[:0]=[str(owner/"app/poc/p2-aisub")]
 from translator_gateway import preflight_antigravity,_validated_antigravity_alias
@@ -61,30 +61,7 @@ try:
             print("CDP9555_ENDPOINT_UNVERIFIED");sys.exit(0)
     except Exception:
         print("CDP9555_ENDPOINT_UNREACHABLE");sys.exit(0)
-    token=secrets.token_hex(16)
-    route="/"+token
-    visits=[]
-    content=b"1\r\n00:00:01,000 --> 00:00:02,000\r\nTorrent TV fixture only.\r\n"
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
-        def do_GET(self):
-            if self.path==route:
-                data=("<html><title>TTV CDP9555 fixture</title><a download='fixture.srt' href='"+route+"/download'>Download fixture</a></html>").encode()
-                kind="text/html"
-                visits.append(("page",self.headers.get("User-Agent","")))
-            elif self.path==route+"/download":
-                data=content
-                kind="application/x-subrip"
-                visits.append(("download",self.headers.get("User-Agent","")))
-            else:
-                self.send_error(404);return
-            self.send_response(200);self.send_header("Content-Type",kind)
-            if kind!="text/html":self.send_header("Content-Disposition",'attachment; filename="fixture.srt"')
-            self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data)
-    srv=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
-    threading.Thread(target=srv.serve_forever,daemon=True).start()
-    fixture=f"http://127.0.0.1:{srv.server_port}{route}"
-    prompt=("You are the Torrent TV AGY executor. Verify the dedicated Chrome profile already started by HostOps at http://127.0.0.1:9555. Use any supported CDP client, preferably Playwright. Connect only to 9555, open a new tab, navigate to "+fixture+", verify the title, click the normal Download fixture link, and save the actual file via browser download to downloads/fixture.srt. Do not fake the request or file, use curl/HTTP clients for the fixture, or touch port 9444, existing tabs, other profiles, user data, accounts or global settings. No external sites or provider calls: OpenSubtitles authorization remains unresolved. You may write scripts/install dependencies only in this workspace. Close only your new tab and disconnect without closing the browser. Save SETUP.md with reproducible commands and RESULT.json with the method and actual results. Do not use or auto-accept permission prompts. If a prompt or access restriction occurs, stop and report. No OwnerBridge changes.")
+    prompt=("You are the AGY executor for Torrent TV. The dedicated persistent Chrome CDP 9555 has passed a local browser and download test. Connect ONLY to http://127.0.0.1:9555, preferably using Playwright. Open a new tab and use the ordinary website at https://www.opensubtitles.org/. Do not change browser identity, headers, profile, cookies or proxy to evade previous denials. Stop at HTTP 401/403/429, login requirement, CAPTCHA or any other access restriction and report the stage. If the site permits ordinary access, search for English subtitles for Spider-Man: Brand New Day (2026), WEB-DL 1080p, selezen release and MovieDalen audio label if applicable. Verify release and timing evidence; do not substitute or invent a match. Use the website's actual download control or link, following normal redirects (including dl.opensubtitles.org only if the website supplies it); never guess download URLs, bypass restrictions, use OpenSubs CLI or REST API, or pay. Save at most one actual matching SRT/ZIP in downloads/. Use actual browser navigation responses and download event as evidence. Record RESULT.json with status (DOWNLOADED, ACCESS_DENIED, AUTH_REQUIRED, NO_MATCH, DOWNLOAD_FAILED, CDP_FAILED, OTHER), stage (HOME, SEARCH, DETAIL, DOWNLOAD, CDP), observed_http_status (integer or null), download_host (hostname only, or null), release_match (boolean), method, and actual_test. No credentials or private browser data in report. Do not touch 9444, existing tabs, global settings or OwnerBridge. Close only your own new tab and disconnect without closing Chrome. No translation or TV changes. Do not make another request after any denial. Report actual observations only.")
     args=[cli,"--model",model,"--sandbox","--mode","auto","--print-timeout","240s","--output-format","stream-json","-p",prompt]
     start=time.monotonic()
     try:
@@ -93,9 +70,7 @@ try:
         for name,raw in (("agy-stdout.jsonl",e.stdout),("agy-stderr.txt",e.stderr)):
             if raw is not None:
                 (run/name).write_bytes(raw if isinstance(raw,bytes) else raw.encode("utf-8"))
-        srv.shutdown();srv.server_close()
         print("CDP9555_TIMEOUT_RESULT_UNKNOWN");sys.exit(0)
-    srv.shutdown();srv.server_close()
     (run/"agy-stdout.jsonl").write_text(p.stdout,encoding="utf-8")
     (run/"agy-stderr.txt").write_text(p.stderr,encoding="utf-8")
     records=[]
@@ -106,13 +81,37 @@ try:
         except ValueError:pass
     results=[x.get("result") for x in records if x.get("event")=="result"]
     result=results[0] if len(results)==1 and isinstance(results[0],dict) else {}
-    page=int(any(kind=="page" and "Chrome/" in ua for kind,ua in visits))
-    download=int(any(kind=="download" and "Chrome/" in ua for kind,ua in visits))
-    file=downloads/"fixture.srt"
-    matched=int(file.is_file() and not file.is_symlink() and file.stat().st_size==len(content) and hashlib.sha256(file.read_bytes()).digest()==hashlib.sha256(content).digest())
-    setup=int((run/"SETUP.md").is_file())
-    report=int((run/"RESULT.json").is_file())
-    print(f"CDP9555_LOCAL_PAGE{page}_DOWNLOAD{download}_HASH{matched}_SETUP{setup}_REPORT{report}_RC{int(p.returncode==0)}_{round(time.monotonic()-start)}S")
+    rr={}
+    try:
+        rr=json.loads((run/"RESULT.json").read_text(encoding="utf-8-sig"))
+        if not isinstance(rr,dict):rr={}
+    except Exception:pass
+    allowed={"DOWNLOADED","ACCESS_DENIED","AUTH_REQUIRED","NO_MATCH","DOWNLOAD_FAILED","CDP_FAILED","OTHER"}
+    status=rr.get("status","")
+    if not isinstance(status,str) or status not in allowed:status="UNCLASSIFIED"
+    # Compact fixed labels to stay within the existing receipt length limit.
+    codes={"DOWNLOADED":"DL","ACCESS_DENIED":"DENY","AUTH_REQUIRED":"AUTH","NO_MATCH":"NOMATCH","DOWNLOAD_FAILED":"DLFAIL","CDP_FAILED":"CDPFAIL","OTHER":"OTHER","UNCLASSIFIED":"UNK"}
+    stage=rr.get("stage")
+    stage=stage if stage in ("HOME","SEARCH","DETAIL","DOWNLOAD","CDP") else "NA"
+    http=str(rr.get("observed_http_status"))
+    http=http if http in ("200","401","403","429","503","404","302") else "NA"
+    host=rr.get("download_host")
+    dlhost=int(isinstance(host,str) and host.lower()=="dl.opensubtitles.org")
+    match=int(rr.get("release_match") is True)
+    cues=0
+    files=0
+    for f in downloads.iterdir():
+        if f.is_file() and not f.is_symlink() and f.stat().st_size<=10000000 and f.suffix.lower() in (".srt",".zip"):
+            files+=1
+            try:
+                if f.suffix.lower()==".srt":blobs=[f.read_bytes()]
+                else:
+                    with zipfile.ZipFile(f) as z:
+                        blobs=[z.read(i) for i in [x for x in z.infolist() if x.filename.lower().endswith(".srt") and x.file_size<=2000000][:5]]
+                for data in blobs:
+                    cues=max(cues,len(re.findall(rb"(?m)^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}",data)))
+            except Exception:pass
+    print(f"9555_{codes[status]}_{stage}_H{http}_D{dlhost}_M{match}_F{min(files,9)}_C{min(cues,99999)}_{round(time.monotonic()-start)}S")
 except Exception:print("MCP_HEADLESS_LOCAL_ERROR")
 '@
  $f=Join-Path $run 'control.py'
