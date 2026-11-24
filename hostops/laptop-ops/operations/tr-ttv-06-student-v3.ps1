@@ -1,4 +1,4 @@
-# TR-TTV.06 V3: title-only generalization benchmark on the existing ordinary 9555 browser.
+# TR-TTV.06 V3: Owner-supplied exact Iron Man 2 release benchmark.
 # Never edit shared settings or touch Owner production.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -8,7 +8,7 @@ $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | C
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-06-wildrobot-v3-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-06-ironman2-v3-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 function Listener([int]$port){
   @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
@@ -168,7 +168,7 @@ def probe():
         return good[0] if len(good)==1 else (None,0)
     downloads=run/"downloads";downloads.mkdir()
     before=candidates()
-    prompt="You are the English subtitle acquisition Student for Torrent TV Vietsub, Recipe V3. Benchmark input: The Wild Robot (2024), English. This is a title-only acquisition/generalization test: video filename/release, source edition, FPS, duration, IMDb ID, subtitle ID, candidate URL, previous answer and cached subtitle are not supplied. Independently find a suitable English subtitle using ordinary authorized OpenSubtitles website interaction. You choose the search method. Use only the fixed existing Chrome CDP 9555 and the authorized ttv-browser MCP. First list_pages, use the one existing ordinary OpenSubtitles tab, and obtain its numeric pageId. Do not use or modify unrelated tabs, profiles, endpoints, settings or downloads. If a challenge, denial, login or payment requirement prevents normal access, stop and report it; never bypass or retry through another route. A reused profile is not a cold-profile blind test.\n\nPrefer concise visible DOM extraction when useful. Compare candidate title, year, language and available release metadata. Keep evidence bound to the actual candidate reference, not a different search row. Inspect the chosen candidate detail and use only its ordinary website-issued download action. For production with known video metadata, prioritize exact release and compatible timing, otherwise report candidate-only or no match. For this title-only benchmark, a plausible English candidate may be downloaded once, but cannot be certified as a release match or playback-synced subtitle. Do not invent FPS, duration or missing metadata; distinguish observed candidate values from unknown video values. If the download occurs, stop acquisition; do not repeat it. Ignore ads. Do not guess URLs, access hidden browser data or circumvent access restrictions.\n\nReturn a concise structured final result even on failure: status, film/year/language evidence, candidate reference discovered in this run, selected candidate release (exact observed text or null), candidate FPS/duration (observed or null), video release/FPS/duration (null here), release_match=UNKNOWN, playback_sync=UNVERIFIED, actual actions, tool errors, download status, limitations and usage if available. Keep tool errors separate from provider denial and no match. No arbitrary benchmark deadline. No extra report files."
+    prompt="You are the English subtitle acquisition Student for Torrent TV Vietsub, Recipe V3. Owner-supplied exact target release: Iron Man 2 2010 REPACK 1080p BluRay x264-nikt0. Film Iron Man 2 (2010), English. Treat REPACK, BluRay, 1080p, x264 and nikt0 as release evidence, not a generic title-only request. Video FPS, duration, byte size and file extension are unknown. No IMDb ID, subtitle ID, candidate URL, previous answer or cached subtitle is provided. Independently find an appropriate English subtitle using ordinary authorized OpenSubtitles website interaction, choosing your own method. Use only the existing dedicated Chrome CDP 9555 and authorized ttv-browser MCP. First list_pages, use the one existing ordinary OpenSubtitles tab and its numeric pageId. Do not modify other tabs, endpoints, profiles, settings or download preferences. If challenge, denial, login or payment blocks ordinary access, stop and report; never bypass or retry via another route.\n\nCompare actual candidate title, year, language, release source, REPACK edition, release group, resolution and codec. Prioritize exact nikt0 REPACK release, or a candidate with explicitly documented compatibility with this edition. Distinguish a generic BluRay candidate from a release match. Reject conflicting editions, cuts or timing. Do not download a merely title-matched or unsupported candidate; if exact or evidenced compatible release is not found, report NO_CONFIDENT_MATCH and evidence. Do not invent video FPS or duration or assert playback sync without actual playback evidence. Use concise visible DOM reads as useful. Inspect selected candidate detail before download and bind evidence to that candidate rather than other search rows. Use only the site's ordinary authorized download action once; stop acquisition once received. Ignore ads, do not guess endpoints, inspect hidden data or circumvent denial.\n\nReturn concise structured result even on failure: status, observed title/year/language, selected candidate reference discovered this run, exact observed release names, evidence for REPACK/source/group/resolution/codec, candidate FPS/duration or null, video FPS/duration null, release_match=EXACT_METADATA or EVIDENCED_COMPATIBLE or UNKNOWN or CONFLICT, playback_sync=UNVERIFIED, actual actions, errors and usage if available. Distinguish access blocked from no match. No extra report files, no arbitrary benchmark deadline."
     (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
@@ -281,15 +281,18 @@ def probe():
     titlematch=0
     for item in outputs:
         out=str(item.get("output",""))
-        if re.search(r"\b(?:the )?wild robot\b",out,re.I) and re.search(r"\benglish\b|\beng\b",out,re.I) and any(re.search(r"(?<!\d)"+re.escape(x)+r"(?!\d)",out) for x in observed_ids):
+        if re.search(r"\biron[ ._-]*man[ ._-]*2\b",out,re.I) and re.search(r"\benglish\b|\beng\b",out,re.I) and any(re.search(r"(?<!\d)"+re.escape(x)+r"(?!\d)",out) for x in observed_ids):
             titlematch=1
     # Capture observed release clues without promoting them to playback-sync proof.
     release_candidates=[]
     for item in outputs:
         out=str(item.get("output",""))
         for line in out.splitlines():
-            if re.search(r"(?:the[ ._-]+)?wild[ ._-]+robot",line,re.I) and re.search(r"webrip|web.dl|new.team",line,re.I):
+            if re.search(r"iron[ ._-]*man[ ._-]*2\b",line,re.I) and re.search(r"bluray|blu.ray|repack|nikt0",line,re.I):
                 release_candidates.append({"event":item["event"],"observed_release_text":line[:2000]})
+    # Conservative exact-release evidence: same observed line binds actual downloaded ID and full release.
+    exact_re=r"iron[ ._-]*man[ ._-]*2[ ._-]+2010[ ._-]+repack[ ._-]+1080p[ ._-]+blu[ ._-]*ray[ ._-]+x264[ ._-]+nikt0\b"
+    exact=int(any(re.search(exact_re,line,re.I) and any(re.search(r"(?<!\d)"+re.escape(x)+r"(?!\d)",line) for x in observed_ids) for item in outputs for line in str(item.get("output","")).splitlines()))
     elapsed=round(time.monotonic()-start)
     denied=int(bool(re.search(r"permission check failed|auto-denied|user denied permission|permission denied",stdout+"\n"+stderr,re.I)))
     drift=int([sha(x) for x in paths]!=config_before)
@@ -297,12 +300,12 @@ def probe():
     access_evidence="\n".join(str(v.get("output","")) for v in outputs)
     challenge=bool(re.search(r"making sure you.re not a bot|/\.within\.website/|anti.bot challenge|captcha",access_evidence,re.I))
     provider_access="ACCESS_BLOCKED" if challenge else "SITE_TAB_OBSERVED"
-    selection_evaluation="NOT_TESTED" if challenge else "TITLE_ONLY_RELEASE_UNKNOWN"
-    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V3","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"The Wild Robot","year":2024,"release":None,"fps":None,"duration":None},"title_language_evidence":bool(titlematch),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    selection_evaluation="NOT_TESTED" if challenge else "RELEASE_METADATA_UNVERIFIED"
+    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V3","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Iron Man 2","year":2010,"release":"Iron Man 2 2010 REPACK 1080p BluRay x264-nikt0","release_origin":"OWNER_SUPPLIED","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
     write(run/"BRAIN_STUDENT_REPORT.json",report)
     (run/"BRAIN_STUDENT_FULL_RESPONSE.md").write_text("# Hydrogen Low student benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
-    return f"TR06V3_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}I{bound}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
+    return f"TR06V3_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}E{exact}I{bound}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
 
 try:print(probe())
 except Exception as e:
