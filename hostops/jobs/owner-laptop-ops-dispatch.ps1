@@ -316,20 +316,21 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
     }
     if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1' -and $receipt.result -ceq 'SUCCESS') {
-        $f=Join-Path $outbox ('bt04-trace-'+$nonce+'.json')
-        if(Test-Path -LiteralPath $f -PathType Leaf){
-            $item=Get-Item -LiteralPath $f -Force
-            if($item.Length -le 0 -or $item.Length -gt 131072 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'BT04_TRACE_BOUND'}
-            $v=Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
-            $nums=@('elapsed','download','cues','artifacts','events','final_chars','report_ok','actions','recipe_steps','title_language','exact','denied','drift')
-            $fields=@('schema','nonce','source','trace')+$nums
-            if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-BT04-TRACE-V1' -or $v.nonce -cne $nonce -or $v.source -cne $commit){throw 'BT04_TRACE_SCHEMA'}
-            foreach($key in $nums){if($v.$key -isnot [ValueType] -or [long]$v.$key -lt -1 -or [long]$v.$key -gt 2147483647){throw 'BT04_TRACE_NUM'}}
-            if($v.trace -isnot [array] -or @($v.trace).Count -ne $v.events -or $v.events -gt 2048){throw 'BT04_TRACE_COUNT'}
-            foreach($line in $v.trace){if($line -isnot [string] -or $line -cnotmatch '^[0-9]{1,4}:[0-9]{1,9}:(LIST_PAGES|SELECT_PAGE|NAVIGATE_PAGE|TAKE_SNAPSHOT|CLICK|FILL|PRESS_KEY|WAIT_FOR|EVALUATE_SCRIPT|READ_FILE|WRITE_FILE|RUN_SHELL_COMMAND|EXECUTE_COMMAND|LIST_NETWORK_REQUESTS|CALL_MCP_TOOL|OTHER):(RESULT|ERROR|OUTPUT|CALL|OTHER)$'){throw 'BT04_TRACE_ROW'}}
-            foreach($key in $nums){Write-Output ('HOSTOPS_BT04_'+$key.ToUpperInvariant()+'='+$v.$key)}
-            foreach($line in $v.trace){Write-Output ('HOSTOPS_BT04_EVENT='+$line)}
-        }
+        $f=Join-Path $outbox ('bt04-forensic-'+$nonce+'.json')
+        $item=Get-Item -LiteralPath $f -Force
+        if($item.Length -le 0 -or $item.Length -gt 262144 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'BT04R_TRACE_BOUND'}
+        $v=Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+        $nums=@('events','invalid','timed','fixture','prompt','stdout_chars','stderr_chars','report','recipe','final_chars','report_ok','actions','recipe_steps','tools','denied','blocked_mentions','copied','copied_cues','history','downloads','history_cues','elapsed')
+        $fields=@('schema','nonce','source','prior','error_kind','status','trace')+$nums
+        if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-BT04-FORENSIC-V1' -or $v.nonce -cne $nonce -or $v.source -cne '4cd3124ac8c7102028ff0b1f079a5b3b522b15c9' -or $v.prior -cnotmatch '^[a-f0-9]{32}$'){throw 'BT04R_SCHEMA'}
+        if($v.error_kind -cnotmatch '^(NO_EXCEPTION_TEXT|STREAM_TIMING_DRIFT|NAME_ERROR|PERMISSION|FILE_MISSING|UNICODE|JSON|TIMEOUT|TYPE|VALUE|ATTRIBUTE|KEY|INDEX|OS|SYNTAX|OTHER_ERROR)$' -or $v.status -cnotmatch '^(CANDIDATE_DOWNLOADED|NO_PLAUSIBLE_CANDIDATE|ACCESS_BLOCKED|AUTH_REQUIRED|DOWNLOAD_FAILED|TOOL_UNAVAILABLE|UNKNOWN|NOT_REPORTED)$'){throw 'BT04R_ENUM'}
+        foreach($key in $nums){if($v.$key -isnot [ValueType] -or [long]$v.$key -lt -1 -or [long]$v.$key -gt 2147483647){throw 'BT04R_NUM'}}
+        if($v.trace -isnot [array] -or @($v.trace).Count -ne $v.events -or $v.events -gt 2048){throw 'BT04R_COUNT'}
+        foreach($line in $v.trace){if($line -isnot [string] -or $line -cnotmatch '^[0-9]{1,4}:(-1|[0-9]{1,9}):(LIST_PAGES|SELECT_PAGE|NAVIGATE_PAGE|TAKE_SNAPSHOT|CLICK|FILL|PRESS_KEY|WAIT_FOR|EVALUATE_SCRIPT|READ_FILE|WRITE_FILE|RUN_SHELL_COMMAND|EXECUTE_COMMAND|LIST_NETWORK_REQUESTS|CALL_MCP_TOOL|OTHER):(RESULT|ERROR|OUTPUT|CALL|OTHER)$'){throw 'BT04R_ROW'}}
+        Write-Output ('HOSTOPS_BT04R_ERROR_KIND='+$v.error_kind)
+        Write-Output ('HOSTOPS_BT04R_STATUS='+$v.status)
+        foreach($key in $nums){Write-Output ('HOSTOPS_BT04R_'+$key.ToUpperInvariant()+'='+$v.$key)}
+        foreach($line in $v.trace){Write-Output ('HOSTOPS_BT04R_EVENT='+$line)}
     }
     if ($receipt.result -cne 'SUCCESS') {
         Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
