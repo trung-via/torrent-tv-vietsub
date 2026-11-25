@@ -1,11 +1,11 @@
-# BT19: targeted audio adjudication of retained Teacher/Student differences; no provider calls.
+# BT27: retained Teacher/Student plus bounded audio and embedded EN sample QA on exact verified fixture.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt19-targeted-audio-qa-'+$rq.nonce)
+$run=Join-Path $root ('bt27-odyssey-quality-qa-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import sys,pathlib,json,re,hashlib,zipfile,html,collections,difflib,statistics
@@ -26,6 +26,10 @@ def srt(dir,report,source):
             infos=[i for i in z.infolist() if i.filename.lower().endswith(".srt") and 0<i.file_size<2000000 and not i.flag_bits&1]
             assert len(infos)==1
             blob=z.read(infos[0])
+    rows=parse_srt(blob)
+    assert len(rows)==a["cues"] and len(rows)<5000
+    return rows
+def parse_srt(blob):
     assert len(blob)<2000000
     if blob.startswith((b"\xff\xfe",b"\xfe\xff")):raw=blob.decode("utf-16")
     else:
@@ -42,9 +46,8 @@ def srt(dir,report,source):
         norm=" ".join(re.findall(r"\w+",html.unescape(re.sub(r"<[^>]*>|\{\\[^}]*\}","",text)).casefold()))
         start,end=ms(m[1]),ms(m[2]);assert end>=start
         rows.append((start,end,norm))
-    assert len(rows)==a["cues"] and len(rows)<5000
     return rows
-import os,shutil,subprocess,time,urllib.request,urllib.parse,wave,math
+import os,shutil,subprocess,time,urllib.parse,wave,math
 run=pathlib.Path(sys.argv[3])
 class Halt(Exception):pass
 phase="INIT"
@@ -59,47 +62,27 @@ def digest(p,kind):
     with p.open("rb") as f:
         for chunk in iter(lambda:f.read(1048576),b""):a.update(chunk)
     return a.hexdigest()
-def fetch(url,path,size,algo,expected,seconds):
-    if path.is_file() and path.stat().st_size==size and digest(path,algo)==expected:return
-    temp=path.with_suffix(path.suffix+".part")
-    end=time.monotonic()+seconds
-    with urllib.request.urlopen(url,timeout=20) as f,temp.open("wb") as g:
-        total=0
-        for block in iter(lambda:f.read(1048576),b""):
-            total+=len(block)
-            if total>size or time.monotonic()>end:h("DOWNLOAD_BOUND")
-            g.write(block)
-    if total!=size or digest(temp,algo)!=expected:h("DOWNLOAD_HASH")
-    os.replace(temp,path)
 def words(x):
     return re.findall(r"\w+",html.unescape(re.sub(r"<[^>]*>|\{\\[^}]*\}","",x)).casefold())
 def main():
     global phase
     phase="ARTIFACTS"
-    jobs=[("TEACHER",root/"bt11-neon-opensubtitles-d3132c2bbc0c442a8bb1e12950ab1ed2","d4ade6fda6045597267e61f9439bf3635aef2b19"),("STUDENT",root/"bt18-hydrogen-opensubtitles-25e73e80cfce49728e4f6c1402e6cefb","ad010d992cd69cec1dc28185d538392efe8e04fe")]
+    jobs=[("T",root/"bt25-neon-opensubtitles-5572fba3e6544320a2c9f74492213971","dd108b58a1e6477bc7854a69b8c74dd72b05b476"),("H",root/"bt26-hydrogen-opensubtitles-c3f0255dc29b45fda98e9f3d718b2311","f42af2a2494681d9c867d91c9db179e466af294c")]
     def normalized(x):return re.sub(r"[^a-z0-9]","",str(x).casefold())
-    target="0c57a7ebb1d8c09b29b6642d48af57701ca4479e6d6d9f63fa8ae3c26a615b5e"
-    src={};artifact_hashes={}
+    target="7f9ecde8125748e03a53989a4b2651bf5290849339dfd1fdf9b5d3fbe8914038"
+    src={};artifact_hashes={};reports={}
     for k,d,source in jobs:
         r=obj(d/"BRAIN_TEACHER_REPORT.json")
-        assert hashlib.sha256(normalized(r["video_input"]["release"]).encode()).hexdigest()==target
-        assert r["video_input"]["fps"]==24 and abs(r["video_input"]["duration"]-6705)<2
-        src[k]=srt(d,r,source)
+        assert r["provider"]=="OpenSubtitles" and hashlib.sha256(normalized(r["video_input"]["release"]).encode()).hexdigest()==target
+        assert abs(r["video_input"]["fps"]-29.994)<.01 and abs(r["video_input"]["duration"]-10356)<2
+        if k=="H":assert r["filter_gate"]["accepted"] is True and r["filter_gate"]["download_verified"] is True
+        src[k]=srt(d,r,source);reports[k]=r
         artifact_hashes[k]=next(x["sha256"] for x in r["artifacts"] if x.get("copied_to_job") and x.get("cues",0)>0)
-    assert [len(src[k]) for k in ("TEACHER","STUDENT")]==[2398,2394]
-    def flatten(rows):return [(w,i) for i,x in enumerate(rows) for w in x[2].split()]
-    aa=flatten(src["TEACHER"]);bb=flatten(src["STUDENT"])
-    assert [len(aa),len(bb)]==[17063,17025]
-    changes=[];joined=0
-    for tag,i,j,k,l in difflib.SequenceMatcher(None,[x[0] for x in aa],[x[0] for x in bb],autojunk=False).get_opcodes():
-        if tag=="equal":continue
-        old=[x[0] for x in aa[i:j]];new=[x[0] for x in bb[k:l]]
-        if "".join(old)=="".join(new):joined+=1;continue
-        assert tag=="delete" and old and not new
-        rows=src["TEACHER"]
-        changes.append({"start_ms":rows[aa[i][1]][0],"end_ms":rows[aa[j-1][1]][1],"teacher_words":old,"student_words":new})
-    assert joined==5 and [len(x["teacher_words"]) for x in changes]==[5,7,4,13,4]
-    (run/"BRAIN_BT19_PLAN.json").write_text(json.dumps({"artifact_hashes":artifact_hashes,"joined_only":joined,"changes":changes},indent=2),encoding="utf-8")
+    assert [len(src[k]) for k in ("T","H")]==[1909,1909]
+    eq=src["T"]==src["H"]
+    text_equal=[x[2] for x in src["T"]]==[x[2] for x in src["H"]]
+    token_equal=" ".join(x[2] for x in src["T"])==" ".join(x[2] for x in src["H"])
+    (run/"BRAIN_BT27_ARTIFACT_QA.json").write_text(json.dumps({"normalized_cue_tuples_equal":eq,"cue_text_equal":text_equal,"token_stream_equal":token_equal,"artifact_hashes":artifact_hashes},indent=2),encoding="utf-8")
     phase="FIXTURE"
     owner=root.parent/"OwnerBridge"
     sys.path.insert(0,str(owner/"app/poc/p2-sub-discovery"))
@@ -108,7 +91,7 @@ def main():
     cfg=OwnerLocalTorrServer(policy["profile_id"],policy["torrserver_port"])
     listing=json.loads(_local_post(cfg.url,b'{"action":"list"}',6.0))
     assert isinstance(listing,list) and len(listing)<=256
-    target="0c57a7ebb1d8c09b29b6642d48af57701ca4479e6d6d9f63fa8ae3c26a615b5e"
+    target="7f9ecde8125748e03a53989a4b2651bf5290849339dfd1fdf9b5d3fbe8914038"
     def matchrelease(x):return hashlib.sha256(re.sub(r"[^a-z0-9]","",str(x).casefold()).encode()).hexdigest()==target
     found={}
     for v in listing:
@@ -147,12 +130,18 @@ def main():
     prior=[]
     for f in (spool/"History").glob("receipt-*.json"):
         r=obj(f)
-        if r.get("source_commit")=="17b7acb8d5ffbf0dfeb74961bf75d57c9d5cc716" and r.get("result")=="SUCCESS" and re.fullmatch("[a-f0-9]{32}",str(r.get("nonce",""))):prior.append(r["nonce"])
+        if r.get("source_commit")=="29c8dac83ed663b137a39c666d242258cd93c848" and r.get("result")=="SUCCESS" and re.fullmatch("[a-f0-9]{32}",str(r.get("nonce",""))):prior.append(r["nonce"])
     assert len(prior)==1
-    fixture=obj(root/("bt10-human-fixture-preflight-"+prior[0])/"BRAIN_HUMAN_FIXTURE.json")
+    fixture=obj(root/("bt24-human-fixture-preflight-"+prior[0])/"BRAIN_HUMAN_FIXTURE.json")
     assert fixture["schema"]=="BT10_HUMAN_FIXTURE_V1" and fixture["selection_fingerprint"]==target and fixture["exact_file_verified"] is True
     assert fixture["hash"]==tor and fixture["file_index"]==idx and fixture["filename"]==name and fixture["size_bytes"]==actual.length and abs(fixture["duration_seconds"]-duration)<1
     assert any(x["index"]==ai and str(x["language"]).lower() in ("en","eng","english") for x in fixture["audio_tracks"])
+    subs=[x for x in meta["streams"] if x.get("codec_type")=="subtitle" and str(x.get("tags",{}).get("language","")).lower() in ("en","eng","english")]
+    assert len(subs)==1 and fixture["english_subtitle_count"]==1
+    si=int(subs[0]["index"]);codec=subs[0].get("codec_name","")
+    assert any(x["index"]==si and x["codec"]==codec for x in fixture["subtitle_tracks"])
+    text_codec=codec in ("subrip","ass","ssa","webvtt","mov_text","text")
+    assert all(abs(reports[k]["video_input"]["duration"]-duration)<1 and reports[k]["video_input"]["size_bytes"]==actual.length for k in src)
     phase="ASR_SETUP"
     tools=root/"BT09ASRPortable"
     archive=tools/"whisper-bin-x64-b5454.zip"
@@ -172,68 +161,107 @@ def main():
             with z.open(v) as f,dest.open("xb") as g:shutil.copyfileobj(f,g)
     cli=list(bindir.rglob("whisper-cli.exe"))
     if len(cli)!=1:h("ASR_CLI_MISSING")
-    phase="TARGETED_ASR"
-    results=[]
+    phase="SAMPLES"
+    regions=[];scores={k:[] for k in ("T","H","E")};anchors={k:[] for k in ("T","H","E")};embedded_scores={k:[] for k in src};embedded_anchors={k:[] for k in src}
+    def metric(vals):
+        if not vals:return None
+        ab=sorted(abs(x) for x in vals)
+        return {"count":len(vals),"median_signed_ms":round(statistics.median(vals)),"median_abs_ms":round(statistics.median(ab)),"p95_abs_ms":ab[math.ceil(.95*len(ab))-1]}
+    def timeline(aa):
+        result={}
+        for k,v in aa.items():
+            groups={j:metric([x["onset"] for x in v if x["sample"]==j]) for j in set(x["sample"] for x in v)}
+            med=[x["median_signed_ms"] for x in groups.values()]
+            result[k]={"onset":metric([x["onset"] for x in v]),"offset":metric([x["offset"] for x in v]),"sample_median_range_ms":max(med)-min(med) if len(med)>1 else None,"regions":groups}
+        return result
+    def aggregate(ss,k):
+        r=ss[k];total=sum(x["ref_words"] for x in r)
+        return round(1000*sum(x["matched"] for x in r)/total) if total else None
+    def compare(ref,rows,j):
+        aw=[w for a,b,t in ref for w in t]
+        if not aw:return None,[]
+        lo,hi=ref[0][0],ref[-1][1]
+        sw=[w for a,b,t in rows if lo-500<(a+b)/2<hi+500 for w in t.split()]
+        m=sum(x.size for x in difflib.SequenceMatcher(None,aw,sw,autojunk=False).get_matching_blocks())
+        aa=[]
+        for a,b,t in ref:
+            if len(t)<4:continue
+            near=[x for x in rows if x[1]>=a-5000 and x[0]<=b+5000]
+            hits=[]
+            for u in range(len(near)):
+                seq=[]
+                for v in range(u,min(u+5,len(near))):
+                    seq.extend(near[v][2].split())
+                    if len(seq)>len(t) or seq!=t[:len(seq)]:break
+                    if seq==t:hits.append((near[u][0]-a,near[v][1]-b));break
+            if len(hits)==1:aa.append({"sample":j,"onset":hits[0][0],"offset":hits[0][1]})
+        return {"sample":j,"ref_words":len(aw),"srt_words":len(sw),"matched":m,"coverage_permille":round(1000*m/len(aw)),"agreement_permille":round(1000*m/max(1,len(sw)))},aa
     def save():
-        out={"schema":"BT19_TARGETED_ASR_QA_V1","fixture_nonce":prior[0],"artifact_hashes":artifact_hashes,"model_sha1":expected,"runtime_sha256":digest(archive,"sha256"),"joined_only":joined,"target_count":len(changes),"regions":results,"limits":"ASR-only corroboration, exact phrase plus time overlap is evidence, not human ground truth. Missing ASR phrase does not prove absence. No provider calls or model downloads."}
-        (run/"BRAIN_BT19_QA.json").write_text(json.dumps(out,indent=2),encoding="utf-8")
-    for j,gap in enumerate(changes):
-        lo,hi=gap["start_ms"],gap["end_ms"]
-        start=max(0,math.floor(lo/1000)-8)
-        end=min(math.floor(duration),math.ceil(hi/1000)+8)
-        length=end-start
-        assert 16<=length<=24
-        pcm=run/f"audio-{j}.pcm";audio=run/f"audio-{j}.wav"
-        rec={"sample":j,"window_start_seconds":start,"window_seconds":length,"gap":gap,"extraction_ok":False,"asr_ok":False,"classification":"UNRESOLVED"}
-        results.append(rec)
-        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t",str(length),"-ar","16000","-ac","1","-c:a","pcm_s16le","-f","s16le","-n",str(pcm)],f"extract-{j}",120)
+        report={"schema":"BT27_ODYSSEY_QUALITY_QA_V1","fixture_nonce":prior[0],"duration_seconds":duration,"audio_index":ai,"embedded_index":si,"embedded_codec":codec,"artifact_hashes":artifact_hashes,"normalized_cue_tuples_equal":eq,"cue_text_equal":text_equal,"token_stream_equal":token_equal,"regions":regions,"asr_scores":scores,"asr_coverage_permille":{k:aggregate(scores,k) for k in scores},"asr_timeline":timeline(anchors),"embedded_reference_scores":embedded_scores,"embedded_reference_coverage_permille":{k:aggregate(embedded_scores,k) for k in embedded_scores},"embedded_reference_timeline":timeline(embedded_anchors),"model_sha1":expected,"runtime_sha256":digest(archive,"sha256"),"limitations":"Five bounded 36-second regions, not full-film ground truth. Embedded subtitle extraction uses seek-relative timestamps, validated against window and independent ASR; embedded track may itself contain errors. ASR phrase anchors are estimates, unscored samples are missing evidence."}
+        (run/"BRAIN_BT27_QA.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+    for j,pct in enumerate((.10,.30,.50,.70,.90)):
+        start=max(0,round(duration*pct-18));length=36
+        pcm=run/f"audio-{j}.pcm";audio=run/f"audio-{j}.wav";sub=run/f"embedded-{j}.srt"
+        rec={"sample":j,"start":start,"length":length,"audio_ok":False,"embedded_ok":False,"asr_scored":False}
+        regions.append(rec)
+        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t",str(length),"-ar","16000","-ac","1","-c:a","pcm_s16le","-f","s16le","-n",str(pcm)],f"extract-{j}",60)
         n=pcm.stat().st_size if pcm.is_file() else 0
-        rec["extraction_rc"]=rc;rec["pcm_bytes"]=n
-        if rc!=0 or n%2 or not (length-1)*32000<=n<=(length+1)*32000:save();continue
-        with wave.open(str(audio),"wb") as w:
-            w.setnchannels(1);w.setsampwidth(2);w.setframerate(16000);w.writeframes(pcm.read_bytes())
-        rec["extraction_ok"]=True
-        dest=run/f"asr-{j}"
-        rc=cmd([str(cli[0]),"-m",str(model),"-f",str(audio),"-l","en","-t","8","-oj","-of",str(dest),"-np"],f"asr-process-{j}",140)
-        rec["asr_rc"]=rc
-        if rc!=0 or not dest.with_suffix(".json").is_file():save();continue
-        segs=[]
-        for seg in obj(dest.with_suffix(".json")).get("transcription",[]):
-            o=seg.get("offsets",{})
-            if type(o.get("from")) not in (float,int) or type(o.get("to")) not in (float,int):continue
-            a,b=start*1000+round(o["from"]),start*1000+round(o["to"])
-            toks=words(seg.get("text",""))
-            if a>=start*1000 and a<b<=end*1000+1000 and toks:segs.append((a,b,toks))
-        if not segs:save();continue
-        rec["asr_ok"]=True;rec["asr_segments"]=segs
-        # Entire ordered phrase must occur exactly once and overlap the original cue window.
-        observed=[(w,a,b) for a,b,ws in segs for w in ws]
-        wanted=gap["teacher_words"]
-        exact=[]
-        for i in range(len(observed)-len(wanted)+1):
-            block=observed[i:i+len(wanted)]
-            if [x[0] for x in block]!=wanted:continue
-            a,b=block[0][1],block[-1][2]
-            if a<=hi+1500 and b>=lo-1500 and b-a<=max(15000,hi-lo+10000):exact.append((a,b))
-        nearby=[w for w,a,b in observed if a<=hi+1500 and b>=lo-1500]
-        match=sum(x.size for x in difflib.SequenceMatcher(None,wanted,nearby,autojunk=False).get_matching_blocks())
-        rec["exact_hits"]=exact;rec["matched_words"]=match;rec["target_words"]=len(wanted)
-        rec["classification"]="ASR_CORROBORATED" if len(exact)==1 else "PARTIAL" if match>=max(2,math.ceil(.6*len(wanted))) else "UNRESOLVED"
+        rec["audio_rc"]=rc;rec["pcm_bytes"]=n
+        rec["audio_ok"]=rc==0 and n%2==0 and 35*32000<=n<=37*32000
+        em=[]
+        if text_codec:
+            rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{si}","-vn","-an","-dn","-t",str(length),"-c:s","srt","-n",str(sub)],f"embedded-extract-{j}",60)
+            rec["embedded_rc"]=rc
+            if rc==0 and sub.is_file():
+                local=parse_srt(sub.read_bytes())
+                # Reject unexpected non-window-relative timestamps; omit cut-edge cues.
+                if local and all(0<=a<=b<=38000 for a,b,t in local):
+                    rec["embedded_ok"]=True
+                    em=[(start*1000+a,start*1000+b,t) for a,b,t in local if 1000<=a<b<=35000 and t]
+                    rec["embedded_cues"]=len(em)
+        else:rec["embedded_rc"]="NON_TEXT_CODEC"
+        eref=[(a,b,t.split()) for a,b,t in em]
+        if sum(len(x[2]) for x in eref)>=12:
+            for k,rows in src.items():
+                rr,aa=compare(eref,rows,j);embedded_scores[k].append(rr);embedded_anchors[k].extend(aa)
+        if rec["audio_ok"]:
+            with wave.open(str(audio),"wb") as w:
+                w.setnchannels(1);w.setsampwidth(2);w.setframerate(16000);w.writeframes(pcm.read_bytes())
+            dest=run/f"asr-{j}"
+            rc=cmd([str(cli[0]),"-m",str(model),"-f",str(audio),"-l","en","-t","8","-oj","-of",str(dest),"-np"],f"asr-process-{j}",110)
+            rec["asr_rc"]=rc
+            if rc==0 and dest.with_suffix(".json").is_file():
+                segs=[]
+                for seg in obj(dest.with_suffix(".json")).get("transcription",[]):
+                    o=seg.get("offsets",{})
+                    if type(o.get("from")) not in (float,int) or type(o.get("to")) not in (float,int):continue
+                    a,b=round(o["from"]),round(o["to"]);t=words(seg.get("text",""))
+                    if 1000<=a<b<=35000 and t:segs.append((start*1000+a,start*1000+b,t))
+                if sum(len(x[2]) for x in segs)>=12:
+                    rec["asr_scored"]=True
+                    for k,rows in src.items():
+                        rr,aa=compare(segs,rows,j);scores[k].append(rr);anchors[k].extend(aa)
+                    if em:
+                        # Compare ASR only where the embedded sample has non-edge coverage.
+                        ref=[x for x in segs if em[0][0]<=x[0] and x[1]<=em[-1][1]]
+                        if sum(len(x[2]) for x in ref)>=12:
+                            rr,aa=compare(ref,em,j);scores["E"].append(rr);anchors["E"].extend(aa)
         save()
-    c=collections.Counter(x["classification"] for x in results)
-    print(f"BT19_W{len(changes)}_E{sum(x['extraction_ok'] for x in results)}_A{sum(x['asr_ok'] for x in results)}_C{c['ASR_CORROBORATED']}_P{c['PARTIAL']}_U{c['UNRESOLVED']}")
+    def val(x):return str(x) if x is not None else "X"
+    m=timeline(anchors)["H"]["onset"]
+    print(f"BT27_I{int(eq)}{int(text_equal)}{int(token_equal)}S{len(regions)}A{sum(x['audio_ok'] for x in regions)}V{len(scores['H'])}E{sum(x['embedded_ok'] for x in regions)}Q{val(aggregate(scores,'H'))}T{val(aggregate(scores,'T'))}R{val(aggregate(embedded_scores,'H'))}K{m['count'] if m else 0}M{m['median_abs_ms'] if m else 'X'}P{m['p95_abs_ms'] if m else 'X'}")
 
 try:main()
-except Halt as e:print("BT19_HOLD_"+str(e))
+except Halt as e:print("BT27_HOLD_"+str(e))
 except Exception as e:
     (run/"private-error-type.txt").write_text(type(e).__name__+" "+phase,encoding="utf-8")
-    print("BT19_HOLD_"+phase+"_ERROR")
+    print("BT27_HOLD_"+phase+"_ERROR")
 '@
 $f=Join-Path $run 'compare.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
 $out=@(& py -3 -I -B $f $root $spool $run 2> (Join-Path $run 'stderr.txt'))
-$code='BT19_HOLD_READOUT_ERROR'
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT19_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
+$code='BT27_HOLD_READOUT_ERROR'
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT27_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
