@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/bt09-movie-audio-qa.ps1",
-  "script_sha256": "104341d0cff644070db187de53ca2fc194bf65a5c7c82134abf420b8c698254b",
+  "script_sha256": "a8ba95f40be52788e726cf53244e0247eab7f3e3ed2d1711873357808be5abc6",
   "arguments": []
 }
