@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/bt17-v11-readout.ps1",
-  "script_sha256": "5ab0711d513e587e01051f6978e00572c7ea27671b2b6266d74a1c1116ca497d",
+  "script_sha256": "122cbe4b3409d71ca846ca077dea70c716e8084cc8a15e24996fecf617a3e86e",
   "arguments": []
 }

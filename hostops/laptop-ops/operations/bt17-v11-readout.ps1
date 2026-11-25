@@ -1,11 +1,11 @@
-# BT22: offline diagnosis of BT20 list and comparison evidence; no provider or ASR calls.
+# BT23: replay exact V13.1 evidence gate on BT20 retained output and synthetic negatives.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt22-v13-evidence-diag-'+$rq.nonce)
+$run=Join-Path $root ('bt23-v13-1-replay-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import sys,pathlib,json,re,hashlib,zipfile,html,collections,difflib,statistics
@@ -59,84 +59,128 @@ def prior(source,prefix,nonce=None):
     return root/(prefix+found[0])
 def words(x):
     return re.findall(r"\w+",html.unescape(re.sub(r"<[^>]*>|\{\\[^}]*\}","",x)).casefold())
-def qa():
-    global phase
-    phase="REPORT"
-    source="5c01bbd07d767c2b69339ad0eaea79034bb040da"
-    # Exact nonce from the actual BT20 terminal handoff, not a new acquisition.
-    d=root/"bt20-hydrogen-opensubtitles-cae5bf1fc2a24c61a862999da0bc2e69"
-    r=obj(d/"BRAIN_TEACHER_REPORT.json")
-    assert r["source_commit"]==source and r["provider"]=="OpenSubtitles"
-    assert r["filter_gate"]["ordinary_click_bound"] is True and r["filter_gate"]["download_verified"] is True
-    assert len(srt(d,r,source))==2398
-    phase="EVIDENCE"
+os_hosts={'www.opensubtitles.org','opensubtitles.org'}
+def filter_gate(outputs,artifacts):
     def url(v):
         if not isinstance(v,str) or not v:return None
         try:u=urllib.parse.urlsplit(urllib.parse.urljoin("https://www.opensubtitles.org/",v))
         except ValueError:return None
-        return u if u.scheme=="https" and u.hostname in {"www.opensubtitles.org","opensubtitles.org","dl.opensubtitles.org"} else None
+        return u if u.scheme=="https" and u.hostname in (os_hosts|{"dl.opensubtitles.org"}) else None
     def sid(v):
-        u=url(v);m=re.search(r"/(?:subtitles|download/sub|subtitleserve/sub)/(\d+)(?:/|$)",u.path) if u else None
+        u=url(v)
+        m=re.search(r"/(?:subtitles|download/sub|subtitleserve/sub)/(\d+)(?:/|$)",u.path) if u else None
         return m[1] if m else ""
+    def lang_en(v):
+        return isinstance(v,str) and " ".join(v.casefold().split()) in {"english","en","eng","flag en"}
     def docs(v):
         if isinstance(v,dict):return [v]
         if not isinstance(v,str):return []
+        blocks=re.findall(r"(?s)\x60\x60\x60(?:json)?\s*(\{.*?\})\s*\x60\x60\x60",v) or [v.strip()]
         result=[]
-        for block in re.findall(r"(?s)\x60\x60\x60(?:json)?\s*(\{.*?\})\s*\x60\x60\x60",v) or [v.strip()]:
+        for block in blocks:
             try:x=json.loads(block)
             except (ValueError,TypeError):continue
             if isinstance(x,dict):result.append(x)
         return result
-    lists=[];detail_ids=set();strict_ids=set();group_map={};clicks=[]
-    for o in r["tool_outcomes"]:
-        if o.get("error") or o.get("tool")!="evaluate_script":continue
-        for x in docs(o.get("output")):
-            u=url(x.get("url"));did=sid(x.get("url"))
-            if did:
-                detail_ids.add(did)
-                if x.get("btnVisible") is True and isinstance(x.get("fieldsetText"),str) and x["fieldsetText"] and sid(x.get("downloadHref"))==did:strict_ids.add(did)
-            if x.get("clicked") is True:clicks.append(x)
-            if not u or not re.search(r"(?:^|/)sublanguageid-eng(?:/|$)",u.path) or not re.search(r"\benglish\b",str(x.get("heading","")),re.I):continue
-            rows=x.get("rows")
-            if not isinstance(rows,list):continue
-            ids={sid(v.get("href")) for v in rows if isinstance(v,dict) and " ".join(str(v.get("lang","")).casefold().split()) in {"english","en","eng","flag en"}}-{""}
+    groups={};details={};clicks=[]
+    for out in outputs:
+        if out.get("error") or out.get("tool")!="evaluate_script":continue
+        for d in docs(out.get("output")):
+            u=url(d.get("url"))
+            event=out["event"]
+            did=sid(d.get("url"))
+            if did and d.get("btnVisible") is True and isinstance(d.get("fieldsetText"),str) and d["fieldsetText"] and sid(d.get("downloadHref"))==did:
+                details.setdefault(did,[]).append(event)
+            if d.get("clicked") is True:
+                cid=sid(d.get("pageUrl"))
+                if cid and str(d.get("id"))==cid and sid(d.get("href"))==cid and "downloaderChecked" in d and d["downloaderChecked"] in (False,None):
+                    clicks.append((cid,event))
+            if not u:continue
+            heading=str(d.get("heading",""))
+            if not re.search(r"(?:^|/)sublanguageid-eng(?:/|$)",u.path) or not re.search(r"\benglish\b",heading,re.I):continue
+            total=d.get("total_english"); rows=d.get("rows"); nxt=d.get("has_next")
+            if type(nxt) is not bool or not isinstance(rows,list) or not rows:continue
+            found={sid(x.get("href")) for x in rows if isinstance(x,dict) and lang_en(x.get("lang"))}-{""}
+            if len(found)!=len(rows):continue
+            key=re.sub(r"/offset-\d+","",u.path)
+            g=groups.setdefault(key,{"ids":set(),"totals":set(),"last":False,"events":[],"bad_count":False,"release_groups":{},"release_labels":{},"pagination_reports":[]})
+            g["ids"].update(found);g["last"]|=not nxt;g["events"].append(event);g["pagination_reports"].append({"event":event,"has_next":nxt,"next_href":d.get("next_href")})
             for row in rows:
-                if isinstance(row,dict) and sid(row.get("href")) in ids and isinstance(row.get("release_group"),str) and row["release_group"].strip().casefold() not in ("","unknown","null"):
-                    group_map[sid(row.get("href"))]=row["release_group"].strip().casefold()
-            title=x.get("page_title")
-            m=re.search(r"\bEnglish\s*\|\s*(\d+)\s+subtitles?\s*$",title,re.I) if isinstance(title,str) else None
-            # Reason codes refer to the original gate, not claims of a new verified result.
-            total=x.get("total_english")
-            issues=[]
-            if not m:issues.append("TITLE_PATTERN_MISSING")
-            if m and (type(total) is not int or int(m[1])!=total):issues.append("TOTAL_MISMATCH")
-            if x.get("count_scope")!="filtered_results":issues.append("SCOPE_MISSING")
-            if x.get("count_label")!=title:issues.append("LABEL_MISMATCH")
-            if type(total) is not int or not 0<total<=500:issues.append("COUNT_INVALID")
-            if len(ids)!=len(rows):issues.append("ROWS_INVALID")
-            if x.get("has_next") is not False:issues.append("PAGINATION_NOT_TERMINAL")
-            if type(total) is int and total!=len(ids):issues.append("COUNT_NOT_EQUAL_ROWS")
-            lists.append({"event":o.get("event"),"row_count":len(rows),"english_ids":len(ids),"title_count":int(m[1]) if m else None,"total_english":total,"issues":issues})
-    issue_set={i for x in lists for i in x["issues"]}
-    n=lists[0]["english_ids"] if len(lists)==1 else 0
-    distinct=len(set(group_map.values()))
-    verified_groups=len({group_map[x] for x in strict_ids if x in group_map})
-    save("BRAIN_BT22_DIAG.json",{"schema":"BT22_V13_EVIDENCE_DIAG_V1","source":source,"list_events":lists,"actual_detail_ids":sorted(detail_ids),"strict_detail_ids":sorted(strict_ids),"release_groups":group_map,"clicks":clicks,"original_gate":r["filter_gate"],"limitations":"Retained output only; no new provider calls. Cannot infer unseen rows or completeness."})
-    flags="".join(str(int(x in issue_set)) for x in ("TITLE_PATTERN_MISSING","TOTAL_MISMATCH","SCOPE_MISSING","LABEL_MISMATCH","COUNT_INVALID","ROWS_INVALID","PAGINATION_NOT_TERMINAL","COUNT_NOT_EQUAL_ROWS"))
-    return f"L{len(lists)}N{n}D{len(detail_ids)}V{len(strict_ids)}G{distinct}Q{verified_groups}F{flags}"
+                if isinstance(row,dict) and isinstance(row.get("release"),str) and row["release"].strip().casefold() not in ("","unknown","null"):
+                    g["release_labels"][sid(row.get("href"))]=" ".join(row["release"].casefold().split())
+                if isinstance(row,dict) and isinstance(row.get("release_group"),str) and row["release_group"].strip().casefold() not in ("","unknown","null"):
+                    g["release_groups"][sid(row.get("href"))]=row["release_group"].strip().casefold()
+            page_title=d.get("page_title")
+            match=re.search(r"\bEnglish\s*\|\s*(\d+)\s+subtitles?\s*$",page_title,re.I) if isinstance(page_title,str) else None
+            if type(total) is int and 0<total<=500 and match and int(match[1])==total and d.get("count_scope")=="filtered_results" and d.get("count_label")==page_title:g["totals"].add(total)
+            else:g["bad_count"]=True
+    count_matched=[g for g in groups.values() if not g["bad_count"] and g["totals"]=={len(g["ids"])}]
+    complete=[g for g in count_matched if g["last"]]
+    count_ok=len(count_matched)==1
+    list_ok=len(complete)==1
+    chosen="";click_ok=False;compared_groups=0;compared_details=0;compared_labels=0;missing_group=0
+    if len(clicks)==1:
+        chosen,event=clicks[0]
+        matching=[g for g in groups.values() if chosen in g["ids"] and any(max(g["events"])<x<event for x in details.get(chosen,[]))]
+        click_ok=len(matching)==1
+        if click_ok:
+            group=matching[0]
+            eligible={candidate for candidate,events in details.items() if candidate in group["ids"] and any(max(group["events"])<x<event for x in events)}
+            compared_details=len(eligible)
+            compared_groups=len({group["release_groups"][candidate] for candidate in eligible if candidate in group["release_groups"]})
+            compared_labels=len({group["release_labels"][candidate] for candidate in eligible if candidate in group["release_labels"]})
+            missing_group=len(eligible-set(group["release_groups"]))
+    ids={sid(x) for x in artifacts[0].get("candidate_refs",[])}-{""} if len(artifacts)==1 and artifacts[0].get("copied_to_job") is True else set()
+    download_ok=bool(click_ok and ids=={chosen})
+    return {"accepted":bool(list_ok and click_ok and download_ok),"reason":"ENGLISH_LIST_AND_DOWNLOAD_BOUND" if list_ok and download_ok else "DOWNLOAD_BOUND_LIST_COVERAGE_HOLD" if download_ok else "DOWNLOAD_UNVERIFIED" if click_ok else "CLICK_UNBOUND" if list_ok else "LIST_COVERAGE_UNVERIFIED","english_list_verified":list_ok,"scoped_count_matches_unique_rows":count_ok,"pagination_terminal_verified":list_ok,"english_candidates":len(complete[0]["ids"]) if list_ok else 0,"english_rows_observed":len(next(iter(groups.values()))["ids"]) if len(groups)==1 else 0,"ordinary_click_bound":click_ok,"download_verified":download_ok,"detail_candidates":len(details),"distinct_release_groups_compared":compared_groups,"candidate_details_compared_before_click":compared_details,"distinct_observed_release_labels_compared":compared_labels,"compared_candidates_missing_group":missing_group,"release_compatibility_verified":False}
+def qa():
+    global phase
+    phase="REPORT"
+    source="5c01bbd07d767c2b69339ad0eaea79034bb040da"
+    p=root/"bt20-hydrogen-opensubtitles-cae5bf1fc2a24c61a862999da0bc2e69"
+    r=obj(p/"BRAIN_TEACHER_REPORT.json")
+    assert r["source_commit"]==source and len(srt(p,r,source))==2398
+    old=r["filter_gate"]
+    phase="REPLAY"
+    result=filter_gate(r["tool_outcomes"],r["artifacts"])
+    assert old["download_verified"] is True and old["english_list_verified"] is False
+    assert result["download_verified"] is True and result["scoped_count_matches_unique_rows"] is True
+    assert result["candidate_details_compared_before_click"]==2
+    assert result["english_list_verified"] is False
+    phase="REGRESSION"
+    def out(event,data):return {"event":event,"tool":"evaluate_script","output":data}
+    title="Fixture subtitles English | 2 subtitles"
+    row={"url":"https://www.opensubtitles.org/en/search/sublanguageid-eng/moviename-fixture","heading":"Fixture English","page_title":title,"total_english":2,"count_scope":"filtered_results","count_label":title,"has_next":False,"next_href":None,"rows":[{"href":"/en/subtitles/111/fixture-en","lang":"flag en","release":"fixture release alpha","release_group":"alpha"},{"href":"/en/subtitles/222/fixture-en","lang":"english","release":"fixture release beta","release_group":"beta"}]}
+    def detail(n):return {"url":f"https://www.opensubtitles.org/en/subtitles/{n}/fixture-en","btnVisible":True,"fieldsetText":"Visible ordinary download","downloadHref":f"/en/subtitleserve/sub/{n}"}
+    click={"clicked":True,"pageUrl":"https://www.opensubtitles.org/en/subtitles/111/fixture-en","id":"111","href":"/en/subtitleserve/sub/111","downloaderChecked":False}
+    artifact=[{"copied_to_job":True,"candidate_refs":["/en/download/sub/111"]}]
+    def test(rows=row,art=artifact,clicked=click):
+        return filter_gate([out(1,rows),out(2,detail(222)),out(3,detail(111)),out(4,clicked)],art)
+    checks={
+        "complete":test()["accepted"] and test()["candidate_details_compared_before_click"]==2 and test()["distinct_release_groups_compared"]==2,
+        "pagination_conflict":not test(dict(row,has_next=True))["accepted"] and test(dict(row,has_next=True))["scoped_count_matches_unique_rows"] and test(dict(row,has_next=True))["download_verified"],
+        "bad_count":not test(dict(row,total_english=9999999))["scoped_count_matches_unique_rows"],
+        "no_artifact":not test(art=[])["download_verified"],
+        "wrong_artifact":not test(art=[{"copied_to_job":True,"candidate_refs":["/en/download/sub/222"]}])["download_verified"],
+        "wrong_click":not test(clicked=dict(click,id="222"))["ordinary_click_bound"],
+        "missing_group":test(dict(row,rows=[dict(row["rows"][0],release_group="unknown"),row["rows"][1]]))["candidate_details_compared_before_click"]==2 and test(dict(row,rows=[dict(row["rows"][0],release_group="unknown"),row["rows"][1]]))["compared_candidates_missing_group"]==1
+    }
+    save("BRAIN_BT23_REPLAY.json",{"schema":"BT23_V13_1_REPLAY_V1","source":source,"before":old,"after":result,"checks":checks,"limitations":"Count matching does not prove terminal pagination. Distinct detail IDs or observed release labels do not prove distinct release groups or absolute quality. No provider calls."})
+    assert all(checks.values())
+    return f"T{sum(checks.values())}C{int(result['scoped_count_matches_unique_rows'])}E{int(result['english_list_verified'])}B{int(result['ordinary_click_bound'])}D{result['candidate_details_compared_before_click']}L{result['distinct_observed_release_labels_compared']}Q{result['distinct_release_groups_compared']}U{result['compared_candidates_missing_group']}"
 try:
     result=qa()
 except Exception as e:
-    save("BT22-error-type.json",{"type":type(e).__name__,"phase":phase})
+    save("BT23-error-type.json",{"type":type(e).__name__,"phase":phase})
     result="HOLD_"+phase+"_ERROR"
-print("BT22_"+result)
+print("BT23_"+result)
 
 '@
 $f=Join-Path $run 'compare.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
 $out=@(& py -3 -I -B $f $root $spool $run 2> (Join-Path $run 'stderr.txt'))
-$code='BT22_HOLD_READOUT_ERROR'
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT22_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
+$code='BT23_HOLD_READOUT_ERROR'
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT23_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
