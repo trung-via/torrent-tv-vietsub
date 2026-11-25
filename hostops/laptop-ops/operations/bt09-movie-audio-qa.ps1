@@ -1,11 +1,11 @@
-# BT14: second fixture, four verified EN artifacts, local audio ASR and timeline; no production changes.
+# BT19: targeted audio adjudication of retained Teacher/Student differences; no provider calls.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt14-movie-audio-qa-'+$rq.nonce)
+$run=Join-Path $root ('bt19-targeted-audio-qa-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import sys,pathlib,json,re,hashlib,zipfile,html,collections,difflib,statistics
@@ -76,17 +76,30 @@ def words(x):
 def main():
     global phase
     phase="ARTIFACTS"
-    jobs=[("N_CAT",root/"bt11-neon-subtitlecat-bac0f7270b3545b5bbeac15077d360d6","912b18ec6eaccc4f25f01b395e35d38de18827db"),("H_CAT",root/"bt13-hydrogen-subtitlecat-0c90d38da33546c3b75d09388e931c3c","ffdd575ddc553266eb56f91fa737972ae444f9ef"),("N_OS",root/"bt11-neon-opensubtitles-d3132c2bbc0c442a8bb1e12950ab1ed2","d4ade6fda6045597267e61f9439bf3635aef2b19"),("H_OS",root/"bt13-hydrogen-opensubtitles-33484d646cf74faf965928618371c0ed","5a59d0deb53894f94046dc74cbfd86e446c1b6e4")]
+    jobs=[("TEACHER",root/"bt11-neon-opensubtitles-d3132c2bbc0c442a8bb1e12950ab1ed2","d4ade6fda6045597267e61f9439bf3635aef2b19"),("STUDENT",root/"bt18-hydrogen-opensubtitles-25e73e80cfce49728e4f6c1402e6cefb","ad010d992cd69cec1dc28185d538392efe8e04fe")]
     def normalized(x):return re.sub(r"[^a-z0-9]","",str(x).casefold())
     target="0c57a7ebb1d8c09b29b6642d48af57701ca4479e6d6d9f63fa8ae3c26a615b5e"
-    src={}
+    src={};artifact_hashes={}
     for k,d,source in jobs:
         r=obj(d/"BRAIN_TEACHER_REPORT.json")
         assert hashlib.sha256(normalized(r["video_input"]["release"]).encode()).hexdigest()==target
         assert r["video_input"]["fps"]==24 and abs(r["video_input"]["duration"]-6705)<2
         src[k]=srt(d,r,source)
-    assert [len(x) for x in src.values()]==[2399,2399,2398,2398]
-    identical={k:src[a]==src[b] for k,a,b in (("CAT","N_CAT","H_CAT"),("OS","N_OS","H_OS"))}
+        artifact_hashes[k]=next(x["sha256"] for x in r["artifacts"] if x.get("copied_to_job") and x.get("cues",0)>0)
+    assert [len(src[k]) for k in ("TEACHER","STUDENT")]==[2398,2394]
+    def flatten(rows):return [(w,i) for i,x in enumerate(rows) for w in x[2].split()]
+    aa=flatten(src["TEACHER"]);bb=flatten(src["STUDENT"])
+    assert [len(aa),len(bb)]==[17063,17025]
+    changes=[];joined=0
+    for tag,i,j,k,l in difflib.SequenceMatcher(None,[x[0] for x in aa],[x[0] for x in bb],autojunk=False).get_opcodes():
+        if tag=="equal":continue
+        old=[x[0] for x in aa[i:j]];new=[x[0] for x in bb[k:l]]
+        if "".join(old)=="".join(new):joined+=1;continue
+        assert tag=="delete" and old and not new
+        rows=src["TEACHER"]
+        changes.append({"start_ms":rows[aa[i][1]][0],"end_ms":rows[aa[j-1][1]][1],"teacher_words":old,"student_words":new})
+    assert joined==5 and [len(x["teacher_words"]) for x in changes]==[5,7,4,13,4]
+    (run/"BRAIN_BT19_PLAN.json").write_text(json.dumps({"artifact_hashes":artifact_hashes,"joined_only":joined,"changes":changes},indent=2),encoding="utf-8")
     phase="FIXTURE"
     owner=root.parent/"OwnerBridge"
     sys.path.insert(0,str(owner/"app/poc/p2-sub-discovery"))
@@ -140,32 +153,14 @@ def main():
     assert fixture["schema"]=="BT10_HUMAN_FIXTURE_V1" and fixture["selection_fingerprint"]==target and fixture["exact_file_verified"] is True
     assert fixture["hash"]==tor and fixture["file_index"]==idx and fixture["filename"]==name and fixture["size_bytes"]==actual.length and abs(fixture["duration_seconds"]-duration)<1
     assert any(x["index"]==ai and str(x["language"]).lower() in ("en","eng","english") for x in fixture["audio_tracks"])
-    phase="SAMPLE"
-    samples=[]
-    extraction=[]
-    for j,pct in enumerate((.10,.30,.50,.70,.90)):
-        start=max(0,round(duration*pct-18))
-        pcm=run/f"audio-{j}.pcm"
-        out=run/f"audio-{j}.wav"
-        began=time.monotonic()
-        # Raw PCM cannot carry the unfinished RIFF header seen after a killed FFmpeg.
-        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t","36","-ar","16000","-ac","1","-c:a","pcm_s16le","-f","s16le","-n",str(pcm)],f"extract-{j}",120)
-        n=pcm.stat().st_size if pcm.is_file() else 0
-        err=(run/f"extract-{j}.err").read_text(encoding="utf-8",errors="replace")[:200000].lower()
-        kind="OK" if rc==0 and 34*32000<=n<=37*32000 and n%2==0 else "TIMEOUT" if rc==-99 or re.search(r"timed? ?out|timeout|10060",err) else "SEEK" if re.search(r"seek|range|partial file",err) else "MEDIA" if re.search(r"invalid data|ebml|matroska",err) else "IO" if re.search(r"http error|server returned|connection|input/output error|i/o error",err) else "SHORT" if rc==0 else "OTHER"
-        extraction.append({"sample":j,"rc":rc,"pcm_bytes":n,"seconds":round(n/32000,3),"wall_seconds":round(time.monotonic()-began,3),"classification":kind})
-        (run/"BRAIN_EXTRACTION_QA.json").write_text(json.dumps(extraction,indent=2),encoding="utf-8")
-        if kind!="OK":continue
-        with wave.open(str(out),"wb") as w:
-            w.setnchannels(1);w.setsampwidth(2);w.setframerate(16000);w.writeframes(pcm.read_bytes())
-        samples.append((j,start,out))
     phase="ASR_SETUP"
     tools=root/"BT09ASRPortable"
-    tools.mkdir(exist_ok=True)
     archive=tools/"whisper-bin-x64-b5454.zip"
-    fetch("https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip",archive,8928640,"sha256","6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb",90)
-    bindir=run/"whisper-b5454"
-    bindir.mkdir()
+    assert archive.is_file() and archive.stat().st_size==8928640 and digest(archive,"sha256")=="6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb"
+    model=tools/"ggml-large-v3-turbo-q5_0.bin"
+    expected="e050f7970618a659205450ad97eb95a18d69c9ee"
+    if not (model.is_file() and 0<model.stat().st_size<650000000 and digest(model,"sha1")==expected):h("PINNED_MODEL_UNAVAILABLE")
+    bindir=run/"whisper-b5454";bindir.mkdir()
     with zipfile.ZipFile(archive) as z:
         infos=z.infolist()
         assert len(infos)<2000 and sum(v.file_size for v in infos)<150000000
@@ -173,92 +168,72 @@ def main():
             p=pathlib.PurePosixPath(v.filename.replace("\\","/"))
             assert not p.is_absolute() and ".." not in p.parts and ":" not in v.filename
             if v.is_dir():continue
-            dest=bindir.joinpath(*p.parts)
-            dest.parent.mkdir(parents=True,exist_ok=True)
+            dest=bindir.joinpath(*p.parts);dest.parent.mkdir(parents=True,exist_ok=True)
             with z.open(v) as f,dest.open("xb") as g:shutil.copyfileobj(f,g)
     cli=list(bindir.rglob("whisper-cli.exe"))
     if len(cli)!=1:h("ASR_CLI_MISSING")
-    model=tools/"ggml-small.en.bin"
-    # Upstream lists SHA-1; size is checked against the pinned upstream blob.
-    expected="db8a495a91d927739e50b3fc1cc4c6b8f6c2d022"
-    if not (model.is_file() and digest(model,"sha1")==expected):
-        temp=model.with_suffix(".bin.part")
-        end=time.monotonic()+300
-        with urllib.request.urlopen("https://huggingface.co/ggerganov/whisper.cpp/resolve/fb5ed9369c26eaf08392504d8446da431e0fffb9/ggml-small.en.bin",timeout=30) as f,temp.open("wb") as g:
-            total=0
-            for block in iter(lambda:f.read(1048576),b""):
-                total+=len(block)
-                if total>500000000 or time.monotonic()>end:h("MODEL_DOWNLOAD_BOUND")
-                g.write(block)
-        if digest(temp,"sha1")!=expected:h("MODEL_HASH")
-        os.replace(temp,model)
-    phase="ASR"
-    scores={k:[] for k in src}; successful=0
-    anchors={k:[] for k in src}
-    for j,start,audio in samples:
+    phase="TARGETED_ASR"
+    results=[]
+    def save():
+        out={"schema":"BT19_TARGETED_ASR_QA_V1","fixture_nonce":prior[0],"artifact_hashes":artifact_hashes,"model_sha1":expected,"runtime_sha256":digest(archive,"sha256"),"joined_only":joined,"target_count":len(changes),"regions":results,"limits":"ASR-only corroboration, exact phrase plus time overlap is evidence, not human ground truth. Missing ASR phrase does not prove absence. No provider calls or model downloads."}
+        (run/"BRAIN_BT19_QA.json").write_text(json.dumps(out,indent=2),encoding="utf-8")
+    for j,gap in enumerate(changes):
+        lo,hi=gap["start_ms"],gap["end_ms"]
+        start=max(0,math.floor(lo/1000)-8)
+        end=min(math.floor(duration),math.ceil(hi/1000)+8)
+        length=end-start
+        assert 16<=length<=24
+        pcm=run/f"audio-{j}.pcm";audio=run/f"audio-{j}.wav"
+        rec={"sample":j,"window_start_seconds":start,"window_seconds":length,"gap":gap,"extraction_ok":False,"asr_ok":False,"classification":"UNRESOLVED"}
+        results.append(rec)
+        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t",str(length),"-ar","16000","-ac","1","-c:a","pcm_s16le","-f","s16le","-n",str(pcm)],f"extract-{j}",120)
+        n=pcm.stat().st_size if pcm.is_file() else 0
+        rec["extraction_rc"]=rc;rec["pcm_bytes"]=n
+        if rc!=0 or n%2 or not (length-1)*32000<=n<=(length+1)*32000:save();continue
+        with wave.open(str(audio),"wb") as w:
+            w.setnchannels(1);w.setsampwidth(2);w.setframerate(16000);w.writeframes(pcm.read_bytes())
+        rec["extraction_ok"]=True
         dest=run/f"asr-{j}"
-        rc=cmd([str(cli[0]),"-m",str(model),"-f",str(audio),"-l","en","-t","6","-oj","-of",str(dest),"-np"],f"asr-process-{j}",75)
-        if rc!=0 or not dest.with_suffix(".json").is_file():continue
-        data=obj(dest.with_suffix(".json"))
+        rc=cmd([str(cli[0]),"-m",str(model),"-f",str(audio),"-l","en","-t","8","-oj","-of",str(dest),"-np"],f"asr-process-{j}",140)
+        rec["asr_rc"]=rc
+        if rc!=0 or not dest.with_suffix(".json").is_file():save();continue
         segs=[]
-        for seg in data.get("transcription",[]):
+        for seg in obj(dest.with_suffix(".json")).get("transcription",[]):
             o=seg.get("offsets",{})
-            if not isinstance(o.get("from"),(float,int)) or not isinstance(o.get("to"),(float,int)):continue
-            lo,hi=round(o["from"]),round(o["to"])
-            if lo<1000 or hi>35000:continue
+            if type(o.get("from")) not in (float,int) or type(o.get("to")) not in (float,int):continue
+            a,b=start*1000+round(o["from"]),start*1000+round(o["to"])
             toks=words(seg.get("text",""))
-            if toks:segs.append((start*1000+lo,start*1000+hi,toks))
-        if sum(len(v[2]) for v in segs)<12:continue
-        successful+=1
-        for k,rows in src.items():
-            # Compare text in the same audio interval; segment-midpoint timing is an estimate, not word alignment.
-            aw=[w for x in segs for w in x[2]]
-            lo,hi=segs[0][0],segs[-1][1]
-            subset=[x for x in rows if lo-500<((x[0]+x[1])/2)<hi+500]
-            sw=[w for x in subset for w in x[2].split()]
-            match=sum(x.size for x in difflib.SequenceMatcher(None,aw,sw,autojunk=False).get_matching_blocks())
-            scores[k].append({"sample":j,"asr_words":len(aw),"srt_words":len(sw),"matched":match,"asr_coverage":round(1000*match/len(aw)),"srt_agreement":round(1000*match/max(1,len(sw)))})
-            # Exact full phrase anchors, unique within +/-5s; approximate segment boundary only.
-            for a,b,toks in segs:
-                if len(toks)<4:continue
-                near=[x for x in rows if x[1]>=a-5000 and x[0]<=b+5000]
-                hits=[]
-                for u in range(len(near)):
-                    seq=[]
-                    for v in range(u,min(u+5,len(near))):
-                        seq.extend(near[v][2].split())
-                        if len(seq)>len(toks) or seq!=toks[:len(seq)]:break
-                        if seq==toks:
-                            hits.append((near[u][0]-a,near[v][1]-b));break
-                if len(hits)==1:anchors[k].append({"sample":j,"start_delta_ms":hits[0][0],"end_delta_ms":hits[0][1]})
+            if a>=start*1000 and a<b<=end*1000+1000 and toks:segs.append((a,b,toks))
+        if not segs:save();continue
+        rec["asr_ok"]=True;rec["asr_segments"]=segs
+        # Entire ordered phrase must occur exactly once and overlap the original cue window.
+        observed=[(w,a,b) for a,b,ws in segs for w in ws]
+        wanted=gap["teacher_words"]
+        exact=[]
+        for i in range(len(observed)-len(wanted)+1):
+            block=observed[i:i+len(wanted)]
+            if [x[0] for x in block]!=wanted:continue
+            a,b=block[0][1],block[-1][2]
+            if a<=hi+1500 and b>=lo-1500 and b-a<=max(15000,hi-lo+10000):exact.append((a,b))
+        nearby=[w for w,a,b in observed if a<=hi+1500 and b>=lo-1500]
+        match=sum(x.size for x in difflib.SequenceMatcher(None,wanted,nearby,autojunk=False).get_matching_blocks())
+        rec["exact_hits"]=exact;rec["matched_words"]=match;rec["target_words"]=len(wanted)
+        rec["classification"]="ASR_CORROBORATED" if len(exact)==1 else "PARTIAL" if match>=max(2,math.ceil(.6*len(wanted))) else "UNRESOLVED"
+        save()
+    c=collections.Counter(x["classification"] for x in results)
+    print(f"BT19_W{len(changes)}_E{sum(x['extraction_ok'] for x in results)}_A{sum(x['asr_ok'] for x in results)}_C{c['ASR_CORROBORATED']}_P{c['PARTIAL']}_U{c['UNRESOLVED']}")
 
-    def metric(vals):
-        if not vals:return None
-        ab=sorted(abs(x) for x in vals)
-        return {"count":len(vals),"median_signed_ms":round(statistics.median(vals)),"median_abs_ms":round(statistics.median(ab)),"p95_abs_ms":ab[math.ceil(.95*len(ab))-1]}
-    timeline={}
-    for k,values in anchors.items():
-        groups={j:metric([x["start_delta_ms"] for x in values if x["sample"]==j]) for j in set(x["sample"] for x in values)}
-        med=[v["median_signed_ms"] for v in groups.values()]
-        timeline[k]={"onset":metric([x["start_delta_ms"] for x in values]),"offset":metric([x["end_delta_ms"] for x in values]),"regions":groups,"sample_median_range_ms":max(med)-min(med) if len(med)>1 else None}
-    summary={"schema":"BT14_AUDIO_QA_V1","duration_seconds":duration,"audio_index":ai,"sample_count":len(samples),"speech_sample_count":successful,"fixture_nonce":prior[0],"extraction":extraction,"scores":scores,"anchors":anchors,"timeline":timeline,"normalized_srt_equal":identical,"method":"ASR lexical agreement and unique exact phrase anchors, approximate segment boundary; not certified ground truth","model_sha1":expected,"runtime_sha256":digest(archive,"sha256")}
-    (run/"BRAIN_AUDIO_QA.json").write_text(json.dumps(summary,indent=2),encoding="utf-8")
-    if not successful:h("NO_SPEECH_SAMPLE")
-    def agg(k):
-        x=scores[k]
-        return round(1000*sum(y["matched"] for y in x)/sum(y["asr_words"] for y in x))
-    print(f"BT14_S{len(samples)}_V{successful}_NC{agg('N_CAT')}_HC{agg('H_CAT')}_NO{agg('N_OS')}_HO{agg('H_OS')}_I{int(identical['CAT'])}{int(identical['OS'])}_"+ "".join({"OK":"O","TIMEOUT":"T","SEEK":"S","MEDIA":"M","IO":"I","SHORT":"H","OTHER":"X"}[x["classification"]] for x in extraction))
 try:main()
-except Halt as e:print("BT14_HOLD_"+str(e))
+except Halt as e:print("BT19_HOLD_"+str(e))
 except Exception as e:
     (run/"private-error-type.txt").write_text(type(e).__name__+" "+phase,encoding="utf-8")
-    print("BT14_HOLD_"+phase+"_ERROR")
+    print("BT19_HOLD_"+phase+"_ERROR")
 '@
 $f=Join-Path $run 'compare.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
 $out=@(& py -3 -I -B $f $root $spool $run 2> (Join-Path $run 'stderr.txt'))
-$code='BT14_HOLD_READOUT_ERROR'
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT14_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
+$code='BT19_HOLD_READOUT_ERROR'
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT19_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
