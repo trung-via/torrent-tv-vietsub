@@ -1,11 +1,11 @@
-# BT10H: Human-selected exact release preflight, no provider or production call.
+# BT24H: newly Human-selected exact release preflight, track inventory only; no provider or production call.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt10-human-fixture-preflight-'+$rq.nonce)
+$run=Join-Path $root ('bt24-human-fixture-preflight-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import sys,pathlib,json,re,hashlib,zipfile,html,collections,difflib,statistics
@@ -25,7 +25,7 @@ def main():
     cfg=OwnerLocalTorrServer(policy["profile_id"],policy["torrserver_port"])
     listing=json.loads(_local_post(cfg.url,b'{"action":"list"}',6.0))
     assert isinstance(listing,list) and len(listing)<=256
-    target="0c57a7ebb1d8c09b29b6642d48af57701ca4479e6d6d9f63fa8ae3c26a615b5e"
+    target="7f9ecde8125748e03a53989a4b2651bf5290849339dfd1fdf9b5d3fbe8914038"
     def matches(x):
         x=pathlib.PurePosixPath(str(x).replace("\\","/")).name
         if re.search(r"\.(mkv|mp4|avi|m4v|ts|m2ts)$",x,re.I):x=pathlib.PurePosixPath(x).stem
@@ -48,11 +48,11 @@ def main():
             if not (matches(name) or matches(v.get("title",""))):continue
             if type(x.get("length")) is int and x["length"]>100000000:found[(tor,idx)]=(name,x["length"])
     if len(found)!=1:
-        print(f"BT10H_HOLD_MATCHES{min(len(found),999)}");return
+        print(f"BT24H_HOLD_MATCHES{min(len(found),999)}");return
     phase="EXACT_FILE"
     (tor,idx),(name,size)=next(iter(found.items()))
     actual=OwnerTorrServerReader(cfg)(cfg.profile_id,tor,idx)
-    assert actual.path.replace("\\","/").rsplit("/",1)[-1]==name
+    assert actual.path.replace("\\","/").rsplit("/",1)[-1]==name and actual.length==size
     phase="PROBE"
     doc={};kind="NONE"
     try:
@@ -77,6 +77,8 @@ def main():
     aud=[x for x in streams if isinstance(x,dict) and x.get("codec_type")=="audio"]
     vids=[x for x in streams if isinstance(x,dict) and x.get("codec_type")=="video"]
     en=[x for x in aud if str(x.get("tags",{}).get("language","")).lower() in ("en","eng","english")]
+    subs=[x for x in streams if isinstance(x,dict) and x.get("codec_type")=="subtitle"]
+    en_subs=[x for x in subs if str(x.get("tags",{}).get("language","")).lower() in ("en","eng","english")]
     try:dur=float(doc.get("format",{}).get("duration",0))
     except (ValueError,TypeError):dur=0
     if not math.isfinite(dur) or not 0<dur<14400:dur=0
@@ -87,19 +89,19 @@ def main():
             fps=float(Fraction(vids[0].get("avg_frame_rate","0/1")))
             if not math.isfinite(fps) or not 0<fps<240:fps=0
         except (ValueError,ZeroDivisionError,TypeError):fps=0
-    report={"schema":"BT10_HUMAN_FIXTURE_V1","selection_fingerprint":target,"source":"HUMAN_SELECTED_CURRENT_BENCHMARK","exact_file_verified":True,"hash":tor,"file_index":idx,"filename":name,"size_bytes":size,"probe":kind,"duration_seconds":dur,"fps":fps,"audio_tracks":[{"index":x.get("index"),"language":x.get("tags",{}).get("language"),"default":x.get("disposition",{}).get("default")} for x in aud],"english_track_count":len(en),"note":"Private binding only; revalidate before provider. No subtitle lookup, translation or TV operation."}
+    report={"schema":"BT10_HUMAN_FIXTURE_V1","selection_fingerprint":target,"source":"HUMAN_SELECTED_CURRENT_BENCHMARK","exact_file_verified":True,"hash":tor,"file_index":idx,"filename":name,"size_bytes":size,"probe":kind,"duration_seconds":dur,"fps":fps,"audio_tracks":[{"index":x.get("index"),"language":x.get("tags",{}).get("language"),"default":x.get("disposition",{}).get("default")} for x in aud],"english_track_count":len(en),"subtitle_tracks":[{"index":x.get("index"),"codec":x.get("codec_name"),"language":x.get("tags",{}).get("language"),"default":x.get("disposition",{}).get("default"),"forced":x.get("disposition",{}).get("forced")} for x in subs],"english_subtitle_count":len(en_subs),"note":"Private binding only; revalidate before provider. No subtitle lookup, translation or TV operation."}
     (run/"BRAIN_HUMAN_FIXTURE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
-    print(f"BT10H_T1_P{int(kind!='NONE')}_V{len(vids)}_A{len(aud)}_E{len(en)}_D{round(dur)}_F{round(fps*1000)}")
+    print(f"BT24H_T1_P{int(kind!='NONE')}_V{len(vids)}_A{len(aud)}_E{len(en)}_D{round(dur)}_F{round(fps*1000)}_S{len(subs)}_N{len(en_subs)}")
 try:main()
 except Exception as e:
     (run/"private-error-type.txt").write_text(type(e).__name__+" "+phase,encoding="utf-8")
-    print("BT10H_HOLD_"+phase+"_ERROR")
+    print("BT24H_HOLD_"+phase+"_ERROR")
 '@
 $f=Join-Path $run 'compare.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
 $out=@(& py -3 -I -B $f $root $spool $run 2> (Join-Path $run 'stderr.txt'))
-$code='BT10H_HOLD_READOUT_ERROR'
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT10H_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
+$code='BT24H_HOLD_READOUT_ERROR'
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT24H_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
