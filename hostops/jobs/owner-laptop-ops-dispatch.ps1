@@ -386,6 +386,9 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         if($v.schema -cne 'TTV-RB02-API-OWNER-V1' -or $v.nonce -cne $nonce -or $v.source_commit -cne $commit -or $v.original_source -cne 'ad010d992cd69cec1dc28185d538392efe8e04fe' -or $v.original_nonce -cne '25e73e80cfce49728e4f6c1402e6cefb' -or $v.state -cnotin @('HOLD','API_UPLOAD_VERIFIED') -or $v.reason -cnotmatch '^[A-Z0-9_]{3,80}$' -or $v.tests -cnotin @('NOT_RUN','PASS','FAIL') -or $v.desktop_before -lt 0 -or $v.desktop_after -lt 0){throw 'RB_API_RECEIPT_BINDING'}
         if($v.state -ceq 'API_UPLOAD_VERIFIED'){
             if($v.tests -cne 'PASS' -or $v.reason -cne 'NONE' -or $v.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $v.file_count -lt 6 -or $v.file_count -gt 100 -or $v.bytes -le 0 -or $v.bytes -gt 5242880){throw 'RB_API_RECEIPT_RESULT'}
+            if($v.probe_sha256 -cnotmatch '^[a-f0-9]{64}$' -or $v.desktop_before -ne 0 -or $v.desktop_after -ne 0){throw 'RB_API_DESKTOP_OFF_PROOF_INVALID'}
+            Write-Output ('RB_API_PROBE_NONCE='+$nonce)
+            Write-Output ('RB_API_PROBE_SHA256='+$v.probe_sha256)
             Write-Output ('RB_API_ZIP_SHA256='+$v.sha256)
             Write-Output ('RB_API_FILE_COUNT='+[int]$v.file_count)
             Write-Output ('RB_API_ZIP_BYTES='+[long]$v.bytes)
