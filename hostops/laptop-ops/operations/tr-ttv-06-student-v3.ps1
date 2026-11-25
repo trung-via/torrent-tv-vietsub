@@ -10,7 +10,7 @@ $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $env:TTV_READOUT_NONCE=[string]$rq.nonce
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt16-'+$(if($ReplayBT04){'replay'}else{'hydrogen-opensubtitles'})+'-'+$rq.nonce)
+$run=Join-Path $root ('bt18-'+$(if($ReplayBT04){'replay'}else{'hydrogen-opensubtitles'})+'-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $reportWriter=@'
 import json,pathlib,sys,os,re,hashlib
@@ -360,13 +360,13 @@ def probe():
         r=read(f)
         if r.get("source_commit")==preflight_source and r.get("result")=="SUCCESS" and re.fullmatch("[a-f0-9]{32}",str(r.get("nonce",""))):
             preflight.append(r["nonce"])
-    if len(preflight)!=1:return "BT16_HOLD_PREFLIGHT_RECEIPT"
+    if len(preflight)!=1:return "BT18_HOLD_PREFLIGHT_RECEIPT"
     fixture=read(run.parent/("bt10-human-fixture-preflight-"+preflight[0])/"BRAIN_HUMAN_FIXTURE.json")
     if not (fixture.get("schema")=="BT10_HUMAN_FIXTURE_V1" and fixture.get("selection_fingerprint")==target and fixture.get("exact_file_verified") is True and fixture.get("hash")==tor and fixture.get("file_index")==idx and fixture.get("filename")==name and fixture.get("size_bytes")==actual.length and fixture.get("english_track_count",0)>=1 and 600<fixture.get("duration_seconds",0)<14400 and 0<fixture.get("fps",0)<240):
-        return "BT16_HOLD_FIXTURE_DRIFT"
+        return "BT18_HOLD_FIXTURE_DRIFT"
     video_input={"title":title,"year":int(m.group()),"release":release,"release_origin":"TORRSERVER_VERIFIED","size_bytes":actual.length,"fps":fixture["fps"],"duration":fixture["duration_seconds"],"duration_unit":"seconds","audio_language":"English (track metadata verified)"}
     write(run/"verified-fixture.json",video_input)
-    prompt="You are Hydrogen Low, Student Recipe V11, independently finding the English subtitle for the exact TorrServer release given below on OpenSubtitles.org via authorized ttv-browser MCP Chrome CDP 9555. No Teacher candidate IDs, answers or download links are provided. Use only list_pages, select_page, navigate_page, take_snapshot, click, fill, press_key, wait_for, evaluate_script; page-scoped calls must pass numeric pageId. Reuse only the authorized task tab, navigate to ordinary https://www.opensubtitles.org/ if needed. Use bounded visible DOM queries from the start; never dump whole DOM or subtitle text. Confirm current visible controls; observed selector hints only: #search_text, #search_submit, #bt-dwl-bt. Use visible search form title+year, select English if available; do not use arbitrary guessed search URLs. One compact read should identify search controls and current filters. Use compact evaluate_script reads and ordinary visible DOM interactions; fill/click tools require their actual snapshot UIDs, never pass CSS selectors as UIDs. HARD GATE: After search, verify the actual result page URL and visible heading show English-only results; selecting a language before submit does not prove it was applied. If results are mixed, follow the actual visible English filter link. Before ranking, read all relevant English candidate rows across pagination, return compact JSON {url,heading,total_english,has_next,rows:[{href,lang,title,release,fps}]} on each filtered page. total_english is the visible result count (null if unknown), has_next is actual visible next-page availability; lang is the actual row language or confirmed English-only list context. Do not truncate or guess counts. Only eligible English title/year rows may enter ranking; rank release/cut/repack/source/group and timeline evidence. If coverage cannot be established, report uncertainty rather than claim complete scan. Open strongest detail and return compact JSON with url, candidate_id, English title/language evidence, btnVisible, fieldsetText; read candidate-specific detail box (hint: visible download button's closest fieldset) for title/year/language, release notes including alternative supported releases, FPS, runtime, file type, visible download button and material comments in one query if practical. Check FPS/runtime against measured target metadata; unknown remains unknown. A WEB-DL and WEBRip may share a cut but the label alone proves nothing. Distinguish 24 from 23.976 fps and consider progressive drift. Compare materially different runtimes and cut notes. Avoid repeatedly re-reading already confirmed pages; inspect more candidates only when new evidence could change the choice. Distinguish exact filename/release from explicit compatible release note. Prefer completeness and timeline evidence over download count, file size or cue count alone; non-HI is a tiebreaker. Inspect next candidate only for material ambiguity or quality issue. Bind selected candidate ID and visible evidence to download action; click once via ordinary site UI, stop browser tools immediately. Do not guess URLs or endpoints, bypass restrictions, login, pay, or use alternate providers. Stop on denial or access block. Host independently verifies fresh artifact, filtered-list coverage and candidate binding to the actual download ID, records actual tool events and exports BRAIN_RESULT.json and BRAIN_HANDOFF.json. Return DOWNLOAD_INITIATED after successful ordinary download action; only Host verifies file. Do not claim download success on a tool error. No file/shell calls to write reports. Aim for <=8 MCP outcomes and <=75s acquisition as targets only; never sacrifice correct match to speed. Return compact final JSON even on failure: status (DOWNLOAD_INITIATED, NO_PLAUSIBLE_CANDIDATE, ACCESS_BLOCKED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE, UNKNOWN), observed_evidence, release_match (EXACT_METADATA, EVIDENCED_COMPATIBLE, UNKNOWN, CONFLICT), compatibility_uncertainties, actions (actual actions with ordinal, tool, purpose, result, error, decision), reusable_recipe (ordered brief steps without candidate IDs, local paths or subtitle text), recipe_codes (ordered array only from LIST_TASK_TAB, NAVIGATE_PROVIDER, QUERY_TITLE_YEAR, FILTER_ENGLISH, MATCH_RELEASE, CHECK_DETAIL, BIND_CANDIDATE, DOWNLOAD_ONCE, COMPACT_DOM, AVOID_REPEAT_SNAPSHOT, STOP_ON_DENIAL, MARK_UNKNOWN_METADATA, CHECK_TIMELINE, HOST_VERIFY_FILE, FINAL_REPORT), failures, improvements, usage if exposed. Report observations and evidence from this run only. Keep final JSON compact (roughly 1500-2500 characters if feasible); preserve decision and uncertainty. Concise operational decisions only; no hidden reasoning. No translation, TV or production effects. Input metadata: "+json.dumps(video_input,ensure_ascii=True)
+    prompt="You are Hydrogen Low, Student Recipe V12, independently finding the English subtitle for the exact TorrServer release given below on OpenSubtitles.org via authorized ttv-browser MCP Chrome CDP 9555. No Teacher candidate IDs, answers or download links are provided. Use only list_pages, select_page, navigate_page, take_snapshot, click, fill, press_key, wait_for, evaluate_script; page-scoped calls must pass numeric pageId. Reuse only the authorized task tab, navigate to ordinary https://www.opensubtitles.org/ if needed. Use bounded visible DOM queries from the start; never dump whole DOM or subtitle text. Confirm current visible controls; observed selector hints only: #search_text, #search_submit, #bt-dwl-bt. Use visible search form title+year, select English if available; do not use arbitrary guessed search URLs. One compact read should identify search controls and current filters. Prefer compact evaluate_script reads and scoped ordinary DOM interaction with visible form controls; do not mix snapshot UIDs and CSS selectors. No read_file calls for snapshots; return small visible data directly. Avoid repeated reads. Use numeric pageId. HARD GATE: After search, verify the actual result page URL and visible heading show English-only results; selecting a language before submit does not prove it was applied. If results are mixed, follow the actual visible English filter link. Before ranking, read all relevant English candidate rows across pagination, return compact JSON {url,heading,total_english,has_next,rows:[{href,lang,title,release,fps}]} on each filtered page. total_english is the visible result count (null if unknown), has_next is actual visible next-page availability; lang is the actual row language or confirmed English-only list context. Do not truncate or guess counts. Only eligible English title/year rows may enter ranking. Treat row language flags flag en / en / eng / English as English only when consistent with the English-only filtered page. Rank evidence of the same cut and timeline ahead of encoder, resolution, bit depth, audio codec and release-name similarity. If the leading distinct release has unknown runtime or cut, inspect the strongest alternative distinct release group before committing; do not inspect redundant SDH variants unless useful. Prefer measured duration and FPS matches over encoding resemblance, and state unknowns. Do not select by a remembered candidate ID. If coverage cannot be established, report uncertainty rather than claim complete scan. Open strongest detail and return compact JSON with url, candidate_id, English title/language evidence, btnVisible, fieldsetText, downloadHref (the actual href of visible ordinary #bt-dwl-bt), and downloaderChecked (boolean if the visible optional downloader checkbox exists, null if absent); read candidate-specific detail box (hint: visible download button's closest fieldset) for title/year/language, release notes including alternative supported releases, FPS, runtime, file type, visible download button and material comments in one query if practical. Check FPS/runtime against measured target metadata; unknown remains unknown. A WEB-DL and WEBRip may share a cut but the label alone proves nothing. Distinguish 24 from 23.976 fps and consider progressive drift. Compare materially different runtimes and cut notes. Avoid repeatedly re-reading already confirmed pages; inspect more candidates only when new evidence could change the choice. Distinguish exact filename/release from explicit compatible release note. Prefer completeness and timeline evidence over download count, file size or cue count alone; non-HI is a tiebreaker. Inspect next candidate only for material ambiguity or quality issue. Bind selected detail ID to the visible ordinary Download control #bt-dwl-bt, not Download (beta), preview, or downloader. If the optional installer/downloader checkbox is checked, use ordinary UI to uncheck it; do not modify site handlers or bypass restrictions. Recheck the selected ID, visible control, href and unchecked/absent downloader in the same final scoped evaluate_script action; if they match, activate that ordinary control once and return JSON {clicked:true,pageUrl,href,id,downloaderChecked}. If mismatched, do not click and report the reason. Stop browser actions after the click. A click does not establish a downloaded file. Do not guess URLs or endpoints, bypass restrictions, login, pay, or use alternate providers. Stop on denial or access block. Host independently verifies filtered-list coverage separately from fresh artifact and candidate-bound ordinary download, records actual tool events and exports BRAIN_RESULT.json and BRAIN_HANDOFF.json. Return DOWNLOAD_INITIATED after successful ordinary download action; only Host verifies file. Do not claim download success on a tool error. No file/shell calls to write reports. Aim for <=8 MCP outcomes and <=75s acquisition as targets only; never sacrifice correct match to speed. Return compact final JSON even on failure: status (DOWNLOAD_INITIATED, NO_PLAUSIBLE_CANDIDATE, ACCESS_BLOCKED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE, UNKNOWN), observed_evidence, release_match (EXACT_METADATA, EVIDENCED_COMPATIBLE, UNKNOWN, CONFLICT), compatibility_uncertainties, actions (actual actions with ordinal, tool, purpose, result, error, decision), reusable_recipe (ordered brief steps without candidate IDs, local paths or subtitle text), recipe_codes (ordered array only from LIST_TASK_TAB, NAVIGATE_PROVIDER, QUERY_TITLE_YEAR, FILTER_ENGLISH, MATCH_RELEASE, CHECK_DETAIL, BIND_CANDIDATE, DOWNLOAD_ONCE, COMPACT_DOM, AVOID_REPEAT_SNAPSHOT, STOP_ON_DENIAL, MARK_UNKNOWN_METADATA, CHECK_TIMELINE, HOST_VERIFY_FILE, FINAL_REPORT), failures, improvements, usage if exposed. Report observations and evidence from this run only. Keep final JSON compact (roughly 1500-2500 characters if feasible); preserve decision and uncertainty. Concise operational decisions only; no hidden reasoning. No translation, TV or production effects. Input metadata: "+json.dumps(video_input,ensure_ascii=True)
     (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
@@ -425,6 +425,11 @@ def probe():
     pages_seen=re.findall(r"(?m)^\s*\d+:\s*(.+)$",first)
     bound=int(sum(bool(re.search(r"https://"+re.escape(initial_host)+r"(?:/[^\s)]*)?(?:[)\s]|$)",line,re.I)) for line in pages_seen)==1)
     named=int(server_names=={"ttv-browser"})
+    # Allow a short passive completion window after the model exits; never click again.
+    if any(x.get("tool") in ("click","evaluate_script") for x in outputs):
+        for _ in range(12):
+            if any(str(f.resolve()) not in before and f.stat().st_mtime>=wall_start-1 for f in dest.iterdir() if f.is_file() and not f.is_symlink() and f.suffix.lower() in (".srt",".zip")):break
+            time.sleep(1)
     history=profile/"Default"/"History"
     rows=[];history_ok=0
     if history.is_file():
@@ -481,17 +486,19 @@ def probe():
         if src.is_file() and not src.is_symlink() and sha(src)==artifact["sha256"]:
             shutil.copy2(src,resultdir/src.name)
             artifact["copied_to_job"]=True
-    # Verify actual filtered-list coverage, candidate detail and physical download identity.
+    # Separate list evidence from click and actual artifact. Never infer a successful download from a click.
     def filter_gate(outputs,artifacts):
         def url(v):
             if not isinstance(v,str) or not v:return None
             try:u=urllib.parse.urlsplit(urllib.parse.urljoin("https://www.opensubtitles.org/",v))
             except ValueError:return None
-            return u if u.scheme=="https" and u.hostname in os_hosts else None
+            return u if u.scheme=="https" and u.hostname in (os_hosts|{"dl.opensubtitles.org"}) else None
         def sid(v):
             u=url(v)
             m=re.search(r"/(?:subtitles|download/sub|subtitleserve/sub)/(\d+)(?:/|$)",u.path) if u else None
             return m[1] if m else ""
+        def lang_en(v):
+            return isinstance(v,str) and " ".join(v.casefold().split()) in {"english","en","eng","flag en"}
         def docs(v):
             if isinstance(v,dict):return [v]
             if not isinstance(v,str):return []
@@ -502,32 +509,38 @@ def probe():
                 except (ValueError,TypeError):continue
                 if isinstance(x,dict):result.append(x)
             return result
-        if len(artifacts)!=1 or artifacts[0].get("copied_to_job") is not True:return {"accepted":False,"reason":"ARTIFACT_NOT_UNIQUE"}
-        ids={sid(x) for x in artifacts[0].get("candidate_refs",[])}-{""}
-        if len(ids)!=1:return {"accepted":False,"reason":"DOWNLOAD_ID_UNBOUND"}
-        chosen=next(iter(ids))
-        groups={};details=[]
+        groups={};details={};clicks=[]
         for out in outputs:
             if out.get("error") or out.get("tool")!="evaluate_script":continue
             for d in docs(out.get("output")):
                 u=url(d.get("url"))
+                event=out["event"]
+                did=sid(d.get("url"))
+                if did and d.get("btnVisible") is True and isinstance(d.get("fieldsetText"),str) and d["fieldsetText"] and sid(d.get("downloadHref"))==did:
+                    details.setdefault(did,[]).append(event)
+                if d.get("clicked") is True:
+                    cid=sid(d.get("pageUrl"))
+                    if cid and str(d.get("id"))==cid and sid(d.get("href"))==cid and "downloaderChecked" in d and d["downloaderChecked"] in (False,None):
+                        clicks.append((cid,event))
                 if not u:continue
-                if sid(d.get("url"))==chosen and d.get("btnVisible") is True and isinstance(d.get("fieldsetText"),str) and d["fieldsetText"]:
-                    details.append(out["event"])
                 heading=str(d.get("heading",""))
                 if not re.search(r"(?:^|/)sublanguageid-eng(?:/|$)",u.path) or not re.search(r"\benglish\b",heading,re.I):continue
                 total=d.get("total_english"); rows=d.get("rows"); nxt=d.get("has_next")
                 if type(total) is not int or not 0<total<=500 or type(nxt) is not bool or not isinstance(rows,list):continue
-                found={sid(x.get("href")) for x in rows if isinstance(x,dict) and str(x.get("lang","")).casefold()=="english"}-{""}
+                found={sid(x.get("href")) for x in rows if isinstance(x,dict) and lang_en(x.get("lang"))}-{""}
                 if len(found)!=len(rows):continue
-                # Group pagination from the same filtered movie list, not unrelated result pages.
                 key=re.sub(r"/offset-\d+","",u.path)
                 g=groups.setdefault(key,{"ids":set(),"totals":set(),"last":False,"events":[]})
-                g["ids"].update(found);g["totals"].add(total);g["last"]|=not nxt;g["events"].append(out["event"])
-        for g in groups.values():
-            if g["totals"]=={len(g["ids"])} and g["last"] and chosen in g["ids"] and any(j>max(g["events"]) for j in details):
-                return {"accepted":True,"reason":"ENGLISH_LIST_AND_DOWNLOAD_BOUND","english_candidates":len(g["ids"]),"list_events":g["events"],"detail_events":details}
-        return {"accepted":False,"reason":"FILTER_COVERAGE_OR_CANDIDATE_UNVERIFIED"}
+                g["ids"].update(found);g["totals"].add(total);g["last"]|=not nxt;g["events"].append(event)
+        complete=[g for g in groups.values() if g["totals"]=={len(g["ids"])} and g["last"]]
+        list_ok=len(complete)==1
+        chosen="";click_ok=False
+        if list_ok and len(clicks)==1:
+            chosen,event=clicks[0];g=complete[0]
+            click_ok=chosen in g["ids"] and any(max(g["events"])<x<event for x in details.get(chosen,[]))
+        ids={sid(x) for x in artifacts[0].get("candidate_refs",[])}-{""} if len(artifacts)==1 and artifacts[0].get("copied_to_job") is True else set()
+        download_ok=bool(click_ok and ids=={chosen})
+        return {"accepted":bool(list_ok and click_ok and download_ok),"reason":"ENGLISH_LIST_AND_DOWNLOAD_BOUND" if download_ok else "DOWNLOAD_UNVERIFIED" if click_ok else "CLICK_UNBOUND" if list_ok else "LIST_COVERAGE_UNVERIFIED","english_list_verified":list_ok,"english_candidates":len(complete[0]["ids"]) if list_ok else 0,"ordinary_click_bound":click_ok,"download_verified":download_ok,"detail_candidates":len(details),"release_compatibility_verified":False}
     filter_result=filter_gate(outputs,artifacts)
     write(run/"BRAIN_FILTER_QA.json",filter_result)
     def related(line,artifact):
@@ -600,9 +613,9 @@ def probe():
     challenge=bool(re.search(r"making sure you.re not a bot|/\.within\.website/|anti.bot challenge|captcha",access_evidence,re.I))
     provider_access="ACCESS_BLOCKED" if challenge else "SITE_TAB_OBSERVED"
     selection_evaluation="NOT_TESTED" if challenge else "ENGLISH_LIST_AND_DOWNLOAD_BOUND" if filter_result["accepted"] else "FILTER_HOLD"
-    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider":"OpenSubtitles","provider_access":provider_access,"selection_evaluation":selection_evaluation,"filter_gate":filter_result,"recipe_version":"V11_BT16","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":video_input,"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider":"OpenSubtitles","provider_access":provider_access,"selection_evaluation":selection_evaluation,"filter_gate":filter_result,"recipe_version":"V12_BT18","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":video_input,"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
     write(run/"BRAIN_TEACHER_REPORT.json",report)
-    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Hydrogen Low OpenSubtitles Student V11 BT16 benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Hydrogen Low OpenSubtitles Student V12 BT18 benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
     # Full raw tool calls, parameters and results stay private; Brain receives every event's safe typed projection.
     known={"list_pages","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","evaluate_script","read_file","write_file","run_shell_command","execute_command","list_network_requests","call_mcp_tool"}
@@ -628,7 +641,7 @@ def probe():
     nonce=os.environ["TTV_READOUT_NONCE"]
     summary={"schema":"TTV-BT04-TRACE-V1","nonce":nonce,"source":os.environ["TTV_PINNED_SOURCE"],"elapsed":elapsed,"download":download,"cues":c,"artifacts":n,"events":len(records),"final_chars":len("\n".join(final)),"report_ok":int(final_json is not None),"actions":len(final_json["actions"]) if final_json else 0,"recipe_steps":len(final_json["reusable_recipe"]) if final_json else 0,"title_language":titlematch,"exact":exact,"denied":denied,"drift":drift,"trace":trace}
     write(pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"Receipts"/("bt04-trace-"+nonce+".json"),summary)
-    return f"BT16_T{elapsed}F{val(first)}B{val(first_tool)}L{val(last)}D{val(download)}P{round(process_end)}K{len(outcome_times)}J{len(paired)}M{round(observed)}A{n}C{min(c,99999)}G{int(filter_result['accepted'])}"
+    return f"BT18_T{elapsed}F{val(first)}B{val(first_tool)}L{val(last)}D{val(download)}P{round(process_end)}K{len(outcome_times)}J{len(paired)}M{round(observed)}A{n}C{min(c,99999)}G{int(filter_result['accepted'])}E{int(filter_result['english_list_verified'])}B{int(filter_result['ordinary_click_bound'])}"
 
 try:print(probe())
 except Exception as e:
