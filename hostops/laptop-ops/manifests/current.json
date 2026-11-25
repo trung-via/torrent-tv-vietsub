@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "agy-native-browser-readout-1124",
+  "operation": "agy-native-browser-srt-qa-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1",
-  "script_sha256": "6748b4341c34e8215ea0103470a07e4e25e222645e7f96f721fec66cb2bddb0a",
+  "script_path": "hostops/laptop-ops/operations/bt17-v11-readout.ps1",
+  "script_sha256": "3357617d5bc250be6aa52f91a5224e31dcc00f73496d69c88595f729da808011",
   "arguments": []
 }
