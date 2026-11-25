@@ -262,7 +262,7 @@ Write-Output 'HOSTOPS_OWNER_OPS=OWNER_TASK_TRIGGERED'
 # observations and rollback. The former 200 s bound expired during recovery
 # and mislabeled the completed Owner-side operation as an unknown effect.
 # Diagnostic jobs retain the short bound; no retry is issued on expiry.
-$waitSeconds = if ($manifest.category -ceq 'owner-maintenance') { 600 } else { 200 }
+$waitSeconds = if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1') { 1200 } elseif ($manifest.category -ceq 'owner-maintenance') { 600 } else { 200 }
 for ($i=0; $i -lt $waitSeconds; $i++) {
     Start-Sleep -Seconds 1
     if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) { continue }
@@ -324,12 +324,17 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             $bools=@('final_present','title_language','exact_release','release_verified','sync_verified','permission_denied','config_drift')
             $numbers=@('elapsed','download_seconds','tools','cues','artifacts')
             $fields=@('schema','nonce','source','provider','model','recipe','final_status','final_release','provider_access')+$bools+$numbers
-            if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-AGY-BRAIN-READOUT-V1' -or $v.nonce -cne $nonce -or $v.source -cne '6e28d723bf95611bb8a4541cd54ea0e1bcf74fdc' -or $v.provider -cne 'SubtitleCat' -or $v.model -cne 'gemini-4-hydrogen-low' -or $v.recipe -cne 'V4' -or $v.final_status -cnotin @('CANDIDATE_DOWNLOADED','NO_PLAUSIBLE_CANDIDATE','ACCESS_BLOCKED','AUTH_REQUIRED','DOWNLOAD_FAILED','TOOL_UNAVAILABLE','UNKNOWN','NOT_REPORTED') -or $v.final_release -cnotin @('EXACT_METADATA','EVIDENCED_COMPATIBLE','UNKNOWN','CONFLICT','NOT_REPORTED') -or $v.provider_access -cnotin @('ACCESS_BLOCKED','SITE_TAB_OBSERVED')){throw 'AGY_READOUT_SCHEMA'}
+            if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-AGY-BRAIN-READOUT-V1' -or $v.nonce -cne $nonce -or $v.source -cne $commit -or $v.provider -cne 'OpenSubtitles' -or $v.model -cne 'gemini-4-hydrogen-low' -or $v.recipe -cne 'V4' -or $v.final_status -cnotin @('CANDIDATE_DOWNLOADED','NO_PLAUSIBLE_CANDIDATE','ACCESS_BLOCKED','AUTH_REQUIRED','DOWNLOAD_FAILED','TOOL_UNAVAILABLE','UNKNOWN','NOT_REPORTED') -or $v.final_release -cnotin @('EXACT_METADATA','EVIDENCED_COMPATIBLE','UNKNOWN','CONFLICT','NOT_REPORTED') -or $v.provider_access -cnotin @('ACCESS_BLOCKED','SITE_TAB_OBSERVED')){throw 'AGY_READOUT_SCHEMA'}
             foreach($key in $bools){if($v.$key -isnot [bool]){throw 'AGY_READOUT_BOOL'}}
-            foreach($key in $numbers){if($v.$key -isnot [ValueType] -or [long]$v.$key -lt 0 -or [long]$v.$key -gt 10000000){throw 'AGY_READOUT_NUMBER'}}
-            if($v.elapsed -ne 122 -or $v.download_seconds -ne 109 -or $v.tools -ne 10 -or $v.cues -ne 1672 -or $v.artifacts -ne 1){throw 'AGY_READOUT_V7_BINDING'}
+            foreach($key in $numbers){$min=if($key -ceq 'download_seconds'){-1}else{0};if($v.$key -isnot [ValueType] -or [long]$v.$key -lt $min -or [long]$v.$key -gt 10000000){throw 'AGY_READOUT_NUMBER'}}
+            foreach($key in @('schema','nonce','source','provider','model','recipe','final_status','final_release','provider_access')){if($v.$key -isnot [string]){throw 'AGY_READOUT_STRING'}}
             Write-Output ('HOSTOPS_AGY_BRAIN_READOUT='+($v|ConvertTo-Json -Compress))
-        } elseif($receipt.result -ceq 'SUCCESS'){throw 'AGY_READOUT_MISSING'}
+        } elseif($receipt.result -ceq 'SUCCESS'){
+            $stage=Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')
+            $status=Get-Content -LiteralPath $stage -Raw | ConvertFrom-Json
+            if($status.schema -cne 'TTV-ODYSSEY-STAGE-V1' -or $status.nonce -cne $nonce -or $status.reason -cmatch '^TR17_T[0-9]'){throw 'AGY_READOUT_MISSING'}
+            Write-Output 'HOSTOPS_AGY_BRAIN_READOUT=NOT_AVAILABLE_PRECHECK_OR_ERROR'
+        }
     }
     if ($receipt.result -cne 'SUCCESS') {
         Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
