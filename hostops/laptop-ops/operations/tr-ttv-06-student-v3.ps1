@@ -107,7 +107,7 @@ download=integer(timing.get("download_mtime_elapsed"))
 is_report=bool(valid(recipe))
 state="MODEL_REPORT_PRESENT" if is_report else "MODEL_REPORT_MISSING"
 status=recipe.get("status") if is_report else None
-status="CANDIDATE_DOWNLOADED" if status=="DOWNLOAD_INITIATED" and len(verified)==1 and report.get("origin_gate",{}).get("accepted") is True else "DOWNLOAD_FAILED" if status=="DOWNLOAD_INITIATED" else status
+status="CANDIDATE_DOWNLOADED" if status in ("DOWNLOAD_INITIATED","CANDIDATE_DOWNLOADED") and len(verified)==1 and report.get("origin_gate",{}).get("accepted") is True else "DOWNLOAD_FAILED" if status in ("DOWNLOAD_INITIATED","CANDIDATE_DOWNLOADED") else status
 status=status if status in ("CANDIDATE_DOWNLOADED","NO_PLAUSIBLE_CANDIDATE","ACCESS_BLOCKED","AUTH_REQUIRED","DOWNLOAD_FAILED","TOOL_UNAVAILABLE","UNKNOWN") else "NOT_REPORTED"
 release_label=recipe.get("release_match") if is_report else None
 release_label=release_label if release_label in ("EXACT_METADATA","EVIDENCED_COMPATIBLE","UNKNOWN","CONFLICT") else "NOT_REPORTED"
@@ -485,7 +485,8 @@ def probe():
     def origin_gate(outputs,artifacts):
         def path(v):
             if not isinstance(v,str) or not v:return ""
-            u=urllib.parse.urlsplit(urllib.parse.urljoin("https://www.subtitlecat.com/",v))
+            try:u=urllib.parse.urlsplit(urllib.parse.urljoin("https://www.subtitlecat.com/",v))
+            except ValueError:return ""
             if u.scheme!="https" or u.hostname not in cat_hosts:return ""
             p=urllib.parse.unquote(u.path)
             return p if p.startswith("/subs/") else ""
