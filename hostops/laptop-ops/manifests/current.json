@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/tr-ttv-09-cache-sync-readonly.ps1",
-  "script_sha256": "6e492ca7bf15ca4e6d571744a9c4fd76b4c84a910e89bbbbb9091d033c908f71",
+  "script_sha256": "33e28879e59d3c75c4c1f4959cdf418fe48fdb3a6ee18adae1aba1a3336b8e79",
   "arguments": []
 }
