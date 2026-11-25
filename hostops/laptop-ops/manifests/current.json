@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-srt-qa-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/tr-ttv-14-v4-v6-compare-readonly.ps1",
-  "script_sha256": "87fe444a377e71a40d690feafc1096ca0e7bffc5f8007d027fc1adeb3614e638",
+  "script_path": "hostops/laptop-ops/operations/tr-ttv-15-profile-readonly.ps1",
+  "script_sha256": "d87bff44ca33ede3f20645469761d0d342dd78010f663bb8f0161394f145eddb",
   "arguments": []
 }
