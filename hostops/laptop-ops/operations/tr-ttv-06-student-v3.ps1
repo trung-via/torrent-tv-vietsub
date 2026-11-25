@@ -1,4 +1,4 @@
-# TR-TTV.14: V6 controlled browser-action optimization.
+# TR-TTV.16: V4 unchanged prompt, instrumented stream receipt timings.
 # Never edit shared settings or touch Owner production.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -8,7 +8,7 @@ $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | C
 $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-14-kalki2898ad-subtitlecat-v6-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-16-kalki2898ad-subtitlecat-v4-profile-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 function Listener([int]$port){
   @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
@@ -22,7 +22,7 @@ $profile=Join-Path $root 'CDP9555Profile'
 $active9555=@(Listener 9555)
 $started9555=0
 $verified=$false
-$code='TR14V6_BROWSER_NOT_VERIFIED'
+$code='TR16_BROWSER_NOT_VERIFIED'
 if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
 else{
  # Recover only the enrolled dedicated profile when its browser is actually absent.
@@ -30,8 +30,8 @@ else{
  if($active9555.Count -eq 0){
   $roots=@(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object {$_.CommandLine -and $_.CommandLine -notmatch '--type=' -and $_.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0})
   $chrome=Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'
-  if($roots.Count -ne 0){$code='TR14V6_PROFILE_RUNNING_NO_LISTENER'}
-  elseif(-not (Test-Path -LiteralPath $profile -PathType Container) -or -not (Test-Path -LiteralPath $chrome -PathType Leaf)){$code='TR14V6_PROFILE_OR_CHROME_MISSING'}
+  if($roots.Count -ne 0){$code='TR16_PROFILE_RUNNING_NO_LISTENER'}
+  elseif(-not (Test-Path -LiteralPath $profile -PathType Container) -or -not (Test-Path -LiteralPath $chrome -PathType Leaf)){$code='TR16_PROFILE_OR_CHROME_MISSING'}
   else{
    Start-Process -FilePath $chrome -ArgumentList @('--user-data-dir="'+$profile+'"','--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--new-window','https://www.subtitlecat.com/')
    $started9555=1
@@ -40,16 +40,16 @@ else{
     $active9555=@(Listener 9555)
     if($active9555.Count -eq 1){break}
    }
-   $code='TR14V6_RESTORE_NO_LISTENER'
+   $code='TR16_RESTORE_NO_LISTENER'
   }
  }
- if($active9555.Count -gt 1){$code='TR14V6_LISTENER_AMBIGUOUS'}
+ if($active9555.Count -gt 1){$code='TR16_LISTENER_AMBIGUOUS'}
  elseif($active9555.Count -eq 1){
   $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
   $ls=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
   if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)' -and @($ls|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){
    $verified=$true
-  }else{$code='TR14V6_LISTENER_IDENTITY_MISMATCH'}
+  }else{$code='TR16_LISTENER_IDENTITY_MISMATCH'}
  }
 }
 if($verified){
@@ -154,17 +154,17 @@ def probe():
             site=[t for t in tabs if t.get("type")=="page" and t.get("id")==new.get("id") and host(t) in cat_hosts]
             if site:break
 
-    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR14V6_ACCESS_BLOCKED_PRE"
-    if len(site)!=1:return "TR14V6_TASK_TAB_AMBIGUOUS"
+    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR16_ACCESS_BLOCKED_PRE"
+    if len(site)!=1:return "TR16_TASK_TAB_AMBIGUOUS"
     target=site[0]
     u=urllib.parse.urlsplit(target.get("url",""))
-    if u.scheme!="https":return "TR14V6_TASK_TAB_UNVERIFIED"
+    if u.scheme!="https":return "TR16_TASK_TAB_UNVERIFIED"
     initial_host=u.hostname
     # Keep original browser download preferences unchanged; snapshot known download directory.
     prefs=read(profile/"Default"/"Preferences")
     download=prefs.get("download",{})
     dest=pathlib.Path(os.path.expandvars(download.get("default_directory") or str(home/"Downloads")))
-    if not dest.is_absolute() or not dest.is_dir():return "TR14V6_DOWNLOAD_DIR_UNVERIFIED"
+    if not dest.is_absolute() or not dest.is_dir():return "TR16_DOWNLOAD_DIR_UNVERIFIED"
     dirs={dest}
     resultdir=run/"browser-downloads";resultdir.mkdir()
     write(run/"task-binding.json",{"cdp_target_id":target.get("id"),"initial_url":target.get("url"),"download_directory":str(dest),"existing_profile":True,"cold_profile":False})
@@ -187,21 +187,27 @@ def probe():
         except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):return 0
     downloads=run/"downloads";downloads.mkdir()
     before=candidates()
-    prompt="You are the English subtitle acquisition Student for Torrent TV Vietsub, Recipe V6. Owner-supplied exact target release: Kalki.2898.AD.2024.1080p.WEB-DL.ViruseProject. Film Kalki 2898 AD (2024), English subtitle requested. Treat 1080p, WEB-DL and ViruseProject as release evidence, not a generic title-only request. The owner app displays an approximate size of 12.8 GB; exact byte size, video FPS, duration, file extension, audio language and cut are unknown. ViruseProject is the observed release label; do not infer audio language or dubbing from that label. No IMDb ID, subtitle ID, candidate URL, previous answer or cached subtitle is provided. Independently find an appropriate English subtitle using ordinary authorized www.subtitlecat.com website interaction only, choosing your own method. Use the English source or English subtitle, not machine-translated non-English variants. Use only the existing dedicated Chrome CDP 9555 and authorized ttv-browser MCP. First list_pages, use the one existing SubtitleCat tab if present, beginning at the ordinary SubtitleCat homepage rather than a previously visited candidate or result; otherwise reuse the one existing dedicated OpenSubtitles task tab by navigating its numeric pageId to https://www.subtitlecat.com/. Do not search OpenSubtitles or any other source. Do not modify other tabs, endpoints, profiles, settings or download preferences. No previously found candidate, ID or answer is supplied. If challenge, denial, login or payment blocks ordinary access, stop and report; never bypass or retry via another route.\n\nChoose the search method yourself. Prefer the exact ViruseProject WEB-DL release, but a different release group is not inherently incompatible. Compare the actual candidate film, language, year and available release, cut and timing metadata. Do not reject a plausible candidate just because exact release or timing evidence is missing. Select the best plausible English candidate for this film and download it once using the ordinary authorized website action, even when compatibility is still unknown, so the host can independently validate it. Do not download a known wrong film, year, language, cut or incompatible timing. If no plausible candidate exists, report NO_PLAUSIBLE_CANDIDATE with the observed reason. Inspect the selected candidate detail; bind the evidence to that candidate and report uncertainty. Efficiency lesson: collect all relevant visible result rows, their ordinary links and release labels in one concise DOM read per page when useful, rather than reading each row separately. Reuse already observed page evidence; revisit only if the page or evidence changed. Choose your own search and navigation method, inspect the selected candidate detail once if sufficient, and avoid repeated equivalent queries. Stop acquisition immediately after the ordinary download; do not perform post-download browsing merely to strengthen the report. A lower action count is a goal, not a hard cap; continue if genuinely needed for correctness. Never guess endpoints, inspect hidden data or bypass restrictions. Do not invent video FPS or duration. A downloaded candidate is quarantined for QA, not approved for translation or TV. Playback sync is UNVERIFIED until separately tested.\n\nReturn concise structured result even on failure: status (CANDIDATE_DOWNLOADED, NO_PLAUSIBLE_CANDIDATE, ACCESS_BLOCKED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE or UNKNOWN), observed title/year/language, selected candidate reference discovered this run, exact observed release names or null, candidate FPS/duration or null, video FPS/duration null, compatibility evidence and uncertainties, release_match=EXACT_METADATA or EVIDENCED_COMPATIBLE or UNKNOWN or CONFLICT, playback_sync=UNVERIFIED, actual actions, errors and usage if available. Distinguish site access from no match. No extra report files, no arbitrary benchmark deadline."
+    prompt="You are the English subtitle acquisition Student for Torrent TV Vietsub, Recipe V4. Owner-supplied exact target release: Kalki.2898.AD.2024.1080p.WEB-DL.ViruseProject. Film Kalki 2898 AD (2024), English subtitle requested. Treat 1080p, WEB-DL and ViruseProject as release evidence, not a generic title-only request. The owner app displays an approximate size of 12.8 GB; exact byte size, video FPS, duration, file extension, audio language and cut are unknown. ViruseProject is the observed release label; do not infer audio language or dubbing from that label. No IMDb ID, subtitle ID, candidate URL, previous answer or cached subtitle is provided. Independently find an appropriate English subtitle using ordinary authorized www.subtitlecat.com website interaction only, choosing your own method. Use the English source or English subtitle, not machine-translated non-English variants. Use only the existing dedicated Chrome CDP 9555 and authorized ttv-browser MCP. First list_pages, use the one existing SubtitleCat tab if present; otherwise reuse the one existing dedicated OpenSubtitles task tab by navigating its numeric pageId to https://www.subtitlecat.com/. Do not search OpenSubtitles or any other source. Do not modify other tabs, endpoints, profiles, settings or download preferences. No previously found candidate, ID or answer is supplied. If challenge, denial, login or payment blocks ordinary access, stop and report; never bypass or retry via another route.\n\nChoose the search method yourself. Prefer the exact ViruseProject WEB-DL release, but a different release group is not inherently incompatible. Compare the actual candidate film, language, year and available release, cut and timing metadata. Do not reject a plausible candidate just because exact release or timing evidence is missing. Select the best plausible English candidate for this film and download it once using the ordinary authorized website action, even when compatibility is still unknown, so the host can independently validate it. Do not download a known wrong film, year, language, cut or incompatible timing. If no plausible candidate exists, report NO_PLAUSIBLE_CANDIDATE with the observed reason. Inspect the selected candidate detail; bind the evidence to that candidate and report uncertainty. Use concise visible DOM reads when useful; stop acquisition after the download. Never guess endpoints, inspect hidden data or bypass restrictions. Do not invent video FPS or duration. A downloaded candidate is quarantined for QA, not approved for translation or TV. Playback sync is UNVERIFIED until separately tested.\n\nReturn concise structured result even on failure: status (CANDIDATE_DOWNLOADED, NO_PLAUSIBLE_CANDIDATE, ACCESS_BLOCKED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE or UNKNOWN), observed title/year/language, selected candidate reference discovered this run, exact observed release names or null, candidate FPS/duration or null, video FPS/duration null, compatibility evidence and uncertainties, release_match=EXACT_METADATA or EVIDENCED_COMPATIBLE or UNKNOWN or CONFLICT, playback_sync=UNVERIFIED, actual actions, errors and usage if available. Distinguish site access from no match. No extra report files, no arbitrary benchmark deadline."
     (run/"student-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"student-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
     start=time.monotonic()
     wall_start=time.time()
+    arrivals=[]
+    # Record only host-side arrival times. These include child buffering and are
+    # not internal model clocks. Keep stderr separate to avoid a pipe deadlock.
     try:
-        p=subprocess.run([ps,"-NoProfile","-NonInteractive","-Command",cmd],env=env,cwd=run,capture_output=True,text=True,encoding="utf-8",errors="replace")
-    except subprocess.TimeoutExpired as exc:
-        p=None
-        for name,raw in (("agy-stdout.jsonl",exc.stdout),("agy-stderr.txt",exc.stderr)):
-            if raw is not None:(run/name).write_bytes(raw if isinstance(raw,bytes) else raw.encode("utf-8"))
-    else:
-        (run/"agy-stdout.jsonl").write_text(p.stdout,encoding="utf-8")
-        (run/"agy-stderr.txt").write_text(p.stderr,encoding="utf-8")
+        with (run/"agy-stdout.jsonl").open("w",encoding="utf-8",newline="") as out, (run/"agy-stderr.txt").open("wb") as err:
+            with subprocess.Popen([ps,"-NoProfile","-NonInteractive","-Command",cmd],env=env,cwd=run,stdout=subprocess.PIPE,stderr=err,text=True,encoding="utf-8",errors="replace",bufsize=1) as p:
+                for line in p.stdout:
+                    arrival=time.monotonic()-start
+                    out.write(line)
+                    try:
+                        event=json.loads(line)
+                    except ValueError:continue
+                    if isinstance(event,dict):arrivals.append(arrival)
+                p.wait()
+        process_end=time.monotonic()-start
     finally:
         override.unlink(missing_ok=True)
     stdout=(run/"agy-stdout.jsonl").read_text(encoding="utf-8",errors="replace") if (run/"agy-stdout.jsonl").is_file() else ""
@@ -315,6 +321,49 @@ def probe():
     exact_re=r"kalki[ ._-]*2898[ ._-]*ad[ ._-]+2024[ ._-]+1080p[ ._-]+web[ ._-]*dl[ ._-]+viruseproject\b"
     exact=int(any(re.search(exact_re,line,re.I) and any(related(line,x) for x in artifacts) for item in outputs for line in str(item.get("output","")).splitlines()))
     elapsed=round(time.monotonic()-start)
+    if len(arrivals)!=len(records):raise ValueError("stream timing drift")
+    # Pair only explicit, stable step identifiers; do not guess from order.
+    def step_id(e,st):
+        for obj in (st,e):
+            for k in ("step_id","stepId","tool_call_id","toolCallId"):
+                v=obj.get(k)
+                if isinstance(v,str) and 0<len(v)<=256:return v
+                if type(v) is int:return str(v)
+        return None
+    opened={};paired=[];outcome_times=[];first_mcp=None;ambiguous=set()
+    for i,e in enumerate(records):
+        st=e.get("step_update",{})
+        if not isinstance(st,dict) or st.get("tool_name")!="call_mcp_tool":continue
+        info=st.get("tool_info",{})
+        if not isinstance(info,dict):continue
+        if first_mcp is None:first_mcp=arrivals[i]
+        ident=step_id(e,st)
+        complete="output" in info or "error" in info
+        if complete:
+            outcome_times.append(arrivals[i])
+            if ident is not None and ident in opened and ident not in ambiguous:
+                a=opened.pop(ident)
+                if arrivals[i]>=a:paired.append((a,arrivals[i]))
+                ambiguous.add(ident)
+        elif ident is not None and ident not in ambiguous and ident not in opened:
+            opened[ident]=arrivals[i]
+    intervals=[]
+    for a,b in sorted(paired):
+        if intervals and a<=intervals[-1][1]:intervals[-1][1]=max(intervals[-1][1],b)
+        else:intervals.append([a,b])
+    # Time spent in correlated observed MCP spans, not pure browser execution.
+    observed=sum(b-a for a,b in intervals)
+    first=round(arrivals[0]) if arrivals else -1
+    first_tool=round(first_mcp) if first_mcp is not None else -1
+    last=round(outcome_times[-1]) if outcome_times else -1
+    download=-1
+    if len(artifacts)==1:
+        f=resultdir/artifacts[0]["filename"]
+        if f.is_file() and sha(f)==artifacts[0]["sha256"]:
+            d=f.stat().st_mtime-wall_start
+            if 0<=d<=elapsed+3:download=round(d)
+    write(run/"stream-timing.json",{"schema":"TTV-STREAM-ARRIVAL-V1","event_arrival_seconds":arrivals,"cli_end":process_end,"first_mcp":first_mcp,"mcp_outcome_seconds":outcome_times,"paired_mcp_spans":paired,"paired_mcp_union":observed,"download_mtime_elapsed":download,"elapsed_before_report":elapsed})
+    def val(x):return str(x) if x>=0 else "X"
     denied=int(bool(re.search(r"permission check failed|auto-denied|user denied permission|permission denied",stdout+"\n"+stderr,re.I)))
     drift=int([sha(x) for x in paths]!=config_before)
     # A file may be acquired despite a missing final answer or a later tool error.
@@ -322,11 +371,11 @@ def probe():
     challenge=bool(re.search(r"making sure you.re not a bot|/\.within\.website/|anti.bot challenge|captcha",access_evidence,re.I))
     provider_access="ACCESS_BLOCKED" if challenge else "SITE_TAB_OBSERVED"
     selection_evaluation="NOT_TESTED" if challenge else "RELEASE_METADATA_UNVERIFIED"
-    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider":"SubtitleCat","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V6","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Kalki 2898 AD","year":2024,"release":"Kalki.2898.AD.2024.1080p.WEB-DL.ViruseProject","release_origin":"OWNER_SUPPLIED","display_size":"12.8 GB","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider":"SubtitleCat","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V4","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Kalki 2898 AD","year":2024,"release":"Kalki.2898.AD.2024.1080p.WEB-DL.ViruseProject","release_origin":"OWNER_SUPPLIED","display_size":"12.8 GB","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
     write(run/"BRAIN_STUDENT_REPORT.json",report)
-    (run/"BRAIN_STUDENT_FULL_RESPONSE.md").write_text("# Hydrogen Low SubtitleCat Student V6 benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    (run/"BRAIN_STUDENT_FULL_RESPONSE.md").write_text("# Hydrogen Low SubtitleCat Student V4 benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
-    return f"TR14V6_A{int(challenge)}P{len(physical)}F{n}C{min(c,99999)}M{titlematch}E{exact}I{bound}S{named}H{history_ok}R{int(any(final))}N{len(records)}T{elapsed}D{denied}G{drift}"
+    return f"TR16_T{elapsed}F{val(first)}B{val(first_tool)}L{val(last)}D{val(download)}P{round(process_end)}K{len(outcome_times)}J{len(paired)}M{round(observed)}A{n}C{min(c,99999)}"
 
 try:print(probe())
 except Exception as e:
