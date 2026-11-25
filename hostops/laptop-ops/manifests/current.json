@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-srt-qa-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/bt09-groundtruth-preflight.ps1",
-  "script_sha256": "5a8d87b17909a98fefdd550881012afc9f7164ff95136811b1d7e9c89d11eaa9",
+  "script_path": "hostops/laptop-ops/operations/bt09-movie-audio-qa.ps1",
+  "script_sha256": "d0666943be96579225d130a31e59b8342dd2bbfabb40f2b54225ae67a8cb481a",
   "arguments": []
 }

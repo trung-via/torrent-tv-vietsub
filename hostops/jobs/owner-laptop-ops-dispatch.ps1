@@ -262,7 +262,7 @@ Write-Output 'HOSTOPS_OWNER_OPS=OWNER_TASK_TRIGGERED'
 # observations and rollback. The former 200 s bound expired during recovery
 # and mislabeled the completed Owner-side operation as an unknown effect.
 # Diagnostic jobs retain the short bound; no retry is issued on expiry.
-$waitSeconds = if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1') { 1200 } elseif ($manifest.category -ceq 'owner-maintenance') { 600 } else { 200 }
+$waitSeconds = if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/bt09-movie-audio-qa.ps1') { 1500 } elseif ($manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1') { 1200 } elseif ($manifest.category -ceq 'owner-maintenance') { 600 } else { 200 }
 for ($i=0; $i -lt $waitSeconds; $i++) {
     Start-Sleep -Seconds 1
     if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) { continue }
