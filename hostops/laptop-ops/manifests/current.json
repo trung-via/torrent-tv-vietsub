@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-srt-qa-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/bt09-movie-audio-qa.ps1",
-  "script_sha256": "d0666943be96579225d130a31e59b8342dd2bbfabb40f2b54225ae67a8cb481a",
+  "script_path": "hostops/laptop-ops/operations/bt09a-extraction-readout.ps1",
+  "script_sha256": "c98e31ca1164ac914f3099bb919e51ce37fa411d9e471f4b6dd1166041c623a2",
   "arguments": []
 }
