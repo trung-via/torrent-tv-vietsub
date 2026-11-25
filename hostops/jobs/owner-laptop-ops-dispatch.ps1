@@ -316,21 +316,21 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
     }
     if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1' -and $receipt.result -ceq 'SUCCESS') {
-        $f=Join-Path $outbox ('bt04-forensic-'+$nonce+'.json')
+        $f=Join-Path $outbox ('brain-handoff-'+$nonce+'.json')
         $item=Get-Item -LiteralPath $f -Force
-        if($item.Length -le 0 -or $item.Length -gt 262144 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'BT04R_TRACE_BOUND'}
+        if($item.Length -le 0 -or $item.Length -gt 262144 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'BRAIN_HANDOFF_BOUND'}
         $v=Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
-        $nums=@('events','invalid','timed','fixture','prompt','stdout_chars','stderr_chars','report','recipe','final_chars','report_ok','actions','recipe_steps','tools','denied','blocked_mentions','copied','copied_cues','history','downloads','history_cues','elapsed')
-        $fields=@('schema','nonce','source','prior','error_kind','status','trace')+$nums
-        if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-BT04-FORENSIC-V1' -or $v.nonce -cne $nonce -or $v.source -cne '4cd3124ac8c7102028ff0b1f079a5b3b522b15c9' -or $v.prior -cnotmatch '^[a-f0-9]{32}$'){throw 'BT04R_SCHEMA'}
-        if($v.error_kind -cnotmatch '^(NO_EXCEPTION_TEXT|STREAM_TIMING_DRIFT|NAME_ERROR|PERMISSION|FILE_MISSING|UNICODE|JSON|TIMEOUT|TYPE|VALUE|ATTRIBUTE|KEY|INDEX|OS|SYNTAX|OTHER_ERROR)$' -or $v.status -cnotmatch '^(CANDIDATE_DOWNLOADED|NO_PLAUSIBLE_CANDIDATE|ACCESS_BLOCKED|AUTH_REQUIRED|DOWNLOAD_FAILED|TOOL_UNAVAILABLE|UNKNOWN|NOT_REPORTED)$'){throw 'BT04R_ENUM'}
-        foreach($key in $nums){if($v.$key -isnot [ValueType] -or [long]$v.$key -lt -1 -or [long]$v.$key -gt 2147483647){throw 'BT04R_NUM'}}
-        if($v.trace -isnot [array] -or @($v.trace).Count -ne $v.events -or $v.events -gt 2048){throw 'BT04R_COUNT'}
-        foreach($line in $v.trace){if($line -isnot [string] -or $line -cnotmatch '^[0-9]{1,4}:(-1|[0-9]{1,9}):(LIST_PAGES|SELECT_PAGE|NAVIGATE_PAGE|TAKE_SNAPSHOT|CLICK|FILL|PRESS_KEY|WAIT_FOR|EVALUATE_SCRIPT|READ_FILE|WRITE_FILE|RUN_SHELL_COMMAND|EXECUTE_COMMAND|LIST_NETWORK_REQUESTS|CALL_MCP_TOOL|OTHER):(RESULT|ERROR|OUTPUT|CALL|OTHER)$'){throw 'BT04R_ROW'}}
-        Write-Output ('HOSTOPS_BT04R_ERROR_KIND='+$v.error_kind)
-        Write-Output ('HOSTOPS_BT04R_STATUS='+$v.status)
-        foreach($key in $nums){Write-Output ('HOSTOPS_BT04R_'+$key.ToUpperInvariant()+'='+$v.$key)}
-        foreach($line in $v.trace){Write-Output ('HOSTOPS_BT04R_EVENT='+$line)}
+        $nums=@('events','invalid','timed','elapsed','download','first_mcp_ms','last_mcp_ms','mcp_outcomes','final_chars','actions','recipe_steps','artifacts','cues','title_language','exact','sync','denied')
+        $fields=@('schema','nonce','source','original_source','mode','state','error_kind','result_code','trace')+$nums
+        if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-BRAIN-HANDOFF-V1' -or $v.nonce -cne $nonce -or $v.source -cne $commit -or $v.original_source -cnotmatch '^[a-f0-9]{40}$'){throw 'BRAIN_HANDOFF_SCHEMA'}
+        if($v.mode -cnotmatch '^(LIVE|REPLAY)$' -or $v.state -cnotmatch '^(MODEL_REPORT_PRESENT|MODEL_REPORT_MISSING)$' -or $v.error_kind -cnotmatch '^(NONE|KEYERROR|VALUEERROR|TYPEERROR|NAMEERROR|ATTRIBUTEERROR|OSERROR|PERMISSIONERROR|FILENOTFOUNDERROR|RUNTIMEERROR|TIMEOUTERROR|UNICODEERROR|JSONDECODEERROR|OTHER_ERROR)$' -or $v.result_code -cnotmatch '^[A-Z0-9_]{3,90}$'){throw 'BRAIN_HANDOFF_ENUM'}
+        if($v.mode -ceq 'REPLAY' -and ($manifest.arguments -notcontains '-ReplayBT04' -or $v.original_source -cne '4cd3124ac8c7102028ff0b1f079a5b3b522b15c9')){throw 'BRAIN_HANDOFF_REPLAY_DRIFT'}
+        if($v.mode -ceq 'LIVE' -and ($manifest.arguments -contains '-ReplayBT04' -or $v.original_source -cne $commit)){throw 'BRAIN_HANDOFF_LIVE_DRIFT'}
+        foreach($key in $nums){if($v.$key -isnot [ValueType] -or [long]$v.$key -lt -1 -or [long]$v.$key -gt 2147483647){throw 'BRAIN_HANDOFF_NUM'}}
+        if($v.trace -isnot [array] -or @($v.trace).Count -gt 2048 -or @($v.trace).Count -gt $v.events){throw 'BRAIN_HANDOFF_COUNT'}
+        foreach($line in $v.trace){if($line -isnot [string] -or $line -cnotmatch '^[0-9]{1,8}:(-1|[0-9]{1,9}):(LIST_PAGES|SELECT_PAGE|NAVIGATE_PAGE|TAKE_SNAPSHOT|CLICK|FILL|PRESS_KEY|WAIT_FOR|EVALUATE_SCRIPT|READ_FILE|WRITE_FILE|RUN_SHELL_COMMAND|EXECUTE_COMMAND|LIST_NETWORK_REQUESTS|CALL_MCP_TOOL):(ERROR|OUTPUT|CALL)$'){throw 'BRAIN_HANDOFF_ROW'}}
+        Write-Output ('HOSTOPS_BRAIN_HANDOFF_JSON='+($v|ConvertTo-Json -Depth 5 -Compress))
+        Write-Output 'HOSTOPS_BRAIN_REPORT_FILE_VERIFIED'
     }
     if ($receipt.result -cne 'SUCCESS') {
         Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
