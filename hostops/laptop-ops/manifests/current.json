@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1",
-  "script_sha256": "a7c5a86d5270713b380500ab814c085bc5b13582f6ce951320c259c192ad7ac5",
+  "script_sha256": "709365d1ba8b852be824e62f3cc8e47f1a6c7a3fd5f8726133402fcca4208901",
   "arguments": []
 }
