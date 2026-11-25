@@ -1,11 +1,11 @@
-# BT28: classify exact BT27 failures and recover only unscored regions, retain prior ASR.
+# BT29: cross-check four retained audio windows with existing Small.en, no media reads.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt28-odyssey-recovery-qa-'+$rq.nonce)
+$run=Join-Path $root ('bt29-dual-asr-qa-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import sys,pathlib,json,re,hashlib,zipfile,html,collections,difflib,statistics
@@ -83,107 +83,41 @@ def main():
     text_equal=[x[2] for x in src["T"]]==[x[2] for x in src["H"]]
     token_equal=" ".join(x[2] for x in src["T"])==" ".join(x[2] for x in src["H"])
     (run/"BRAIN_BT27_ARTIFACT_QA.json").write_text(json.dumps({"normalized_cue_tuples_equal":eq,"cue_text_equal":text_equal,"token_stream_equal":token_equal,"artifact_hashes":artifact_hashes},indent=2),encoding="utf-8")
-    phase="FIXTURE"
-    owner=root.parent/"OwnerBridge"
-    sys.path.insert(0,str(owner/"app/poc/p2-sub-discovery"))
-    from owner_torrserver_readonly import OwnerLocalTorrServer,OwnerTorrServerReader,_local_post
-    policy=obj(owner/"p3-p4-policy.json")
-    cfg=OwnerLocalTorrServer(policy["profile_id"],policy["torrserver_port"])
-    listing=json.loads(_local_post(cfg.url,b'{"action":"list"}',6.0))
-    assert isinstance(listing,list) and len(listing)<=256
-    target="7f9ecde8125748e03a53989a4b2651bf5290849339dfd1fdf9b5d3fbe8914038"
-    def matchrelease(x):return hashlib.sha256(re.sub(r"[^a-z0-9]","",str(x).casefold()).encode()).hexdigest()==target
-    found={}
-    for v in listing:
-        if not isinstance(v,dict):continue
-        tor=v.get("hash")
-        if not isinstance(tor,str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}",tor):continue
-        files=v.get("file_stats")
-        if not files:
-            try:files=json.loads(v.get("data","{}"))["TorrServer"]["Files"]
-            except (ValueError,TypeError,KeyError):continue
-        if not isinstance(files,list) or len(files)>4096:continue
-        for x in files:
-            name=str(x.get("path","")).replace("\\","/").rsplit("/",1)[-1]
-            idx=x.get("id")
-            if type(idx) is not int or not 0<=idx<4096 or not re.search(r"\.(mkv|mp4|avi|m4v|ts|m2ts)$",name,re.I):continue
-            if not (matchrelease(pathlib.PurePosixPath(name).stem) or matchrelease(v.get("title",""))):continue
-            if type(x.get("length")) is int and x["length"]>100000000:found[(tor,idx)]=name
-    if len(found)!=1:h("FIXTURE_AMBIGUOUS")
-    (tor,idx),name=next(iter(found.items()))
-    actual=OwnerTorrServerReader(cfg)(cfg.profile_id,tor,idx)
-    assert actual.path.replace("\\","/").rsplit("/",1)[-1]==name
-    url=f"http://127.0.0.1:{cfg.localhost_port}/play/{tor}/{idx}"
-    ff=shutil.which("ffmpeg");fp=shutil.which("ffprobe")
-    if not ff or not fp:h("FFMPEG_UNAVAILABLE")
-    phase="PROBE"
-    rc=cmd([fp,"-v","error","-rw_timeout","12000000","-protocol_whitelist","http,tcp","-show_streams","-show_format","-of","json",url],"ffprobe",35)
-    if rc!=0:h("MEDIA_PROBE_FAILED")
-    meta=obj(run/"ffprobe.out")
-    duration=float(meta.get("format",{}).get("duration",0))
-    if not math.isfinite(duration) or not 600<duration<14400:h("DURATION_UNKNOWN")
-    aud=[x for x in meta.get("streams",[]) if x.get("codec_type")=="audio" and str(x.get("tags",{}).get("language","")).lower() in ("en","eng","english")]
-    if not aud:h("NO_TAGGED_EN_AUDIO")
-    aud.sort(key=lambda x:(-int(x.get("disposition",{}).get("default",0)),int(x["index"])))
-    ai=int(aud[0]["index"])
-    phase="BINDING"
-    prior=[]
-    for f in (spool/"History").glob("receipt-*.json"):
-        r=obj(f)
-        if r.get("source_commit")=="29c8dac83ed663b137a39c666d242258cd93c848" and r.get("result")=="SUCCESS" and re.fullmatch("[a-f0-9]{32}",str(r.get("nonce",""))):prior.append(r["nonce"])
-    assert len(prior)==1
-    fixture=obj(root/("bt24-human-fixture-preflight-"+prior[0])/"BRAIN_HUMAN_FIXTURE.json")
-    assert fixture["schema"]=="BT10_HUMAN_FIXTURE_V1" and fixture["selection_fingerprint"]==target and fixture["exact_file_verified"] is True
-    assert fixture["hash"]==tor and fixture["file_index"]==idx and fixture["filename"]==name and fixture["size_bytes"]==actual.length and abs(fixture["duration_seconds"]-duration)<1
-    assert any(x["index"]==ai and str(x["language"]).lower() in ("en","eng","english") for x in fixture["audio_tracks"])
-    subs=[x for x in meta["streams"] if x.get("codec_type")=="subtitle" and str(x.get("tags",{}).get("language","")).lower() in ("en","eng","english")]
-    assert len(subs)==1 and fixture["english_subtitle_count"]==1
-    si=int(subs[0]["index"]);codec=subs[0].get("codec_name","")
-    assert any(x["index"]==si and x["codec"]==codec for x in fixture["subtitle_tracks"])
-    text_codec=codec in ("subrip","ass","ssa","webvtt","mov_text","text")
-    assert all(abs(reports[k]["video_input"]["duration"]-duration)<1 and reports[k]["video_input"]["size_bytes"]==actual.length for k in src)
-    phase="BT27_REUSE"
-    receipts=[]
-    for f in (spool/"History").glob("receipt-*.json"):
-        r=obj(f)
-        if r.get("source_commit")=="811dca676313adf55af7780a54626459d52b89b7" and r.get("result")=="SUCCESS" and re.fullmatch("[a-f0-9]{32}",str(r.get("nonce",""))):receipts.append(r["nonce"])
-    assert len(receipts)==1
-    olddir=root/("bt27-odyssey-quality-qa-"+receipts[0])
-    old=obj(olddir/"BRAIN_BT27_QA.json")
-    assert old["schema"]=="BT27_ODYSSEY_QUALITY_QA_V1" and old["fixture_nonce"]==prior[0] and old["artifact_hashes"]==artifact_hashes and len(old["regions"])==5 and old["embedded_codec"]==codec
+    phase="RETAINED"
+    def prior(source,prefix):
+        found=[]
+        for f in (spool/"History").glob("receipt-*.json"):
+            r=obj(f)
+            if r.get("source_commit")==source and r.get("result")=="SUCCESS" and re.fullmatch("[a-f0-9]{32}",str(r.get("nonce",""))):found.append(r["nonce"])
+        assert len(found)==1
+        return root/(prefix+found[0]),found[0]
+    d27,n27=prior("811dca676313adf55af7780a54626459d52b89b7","bt27-odyssey-quality-qa-")
+    d28,n28=prior("33a3a0d7bcc187260dc7cd6bf0f9eebc64788b92","bt28-odyssey-recovery-qa-")
+    q27=obj(d27/"BRAIN_BT27_QA.json");q28=obj(d28/"BRAIN_BT28_QA.json")
+    assert q27["schema"]=="BT27_ODYSSEY_QUALITY_QA_V1" and q28["schema"]=="BT28_ODYSSEY_RECOVERY_QA_V1"
+    assert q27["artifact_hashes"]==q28["artifact_hashes"]==artifact_hashes and q27["fixture_nonce"]==q28["fixture_nonce"]
+    fixture=obj(root/("bt24-human-fixture-preflight-"+q28["fixture_nonce"])/"BRAIN_HUMAN_FIXTURE.json")
+    assert fixture["selection_fingerprint"]==target and fixture["exact_file_verified"] is True
+    assert q27["model_sha1"]==q28["model_sha1"]=="e050f7970618a659205450ad97eb95a18d69c9ee"
+    assert len(q28["asr_scores"]["H"])==4 and q28["asr_coverage_permille"]["H"]==955
     assert text_equal and token_equal
-    delta=[h[0]-t[0] for t,h in zip(src["T"],src["H"])]
-    delta_end=[h[1]-t[1] for t,h in zip(src["T"],src["H"])]
-    def qmetric(v):
-        a=sorted(abs(x) for x in v)
-        return {"median_signed_ms":round(statistics.median(v)),"median_abs_ms":round(statistics.median(a)),"p95_abs_ms":a[math.ceil(.95*len(a))-1],"max_abs_ms":max(a)}
-    region_medians=[]
-    for j in range(5):
-        vals=[v for t,v in zip(src["T"],delta) if j*duration*200<=t[0]<(j+1)*duration*200]
-        if vals:region_medians.append(round(statistics.median(vals)))
-    def classify(rec,kind):
-        j=rec["sample"]
-        rc=rec.get(kind+"_rc")
-        if rec.get(kind+"_ok"):return "O"
-        if rc=="NON_TEXT_CODEC":return "B"
-        path=olddir/(("extract-" if kind=="audio" else "embedded-extract-")+str(j)+".err")
-        err=path.read_bytes()[:200000].decode("utf-8","replace").lower() if path.is_file() else ""
-        if rc==-99 or re.search(r"timed? ?out|timeout|10060",err):return "T"
-        if re.search(r"seek|range|partial file",err):return "S"
-        if re.search(r"invalid data|ebml|matroska",err):return "M"
-        if re.search(r"http error|server returned|connection|input/output error|i/o error",err):return "I"
-        if rc==0:return "H"
-        return "X"
-    audio_codes="".join(classify(r,"audio") for r in old["regions"])
-    embedded_codes="".join(classify(r,"embedded") for r in old["regions"])
-    diagnostics={"schema":"BT28_EXTRACTION_DIAG_V1","prior_source":"811dca676313adf55af7780a54626459d52b89b7","prior_nonce":receipts[0],"artifact_hashes":artifact_hashes,"audio_codes":audio_codes,"embedded_codes":embedded_codes,"embedded_codec":codec,"teacher_student_onset":qmetric(delta),"teacher_student_offset":qmetric(delta_end),"region_medians_ms":region_medians,"median_range_ms":max(region_medians)-min(region_medians) if region_medians else None}
-    (run/"BRAIN_BT28_DIAG.json").write_text(json.dumps(diagnostics,indent=2),encoding="utf-8")
+    samples=[]
+    for directory,records in ((d27,q27["regions"]),(d28,q28["recovery_regions"])):
+        for rec in records:
+            j=rec["sample"]
+            if rec.get("asr_scored") is not True:continue
+            audio=directory/f"audio-{j}.wav";asr=directory/f"asr-{j}.json"
+            assert audio.is_file() and not audio.is_symlink() and asr.is_file()
+            with wave.open(str(audio),"rb") as w:
+                assert w.getnchannels()==1 and w.getsampwidth()==2 and w.getframerate()==16000 and 35*16000<=w.getnframes()<=37*16000
+            samples.append((j,rec["start"],audio,asr))
+    assert len(samples)==len({x[0] for x in samples})==4
     phase="ASR_SETUP"
     tools=root/"BT09ASRPortable"
     archive=tools/"whisper-bin-x64-b5454.zip"
     assert archive.is_file() and archive.stat().st_size==8928640 and digest(archive,"sha256")=="6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb"
-    model=tools/"ggml-large-v3-turbo-q5_0.bin"
-    expected="e050f7970618a659205450ad97eb95a18d69c9ee"
+    model=tools/"ggml-small.en.bin"
+    expected="db8a495a91d927739e50b3fc1cc4c6b8f6c2d022"
     if not (model.is_file() and 0<model.stat().st_size<650000000 and digest(model,"sha1")==expected):h("PINNED_MODEL_UNAVAILABLE")
     bindir=run/"whisper-b5454";bindir.mkdir()
     with zipfile.ZipFile(archive) as z:
@@ -197,44 +131,17 @@ def main():
             with z.open(v) as f,dest.open("xb") as g:shutil.copyfileobj(f,g)
     cli=list(bindir.rglob("whisper-cli.exe"))
     if len(cli)!=1:h("ASR_CLI_MISSING")
-    phase="SAMPLES"
-    # Retain original measurements; never rerun a scored audio window.
-    regions=[];scores={k:list(old["asr_scores"][k]) for k in ("T","H","E")};anchors={k:[] for k in ("T","H","E")};embedded_scores={k:[] for k in src};embedded_anchors={k:[] for k in src}
-    already={x["sample"] for x in scores["H"]}
-    # Reconstruct retained phrase anchors from saved ASR JSON, without rerunning ASR.
-    for rec in old["regions"]:
-        if rec["sample"] not in already:continue
-        j=rec["sample"]
-        p=olddir/f"asr-{j}.json"
-        assert p.is_file()
-        segs=[]
+    phase="CROSSCHECK"
+    def segments(p,start):
+        out=[]
         for seg in obj(p).get("transcription",[]):
             o=seg.get("offsets",{})
             if type(o.get("from")) not in (int,float) or type(o.get("to")) not in (int,float):continue
             a,b=round(o["from"]),round(o["to"]);t=words(seg.get("text",""))
-            if 1000<=a<b<=35000 and t:segs.append((rec["start"]*1000+a,rec["start"]*1000+b,t))
-        rec["retained_asr_segments"]=segs
-    def metric(vals):
-        if not vals:return None
-        ab=sorted(abs(x) for x in vals)
-        return {"count":len(vals),"median_signed_ms":round(statistics.median(vals)),"median_abs_ms":round(statistics.median(ab)),"p95_abs_ms":ab[math.ceil(.95*len(ab))-1]}
-    def timeline(aa):
+            if 1000<=a<b<=35000 and t:out.append((start*1000+a,start*1000+b,t))
+        return out
+    def anchors(ref,rows):
         result={}
-        for k,v in aa.items():
-            groups={j:metric([x["onset"] for x in v if x["sample"]==j]) for j in set(x["sample"] for x in v)}
-            med=[x["median_signed_ms"] for x in groups.values()]
-            result[k]={"onset":metric([x["onset"] for x in v]),"offset":metric([x["offset"] for x in v]),"sample_median_range_ms":max(med)-min(med) if len(med)>1 else None,"regions":groups}
-        return result
-    def aggregate(ss,k):
-        r=ss[k];total=sum(x["ref_words"] for x in r)
-        return round(1000*sum(x["matched"] for x in r)/total) if total else None
-    def compare(ref,rows,j):
-        aw=[w for a,b,t in ref for w in t]
-        if not aw:return None,[]
-        lo,hi=ref[0][0],ref[-1][1]
-        sw=[w for a,b,t in rows if lo-500<(a+b)/2<hi+500 for w in t.split()]
-        m=sum(x.size for x in difflib.SequenceMatcher(None,aw,sw,autojunk=False).get_matching_blocks())
-        aa=[]
         for a,b,t in ref:
             if len(t)<4:continue
             near=[x for x in rows if x[1]>=a-5000 and x[0]<=b+5000]
@@ -244,89 +151,62 @@ def main():
                 for v in range(u,min(u+5,len(near))):
                     seq.extend(near[v][2].split())
                     if len(seq)>len(t) or seq!=t[:len(seq)]:break
-                    if seq==t:hits.append((near[u][0]-a,near[v][1]-b));break
-            if len(hits)==1:aa.append({"sample":j,"onset":hits[0][0],"offset":hits[0][1]})
-        return {"sample":j,"ref_words":len(aw),"srt_words":len(sw),"matched":m,"coverage_permille":round(1000*m/len(aw)),"agreement_permille":round(1000*m/max(1,len(sw)))},aa
-    for rec in old["regions"]:
-        if rec["sample"] not in already:continue
-        for k,rows in src.items():
-            rr,aa=compare(rec["retained_asr_segments"],rows,rec["sample"])
-            assert rr==next(x for x in scores[k] if x["sample"]==rec["sample"])
-            anchors[k].extend(aa)
-    def save():
-        report={"schema":"BT28_ODYSSEY_RECOVERY_QA_V1","fixture_nonce":prior[0],"duration_seconds":duration,"audio_index":ai,"embedded_index":si,"embedded_codec":codec,"artifact_hashes":artifact_hashes,"normalized_cue_tuples_equal":eq,"cue_text_equal":text_equal,"token_stream_equal":token_equal,"prior_regions":old["regions"],"recovery_regions":regions,"diagnostics":diagnostics,"asr_scores":scores,"asr_coverage_permille":{k:aggregate(scores,k) for k in scores},"asr_timeline":timeline(anchors),"embedded_reference_scores":embedded_scores,"embedded_reference_coverage_permille":{k:aggregate(embedded_scores,k) for k in embedded_scores},"embedded_reference_timeline":timeline(embedded_anchors),"model_sha1":expected,"runtime_sha256":digest(archive,"sha256"),"limitations":"Retain scored BT27 windows; select speech-dense 36-second windows within 120 seconds of remaining original centers using candidate cue density (selection bias; no full-film inference). A text embedded track is retried only in an audio-successful new window, at most once. ASR boundaries approximate; missing samples remain missing evidence."}
-        (run/"BRAIN_BT28_QA.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
-    embedded_attempted=False
-    for j,pct in enumerate((.10,.30,.50,.70,.90)):
-        if j in already:continue
-        center=round(duration*pct-18)
-        choices=range(max(0,center-120),min(round(duration)-36,center+120)+1,12)
-        def density(x):
-            return sum(len(t.split()) for a,b,t in src["H"] if (x+1)*1000<=a<=b<=(x+35)*1000)
-        start=max(choices,key=lambda x:(density(x),-abs(x-center)));length=36
-        pcm=run/f"audio-{j}.pcm";audio=run/f"audio-{j}.wav";sub=run/f"embedded-{j}.srt"
-        rec={"sample":j,"start":start,"length":length,"audio_ok":False,"embedded_ok":False,"asr_scored":False}
-        regions.append(rec)
-        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t",str(length),"-ar","16000","-ac","1","-c:a","pcm_s16le","-f","s16le","-n",str(pcm)],f"extract-{j}",120)
-        n=pcm.stat().st_size if pcm.is_file() else 0
-        rec["audio_rc"]=rc;rec["pcm_bytes"]=n
-        rec["audio_ok"]=rc==0 and n%2==0 and 35*32000<=n<=37*32000
-        em=[]
-        if text_codec and rec["audio_ok"] and not embedded_attempted:
-            embedded_attempted=True
-            rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{si}","-vn","-an","-dn","-t",str(length),"-c:s","srt","-n",str(sub)],f"embedded-extract-{j}",120)
-            rec["embedded_rc"]=rc
-            if rc==0 and sub.is_file():
-                local=parse_srt(sub.read_bytes())
-                # Reject unexpected non-window-relative timestamps; omit cut-edge cues.
-                if local and all(0<=a<=b<=38000 for a,b,t in local):
-                    rec["embedded_ok"]=True
-                    em=[(start*1000+a,start*1000+b,t) for a,b,t in local if 1000<=a<b<=35000 and t]
-                    rec["embedded_cues"]=len(em)
-        else:rec["embedded_rc"]="NON_TEXT_CODEC" if not text_codec else "NOT_RETRIED"
-        eref=[(a,b,t.split()) for a,b,t in em]
-        if sum(len(x[2]) for x in eref)>=12:
-            for k,rows in src.items():
-                rr,aa=compare(eref,rows,j);embedded_scores[k].append(rr);embedded_anchors[k].extend(aa)
-        if rec["audio_ok"]:
-            with wave.open(str(audio),"wb") as w:
-                w.setnchannels(1);w.setsampwidth(2);w.setframerate(16000);w.writeframes(pcm.read_bytes())
-            dest=run/f"asr-{j}"
-            rc=cmd([str(cli[0]),"-m",str(model),"-f",str(audio),"-l","en","-t","8","-oj","-of",str(dest),"-np"],f"asr-process-{j}",110)
-            rec["asr_rc"]=rc
-            if rc==0 and dest.with_suffix(".json").is_file():
-                segs=[]
-                for seg in obj(dest.with_suffix(".json")).get("transcription",[]):
-                    o=seg.get("offsets",{})
-                    if type(o.get("from")) not in (float,int) or type(o.get("to")) not in (float,int):continue
-                    a,b=round(o["from"]),round(o["to"]);t=words(seg.get("text",""))
-                    if 1000<=a<b<=35000 and t:segs.append((start*1000+a,start*1000+b,t))
-                if sum(len(x[2]) for x in segs)>=12:
-                    rec["asr_scored"]=True
-                    for k,rows in src.items():
-                        rr,aa=compare(segs,rows,j);scores[k].append(rr);anchors[k].extend(aa)
-                    if em:
-                        # Compare ASR only where the embedded sample has non-edge coverage.
-                        ref=[x for x in segs if em[0][0]<=x[0] and x[1]<=em[-1][1]]
-                        if sum(len(x[2]) for x in ref)>=12:
-                            rr,aa=compare(ref,em,j);scores["E"].append(rr);anchors["E"].extend(aa)
-        save()
-    def val(x):return str(x) if x is not None else "X"
-    m=timeline(anchors)["H"]["onset"]
-    shift=diagnostics["teacher_student_onset"]["median_abs_ms"];drift=diagnostics["median_range_ms"]
-    print(f"BT28_D{audio_codes}{embedded_codes}_I{shift}J{val(drift)}_V{len(scores['H'])}Q{val(aggregate(scores,'H'))}T{val(aggregate(scores,'T'))}K{m['count'] if m else 0}M{m['median_abs_ms'] if m else 'X'}P{m['p95_abs_ms'] if m else 'X'}E{sum(x['embedded_ok'] for x in regions)}")
+                    if seq==t:hits.append((near[u][0],near[v][1]));break
+            if len(hits)==1:result.setdefault(hits[0],[]).append((a,b,tuple(t)))
+        return {k:v[0] for k,v in result.items() if len(v)==1}
+    def metric(v):
+        if not v:return None
+        ab=sorted(abs(x) for x in v)
+        return {"count":len(v),"median_signed_ms":round(statistics.median(v)),"median_abs_ms":round(statistics.median(ab)),"p95_abs_ms":ab[math.ceil(.95*len(ab))-1]}
+    checks=[];common=[];small_on=[];turbo_on=[];small_off=[];turbo_off=[];disagree=[];agree=[];regions=[]
+    for j,start,audio,asr in sorted(samples):
+        dest=run/f"small-{j}"
+        rc=cmd([str(cli[0]),"-m",str(model),"-f",str(audio),"-l","en","-t","6","-oj","-of",str(dest),"-np"],f"small-process-{j}",120)
+        rec={"sample":j,"audio_sha256":digest(audio,"sha256"),"turbo_json_sha256":digest(asr,"sha256"),"rc":rc,"scored":False}
+        checks.append(rec)
+        if rc!=0 or not dest.with_suffix(".json").is_file():continue
+        small=segments(dest.with_suffix(".json"),start);turbo=segments(asr,start)
+        if sum(len(t) for a,b,t in small)<12:continue
+        rec["scored"]=True
+        aw=[w for a,b,t in small for w in t]
+        lo,hi=small[0][0],small[-1][1]
+        sw=[w for a,b,t in src["H"] if lo-500<(a+b)/2<hi+500 for w in t.split()]
+        matched=sum(x.size for x in difflib.SequenceMatcher(None,aw,sw,autojunk=False).get_matching_blocks())
+        rec["small_words"]=len(aw);rec["matched"]=matched
+        sa=anchors(small,src["H"]);ta=anchors(turbo,src["H"])
+        for key in sorted(sa.keys()&ta.keys()):
+            s0,s1,st=sa[key];t0,t1,tt=ta[key]
+            if st!=tt:continue
+            a,b=key
+            item={"sample":j,"small_onset":a-s0,"turbo_onset":a-t0,"small_offset":b-s1,"turbo_offset":b-t1,"asr_onset_difference":s0-t0,"asr_offset_difference":s1-t1}
+            common.append(item)
+            small_on.append(a-s0);turbo_on.append(a-t0);small_off.append(b-s1);turbo_off.append(b-t1);disagree.append(s0-t0)
+            # Agreement is a diagnostic category, not a ground-truth verdict.
+            if abs(s0-t0)<=250:agree.append(item)
+        rec["common_anchors"]=sum(x["sample"]==j for x in common)
+    for j in sorted({x["sample"] for x in common}):
+        xs=[x for x in common if x["sample"]==j]
+        regions.append({"sample":j,"small":metric([x["small_onset"] for x in xs]),"turbo":metric([x["turbo_onset"] for x in xs])})
+    total=sum(x.get("small_words",0) for x in checks)
+    coverage=round(1000*sum(x.get("matched",0) for x in checks)/total) if total else None
+    sm=metric(small_on);tu=metric(turbo_on);di=metric(disagree)
+    agreed=metric([round((x["small_onset"]+x["turbo_onset"])/2) for x in agree])
+    report={"schema":"BT29_RETAINED_DUAL_ASR_V1","fixture_nonce":q28["fixture_nonce"],"prior_nonces":[n27,n28],"artifact_hashes":artifact_hashes,"small_model_sha1":expected,"runtime_sha256":digest(archive,"sha256"),"samples":checks,"small_coverage_permille":coverage,"common_exact_phrase_anchors":common,"common_region_metrics":regions,"small_onset":sm,"turbo_onset":tu,"small_offset":metric(small_off),"turbo_offset":metric(turbo_off),"between_asr_onset":di,"agreed_250ms_count":len(agree),"agreed_anchor_average_onset":agreed,"limitations":"Shared Whisper model family; same exact phrase boundaries only. ASR agreement is not human ground truth; small common-anchor count or region coverage is insufficient. No media, provider or production calls. No timestamp edits."}
+    (run/"BRAIN_BT29_QA.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+    def v(x,k):return str(x[k]) if x else "X"
+    print(f"BT29_S{sum(x['scored'] for x in checks)}Q{coverage if coverage is not None else 'X'}K{len(common)}R{len(regions)}D{v(di,'median_abs_ms')}M{v(sm,'median_abs_ms')}P{v(sm,'p95_abs_ms')}T{v(tu,'median_abs_ms')}A{len(agree)}B{v(agreed,'median_abs_ms')}Z{v(agreed,'p95_abs_ms')}")
 
 try:main()
-except Halt as e:print("BT28_HOLD_"+str(e))
+except Halt as e:print("BT29_HOLD_"+str(e))
 except Exception as e:
     (run/"private-error-type.txt").write_text(type(e).__name__+" "+phase,encoding="utf-8")
-    print("BT28_HOLD_"+phase+"_ERROR")
+    print("BT29_HOLD_"+phase+"_ERROR")
 '@
 $f=Join-Path $run 'compare.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
 $out=@(& py -3 -I -B $f $root $spool $run 2> (Join-Path $run 'stderr.txt'))
-$code='BT28_HOLD_READOUT_ERROR'
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT28_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
+$code='BT29_HOLD_READOUT_ERROR'
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT29_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
