@@ -148,7 +148,7 @@ def main():
         return int.from_bytes(data, "big")
     opener=build_opener(ProxyHandler({}),_NoRedirect())
     base=f"http://127.0.0.1:{cfg.localhost_port}"
-    deadline=time.monotonic()+45
+    deadline=time.monotonic()+60
     def cache():
         req=Request(base+"/cache",data=json.dumps({"action":"get","hash":tor}).encode(),headers={"Content-Type":"application/json","Cache-Control":"no-store"},method="POST")
         with opener.open(req,timeout=3) as resp:raw=resp.read(1048577)
@@ -171,7 +171,7 @@ def main():
     reads=0;total=0
     def read(at,length):
         nonlocal reads,total
-        if time.monotonic()>deadline or reads>=12 or total+length>8388608 or at<0 or length<=0 or at+length>actual.length:raise DiagnosticStop("BUDGET")
+        if time.monotonic()>deadline or reads>=18 or total+length>33554432 or at<0 or length<=0 or at+length>actual.length:raise DiagnosticStop("BUDGET")
         ps2,now=cache()
         if ps2!=ps or not covered(at,length,ps,now):raise DiagnosticStop("CACHE_MISS")
         stop=at+length-1
@@ -243,20 +243,56 @@ def main():
     def clean(s):
         s=re.sub(r"\{[^}]*\}|<[^>]*>","",html.unescape(str(s)))
         return " ".join(re.findall(r"[a-z0-9]+",s.casefold()))
-    ix=defaultdict(list)
-    for c in parse_cues(b,"srt"):
-        t=clean(c.text)
-        if len(t)>=12 and len(t.split())>=3:ix[t].append(c.start_ms)
+    # Match distinctive full utterances or phrases spanning up to three cues.
+    # Report exact and regrouped matches separately; never infer sync from text alone.
+    def build_index(rows):
+        exact=defaultdict(set);phrase=defaultdict(set)
+        for i,(stamp,t) in enumerate(rows):
+            if len(t.split())>=3 and len(t)>=12:exact[t].add(stamp)
+            tokens=[]
+            for j in range(i,min(i+3,len(rows))):
+                if j>i and rows[j][0]-rows[j-1][0]>6500:break
+                tokens.extend(rows[j][1].split())
+                for n in (5,6,7,8):
+                    if len(tokens)>=n:phrase[" ".join(tokens[:n])].add(stamp)
+        return exact,phrase
+    def match_text(t,exact,phrase):
+        if len(exact.get(t,()))==1:return (next(iter(exact[t])),True)
+        words=t.split()
+        for n in (8,7,6,5):
+            if len(words)<n:continue
+            key=" ".join(words[:n])
+            if len(phrase.get(key,()))==1:return (next(iter(phrase[key])),False)
+        return None
+    # Local deterministic regression: split line succeeds; repeated phrase is rejected.
+    e0,p0=build_index([(1000,"the first small"),(1800,"test phrase here"),(9000,"unrelated words")])
+    if match_text("the first small test phrase here",e0,p0)!=(1000,False):return "TR09R4_FIXTURE_SPLIT_FAIL"
+    e0,p0=build_index([(1000,"this phrase repeats here now"),(9000,"this phrase repeats here now")])
+    if match_text("this phrase repeats here now",e0,p0) is not None:return "TR09R4_FIXTURE_REPEAT_FAIL"
+    candidate=sorted((c.start_ms,clean(c.text)) for c in parse_cues(b,"srt"))
+    ix,px=build_index(candidate)
     runs=[]
     for i in sorted(ready):
         if runs and i==runs[-1][1]+1:runs[-1][1]=i
         else:runs.append([i,i])
-    seen=set();matched=defaultdict(list);samples=0;clusters=0;errors=0
-    for lo,hi in reversed(runs):
-        if time.monotonic()>deadline or total>=8000000 or reads>=12:break
+    # Sample separate locations inside confirmed cached spans, not merely the first
+    # 4 MiB of two spans. Every range still rechecks all potentially touched pieces.
+    regions=[]
+    for lo,hi in runs:
         at=lo*ps
-        length=min((hi-lo+1)*ps-max_offset,actual.length-at,4194304,8388608-total)
-        if length<4096:continue
+        end=min((hi+1)*ps-max_offset,actual.length)
+        if end-at<4096:continue
+        step=4194304
+        for pos in range(at,end,step):
+            length=min(step,end-pos)
+            if length>=4096:regions.append((pos,length))
+    if len(regions)>8:
+        regions=[regions[round(i*(len(regions)-1)/7)] for i in range(8)]
+    seen=set();by_track=defaultdict(list);samples=0;clusters=0;errors=0
+    for at,length in regions:
+        if time.monotonic()>deadline or reads>=18:break
+        length=min(length,33554432-total)
+        if length<4096:break
         try:data=read(at,length)
         except Exception:errors+=1;continue
         samples+=1;search=0
@@ -289,13 +325,34 @@ def main():
                     k=(track,ms,t)
                     if k in seen:continue
                     seen.add(k)
-                    if len(ix.get(t,[]))==1:matched[track].append(ix[t][0]-ms)
+                    by_track[track].append((ms,t))
                 search=max(search,stop)
             except (DiagnosticStop,ValueError,UnicodeError,IndexError):continue
-    best=max(matched.values(),key=len,default=[])
-    near=sum(abs(x)<=750 for x in best)
-    med=round(statistics.median(best)) if best else 0
-    return f"TR09R3_P{len(ready)}S{samples}C{clusters}N{len(seen)}M{len(best)}A{near}D{'P' if med>=0 else 'N'}{abs(med)}X{errors}KB{total//1024}"
+    matched=[]
+    for track,rows in by_track.items():
+        rows.sort()
+        used=set();pairs=[]
+        for i,(ms,t) in enumerate(rows):
+            hit=match_text(t,ix,px)
+            if hit is None:
+                # Adjacent embedded cues may be merged in the downloaded SRT.
+                joined=t
+                for j in range(i+1,min(i+3,len(rows))):
+                    if rows[j][0]-rows[j-1][0]>6500:break
+                    joined+=" "+rows[j][1]
+                    hit=match_text(joined,ix,px)
+                    if hit:break
+            if hit and hit[0] not in used:
+                used.add(hit[0]);pairs.append((ms,hit[0]-ms,hit[1]))
+        matched.append((len(pairs),sum(v[2] for v in pairs),len(rows),pairs))
+    _,_,n,best=max(matched,key=lambda x:(x[0],x[1]),default=(0,0,0,[]))
+    exact=[d for _,d,e in best if e]
+    near=sum(abs(d)<=750 for d in exact)
+    med=round(statistics.median(exact)) if exact else 0
+    span=round((max(t for t,_,_ in best)-min(t for t,_,_ in best))/1000) if best else 0
+    # Exact cue starts only for offset. Regrouped phrase matches show content,
+    # but may have different segmentation and are not exact timing evidence.
+    return f"TR09R4_P{len(ready)}S{samples}N{n}M{len(best)}E{len(exact)}A{near}D{'P' if med>=0 else 'N'}{abs(med)}V{span}X{errors}KB{total//1024}"
 
 try:print(main())
 except Exception:print("TR08QA_PRIVATE_ERROR")
