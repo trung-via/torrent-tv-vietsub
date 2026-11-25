@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-srt-qa-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/bt09d-asr-crosscheck.ps1",
-  "script_sha256": "18bba7a4f1db96b9705c9a3c7777f44e9a60b6a25ed5f4ffbced32cf941e82ff",
+  "script_path": "hostops/laptop-ops/operations/bt09e-adjudication-readout.ps1",
+  "script_sha256": "0e2389cf2abf5defb62c38afa6c21f3a7e025553bb881c234da7011ffc041c24",
   "arguments": []
 }
