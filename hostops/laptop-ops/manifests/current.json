@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "report-bridge-api-bt18",
+  "operation": "agy-native-browser-srt-qa-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/report-bridge-api-bt18.ps1",
-  "script_sha256": "e3b4b674fa9f66965115d6e3c27fafac4f3f12fe7f83c9fa2112bff7eadbb21b",
+  "script_path": "hostops/laptop-ops/operations/bt17-v11-readout.ps1",
+  "script_sha256": "5ab0711d513e587e01051f6978e00572c7ea27671b2b6266d74a1c1116ca497d",
   "arguments": []
 }
