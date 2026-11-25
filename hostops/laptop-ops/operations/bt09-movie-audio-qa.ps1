@@ -5,7 +5,7 @@ if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt09-movie-audio-qa-'+$rq.nonce)
+$run=Join-Path $root ('bt09b-movie-audio-qa-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import sys,pathlib,json,re,hashlib,zipfile,html,collections,difflib,statistics
@@ -128,18 +128,38 @@ def main():
     if not aud:h("NO_TAGGED_EN_AUDIO")
     aud.sort(key=lambda x:(-int(x.get("disposition",{}).get("default",0)),int(x["index"])))
     ai=int(aud[0]["index"])
+    phase="RESUME"
+    source="bde31e100e13f9a238415e2a6addb3a512a651c0"
+    prior=[]
+    for f in (spool/"History").glob("receipt-*.json"):
+        r=obj(f)
+        if r.get("source_commit")==source and r.get("result")=="SUCCESS" and re.fullmatch("[a-f0-9]{32}",str(r.get("nonce",""))):prior.append(r["nonce"])
+    assert len(prior)==1
+    previous=root/("bt09-movie-audio-qa-"+prior[0])
+    prev=obj(previous/"BRAIN_AUDIO_QA.json")
+    assert prev["schema"]=="BT09_AUDIO_QA_V1" and prev["speech_sample_count"]==1 and prev["sample_count"]==1
+    assert abs(float(prev["duration_seconds"])-duration)<.01 and prev["audio_index"]==ai
+    assert all(len(prev["scores"][k])==1 and prev["scores"][k][0]["sample"]==2 for k in src)
     phase="SAMPLE"
     samples=[]
+    extraction=[]
     for j,pct in enumerate((.10,.30,.50,.70,.90)):
         start=max(0,round(duration*pct-18))
+        if j==2:continue
+        pcm=run/f"audio-{j}.pcm"
         out=run/f"audio-{j}.wav"
-        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","12000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t","36","-ar","16000","-ac","1","-c:a","pcm_s16le","-n",str(out)],f"extract-{j}",45)
-        if rc!=0 or not out.is_file():continue
-        with wave.open(str(out),"rb") as w:
-            dur=w.getnframes()/w.getframerate()
-            if w.getframerate()!=16000 or w.getnchannels()!=1 or dur<34:continue
+        began=time.monotonic()
+        # Raw PCM cannot carry the unfinished RIFF header seen after a killed FFmpeg.
+        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t","36","-ar","16000","-ac","1","-c:a","pcm_s16le","-f","s16le","-n",str(pcm)],f"extract-{j}",120)
+        n=pcm.stat().st_size if pcm.is_file() else 0
+        err=(run/f"extract-{j}.err").read_text(encoding="utf-8",errors="replace")[:200000].lower()
+        kind="OK" if rc==0 and 34*32000<=n<=37*32000 and n%2==0 else "TIMEOUT" if rc==-99 or re.search(r"timed? ?out|timeout|10060",err) else "SEEK" if re.search(r"seek|range|partial file",err) else "MEDIA" if re.search(r"invalid data|ebml|matroska",err) else "IO" if re.search(r"http error|server returned|connection|input/output error|i/o error",err) else "SHORT" if rc==0 else "OTHER"
+        extraction.append({"sample":j,"rc":rc,"pcm_bytes":n,"seconds":round(n/32000,3),"wall_seconds":round(time.monotonic()-began,3),"classification":kind})
+        (run/"BRAIN_EXTRACTION_QA.json").write_text(json.dumps(extraction,indent=2),encoding="utf-8")
+        if kind!="OK":continue
+        with wave.open(str(out),"wb") as w:
+            w.setnchannels(1);w.setsampwidth(2);w.setframerate(16000);w.writeframes(pcm.read_bytes())
         samples.append((j,start,out))
-    if not samples:h("NO_AUDIO_SAMPLE")
     phase="ASR_SETUP"
     tools=root/"BT09ASRPortable"
     tools.mkdir(exist_ok=True)
@@ -174,7 +194,7 @@ def main():
         if digest(temp,"sha1")!=expected:h("MODEL_HASH")
         os.replace(temp,model)
     phase="ASR"
-    scores={k:[] for k in src}; successful=0
+    scores={k:list(prev["scores"][k]) for k in src}; successful=1
     for j,start,audio in samples:
         dest=run/f"asr-{j}"
         rc=cmd([str(cli[0]),"-m",str(model),"-f",str(audio),"-l","en","-t","6","-oj","-of",str(dest),"-np"],f"asr-process-{j}",75)
@@ -198,24 +218,24 @@ def main():
             sw=[w for x in subset for w in x[2].split()]
             match=sum(x.size for x in difflib.SequenceMatcher(None,aw,sw,autojunk=False).get_matching_blocks())
             scores[k].append({"sample":j,"asr_words":len(aw),"srt_words":len(sw),"matched":match,"asr_coverage":round(1000*match/len(aw)),"srt_agreement":round(1000*match/max(1,len(sw)))})
-    summary={"schema":"BT09_AUDIO_QA_V1","duration_seconds":duration,"audio_index":ai,"sample_count":len(samples),"speech_sample_count":successful,"scores":scores,"method":"ASR lexical agreement, not word-level timing or certified ground truth","model_sha1":expected,"runtime_sha256":digest(archive,"sha256")}
+    summary={"schema":"BT09_AUDIO_QA_V1","duration_seconds":duration,"audio_index":ai,"sample_count":len(samples)+1,"speech_sample_count":successful,"resumed_original_nonce":prior[0],"extraction":extraction,"scores":scores,"method":"ASR lexical agreement, not word-level timing or certified ground truth","model_sha1":expected,"runtime_sha256":digest(archive,"sha256")}
     (run/"BRAIN_AUDIO_QA.json").write_text(json.dumps(summary,indent=2),encoding="utf-8")
     if not successful:h("NO_SPEECH_SAMPLE")
     def agg(k):
         x=scores[k]
         return round(1000*sum(y["matched"] for y in x)/sum(y["asr_words"] for y in x))
-    print(f"BT09A_S{len(samples)}_V{successful}_NC{agg('N_CAT')}_HC{agg('H_CAT')}_NO{agg('N_OS')}_HO{agg('H_OS')}")
+    print(f"BT09B_S{len(samples)+1}_V{successful}_NC{agg('N_CAT')}_HC{agg('H_CAT')}_NO{agg('N_OS')}_HO{agg('H_OS')}_"+ "".join({"OK":"O","TIMEOUT":"T","SEEK":"S","MEDIA":"M","IO":"I","SHORT":"H","OTHER":"X"}[x["classification"]] for x in extraction))
 try:main()
-except Halt as e:print("BT09A_HOLD_"+str(e))
+except Halt as e:print("BT09B_HOLD_"+str(e))
 except Exception as e:
     (run/"private-error-type.txt").write_text(type(e).__name__+" "+phase,encoding="utf-8")
-    print("BT09A_HOLD_"+phase+"_ERROR")
+    print("BT09B_HOLD_"+phase+"_ERROR")
 '@
 $f=Join-Path $run 'compare.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
 $out=@(& py -3 -I -B $f $root $spool $run 2> (Join-Path $run 'stderr.txt'))
-$code='BT09A_HOLD_READOUT_ERROR'
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT09A_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
+$code='BT09B_HOLD_READOUT_ERROR'
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT09B_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
