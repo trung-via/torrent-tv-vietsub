@@ -10,7 +10,7 @@ $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $env:TTV_READOUT_NONCE=[string]$rq.nonce
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt05-'+$(if($ReplayBT04){'replay'}else{'neon-opensubtitles'})+'-'+$rq.nonce)
+$run=Join-Path $root ($(if($ReplayBT04){'bt05-replay'}else{'bt07-hydrogen-subtitlecat'})+'-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $reportWriter=@'
 import json,pathlib,sys,os,re,hashlib
@@ -162,7 +162,7 @@ else{
   if($roots.Count -ne 0){$code='BT04_PROFILE_RUNNING_NO_LISTENER'}
   elseif(-not (Test-Path -LiteralPath $profile -PathType Container) -or -not (Test-Path -LiteralPath $chrome -PathType Leaf)){$code='BT04_PROFILE_OR_CHROME_MISSING'}
   else{
-   Start-Process -FilePath $chrome -ArgumentList @('--user-data-dir="'+$profile+'"','--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--new-window','https://www.opensubtitles.org/')
+   Start-Process -FilePath $chrome -ArgumentList @('--user-data-dir="'+$profile+'"','--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--new-window','https://www.subtitlecat.com/')
    $started9555=1
    for($i=0;$i -lt 30;$i++){
     Start-Sleep -Milliseconds 500
@@ -264,23 +264,23 @@ def probe():
     override=run/"session-settings.json"
     write(override,config)
     env["TTV_SESSION_SETTINGS"]=str(override)
-    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-neon-high","high")
+    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
     # One ordinary pre-existing provider tab only. Do not reload, rotate or solve a challenge.
     with opener.open("http://127.0.0.1:9555/json/list",timeout=3) as f:tabs=json.load(f)
     pages=[t for t in tabs if t.get("type")=="page"]
     cat_hosts={"www.subtitlecat.com","subtitlecat.com"}
     os_hosts={"www.opensubtitles.org","opensubtitles.org"}
     host=lambda t:urllib.parse.urlsplit(t.get("url","")).hostname
-    site=[t for t in pages if host(t) in os_hosts]
-    if not site:site=[t for t in pages if host(t) in cat_hosts]
+    site=[t for t in pages if host(t) in cat_hosts]
+    if not site:site=[t for t in pages if host(t) in os_hosts]
     if not site:
         # Ordinary homepage on the same verified profile, only if no provider tab exists.
-        req=urllib.request.Request("http://127.0.0.1:9555/json/new?https://www.opensubtitles.org/",method="PUT")
+        req=urllib.request.Request("http://127.0.0.1:9555/json/new?https://www.subtitlecat.com/",method="PUT")
         with opener.open(req,timeout=5) as f:new=json.load(f)
         for _ in range(20):
             time.sleep(.5)
             with opener.open("http://127.0.0.1:9555/json/list",timeout=3) as f:tabs=json.load(f)
-            site=[t for t in tabs if t.get("type")=="page" and t.get("id")==new.get("id") and host(t) in os_hosts]
+            site=[t for t in tabs if t.get("type")=="page" and t.get("id")==new.get("id") and host(t) in cat_hosts]
             if site:break
 
     if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "BT04_ACCESS_BLOCKED_PRE"
@@ -354,7 +354,7 @@ def probe():
     if not title:return "BT04_FIXTURE_TITLE_UNKNOWN"
     video_input={"title":title,"year":int(m.group()),"release":release,"release_origin":"TORRSERVER_VERIFIED","size_bytes":actual.length,"fps":None,"duration":None}
     write(run/"verified-fixture.json",video_input)
-    prompt="You are the Neon High Teacher for Torrent TV Vietsub. Demonstrate independent acquisition of the correct English subtitle for the owner-selected TorrServer release below, using only authorized ttv-browser MCP on dedicated Chrome CDP 9555 and the ordinary OpenSubtitles.org website. Begin list_pages; use the existing provider tab (navigate its numeric pageId to https://www.opensubtitles.org/ if currently SubtitleCat), no unrelated tabs. Use only list_pages, select_page, navigate_page, take_snapshot, click, fill, press_key, wait_for, evaluate_script. Read only visible DOM; choose efficient search and compare title, year, language, release, cut, timing and candidate detail. Download at most one plausible English original candidate via ordinary site action; do not guess endpoint, bypass challenge, use alternate source, login, pay, or claim unsupported sync. Stop on denial or access block. Once download is initiated, do not call network inspection, shell, file or additional browser tools; return the report immediately. Host independently verifies new file and records all tool events. Return one concise final JSON report even on failure, using only actual operational observations and brief decision summaries. The host automatically writes it to BRAIN_RESULT.json; do not call a file or shell tool to save it. Limit the report to the actual action ledger, concrete outcomes, decision summaries and reusable recipe; avoid repetition. Use status (CANDIDATE_DOWNLOADED, NO_PLAUSIBLE_CANDIDATE, ACCESS_BLOCKED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE, UNKNOWN), observed_evidence, release_match (EXACT_METADATA, EVIDENCED_COMPATIBLE, UNKNOWN, CONFLICT), compatibility_uncertainties, actions (array of actual actions with ordinal, tool, purpose summary, observed result, errors and decision), reusable_recipe (ordered concise instructions without candidate IDs, answers, local paths or subtitle text), recipe_codes (ordered array drawn only from LIST_TASK_TAB, NAVIGATE_PROVIDER, QUERY_TITLE_YEAR, FILTER_ENGLISH, MATCH_RELEASE, CHECK_DETAIL, BIND_CANDIDATE, DOWNLOAD_ONCE, COMPACT_DOM, AVOID_REPEAT_SNAPSHOT, STOP_ON_DENIAL, MARK_UNKNOWN_METADATA, CHECK_TIMELINE, HOST_VERIFY_FILE, FINAL_REPORT), failures, improvements, and usage if exposed. Keep the final report around 1500-2500 characters if practical, avoid duplicating host logs. Include concise decision summaries, not hidden reasoning. No other provider, translation, TV, production, or shared setting changes in this acquisition job. Do not represent file download as sync verification. Input metadata: "+json.dumps(video_input,ensure_ascii=True)
+    prompt="You are Hydrogen Low, Student Recipe V8, independently finding the English original subtitle for the exact TorrServer release given below on SubtitleCat via the authorized ttv-browser MCP Chrome CDP 9555. No Teacher candidate IDs, answers or download links are provided. Use only list_pages, select_page, navigate_page, take_snapshot, click, fill, press_key, wait_for, evaluate_script; page-scoped calls must pass numeric pageId. Reuse only the authorized task tab, navigate to ordinary https://www.subtitlecat.com/ if needed. Use bounded visible DOM queries from the start, never dump whole DOM or subtitle text. Confirm current visible controls; observed selector hints only: #search, #button-addon2, #download_en. Inspect the visible search form and submit title+year. In a compact query scan all visible result rows for English origin and release tokens, returning counts and strongest candidates including exact matches below the first row. Rank title/year/English origin and exact release, cut/repack, source/group first; compare FPS/duration when available; unknown remains unknown. Open strongest detail and collect original-English marker, preview statistics not dialogue text, completeness signals and visible English link together. Inspect next candidate only for material ambiguity, missing evidence or quality issue. Non-HI is a tiebreaker; adoption/size are weak signals, never proof of sync. Bind selected candidate identity and observed title/language/release to visible download action. Click once via normal site UI and stop browser tools immediately. Do not guess URLs or endpoints, bypass restrictions, login, pay, or use alternate providers. Stop on denial or access block. Host independently verifies fresh artifact, records actual tool events and exports BRAIN_RESULT.json and BRAIN_HANDOFF.json. No file/shell calls to write reports. Aim for <=8 MCP outcomes and <=75s acquisition as targets only; never sacrifice correct match to speed. Return compact final JSON even on failure: status (CANDIDATE_DOWNLOADED, NO_PLAUSIBLE_CANDIDATE, ACCESS_BLOCKED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE, UNKNOWN), observed_evidence, release_match (EXACT_METADATA, EVIDENCED_COMPATIBLE, UNKNOWN, CONFLICT), compatibility_uncertainties, actions (actual actions with ordinal, tool, purpose, result, error, decision), reusable_recipe (ordered brief steps without candidate IDs, local paths or subtitle text), recipe_codes (ordered array only from LIST_TASK_TAB, NAVIGATE_PROVIDER, QUERY_TITLE_YEAR, FILTER_ENGLISH, MATCH_RELEASE, CHECK_DETAIL, BIND_CANDIDATE, DOWNLOAD_ONCE, COMPACT_DOM, AVOID_REPEAT_SNAPSHOT, STOP_ON_DENIAL, MARK_UNKNOWN_METADATA, CHECK_TIMELINE, HOST_VERIFY_FILE, FINAL_REPORT), failures, improvements, usage if exposed. Concise operational decisions only; no hidden reasoning. No translation, TV or production effects. Input metadata: "+json.dumps(video_input,ensure_ascii=True)
     (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
     env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
@@ -435,7 +435,7 @@ def probe():
         for url in urls:
             try:
                 u=urllib.parse.urlsplit(str(url).strip("\x00"))
-                if u.scheme=="https" and u.hostname in (os_hosts | {"dl.opensubtitles.org"}) and u.path not in ("","/"):
+                if u.scheme=="https" and u.hostname in cat_hosts and u.path not in ("","/"):
                     result.append(u.path)
             except ValueError:pass
         return list(dict.fromkeys(result))
@@ -539,9 +539,9 @@ def probe():
     challenge=bool(re.search(r"making sure you.re not a bot|/\.within\.website/|anti.bot challenge|captcha",access_evidence,re.I))
     provider_access="ACCESS_BLOCKED" if challenge else "SITE_TAB_OBSERVED"
     selection_evaluation="NOT_TESTED" if challenge else "RELEASE_METADATA_UNVERIFIED"
-    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-neon-high","provider":"OpenSubtitles","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"BT06","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":video_input,"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider":"SubtitleCat","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V8_BT07","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":video_input,"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
     write(run/"BRAIN_TEACHER_REPORT.json",report)
-    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Neon High OpenSubtitles Teacher BT06 benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Hydrogen Low SubtitleCat Student BT07 benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
     # Full raw tool calls, parameters and results stay private; Brain receives every event's safe typed projection.
     known={"list_pages","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","evaluate_script","read_file","write_file","run_shell_command","execute_command","list_network_requests","call_mcp_tool"}
@@ -567,7 +567,7 @@ def probe():
     nonce=os.environ["TTV_READOUT_NONCE"]
     summary={"schema":"TTV-BT04-TRACE-V1","nonce":nonce,"source":os.environ["TTV_PINNED_SOURCE"],"elapsed":elapsed,"download":download,"cues":c,"artifacts":n,"events":len(records),"final_chars":len("\n".join(final)),"report_ok":int(final_json is not None),"actions":len(final_json["actions"]) if final_json else 0,"recipe_steps":len(final_json["reusable_recipe"]) if final_json else 0,"title_language":titlematch,"exact":exact,"denied":denied,"drift":drift,"trace":trace}
     write(pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"Receipts"/("bt04-trace-"+nonce+".json"),summary)
-    return f"BT06_T{elapsed}F{val(first)}B{val(first_tool)}L{val(last)}D{val(download)}P{round(process_end)}K{len(outcome_times)}J{len(paired)}M{round(observed)}A{n}C{min(c,99999)}"
+    return f"BT07_T{elapsed}F{val(first)}B{val(first_tool)}L{val(last)}D{val(download)}P{round(process_end)}K{len(outcome_times)}J{len(paired)}M{round(observed)}A{n}C{min(c,99999)}"
 
 try:print(probe())
 except Exception as e:
