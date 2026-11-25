@@ -315,29 +315,25 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
-    if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1') {
-        $readout=Join-Path $outbox ('agy-brain-readout-'+$nonce+'.json')
-        if (Test-Path -LiteralPath $readout -PathType Leaf) {
-            $item=Get-Item -LiteralPath $readout -Force
-            if($item.Length -le 0 -or $item.Length -gt 2048 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'AGY_READOUT_BOUND'}
-            $v=Get-Content -LiteralPath $readout -Raw | ConvertFrom-Json
-            $bools=@('final_present','title_language','exact_release','release_verified','sync_verified','permission_denied','config_drift','teacher_json')
-            $numbers=@('elapsed','download_seconds','tools','cues','artifacts','teacher_recipe_steps','teacher_report_sections','teacher_budget','baseline_count')
-            $fields=@('schema','nonce','source','provider','model','recipe','final_status','final_release','provider_access','teacher_codes')+$bools+$numbers
-            if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-AGY-BRAIN-READOUT-V1' -or $v.nonce -cne $nonce -or $v.source -cne $commit -or $v.provider -cne 'OpenSubtitles' -or $v.model -cne 'gemini-4-neon-high' -or $v.recipe -cne 'TEACHER_V1' -or $v.final_status -cnotin @('CANDIDATE_DOWNLOADED','NO_PLAUSIBLE_CANDIDATE','ACCESS_BLOCKED','AUTH_REQUIRED','DOWNLOAD_FAILED','TOOL_UNAVAILABLE','UNKNOWN','NOT_REPORTED') -or $v.final_release -cnotin @('EXACT_METADATA','EVIDENCED_COMPATIBLE','UNKNOWN','CONFLICT','NOT_REPORTED') -or $v.provider_access -cnotin @('ACCESS_BLOCKED','SITE_TAB_OBSERVED')){throw 'AGY_READOUT_SCHEMA'}
-            foreach($key in $bools){if($v.$key -isnot [bool]){throw 'AGY_READOUT_BOOL'}}
-            foreach($key in $numbers){$min=if($key -cin @('download_seconds','teacher_budget')){-1}else{0};if($v.$key -isnot [ValueType] -or [long]$v.$key -lt $min -or [long]$v.$key -gt 10000000){throw 'AGY_READOUT_NUMBER'}}
-            foreach($key in @('schema','nonce','source','provider','model','recipe','final_status','final_release','provider_access')){if($v.$key -isnot [string]){throw 'AGY_READOUT_STRING'}}
-            $allowedCodes=@('QUERY_TITLE_YEAR','FILTER_ENGLISH','MATCH_RELEASE','CHECK_DETAIL','BIND_CANDIDATE','DOWNLOAD_ONCE','COMPACT_DOM','AVOID_REPEAT_SNAPSHOT','STOP_ON_DENIAL','MARK_UNKNOWN_METADATA','CHECK_TIMELINE','MEASURE_STARTUP','MEASURE_TOOL_LATENCY','BLIND_STUDENT_TEST','HOST_VERIFY_FILE')
-            if($v.teacher_codes -isnot [array] -or @($v.teacher_codes).Count -gt 15 -or $v.baseline_count -ne 2 -or $v.teacher_recipe_steps -gt 30 -or $v.teacher_report_sections -gt 7 -or $v.teacher_budget -gt 120){throw 'TEACHER_READOUT_INVALID'}
-            foreach($entry in $v.teacher_codes){if($entry -isnot [string] -or $entry -cnotin $allowedCodes){throw 'TEACHER_CODE_INVALID'}}
-            Write-Output ('HOSTOPS_AGY_BRAIN_READOUT='+($v|ConvertTo-Json -Compress))
-        } elseif($receipt.result -ceq 'SUCCESS'){
-            $stage=Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')
-            $status=Get-Content -LiteralPath $stage -Raw | ConvertFrom-Json
-            if($status.schema -cne 'TTV-ODYSSEY-STAGE-V1' -or $status.nonce -cne $nonce -or $status.reason -cmatch '^TR18_T[0-9]'){throw 'AGY_READOUT_MISSING'}
-            Write-Output 'HOSTOPS_AGY_BRAIN_READOUT=NOT_AVAILABLE_PRECHECK_OR_ERROR'
-        }
+    if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1' -and $receipt.result -ceq 'SUCCESS') {
+        $f=Join-Path $outbox ('tr18-trace-'+$nonce+'.json')
+        $item=Get-Item -LiteralPath $f -Force
+        if($item.Length -le 0 -or $item.Length -gt 131072 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'TR18_TRACE_BOUND'}
+        $v=Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+        $numbers=@('events','invalid','exit','result_events','response_fields','alternative_fields','deny_events','stdout_chars','stderr_chars','report_chars','final_count','recipe_exists')
+        $fields=@('schema','nonce','source','stderr_flags','trace')+$numbers
+        if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-TR18-TRACE-V1' -or $v.nonce -cne $nonce -or $v.source -cne 'db9d7d8af8d05556014950745c4666bb038ca799'){throw 'TR18_TRACE_SCHEMA'}
+        foreach($key in $numbers){$min=if($key -ceq 'exit'){-2147483648}else{0};if($v.$key -isnot [ValueType] -or [long]$v.$key -lt $min -or [long]$v.$key -gt 2147483647){throw 'TR18_TRACE_NUM'}}
+        $flag='(?:DENY|FILE|SHELL|QUOTA|AUTH|CANCEL|TIMEOUT|DOWNLOAD|RECIPE|RESULT|SANDBOX|CHALLENGE)'
+        $flags='(?:NONE|'+$flag+'(?:,'+$flag+')*)'
+        $event='(?:INIT|STEP_UPDATE|RESULT|ERROR|MESSAGE|ASSISTANT|TOOL_USE|TOOL_RESULT|CONTENT_BLOCK_DELTA|CONTENT_BLOCK_START|CONTENT_BLOCK_STOP|DONE|WARNING|FINISH|USAGE|SESSION_START|SESSION_END|OTHER)'
+        $tool='(?:LIST_PAGES|SELECT_PAGE|NAVIGATE_PAGE|TAKE_SNAPSHOT|CLICK|FILL|PRESS_KEY|WAIT_FOR|EVALUATE_SCRIPT|READ_FILE|WRITE_FILE|RUN_SHELL_COMMAND|EXECUTE_COMMAND|SHELL|LIST_DIRECTORY|SEARCH_FILE_CONTENT|REPLACE|GLOB|GREP|SAVE_MEMORY|WRITE_TODOS|READ_MANY_FILES|CALL_MCP_TOOL|OTHER)'
+        $row='^[0-9]{1,3}:[0-9]{1,9}:'+$event+':'+$tool+':(?:ERROR|OUTPUT|RESULT|OTHER):'+$flags+':[01]$'
+        if($v.stderr_flags -isnot [string] -or $v.stderr_flags -cnotmatch ('^'+$flags+'$') -or $v.trace -isnot [array] -or @($v.trace).Count -ne $v.events -or $v.events -gt 512){throw 'TR18_TRACE_FIELDS'}
+        foreach($line in $v.trace){if($line -isnot [string] -or $line -cnotmatch $row){throw 'TR18_TRACE_ROW'}}
+        foreach($key in $numbers){Write-Output ('HOSTOPS_TR18_'+$key.ToUpperInvariant()+'='+$v.$key)}
+        Write-Output ('HOSTOPS_TR18_STDERR_FLAGS='+$v.stderr_flags)
+        foreach($line in $v.trace){Write-Output ('HOSTOPS_TR18_EVENT='+$line)}
     }
     if ($receipt.result -cne 'SUCCESS') {
         Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
