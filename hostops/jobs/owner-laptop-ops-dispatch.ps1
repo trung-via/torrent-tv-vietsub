@@ -315,6 +315,22 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/tr-ttv-06-student-v3.ps1') {
+        $readout=Join-Path $outbox ('agy-brain-readout-'+$nonce+'.json')
+        if (Test-Path -LiteralPath $readout -PathType Leaf) {
+            $item=Get-Item -LiteralPath $readout -Force
+            if($item.Length -le 0 -or $item.Length -gt 2048 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'AGY_READOUT_BOUND'}
+            $v=Get-Content -LiteralPath $readout -Raw | ConvertFrom-Json
+            $bools=@('final_present','title_language','exact_release','release_verified','sync_verified','permission_denied','config_drift')
+            $numbers=@('elapsed','download_seconds','tools','cues','artifacts')
+            $fields=@('schema','nonce','source','provider','model','recipe','final_status','final_release','provider_access')+$bools+$numbers
+            if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-AGY-BRAIN-READOUT-V1' -or $v.nonce -cne $nonce -or $v.source -cne '6e28d723bf95611bb8a4541cd54ea0e1bcf74fdc' -or $v.provider -cne 'SubtitleCat' -or $v.model -cne 'gemini-4-hydrogen-low' -or $v.recipe -cne 'V4' -or $v.final_status -cnotin @('CANDIDATE_DOWNLOADED','NO_PLAUSIBLE_CANDIDATE','ACCESS_BLOCKED','AUTH_REQUIRED','DOWNLOAD_FAILED','TOOL_UNAVAILABLE','UNKNOWN','NOT_REPORTED') -or $v.final_release -cnotin @('EXACT_METADATA','EVIDENCED_COMPATIBLE','UNKNOWN','CONFLICT','NOT_REPORTED') -or $v.provider_access -cnotin @('ACCESS_BLOCKED','SITE_TAB_OBSERVED')){throw 'AGY_READOUT_SCHEMA'}
+            foreach($key in $bools){if($v.$key -isnot [bool]){throw 'AGY_READOUT_BOOL'}}
+            foreach($key in $numbers){if($v.$key -isnot [ValueType] -or [long]$v.$key -lt 0 -or [long]$v.$key -gt 10000000){throw 'AGY_READOUT_NUMBER'}}
+            if($v.elapsed -ne 122 -or $v.download_seconds -ne 109 -or $v.tools -ne 10 -or $v.cues -ne 1672 -or $v.artifacts -ne 1){throw 'AGY_READOUT_V7_BINDING'}
+            Write-Output ('HOSTOPS_AGY_BRAIN_READOUT='+($v|ConvertTo-Json -Compress))
+        } elseif($receipt.result -ceq 'SUCCESS'){throw 'AGY_READOUT_MISSING'}
+    }
     if ($receipt.result -cne 'SUCCESS') {
         Write-Output 'HOSTOPS_OWNER_OPS=FAILED_NO_RETRY_PRIVATE_LOG'
         if ($receipt.operation -ceq 'owner-srt-parser-install') {
