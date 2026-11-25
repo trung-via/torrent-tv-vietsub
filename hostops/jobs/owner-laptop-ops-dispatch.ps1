@@ -321,9 +321,12 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         if($item.Length -le 0 -or $item.Length -gt 262144 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'BRAIN_HANDOFF_BOUND'}
         $v=Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
         $nums=@('events','invalid','timed','elapsed','download','first_mcp_ms','last_mcp_ms','mcp_outcomes','final_chars','actions','recipe_steps','artifacts','cues','title_language','exact','sync','denied')
-        $fields=@('schema','nonce','source','original_source','mode','state','error_kind','result_code','trace')+$nums
+        $fields=@('schema','nonce','source','original_source','mode','state','model_status','model_release','recipe_codes','error_kind','result_code','trace')+$nums
         if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-BRAIN-HANDOFF-V1' -or $v.nonce -cne $nonce -or $v.source -cne $commit -or $v.original_source -cnotmatch '^[a-f0-9]{40}$'){throw 'BRAIN_HANDOFF_SCHEMA'}
         if($v.mode -cnotmatch '^(LIVE|REPLAY)$' -or $v.state -cnotmatch '^(MODEL_REPORT_PRESENT|MODEL_REPORT_MISSING)$' -or $v.error_kind -cnotmatch '^(NONE|KEYERROR|VALUEERROR|TYPEERROR|NAMEERROR|ATTRIBUTEERROR|OSERROR|PERMISSIONERROR|FILENOTFOUNDERROR|RUNTIMEERROR|TIMEOUTERROR|UNICODEERROR|JSONDECODEERROR|OTHER_ERROR)$' -or $v.result_code -cnotmatch '^[A-Z0-9_]{3,90}$'){throw 'BRAIN_HANDOFF_ENUM'}
+        if($v.model_status -cnotmatch '^(CANDIDATE_DOWNLOADED|NO_PLAUSIBLE_CANDIDATE|ACCESS_BLOCKED|AUTH_REQUIRED|DOWNLOAD_FAILED|TOOL_UNAVAILABLE|UNKNOWN|NOT_REPORTED)$' -or $v.model_release -cnotmatch '^(EXACT_METADATA|EVIDENCED_COMPATIBLE|UNKNOWN|CONFLICT|NOT_REPORTED)$'){throw 'BRAIN_HANDOFF_MODEL_ENUM'}
+        if($v.recipe_codes -isnot [array] -or @($v.recipe_codes).Count -gt 64){throw 'BRAIN_HANDOFF_RECIPE_COUNT'}
+        foreach($x in $v.recipe_codes){if($x -isnot [string] -or $x -cnotmatch '^(LIST_TASK_TAB|NAVIGATE_PROVIDER|QUERY_TITLE_YEAR|FILTER_ENGLISH|MATCH_RELEASE|CHECK_DETAIL|BIND_CANDIDATE|DOWNLOAD_ONCE|COMPACT_DOM|AVOID_REPEAT_SNAPSHOT|STOP_ON_DENIAL|MARK_UNKNOWN_METADATA|CHECK_TIMELINE|HOST_VERIFY_FILE|FINAL_REPORT)$'){throw 'BRAIN_HANDOFF_RECIPE_CODE'}}
         if($v.mode -ceq 'REPLAY' -and ($manifest.arguments -notcontains '-ReplayBT04' -or $v.original_source -cne '4cd3124ac8c7102028ff0b1f079a5b3b522b15c9')){throw 'BRAIN_HANDOFF_REPLAY_DRIFT'}
         if($v.mode -ceq 'LIVE' -and ($manifest.arguments -contains '-ReplayBT04' -or $v.original_source -cne $commit)){throw 'BRAIN_HANDOFF_LIVE_DRIFT'}
         foreach($key in $nums){if($v.$key -isnot [ValueType] -or [long]$v.$key -lt -1 -or [long]$v.$key -gt 2147483647){throw 'BRAIN_HANDOFF_NUM'}}
