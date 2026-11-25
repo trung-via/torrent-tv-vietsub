@@ -577,17 +577,7 @@ except Exception as e:
 $f=Join-Path $run 'control.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
 $out=@(& py -3 -I -B $f $owner $run $profile 2> (Join-Path $run 'python-stderr.txt'))
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,80}{$code=[string]$out[0]}else{$code='TR04A_LOCAL_ERROR'}
-}
-} finally { Export-BrainReport 'LIVE' $code }
-$stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
-$stable9555=[int](($active9555 -join ',') -ceq (@(Listener 9555) -join ','))
-$stableOwner=[int]($ownerState -ceq [string](Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\').State)
-$code=$code+'_W'+$stable9444+'B'+$stable9555+'O'+$stableOwner+'S'+$started9555
-$doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
-[IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
-Write-Output $code
-){$code=[string]$out[0]}else{$code='TR04A_LOCAL_ERROR'}
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^[A-Z0-9_]{3,80}$'){$code=[string]$out[0]}else{$code='TR04A_LOCAL_ERROR'}
 }
 } finally { Export-BrainReport 'LIVE' $code }
 $stable9444=[int](($before9444 -join ',') -ceq (@(Listener 9444) -join ','))
