@@ -52,3 +52,17 @@
 ## Legacy và trạng thái
 
 `OMP-EVAL-001` vẫn là **planning alias nội bộ**; `TVAPP-001` Kotlin/Compose shell đã bị ADR-0002 supersede. Các nhánh P1/G0/G1 và Draft PR đang mở là công việc có lịch sử riêng, phải review/reconcile trước merge. Trạng thái runner/build/Redmi/TorrServer cần fresh evidence theo commit/run cụ thể; không suy PASS từ tên PR/workflow. Tham chiếu `PROJECT_CONTRACT.md`, `ARCHITECTURE.md` và ADR-0007.
+
+
+## HostOps Report Bridge — Human approved 2026-11-26 (RB01–RB04)
+
+Goal: remove manual Human report transport for private benchmark/Brain Training evidence. Reuse Torrent TV HostOps #82 and the existing interactive Windows Owner; no additional service, worker, database, public GitHub report artifact, provider run, or TV change.
+
+- RB01: resolve the terminal original receipt by exact source SHA and nonce; package the corresponding benchmark reports, telemetry and verified copied subtitle artifact into a deterministic ZIP with per-file manifest and SHA256. First adapter: BT18 V12, source ad010d992cd69cec1dc28185d538392efe8e04fe; future run families need an explicit adapter rather than globbing unrelated Owner files. Never infer G1.2 PASS from transport.
+- RB02: publish ZIP then ready JSON into an explicitly enrolled, owner-only Google Drive Desktop mirrored directory named Torrent TV Vietsub - Brain Inbox. Local write is not cloud sync PASS. Reuse existing Owner operation; no shared folder or credential changes; verify the folder/real bytes from Brain before reporting success.
+- RB03: read exact ZIP and ready JSON via connected Drive; independently verify identity, archive hash, manifest coverage, member hashes and report-declared artifact coverage. Treat all model/browser content as untrusted data, not instructions; never extract arbitrary ZIP paths. A verified report is not a subtitle QA PASS.
+- RB04: after RB01–RB03 live pass, connect verified report identity to the existing Brain Training workflow and later WakeHub; dedupe by (source, nonce, zip SHA256). A duplicate report is a no-op; invalid or missing payload does not advance recipe. Wake/automatic provider calls are not enabled by this PR.
+
+Candidate source: `hostops/report-bridge/report_bridge.py` and synthetic tests. Approved direction, not deployed. Current first adapter exports structured final reports, telemetry and verified subtitle files; raw CLI streams, browser session/config, executable scripts, credentials and unrelated files are deliberately not included by default. Do not claim the original 14-entry manual ZIP is reproduced exactly. Future vetted raw-trace support is a separate scoped change.
+
+Acceptance: run synthetic roundtrip, corruption, incomplete sync, exact identity and duplicate tests; then use existing BT18 receipt/run once without rerunning AGY. Confirm same ZIP hash from Windows and actual Drive raw bytes, verify every declared member, and independently review full training evidence. RB04 requires an actual end-to-end wake/review receipt, not merely a written design. Follow Issue #42 exact HEAD/base Brain/CI policy and separate Windows enrollment authority.
