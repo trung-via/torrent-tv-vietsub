@@ -378,6 +378,24 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         }
         throw 'HOSTOPS_OWNER_OPS_OWNER_TASK_FAILED'
     }
+    if ($receipt.operation -ceq 'report-bridge-api-bt18') {
+        $file=Join-Path $outbox ('report-bridge-api-'+$nonce+'.json')
+        $item=Get-Item -LiteralPath $file -Force
+        if($item.Length -le 0 -or $item.Length -gt 2048 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'RB_API_RECEIPT_INVALID'}
+        $v=Get-Content -LiteralPath $file -Raw|ConvertFrom-Json
+        if($v.schema -cne 'TTV-RB02-API-OWNER-V1' -or $v.nonce -cne $nonce -or $v.source_commit -cne $commit -or $v.original_source -cne 'ad010d992cd69cec1dc28185d538392efe8e04fe' -or $v.original_nonce -cne '25e73e80cfce49728e4f6c1402e6cefb' -or $v.state -cnotin @('HOLD','API_UPLOAD_VERIFIED') -or $v.reason -cnotmatch '^[A-Z0-9_]{3,80}$' -or $v.tests -cnotin @('NOT_RUN','PASS','FAIL') -or $v.desktop_before -lt 0 -or $v.desktop_after -lt 0){throw 'RB_API_RECEIPT_BINDING'}
+        if($v.state -ceq 'API_UPLOAD_VERIFIED'){
+            if($v.tests -cne 'PASS' -or $v.reason -cne 'NONE' -or $v.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $v.file_count -lt 6 -or $v.file_count -gt 100 -or $v.bytes -le 0 -or $v.bytes -gt 5242880){throw 'RB_API_RECEIPT_RESULT'}
+            Write-Output ('RB_API_ZIP_SHA256='+$v.sha256)
+            Write-Output ('RB_API_FILE_COUNT='+[int]$v.file_count)
+            Write-Output ('RB_API_ZIP_BYTES='+[long]$v.bytes)
+        } elseif($v.reason -ceq 'NONE'){throw 'RB_API_RECEIPT_HOLD_REASON'}
+        Write-Output ('RB_API_TESTS='+$v.tests)
+        Write-Output ('RB_API_DESKTOP_BEFORE='+[int]$v.desktop_before)
+        Write-Output ('RB_API_DESKTOP_AFTER='+[int]$v.desktop_after)
+        Write-Output ('RB_API_STATE='+$v.state)
+        Write-Output ('RB_API_REASON='+$v.reason)
+    }
     if ($receipt.operation -ceq 'report-bridge-bt18') {
         $file=Join-Path $outbox ('report-bridge-'+$nonce+'.json')
         $item=Get-Item -LiteralPath $file -Force
