@@ -9,7 +9,7 @@ $owner=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\OwnerBridge'
 $env:TTV_PINNED_SOURCE=[string]$rq.source_commit
 $env:TTV_READOUT_NONCE=[string]$rq.nonce
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('tr-ttv-17-kalki2898ad-opensubtitles-v4-profile-'+$rq.nonce)
+$run=Join-Path $root ('tr-ttv-18-neon-teacher-v1-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 function Listener([int]$port){
   @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
@@ -23,7 +23,7 @@ $profile=Join-Path $root 'CDP9555Profile'
 $active9555=@(Listener 9555)
 $started9555=0
 $verified=$false
-$code='TR17_BROWSER_NOT_VERIFIED'
+$code='TR18_BROWSER_NOT_VERIFIED'
 if([string]$hostTask.Settings.ExecutionTimeLimit -ne 'PT0S'){$code='TR04C_TASK_LIMIT'}
 else{
  # Recover only the enrolled dedicated profile when its browser is actually absent.
@@ -31,8 +31,8 @@ else{
  if($active9555.Count -eq 0){
   $roots=@(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object {$_.CommandLine -and $_.CommandLine -notmatch '--type=' -and $_.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0})
   $chrome=Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'
-  if($roots.Count -ne 0){$code='TR17_PROFILE_RUNNING_NO_LISTENER'}
-  elseif(-not (Test-Path -LiteralPath $profile -PathType Container) -or -not (Test-Path -LiteralPath $chrome -PathType Leaf)){$code='TR17_PROFILE_OR_CHROME_MISSING'}
+  if($roots.Count -ne 0){$code='TR18_PROFILE_RUNNING_NO_LISTENER'}
+  elseif(-not (Test-Path -LiteralPath $profile -PathType Container) -or -not (Test-Path -LiteralPath $chrome -PathType Leaf)){$code='TR18_PROFILE_OR_CHROME_MISSING'}
   else{
    Start-Process -FilePath $chrome -ArgumentList @('--user-data-dir="'+$profile+'"','--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--new-window','https://www.opensubtitles.org/')
    $started9555=1
@@ -41,16 +41,16 @@ else{
     $active9555=@(Listener 9555)
     if($active9555.Count -eq 1){break}
    }
-   $code='TR17_RESTORE_NO_LISTENER'
+   $code='TR18_RESTORE_NO_LISTENER'
   }
  }
- if($active9555.Count -gt 1){$code='TR17_LISTENER_AMBIGUOUS'}
+ if($active9555.Count -gt 1){$code='TR18_LISTENER_AMBIGUOUS'}
  elseif($active9555.Count -eq 1){
   $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$active9555[0])
   $ls=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction SilentlyContinue)
   if($p -and $p.Name -eq 'chrome.exe' -and $p.CommandLine -and $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and $p.CommandLine -match '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)' -and @($ls|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0){
    $verified=$true
-  }else{$code='TR17_LISTENER_IDENTITY_MISMATCH'}
+  }else{$code='TR18_LISTENER_IDENTITY_MISMATCH'}
  }
 }
 if($verified){
@@ -136,7 +136,7 @@ def probe():
     override=run/"session-settings.json"
     write(override,config)
     env["TTV_SESSION_SETTINGS"]=str(override)
-    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
+    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-neon-high","high")
     # One ordinary pre-existing provider tab only. Do not reload, rotate or solve a challenge.
     with opener.open("http://127.0.0.1:9555/json/list",timeout=3) as f:tabs=json.load(f)
     pages=[t for t in tabs if t.get("type")=="page"]
@@ -155,17 +155,17 @@ def probe():
             site=[t for t in tabs if t.get("type")=="page" and t.get("id")==new.get("id") and host(t) in os_hosts]
             if site:break
 
-    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR17_ACCESS_BLOCKED_PRE"
-    if len(site)!=1:return "TR17_TASK_TAB_AMBIGUOUS"
+    if any(re.search(r"/\.within\.website/|making sure you.re not a bot|captcha|access denied|just a moment|forbidden",t.get("url","")+" "+t.get("title",""),re.I) for t in site):return "TR18_ACCESS_BLOCKED_PRE"
+    if len(site)!=1:return "TR18_TASK_TAB_AMBIGUOUS"
     target=site[0]
     u=urllib.parse.urlsplit(target.get("url",""))
-    if u.scheme!="https":return "TR17_TASK_TAB_UNVERIFIED"
+    if u.scheme!="https":return "TR18_TASK_TAB_UNVERIFIED"
     initial_host=u.hostname
     # Keep original browser download preferences unchanged; snapshot known download directory.
     prefs=read(profile/"Default"/"Preferences")
     download=prefs.get("download",{})
     dest=pathlib.Path(os.path.expandvars(download.get("default_directory") or str(home/"Downloads")))
-    if not dest.is_absolute() or not dest.is_dir():return "TR17_DOWNLOAD_DIR_UNVERIFIED"
+    if not dest.is_absolute() or not dest.is_dir():return "TR18_DOWNLOAD_DIR_UNVERIFIED"
     dirs={dest}
     resultdir=run/"browser-downloads";resultdir.mkdir()
     write(run/"task-binding.json",{"cdp_target_id":target.get("id"),"initial_url":target.get("url"),"download_directory":str(dest),"existing_profile":True,"cold_profile":False})
@@ -188,9 +188,25 @@ def probe():
         except (OSError,ValueError,RuntimeError,zipfile.BadZipFile):return 0
     downloads=run/"downloads";downloads.mkdir()
     before=candidates()
-    prompt="You are the English subtitle acquisition Student for Torrent TV Vietsub, Recipe V4. Owner-supplied exact target release: Kalki.2898.AD.2024.1080p.WEB-DL.ViruseProject. Film Kalki 2898 AD (2024), English subtitle requested. Treat 1080p, WEB-DL and ViruseProject as release evidence, not a generic title-only request. The owner app displays an approximate size of 12.8 GB; exact byte size, video FPS, duration, file extension, audio language and cut are unknown. ViruseProject is the observed release label; do not infer audio language or dubbing from that label. No IMDb ID, subtitle ID, candidate URL, previous answer or cached subtitle is provided. Independently find an appropriate English subtitle using ordinary authorized www.opensubtitles.org website interaction only, choosing your own method. Use the English source or English subtitle, not machine-translated non-English variants. Use only the existing dedicated Chrome CDP 9555 and authorized ttv-browser MCP. First list_pages, use the one existing OpenSubtitles tab if present; otherwise reuse the one existing dedicated SubtitleCat task tab by navigating its numeric pageId to https://www.opensubtitles.org/. Do not search SubtitleCat or any other source. Do not modify other tabs, endpoints, profiles, settings or download preferences. No previously found candidate, ID or answer is supplied. If challenge, denial, login or payment blocks ordinary access, stop and report; never bypass or retry via another route.\n\nChoose the search method yourself. Prefer the exact ViruseProject WEB-DL release, but a different release group is not inherently incompatible. Compare the actual candidate film, language, year and available release, cut and timing metadata. Do not reject a plausible candidate just because exact release or timing evidence is missing. Select the best plausible English candidate for this film and download it once using the ordinary authorized website action, even when compatibility is still unknown, so the host can independently validate it. Do not download a known wrong film, year, language, cut or incompatible timing. If no plausible candidate exists, report NO_PLAUSIBLE_CANDIDATE with the observed reason. Inspect the selected candidate detail; bind the evidence to that candidate and report uncertainty. Use concise visible DOM reads when useful; stop acquisition after the download. Never guess endpoints, inspect hidden data or bypass restrictions. Do not invent video FPS or duration. A downloaded candidate is quarantined for QA, not approved for translation or TV. Playback sync is UNVERIFIED until separately tested.\n\nReturn concise structured result even on failure: status (CANDIDATE_DOWNLOADED, NO_PLAUSIBLE_CANDIDATE, ACCESS_BLOCKED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE or UNKNOWN), observed title/year/language, selected candidate reference discovered this run, exact observed release names or null, candidate FPS/duration or null, video FPS/duration null, compatibility evidence and uncertainties, release_match=EXACT_METADATA or EVIDENCED_COMPATIBLE or UNKNOWN or CONFLICT, playback_sync=UNVERIFIED, actual actions, errors and usage if available. Distinguish site access from no match. No extra report files, no arbitrary benchmark deadline."
-    (run/"student-prompt.txt").write_text(prompt,encoding="utf-8")
-    env["TTV_AGY_PROMPT"]=str(run/"student-prompt.txt")
+    # Bind prior reports to exact run source and measured outcomes. Export only typed facts to teacher.
+    baseline=[]
+    known_tools={"list_pages","select_page","navigate_page","take_snapshot","click","fill","press_key","wait_for","evaluate_script"}
+    for prefix,source,provider,elapsed0,cues0 in (
+        ("tr-ttv-16-kalki2898ad-subtitlecat-v4-profile-","6e28d723bf95611bb8a4541cd54ea0e1bcf74fdc","SubtitleCat",122,1672),
+        ("tr-ttv-17-kalki2898ad-opensubtitles-v4-profile-","bfc80f4cd94c800e92ae3ab63e25227c1e2bb7b6","OpenSubtitles",133,1670)):
+        matches=[]
+        for folder in run.parent.glob(prefix+"*"):
+            p0=folder/"BRAIN_STUDENT_REPORT.json"
+            if folder.is_symlink() or p0.is_symlink() or not p0.is_file() or p0.stat().st_size>16777216:continue
+            rr=json.loads(p0.read_text(encoding="utf-8-sig"))
+            if rr.get("source_commit")==source and rr.get("provider")==provider and rr.get("elapsed_seconds")==elapsed0 and max((a.get("cues",0) for a in rr.get("artifacts",[])),default=0)==cues0:matches.append(rr)
+        if len(matches)!=1:return "TR18_BASELINE_NOT_UNIQUE"
+        rr=matches[0]
+        baseline.append({"provider":provider,"elapsed":elapsed0,"cues":cues0,"tool_sequence":[x if x in known_tools else "OTHER" for x in rr.get("tool_names",[])],"title_language_bound":bool(rr.get("title_language_evidence")),"release_exact":bool(rr.get("exact_release_line_evidence")),"final_present":bool(rr.get("final_response"))})
+    write(run/"teacher-baseline.json",baseline)
+    prompt="You are the Gemini 4 Neon High Teacher for Torrent TV Vietsub. The objective is to train Gemini 4 Hydrogen Low to independently find and download a correctly matched English subtitle on OpenSubtitles.org using ordinary authorized website actions. You are the trainer, not merely a reviewer. Baselines with the identical release: SubtitleCat V7 took 122 seconds total, download at 109 seconds, 10 browser outcomes, 1672 cues. OpenSubtitles TR17 took 133 seconds total, download at 123 seconds, 9 browser outcomes, 1670 cues. First observed browser tool event at 41/40 seconds respectively. Neither run established title/language binding to the downloaded artifact or release/timeline compatibility. G1 target is first Vietnamese cue on the TV within 120 seconds including translation and delivery; propose a practical acquisition budget and measurable quality gates. Do not claim timing overhead is model reasoning without proof.\n\nPerform the following steps: (1) assess prior observations supplied below, including actual tool sequences, and identify waste, missing evidence, uncertainty, and a discriminating latency experiment. (2) Demonstrate an efficient ordinary OpenSubtitles workflow live in the verified dedicated Chrome CDP 9555 with ttv-browser. Exact demonstration input Kalki.2898.AD.2024.1080p.WEB-DL.ViruseProject, English, displayed size 12.8 GB, FPS/duration/cut/audio unknown. Use list_pages, only existing dedicated OpenSubtitles tab (or navigate existing SubtitleCat task tab to https://www.opensubtitles.org/), no unrelated tabs or other providers. Search and select a candidate yourself, record visible title/year/language/release and candidate reference bound to the selected item, download at most once by the ordinary site action if a plausible EN candidate exists. No guessed endpoints, hidden data, challenge bypass, login or payment actions, no global settings changes. Stop on access restrictions. Do not invent missing release or sync evidence. (3) Derive a reusable Recipe V5 for Hydrogen Low, with concise steps, decision rules, examples abstracted from observations, negative cases, failure handling, and required evidence. Never include the demonstration candidate ID, URL, exact answer, local paths, credentials, or subtitle text in the transferable recipe. (4) Design a student exercise with a blind film input, a grading rubric, and feedback/retry criteria. Teacher should choose method rather than being forced into a fixed sequence. Report precise actions, rationale summaries and observations, failed approaches, demonstrated facts vs proposed improvements, what remains unverified, and how to measure improvement. Do not modify production, TV, Owner, or shared settings. Never label acquisition as playback sync. No arbitrary benchmark deadline.\n\nReturn a detailed JSON object, preferably as the final response, with fields status (CANDIDATE_DOWNLOADED, NO_PLAUSIBLE_CANDIDATE, ACCESS_BLOCKED, AUTH_REQUIRED, DOWNLOAD_FAILED, TOOL_UNAVAILABLE, UNKNOWN), release_match (EXACT_METADATA, EVIDENCED_COMPATIBLE, UNKNOWN, CONFLICT), observed_evidence, diagnosis, demonstration_steps, recipe_v5 (array of concise reusable instructions), student_exercise, grading_rubric, latency_experiment, acquisition_budget_seconds (integer), limitations, and usage if known. Also include report_codes (array chosen only from QUERY_TITLE_YEAR, FILTER_ENGLISH, MATCH_RELEASE, CHECK_DETAIL, BIND_CANDIDATE, DOWNLOAD_ONCE, COMPACT_DOM, AVOID_REPEAT_SNAPSHOT, STOP_ON_DENIAL, MARK_UNKNOWN_METADATA, CHECK_TIMELINE, MEASURE_STARTUP, MEASURE_TOOL_LATENCY, BLIND_STUDENT_TEST, HOST_VERIFY_FILE). Codes are a privacy-safe summary of your own actual recommendations, not mandatory selections. Preserve full detailed final response locally. The host will independently measure time and verify downloads."+"\nPrior observed traces: "+json.dumps(baseline,ensure_ascii=True)
+    (run/"teacher-prompt.txt").write_text(prompt,encoding="utf-8")
+    env["TTV_AGY_PROMPT"]=str(run/"teacher-prompt.txt")
     cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
     start=time.monotonic()
     wall_start=time.time()
@@ -372,9 +388,9 @@ def probe():
     challenge=bool(re.search(r"making sure you.re not a bot|/\.within\.website/|anti.bot challenge|captcha",access_evidence,re.I))
     provider_access="ACCESS_BLOCKED" if challenge else "SITE_TAB_OBSERVED"
     selection_evaluation="NOT_TESTED" if challenge else "RELEASE_METADATA_UNVERIFIED"
-    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-hydrogen-low","provider":"OpenSubtitles","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"V4","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Kalki 2898 AD","year":2024,"release":"Kalki.2898.AD.2024.1080p.WEB-DL.ViruseProject","release_origin":"OWNER_SUPPLIED","display_size":"12.8 GB","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
-    write(run/"BRAIN_STUDENT_REPORT.json",report)
-    (run/"BRAIN_STUDENT_FULL_RESPONSE.md").write_text("# Hydrogen Low OpenSubtitles Student V4 benchmark\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    report={"source_commit":os.environ.get("TTV_PINNED_SOURCE",""),"model":"gemini-4-neon-high","provider":"OpenSubtitles","provider_access":provider_access,"selection_evaluation":selection_evaluation,"recipe_version":"TEACHER_V1","elapsed_seconds":elapsed,"event_count":len(records),"exit":p.returncode if p else None,"final_response":final,"tool_outcomes":outputs,"tool_names":tools_seen,"read_file_calls":read_calls,"first_list_pages":first,"server_names":sorted(server_names),"initial_mcp_task_tab":bool(bound),"cold_profile":False,"server_name_verified":bool(named),"history_read":bool(history_ok),"downloads":rows,"artifacts":artifacts,"physical_files":physical,"observed_release_candidates":release_candidates,"video_input":{"title":"Kalki 2898 AD","year":2024,"release":"Kalki.2898.AD.2024.1080p.WEB-DL.ViruseProject","release_origin":"OWNER_SUPPLIED","display_size":"12.8 GB","fps":None,"duration":None},"title_language_evidence":bool(titlematch),"exact_release_line_evidence":bool(exact),"release_match_verified":False,"playback_sync_verified":False,"permission_denied":bool(denied),"shared_config_drift":bool(drift),"stderr":stderr}
+    write(run/"BRAIN_TEACHER_REPORT.json",report)
+    (run/"BRAIN_TEACHER_FULL_RESPONSE.md").write_text("# Neon High Teacher demonstration and training V5\n\n## Final response\n\n"+("\n\n".join(final) or "[No final response recovered]")+"\n\n## Tool outcomes and verified evidence\n\n"+json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     n=sum(1 for f in artifacts if f["cues"]>0);c=max((f["cues"] for f in artifacts),default=0)
     # Typed allowlist projection only. Keep original text and raw browser events private.
     answer="\n".join(final)
@@ -383,9 +399,30 @@ def probe():
         return found[0] if len(found)==1 else "NOT_REPORTED"
     nonce=os.environ["TTV_READOUT_NONCE"]
     if not re.fullmatch(r"[a-f0-9]{32}",nonce):raise ValueError("bad nonce")
-    safe={"schema":"TTV-AGY-BRAIN-READOUT-V1","nonce":nonce,"source":report["source_commit"],"provider":"OpenSubtitles","model":"gemini-4-hydrogen-low","recipe":"V4","elapsed":elapsed,"download_seconds":download,"tools":len(outcome_times),"cues":c,"artifacts":n,"final_present":bool(answer.strip()),"final_status":label("status",("CANDIDATE_DOWNLOADED","NO_PLAUSIBLE_CANDIDATE","ACCESS_BLOCKED","AUTH_REQUIRED","DOWNLOAD_FAILED","TOOL_UNAVAILABLE","UNKNOWN")),"final_release":label("release_match",("EXACT_METADATA","EVIDENCED_COMPATIBLE","UNKNOWN","CONFLICT")),"title_language":bool(titlematch),"exact_release":bool(exact),"release_verified":False,"sync_verified":False,"permission_denied":bool(denied),"config_drift":bool(drift),"provider_access":provider_access}
+    # Parse final JSON without copying untrusted text into workflow logs.
+    teacher={}
+    for response in reversed(final):
+        for match in re.finditer(r"\{",response):
+            try:
+                obj,_=json.JSONDecoder().raw_decode(response[match.start():])
+            except ValueError:continue
+            if isinstance(obj,dict) and isinstance(obj.get("recipe_v5"),list):
+                teacher=obj;break
+        if teacher:break
+    allowed_codes={"QUERY_TITLE_YEAR","FILTER_ENGLISH","MATCH_RELEASE","CHECK_DETAIL","BIND_CANDIDATE","DOWNLOAD_ONCE","COMPACT_DOM","AVOID_REPEAT_SNAPSHOT","STOP_ON_DENIAL","MARK_UNKNOWN_METADATA","CHECK_TIMELINE","MEASURE_STARTUP","MEASURE_TOOL_LATENCY","BLIND_STUDENT_TEST","HOST_VERIFY_FILE"}
+    raw_codes=teacher.get("report_codes",[])
+    codes=sorted({x for x in raw_codes if isinstance(x,str) and x in allowed_codes}) if isinstance(raw_codes,list) else []
+    raw_recipe=teacher.get("recipe_v5",[])
+    recipe=[x for x in raw_recipe if isinstance(x,str) and 0<len(x)<=1500][:30]
+    # Persist teacher-authored instructions for a later separate student job; no automatic injection yet.
+    if recipe:write(run/"TEACHER_RECIPE_V5_PRIVATE.json",{"source":report["source_commit"],"teacher":"gemini-4-neon-high","recipe":recipe})
+    section_names=("diagnosis","demonstration_steps","student_exercise","grading_rubric","latency_experiment","limitations","observed_evidence")
+    sections=sum(bool(teacher.get(k)) for k in section_names)
+    budget=teacher.get("acquisition_budget_seconds")
+    budget=budget if type(budget) is int and 1<=budget<=120 else -1
+    safe={"schema":"TTV-AGY-BRAIN-READOUT-V1","nonce":nonce,"source":report["source_commit"],"provider":"OpenSubtitles","model":"gemini-4-neon-high","recipe":"TEACHER_V1","elapsed":elapsed,"download_seconds":download,"tools":len(outcome_times),"cues":c,"artifacts":n,"final_present":bool(answer.strip()),"final_status":label("status",("CANDIDATE_DOWNLOADED","NO_PLAUSIBLE_CANDIDATE","ACCESS_BLOCKED","AUTH_REQUIRED","DOWNLOAD_FAILED","TOOL_UNAVAILABLE","UNKNOWN")),"final_release":label("release_match",("EXACT_METADATA","EVIDENCED_COMPATIBLE","UNKNOWN","CONFLICT")),"title_language":bool(titlematch),"exact_release":bool(exact),"release_verified":False,"sync_verified":False,"permission_denied":bool(denied),"config_drift":bool(drift),"provider_access":provider_access,"teacher_json":bool(teacher),"teacher_recipe_steps":len(recipe),"teacher_report_sections":sections,"teacher_budget":budget,"teacher_codes":codes,"baseline_count":len(baseline)}
     write(pathlib.Path(os.environ["ProgramData"])/"TorrentTVVietsub"/"LaptopHostOps"/"Receipts"/("agy-brain-readout-"+nonce+".json"),safe)
-    return f"TR17_T{elapsed}F{val(first)}B{val(first_tool)}L{val(last)}D{val(download)}P{round(process_end)}K{len(outcome_times)}J{len(paired)}M{round(observed)}A{n}C{min(c,99999)}"
+    return f"TR18_T{elapsed}F{val(first)}B{val(first_tool)}L{val(last)}D{val(download)}P{round(process_end)}K{len(outcome_times)}J{len(paired)}M{round(observed)}A{n}C{min(c,99999)}"
 
 try:print(probe())
 except Exception as e:
