@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-srt-qa-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/bt10-second-fixture-preflight.ps1",
-  "script_sha256": "a21f6f0e317e8319ce8c1ae83f30b4b849aa629b8d93c1014f328331327a9700",
+  "script_path": "hostops/laptop-ops/operations/bt10-human-fixture-preflight.ps1",
+  "script_sha256": "588da8d447a58b0d79d4bf5f5f1deb5c03fe2edd9c7b5f52677c8f61455114df",
   "arguments": []
 }
