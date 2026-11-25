@@ -1,11 +1,11 @@
-# BT27: retained Teacher/Student plus bounded audio and embedded EN sample QA on exact verified fixture.
+# BT28: classify exact BT27 failures and recover only unscored regions, retain prior ASR.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw | ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\NativeBrowserTest'
-$run=Join-Path $root ('bt27-odyssey-quality-qa-'+$rq.nonce)
+$run=Join-Path $root ('bt28-odyssey-recovery-qa-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import sys,pathlib,json,re,hashlib,zipfile,html,collections,difflib,statistics
@@ -142,6 +142,42 @@ def main():
     assert any(x["index"]==si and x["codec"]==codec for x in fixture["subtitle_tracks"])
     text_codec=codec in ("subrip","ass","ssa","webvtt","mov_text","text")
     assert all(abs(reports[k]["video_input"]["duration"]-duration)<1 and reports[k]["video_input"]["size_bytes"]==actual.length for k in src)
+    phase="BT27_REUSE"
+    receipts=[]
+    for f in (spool/"History").glob("receipt-*.json"):
+        r=obj(f)
+        if r.get("source_commit")=="811dca676313adf55af7780a54626459d52b89b7" and r.get("result")=="SUCCESS" and re.fullmatch("[a-f0-9]{32}",str(r.get("nonce",""))):receipts.append(r["nonce"])
+    assert len(receipts)==1
+    olddir=root/("bt27-odyssey-quality-qa-"+receipts[0])
+    old=obj(olddir/"BRAIN_BT27_QA.json")
+    assert old["schema"]=="BT27_ODYSSEY_QUALITY_QA_V1" and old["fixture_nonce"]==prior[0] and old["artifact_hashes"]==artifact_hashes and len(old["regions"])==5 and old["embedded_codec"]==codec
+    assert text_equal and token_equal
+    delta=[h[0]-t[0] for t,h in zip(src["T"],src["H"])]
+    delta_end=[h[1]-t[1] for t,h in zip(src["T"],src["H"])]
+    def qmetric(v):
+        a=sorted(abs(x) for x in v)
+        return {"median_signed_ms":round(statistics.median(v)),"median_abs_ms":round(statistics.median(a)),"p95_abs_ms":a[math.ceil(.95*len(a))-1],"max_abs_ms":max(a)}
+    region_medians=[]
+    for j in range(5):
+        vals=[v for t,v in zip(src["T"],delta) if j*duration*200<=t[0]<(j+1)*duration*200]
+        if vals:region_medians.append(round(statistics.median(vals)))
+    def classify(rec,kind):
+        j=rec["sample"]
+        rc=rec.get(kind+"_rc")
+        if rec.get(kind+"_ok"):return "O"
+        if rc=="NON_TEXT_CODEC":return "B"
+        path=olddir/(("extract-" if kind=="audio" else "embedded-extract-")+str(j)+".err")
+        err=path.read_bytes()[:200000].decode("utf-8","replace").lower() if path.is_file() else ""
+        if rc==-99 or re.search(r"timed? ?out|timeout|10060",err):return "T"
+        if re.search(r"seek|range|partial file",err):return "S"
+        if re.search(r"invalid data|ebml|matroska",err):return "M"
+        if re.search(r"http error|server returned|connection|input/output error|i/o error",err):return "I"
+        if rc==0:return "H"
+        return "X"
+    audio_codes="".join(classify(r,"audio") for r in old["regions"])
+    embedded_codes="".join(classify(r,"embedded") for r in old["regions"])
+    diagnostics={"schema":"BT28_EXTRACTION_DIAG_V1","prior_source":"811dca676313adf55af7780a54626459d52b89b7","prior_nonce":receipts[0],"artifact_hashes":artifact_hashes,"audio_codes":audio_codes,"embedded_codes":embedded_codes,"embedded_codec":codec,"teacher_student_onset":qmetric(delta),"teacher_student_offset":qmetric(delta_end),"region_medians_ms":region_medians,"median_range_ms":max(region_medians)-min(region_medians) if region_medians else None}
+    (run/"BRAIN_BT28_DIAG.json").write_text(json.dumps(diagnostics,indent=2),encoding="utf-8")
     phase="ASR_SETUP"
     tools=root/"BT09ASRPortable"
     archive=tools/"whisper-bin-x64-b5454.zip"
@@ -162,7 +198,22 @@ def main():
     cli=list(bindir.rglob("whisper-cli.exe"))
     if len(cli)!=1:h("ASR_CLI_MISSING")
     phase="SAMPLES"
-    regions=[];scores={k:[] for k in ("T","H","E")};anchors={k:[] for k in ("T","H","E")};embedded_scores={k:[] for k in src};embedded_anchors={k:[] for k in src}
+    # Retain original measurements; never rerun a scored audio window.
+    regions=[];scores={k:list(old["asr_scores"][k]) for k in ("T","H","E")};anchors={k:[] for k in ("T","H","E")};embedded_scores={k:[] for k in src};embedded_anchors={k:[] for k in src}
+    already={x["sample"] for x in scores["H"]}
+    # Reconstruct retained phrase anchors from saved ASR JSON, without rerunning ASR.
+    for rec in old["regions"]:
+        if rec["sample"] not in already:continue
+        j=rec["sample"]
+        p=olddir/f"asr-{j}.json"
+        assert p.is_file()
+        segs=[]
+        for seg in obj(p).get("transcription",[]):
+            o=seg.get("offsets",{})
+            if type(o.get("from")) not in (int,float) or type(o.get("to")) not in (int,float):continue
+            a,b=round(o["from"]),round(o["to"]);t=words(seg.get("text",""))
+            if 1000<=a<b<=35000 and t:segs.append((rec["start"]*1000+a,rec["start"]*1000+b,t))
+        rec["retained_asr_segments"]=segs
     def metric(vals):
         if not vals:return None
         ab=sorted(abs(x) for x in vals)
@@ -196,21 +247,34 @@ def main():
                     if seq==t:hits.append((near[u][0]-a,near[v][1]-b));break
             if len(hits)==1:aa.append({"sample":j,"onset":hits[0][0],"offset":hits[0][1]})
         return {"sample":j,"ref_words":len(aw),"srt_words":len(sw),"matched":m,"coverage_permille":round(1000*m/len(aw)),"agreement_permille":round(1000*m/max(1,len(sw)))},aa
+    for rec in old["regions"]:
+        if rec["sample"] not in already:continue
+        for k,rows in src.items():
+            rr,aa=compare(rec["retained_asr_segments"],rows,rec["sample"])
+            assert rr==next(x for x in scores[k] if x["sample"]==rec["sample"])
+            anchors[k].extend(aa)
     def save():
-        report={"schema":"BT27_ODYSSEY_QUALITY_QA_V1","fixture_nonce":prior[0],"duration_seconds":duration,"audio_index":ai,"embedded_index":si,"embedded_codec":codec,"artifact_hashes":artifact_hashes,"normalized_cue_tuples_equal":eq,"cue_text_equal":text_equal,"token_stream_equal":token_equal,"regions":regions,"asr_scores":scores,"asr_coverage_permille":{k:aggregate(scores,k) for k in scores},"asr_timeline":timeline(anchors),"embedded_reference_scores":embedded_scores,"embedded_reference_coverage_permille":{k:aggregate(embedded_scores,k) for k in embedded_scores},"embedded_reference_timeline":timeline(embedded_anchors),"model_sha1":expected,"runtime_sha256":digest(archive,"sha256"),"limitations":"Five bounded 36-second regions, not full-film ground truth. Embedded subtitle extraction uses seek-relative timestamps, validated against window and independent ASR; embedded track may itself contain errors. ASR phrase anchors are estimates, unscored samples are missing evidence."}
-        (run/"BRAIN_BT27_QA.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+        report={"schema":"BT28_ODYSSEY_RECOVERY_QA_V1","fixture_nonce":prior[0],"duration_seconds":duration,"audio_index":ai,"embedded_index":si,"embedded_codec":codec,"artifact_hashes":artifact_hashes,"normalized_cue_tuples_equal":eq,"cue_text_equal":text_equal,"token_stream_equal":token_equal,"prior_regions":old["regions"],"recovery_regions":regions,"diagnostics":diagnostics,"asr_scores":scores,"asr_coverage_permille":{k:aggregate(scores,k) for k in scores},"asr_timeline":timeline(anchors),"embedded_reference_scores":embedded_scores,"embedded_reference_coverage_permille":{k:aggregate(embedded_scores,k) for k in embedded_scores},"embedded_reference_timeline":timeline(embedded_anchors),"model_sha1":expected,"runtime_sha256":digest(archive,"sha256"),"limitations":"Retain scored BT27 windows; select speech-dense 36-second windows within 120 seconds of remaining original centers using candidate cue density (selection bias; no full-film inference). A text embedded track is retried only in an audio-successful new window, at most once. ASR boundaries approximate; missing samples remain missing evidence."}
+        (run/"BRAIN_BT28_QA.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+    embedded_attempted=False
     for j,pct in enumerate((.10,.30,.50,.70,.90)):
-        start=max(0,round(duration*pct-18));length=36
+        if j in already:continue
+        center=round(duration*pct-18)
+        choices=range(max(0,center-120),min(round(duration)-36,center+120)+1,12)
+        def density(x):
+            return sum(len(t.split()) for a,b,t in src["H"] if (x+1)*1000<=a<=b<=(x+35)*1000)
+        start=max(choices,key=lambda x:(density(x),-abs(x-center)));length=36
         pcm=run/f"audio-{j}.pcm";audio=run/f"audio-{j}.wav";sub=run/f"embedded-{j}.srt"
         rec={"sample":j,"start":start,"length":length,"audio_ok":False,"embedded_ok":False,"asr_scored":False}
         regions.append(rec)
-        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t",str(length),"-ar","16000","-ac","1","-c:a","pcm_s16le","-f","s16le","-n",str(pcm)],f"extract-{j}",60)
+        rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{ai}","-vn","-sn","-dn","-t",str(length),"-ar","16000","-ac","1","-c:a","pcm_s16le","-f","s16le","-n",str(pcm)],f"extract-{j}",120)
         n=pcm.stat().st_size if pcm.is_file() else 0
         rec["audio_rc"]=rc;rec["pcm_bytes"]=n
         rec["audio_ok"]=rc==0 and n%2==0 and 35*32000<=n<=37*32000
         em=[]
-        if text_codec:
-            rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{si}","-vn","-an","-dn","-t",str(length),"-c:s","srt","-n",str(sub)],f"embedded-extract-{j}",60)
+        if text_codec and rec["audio_ok"] and not embedded_attempted:
+            embedded_attempted=True
+            rc=cmd([ff,"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","45000000","-protocol_whitelist","http,tcp","-ss",str(start),"-i",url,"-map",f"0:{si}","-vn","-an","-dn","-t",str(length),"-c:s","srt","-n",str(sub)],f"embedded-extract-{j}",120)
             rec["embedded_rc"]=rc
             if rc==0 and sub.is_file():
                 local=parse_srt(sub.read_bytes())
@@ -219,7 +283,7 @@ def main():
                     rec["embedded_ok"]=True
                     em=[(start*1000+a,start*1000+b,t) for a,b,t in local if 1000<=a<b<=35000 and t]
                     rec["embedded_cues"]=len(em)
-        else:rec["embedded_rc"]="NON_TEXT_CODEC"
+        else:rec["embedded_rc"]="NON_TEXT_CODEC" if not text_codec else "NOT_RETRIED"
         eref=[(a,b,t.split()) for a,b,t in em]
         if sum(len(x[2]) for x in eref)>=12:
             for k,rows in src.items():
@@ -249,19 +313,20 @@ def main():
         save()
     def val(x):return str(x) if x is not None else "X"
     m=timeline(anchors)["H"]["onset"]
-    print(f"BT27_I{int(eq)}{int(text_equal)}{int(token_equal)}S{len(regions)}A{sum(x['audio_ok'] for x in regions)}V{len(scores['H'])}E{sum(x['embedded_ok'] for x in regions)}Q{val(aggregate(scores,'H'))}T{val(aggregate(scores,'T'))}R{val(aggregate(embedded_scores,'H'))}K{m['count'] if m else 0}M{m['median_abs_ms'] if m else 'X'}P{m['p95_abs_ms'] if m else 'X'}")
+    shift=diagnostics["teacher_student_onset"]["median_abs_ms"];drift=diagnostics["median_range_ms"]
+    print(f"BT28_D{audio_codes}{embedded_codes}_I{shift}J{val(drift)}_V{len(scores['H'])}Q{val(aggregate(scores,'H'))}T{val(aggregate(scores,'T'))}K{m['count'] if m else 0}M{m['median_abs_ms'] if m else 'X'}P{m['p95_abs_ms'] if m else 'X'}E{sum(x['embedded_ok'] for x in regions)}")
 
 try:main()
-except Halt as e:print("BT27_HOLD_"+str(e))
+except Halt as e:print("BT28_HOLD_"+str(e))
 except Exception as e:
     (run/"private-error-type.txt").write_text(type(e).__name__+" "+phase,encoding="utf-8")
-    print("BT27_HOLD_"+phase+"_ERROR")
+    print("BT28_HOLD_"+phase+"_ERROR")
 '@
 $f=Join-Path $run 'compare.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
 $out=@(& py -3 -I -B $f $root $spool $run 2> (Join-Path $run 'stderr.txt'))
-$code='BT27_HOLD_READOUT_ERROR'
-if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT27_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
+$code='BT28_HOLD_READOUT_ERROR'
+if($LASTEXITCODE -eq 0 -and $out.Count -eq 1 -and [string]$out[0] -cmatch '^BT28_[A-Z0-9_]{3,83}$'){$code=[string]$out[0]}
 $doc=@{schema='TTV-ODYSSEY-STAGE-V1';nonce=$rq.nonce;reason=$code}
 [IO.File]::WriteAllText((Join-Path $spool ('Receipts\odyssey-stage-'+$rq.nonce+'.json')),($doc|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 Write-Output $code
