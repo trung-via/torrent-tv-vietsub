@@ -321,18 +321,21 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             $item=Get-Item -LiteralPath $readout -Force
             if($item.Length -le 0 -or $item.Length -gt 2048 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'AGY_READOUT_BOUND'}
             $v=Get-Content -LiteralPath $readout -Raw | ConvertFrom-Json
-            $bools=@('final_present','title_language','exact_release','release_verified','sync_verified','permission_denied','config_drift')
-            $numbers=@('elapsed','download_seconds','tools','cues','artifacts')
-            $fields=@('schema','nonce','source','provider','model','recipe','final_status','final_release','provider_access')+$bools+$numbers
-            if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-AGY-BRAIN-READOUT-V1' -or $v.nonce -cne $nonce -or $v.source -cne $commit -or $v.provider -cne 'OpenSubtitles' -or $v.model -cne 'gemini-4-hydrogen-low' -or $v.recipe -cne 'V4' -or $v.final_status -cnotin @('CANDIDATE_DOWNLOADED','NO_PLAUSIBLE_CANDIDATE','ACCESS_BLOCKED','AUTH_REQUIRED','DOWNLOAD_FAILED','TOOL_UNAVAILABLE','UNKNOWN','NOT_REPORTED') -or $v.final_release -cnotin @('EXACT_METADATA','EVIDENCED_COMPATIBLE','UNKNOWN','CONFLICT','NOT_REPORTED') -or $v.provider_access -cnotin @('ACCESS_BLOCKED','SITE_TAB_OBSERVED')){throw 'AGY_READOUT_SCHEMA'}
+            $bools=@('final_present','title_language','exact_release','release_verified','sync_verified','permission_denied','config_drift','teacher_json')
+            $numbers=@('elapsed','download_seconds','tools','cues','artifacts','teacher_recipe_steps','teacher_report_sections','teacher_budget','baseline_count')
+            $fields=@('schema','nonce','source','provider','model','recipe','final_status','final_release','provider_access','teacher_codes')+$bools+$numbers
+            if((@($v.PSObject.Properties.Name|Sort-Object)-join ',') -cne (@($fields|Sort-Object)-join ',') -or $v.schema -cne 'TTV-AGY-BRAIN-READOUT-V1' -or $v.nonce -cne $nonce -or $v.source -cne $commit -or $v.provider -cne 'OpenSubtitles' -or $v.model -cne 'gemini-4-neon-high' -or $v.recipe -cne 'TEACHER_V1' -or $v.final_status -cnotin @('CANDIDATE_DOWNLOADED','NO_PLAUSIBLE_CANDIDATE','ACCESS_BLOCKED','AUTH_REQUIRED','DOWNLOAD_FAILED','TOOL_UNAVAILABLE','UNKNOWN','NOT_REPORTED') -or $v.final_release -cnotin @('EXACT_METADATA','EVIDENCED_COMPATIBLE','UNKNOWN','CONFLICT','NOT_REPORTED') -or $v.provider_access -cnotin @('ACCESS_BLOCKED','SITE_TAB_OBSERVED')){throw 'AGY_READOUT_SCHEMA'}
             foreach($key in $bools){if($v.$key -isnot [bool]){throw 'AGY_READOUT_BOOL'}}
-            foreach($key in $numbers){$min=if($key -ceq 'download_seconds'){-1}else{0};if($v.$key -isnot [ValueType] -or [long]$v.$key -lt $min -or [long]$v.$key -gt 10000000){throw 'AGY_READOUT_NUMBER'}}
+            foreach($key in $numbers){$min=if($key -cin @('download_seconds','teacher_budget')){-1}else{0};if($v.$key -isnot [ValueType] -or [long]$v.$key -lt $min -or [long]$v.$key -gt 10000000){throw 'AGY_READOUT_NUMBER'}}
             foreach($key in @('schema','nonce','source','provider','model','recipe','final_status','final_release','provider_access')){if($v.$key -isnot [string]){throw 'AGY_READOUT_STRING'}}
+            $allowedCodes=@('QUERY_TITLE_YEAR','FILTER_ENGLISH','MATCH_RELEASE','CHECK_DETAIL','BIND_CANDIDATE','DOWNLOAD_ONCE','COMPACT_DOM','AVOID_REPEAT_SNAPSHOT','STOP_ON_DENIAL','MARK_UNKNOWN_METADATA','CHECK_TIMELINE','MEASURE_STARTUP','MEASURE_TOOL_LATENCY','BLIND_STUDENT_TEST','HOST_VERIFY_FILE')
+            if($v.teacher_codes -isnot [array] -or @($v.teacher_codes).Count -gt 15 -or $v.baseline_count -ne 2 -or $v.teacher_recipe_steps -gt 30 -or $v.teacher_report_sections -gt 7 -or $v.teacher_budget -gt 120){throw 'TEACHER_READOUT_INVALID'}
+            foreach($entry in $v.teacher_codes){if($entry -isnot [string] -or $entry -cnotin $allowedCodes){throw 'TEACHER_CODE_INVALID'}}
             Write-Output ('HOSTOPS_AGY_BRAIN_READOUT='+($v|ConvertTo-Json -Compress))
         } elseif($receipt.result -ceq 'SUCCESS'){
             $stage=Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')
             $status=Get-Content -LiteralPath $stage -Raw | ConvertFrom-Json
-            if($status.schema -cne 'TTV-ODYSSEY-STAGE-V1' -or $status.nonce -cne $nonce -or $status.reason -cmatch '^TR17_T[0-9]'){throw 'AGY_READOUT_MISSING'}
+            if($status.schema -cne 'TTV-ODYSSEY-STAGE-V1' -or $status.nonce -cne $nonce -or $status.reason -cmatch '^TR18_T[0-9]'){throw 'AGY_READOUT_MISSING'}
             Write-Output 'HOSTOPS_AGY_BRAIN_READOUT=NOT_AVAILABLE_PRECHECK_OR_ERROR'
         }
     }
