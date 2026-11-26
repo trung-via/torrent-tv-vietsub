@@ -7,6 +7,8 @@ from tempfile import TemporaryDirectory
 import unittest
 import json
 import sqlite3
+import os
+from contextlib import ExitStack
 from unittest import mock
 from types import SimpleNamespace
 
@@ -274,6 +276,70 @@ class NativeProducerTests(unittest.TestCase):
             with self.assertRaises(AgyEnglishUnavailable):
                 producer(BrowserRequest(MEDIA), root)
             execute.assert_called_once()
+
+    def test_run_windows_search_no_source_then_b_or_unknown_hold(self):
+        import agy_v13_native_producer as native
+        for ambiguous in (False, True):
+            with self.subTest(ambiguous=ambiguous), TemporaryDirectory() as temp, ExitStack() as stack:
+                root = Path(temp)
+                profile, dest = root/"profile", root/"downloads"
+                profile.mkdir()
+                dest.mkdir()
+                base = {"browser":"a","history":"b","files":"c"}
+                changed = {**base, "history":"changed"}
+                browser_calls = []
+                observed = mock.Mock(side_effect=[base, changed] if ambiguous else [base, base, base, base])
+                def patch(name, **kwargs):
+                    return stack.enter_context(mock.patch.object(native, name, **kwargs))
+                def fake_run(args, **kwargs):
+                    if "stdout" not in kwargs:
+                        return SimpleNamespace(returncode=0, stdout="  --settings FILE\n")
+                    browser_calls.append(args)
+                    if len(browser_calls) == 1:
+                        output = self._search_trace()
+                    else:
+                        rows = [{"step_update":{"tool_name":"call_mcp_tool","tool_info":{
+                            "parameters":{"ServerName":"ttv-browser","ToolName":"list_pages"},
+                            "output":"0: https://www.opensubtitles.org/"}}}]
+                        for event in proof().outcomes:
+                            rows.append({"step_update":{"tool_name":"call_mcp_tool","tool_info":{
+                                "parameters":{"ServerName":"ttv-browser","ToolName":event["tool"]},
+                                "output":event["output"]}}})
+                        output = "\n".join(json.dumps(row) for row in rows)
+                    kwargs["stdout"].write(output.encode())
+                    return SimpleNamespace(returncode=0)
+                fake_os = mock.Mock(wraps=os)
+                fake_os.name = "nt"
+                fake_os.environ = {}
+                patch("os", new=fake_os)
+                patch("preflight_antigravity", return_value="agy")
+                patch("_validated_antigravity_alias", return_value="gemini")
+                patch("_verify_browser", return_value="www.opensubtitles.org")
+                patch("_session_settings", return_value=root/"session-settings.json")
+                patch("_download_destination", return_value=dest)
+                patch("_download_observation", new=observed)
+                stack.enter_context(mock.patch.object(native.shutil,"which",return_value="pwsh"))
+                stack.enter_context(mock.patch.object(native.subprocess,"run",side_effect=fake_run))
+                stack.enter_context(mock.patch.object(native.time,"sleep"))
+                patch("_fresh_downloads", side_effect=lambda *_: [] if len(browser_calls)==1 else [
+                    (proof().download_bytes, proof().artifacts[0])])
+                producer = NativeBrowserProducer(profile=profile, probe=lambda _: (7200,24))
+                with self.assertRaisesRegex(AgyEnglishUnavailable, "RESULT_UNKNOWN" if ambiguous else "NO_SOURCE"):
+                    producer(BrowserRequest(MEDIA),root)
+                pending = root/".native-v13/browser.pending"
+                self.assertEqual(pending.exists(), ambiguous)
+                self.assertEqual((_job(root,MEDIA)/"no-source-observation.json").is_file(), not ambiguous)
+                b = replace(MEDIA,file_index=3)
+                if ambiguous:
+                    with self.assertRaises(AgyEnglishUnavailable):
+                        producer(BrowserRequest(b),root)
+                    self.assertEqual(len(browser_calls),1)
+                else:
+                    self.assertEqual(producer(BrowserRequest(b),root).media,b)
+                    self.assertEqual(len(browser_calls),2)
+                with self.assertRaises(AgyEnglishUnavailable):
+                    producer(BrowserRequest(MEDIA),root)
+                self.assertEqual(len(browser_calls),1 if ambiguous else 2)
 
     def test_unknown_effect_blocks_same_and_other_media(self):
         calls = []
