@@ -25,7 +25,7 @@ from agy_v13_browser_evidence import (
     verify_evidence,
 )
 from owner_selected_file_resolver import _one_basename
-from owner_torrserver_ffp_tracks import _read_local_ffp
+from owner_torrserver_ffp_tracks import TorrServerProbeBlocked, _read_local_ffp
 from translator_gateway import preflight_antigravity, _validated_antigravity_alias
 
 SITE = {"opensubtitles.org", "www.opensubtitles.org"}
@@ -100,18 +100,55 @@ def measured_metadata(raw):
     return duration, fps
 
 
-def probe_selected(reader, media, transport=_read_local_ffp):
-    """Recheck exact P3 coordinates and use the existing loopback /ffp path."""
-    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", media.torrent_hash):
+def _probe_local_stream(url):
+    """BT24H bounded ffprobe on the already-authorized exact local /play URL.
+
+    Metadata only; no subtitle extraction, transcode, or provider. This read
+    may fetch torrent pieces, so it is only used inside the explicit native
+    Owner request after the verified /ffp metadata path fails.
+    """
+    executable = shutil.which("ffprobe")
+    if not executable:
+        _hold("FFPROBE_REQUIRED")
+    env = {k: v for k, v in os.environ.items()
+           if k.lower() not in {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}}
+    env["NO_PROXY"] = "127.0.0.1"
+    try:
+        q = subprocess.run([executable, "-v", "error", "-rw_timeout", "12000000",
+            "-protocol_whitelist", "http,tcp", "-show_entries",
+            "format=duration:stream=codec_type,avg_frame_rate:stream_disposition=attached_pic",
+            "-of", "json", url], env=env, capture_output=True, timeout=45, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        _hold("FFPROBE_UNAVAILABLE")
+    if q.returncode or not 0 < len(q.stdout) <= 65536:
+        _hold("FFPROBE_UNAVAILABLE")
+    return q.stdout
+
+
+def probe_selected(reader, media, transport=_read_local_ffp, stream_probe=_probe_local_stream):
+    """Exact P3 identity, preferred /ffp, one local metadata fallback."""
+    if (not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", media.torrent_hash)
+            or type(media.file_index) is not int or not 0 <= media.file_index < 4096):
         _hold("MEDIA_ID_INVALID")
     record = reader(*media.key)
     if (_one_basename(record.path) != media.filename
-            or record.id != media.file_index
+            or record.id != media.file_index or record.length <= 0
             or record.torrent_title != media.torrent_title):
         _hold("MEDIA_CHANGED")
     port = reader.config.localhost_port
-    return measured_metadata(transport(
-        f"http://127.0.0.1:{port}/ffp/{media.torrent_hash}/{media.file_index}", 3.0))
+    try:
+        result = measured_metadata(transport(
+            f"http://127.0.0.1:{port}/ffp/{media.torrent_hash}/{media.file_index}", 8.0))
+    except (TorrServerProbeBlocked, AgyEnglishUnavailable, OSError, TimeoutError):
+        # Recheck before reading a stream; no provider or alternative subtitle
+        # source is involved. Never probe a different hash/index.
+        if reader(*media.key) != record:
+            _hold("MEDIA_CHANGED")
+        result = measured_metadata(stream_probe(
+            f"http://127.0.0.1:{port}/play/{media.torrent_hash}/{media.file_index}"))
+    if reader(*media.key) != record:
+        _hold("MEDIA_CHANGED")
+    return result
 
 
 def _load_settings(path):
@@ -165,20 +202,50 @@ def _session_settings(run, home):
     return override
 
 
-def _verify_browser(ps, profile):
-    # Verify the already-enrolled dedicated Chrome, never start/kill Chrome.
+def _ensure_browser_listener(ps, profile):
+    """BT26 recovery: start only the enrolled profile if it is absent.
+
+    Never kill a process, reset a profile, change ports, or touch 9444. Run
+    only inside the native acquisition request, not Owner startup.
+    """
     env = dict(os.environ, TTV_NATIVE_PROFILE=str(profile))
     cmd = r"""
-$l=@(Get-NetTCPConnection -LocalPort 9555 -State Listen -ErrorAction Stop)
+$ErrorActionPreference='Stop'
+$profile=$env:TTV_NATIVE_PROFILE
+function Listeners { @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object {$_.LocalPort -eq 9555}) }
+$l=@(Listeners)
+if($l.Count -eq 0){
+  $roots=@(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object {
+    $_.CommandLine -and $_.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -ge 0
+  })
+  if($roots.Count -ne 0){exit 4}
+  $chrome=Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'
+  if(-not (Test-Path -LiteralPath $profile -PathType Container) -or -not (Test-Path -LiteralPath $chrome -PathType Leaf)){exit 5}
+  Start-Process -FilePath $chrome -ArgumentList @('--user-data-dir="'+$profile+'"','--remote-debugging-port=9555','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--new-window','https://www.opensubtitles.org/')
+  for($i=0;$i -lt 30;$i++){
+    Start-Sleep -Milliseconds 500
+    $l=@(Listeners)
+    if($l.Count -gt 0){break}
+  }
+}
 $pids=@($l | Select-Object -ExpandProperty OwningProcess -Unique)
 if($pids.Count -ne 1 -or @($l|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count){exit 2}
 $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$pids[0])
-if($p.Name -ne 'chrome.exe' -or !$p.CommandLine -or $p.CommandLine.IndexOf($env:TTV_NATIVE_PROFILE,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $p.CommandLine -notmatch '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)'){exit 3}
+if($p.Name -ne 'chrome.exe' -or !$p.CommandLine -or $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $p.CommandLine -notmatch '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)'){exit 3}
 exit 0
 """
-    if subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", cmd],
-                      env=env, capture_output=True, timeout=15).returncode:
-        _hold("BROWSER_IDENTITY")
+    try:
+        code = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", cmd],
+                              env=env, capture_output=True, timeout=40).returncode
+    except (OSError, subprocess.TimeoutExpired):
+        _hold("BROWSER_START_UNVERIFIED")
+    if code:
+        _hold({4: "BROWSER_PROFILE_RUNNING_NO_LISTENER",
+               5: "BROWSER_PROFILE_OR_EXECUTABLE_MISSING"}.get(code, "BROWSER_IDENTITY"))
+
+
+def _verify_browser(ps, profile):
+    _ensure_browser_listener(ps, profile)
     opener = build_opener(ProxyHandler({}))
     def local(path):
         with opener.open("http://127.0.0.1:9555" + path, timeout=3) as f:
@@ -297,8 +364,8 @@ def run_windows(request, run, profile, duration, fps):
     ps = shutil.which("pwsh")
     if not ps or not profile.is_dir() or profile.is_symlink():
         _hold("PROFILE_REQUIRED")
-    host = _verify_browser(ps, profile)
     cli = preflight_antigravity()
+    host = _verify_browser(ps, profile)
     env = dict(os.environ)
     for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL",
               "AGY_ADC_AUTH", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_QUOTA_PROJECT"):

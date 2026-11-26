@@ -5,13 +5,17 @@ from threading import Event
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
+from types import SimpleNamespace
 
 from agy_opensubtitles_acquisition import AgyEnglishUnavailable
 from agy_v13_browser_evidence import BrowserRequest, make_v13_acquirer
 from agy_v13_native_producer import (
     NativeBrowserProducer, measured_metadata, native_cache_verified,
+    probe_selected, _ensure_browser_listener,
 )
 from test_agy_v13_browser_evidence import MEDIA, proof
+from owner_torrserver_ffp_tracks import TorrServerProbeBlocked
 
 
 class NativeProducerTests(unittest.TestCase):
@@ -20,6 +24,52 @@ class NativeProducerTests(unittest.TestCase):
         for raw in (b'{}', b'{"format":{"duration":"7200"},"streams":[{"codec_type":"video","avg_frame_rate":"0/0"}]}'):
             with self.assertRaises(AgyEnglishUnavailable):
                 measured_metadata(raw)
+
+    def test_ffp_failure_uses_only_exact_local_metadata_probe(self):
+        record = SimpleNamespace(id=MEDIA.file_index, path=MEDIA.filename,
+                                 torrent_title=MEDIA.torrent_title, length=10000)
+        reader = mock.Mock(return_value=record)
+        reader.config.localhost_port = 8090
+        metadata = b'{"format":{"duration":"7200"},"streams":[{"codec_type":"video","avg_frame_rate":"24/1"}]}'
+        ffp = mock.Mock(side_effect=TorrServerProbeBlocked("P3_FFP_LOCAL_READ_UNAVAILABLE"))
+        fallback = mock.Mock(return_value=metadata)
+        self.assertEqual(probe_selected(reader, MEDIA, ffp, fallback), (7200, 24))
+        ffp.assert_called_once_with(f"http://127.0.0.1:8090/ffp/{MEDIA.torrent_hash}/{MEDIA.file_index}", 8.0)
+        fallback.assert_called_once_with(f"http://127.0.0.1:8090/play/{MEDIA.torrent_hash}/{MEDIA.file_index}")
+        self.assertTrue(all(call.args == MEDIA.key for call in reader.call_args_list))
+        fallback.reset_mock()
+        self.assertEqual(probe_selected(reader, MEDIA, mock.Mock(return_value=metadata), fallback), (7200, 24))
+        fallback.assert_not_called()
+        reader.return_value = SimpleNamespace(id=MEDIA.file_index + 1, path=MEDIA.filename,
+                                              torrent_title=MEDIA.torrent_title, length=10000)
+        with self.assertRaisesRegex(AgyEnglishUnavailable, "MEDIA_CHANGED"):
+            probe_selected(reader, MEDIA, ffp, fallback)
+        fallback.assert_not_called()
+
+    def test_ffp_failure_does_not_probe_if_selected_record_changed(self):
+        original = SimpleNamespace(id=MEDIA.file_index, path=MEDIA.filename,
+                                   torrent_title=MEDIA.torrent_title, length=10000)
+        changed = SimpleNamespace(**{**vars(original), "length": 20000})
+        reader = mock.Mock(side_effect=[original, changed])
+        reader.config.localhost_port = 8090
+        fallback = mock.Mock(side_effect=AssertionError("must not read changed file"))
+        with self.assertRaisesRegex(AgyEnglishUnavailable, "MEDIA_CHANGED"):
+            probe_selected(reader, MEDIA, mock.Mock(side_effect=TorrServerProbeBlocked("UNAVAILABLE")), fallback)
+        fallback.assert_not_called()
+
+    def test_browser_recovery_uses_single_bounded_owner_command(self):
+        with mock.patch("agy_v13_native_producer.subprocess.run", return_value=SimpleNamespace(returncode=0)) as run:
+            _ensure_browser_listener("pwsh", Path("existing-profile"))
+            run.assert_called_once()
+            cmd = run.call_args.args[0][-1]
+            self.assertIn("Start-Process", cmd)
+            self.assertIn("remote-debugging-port=9555", cmd)
+            self.assertNotIn("Stop-Process", cmd)
+            self.assertNotIn("9444", cmd)
+            self.assertEqual(run.call_args.kwargs["timeout"], 40)
+        with mock.patch("agy_v13_native_producer.subprocess.run", return_value=SimpleNamespace(returncode=4)):
+            with self.assertRaisesRegex(AgyEnglishUnavailable, "BROWSER_PROFILE_RUNNING_NO_LISTENER"):
+                _ensure_browser_listener("pwsh", Path("existing-profile"))
 
     def test_one_call_retained_evidence_and_cache_receipt(self):
         calls = []
