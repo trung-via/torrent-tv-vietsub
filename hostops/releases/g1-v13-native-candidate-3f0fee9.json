@@ -1,0 +1,87 @@
+{
+  "schema": "TTV-G1-V13-NATIVE-CANDIDATE-PACKAGE-V1",
+  "status": "SOURCE_PACKAGE_ONLY_NOT_INSTALL_AUTHORIZATION",
+  "repository": "trung-via/torrent-tv-vietsub",
+  "pr": 188,
+  "source_commit": "3f0fee9208b34349fb1ec85bbf47e222547f6a44",
+  "expected_base": "5e3ce11f76828daa2d5aa72cacc7514e74dc152e",
+  "activation": {
+    "environment_variable": "TTV_NATIVE_V13",
+    "default": "unset",
+    "enable": "1",
+    "requires_explicit_native_acceptance": true
+  },
+  "files": [
+    {
+      "path": "poc/p2-sub-discovery/agy_v13_browser_evidence.py",
+      "expected_prior": {
+        "state": "ABSENT"
+      },
+      "target": {
+        "blob_sha": "42e2cd40e556604e01757a3cccc5c5de9ac23d8f",
+        "sha256": "a9d3552fee385f915681ab28390b97f4e4dcc8e0ce9ac55217d04cdfcfb9ddfd",
+        "size": 22597
+      }
+    },
+    {
+      "path": "poc/p2-sub-discovery/agy_v13_native_producer.py",
+      "expected_prior": {
+        "state": "ABSENT"
+      },
+      "target": {
+        "blob_sha": "ec5292092e965ae2b82747c9612d755e823eab5d",
+        "sha256": "9a04059ef6e324b9adecc2fbd9d8bf9202972d5d62ddb71d9941c1759ac230bf",
+        "size": 24351
+      }
+    },
+    {
+      "path": "poc/p2-sub-discovery/automatic_vietsub_flow.py",
+      "expected_prior": {
+        "state": "EXACT_BASE_BYTES",
+        "blob_sha": "7f3da4c737fb7a3ffc5cc960d6fe7b981af261b9",
+        "sha256": "e3d1e6da2c8d08ae428f97fbae2d188e5817103dfc8bda7ed2c8a6e13f18792a",
+        "size": 39082
+      },
+      "target": {
+        "blob_sha": "925a0d10cec2d20fe406e3b184b4a9216e23fa27",
+        "sha256": "259875601c7cddc3f601d41c6d36a9b3044f5e67ac9de83f7c24a3a4a0537017",
+        "size": 39946
+      }
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_p3_p4_runtime.py",
+      "expected_prior": {
+        "state": "EXACT_BASE_BYTES",
+        "blob_sha": "40c653debe30499f280981ff194fe343729f0bc0",
+        "sha256": "a8af95433fc256082636440e74fa3343912f56b4a45b483948af00a9ce4898e3",
+        "size": 8622
+      },
+      "target": {
+        "blob_sha": "f8b6aa4b22647190e372d91f5bda045e7f17a326",
+        "sha256": "8f471755e5f7063e2dcc1aa672d355a132997d317f4b31c7437d6c5c903d3ad6",
+        "size": 9384
+      }
+    },
+    {
+      "path": "poc/p2-sub-discovery/owner_r2_progressive_registry.py",
+      "expected_prior": {
+        "state": "EXACT_BASE_BYTES",
+        "blob_sha": "23cbfb7d0a86a1f9542c4acef6ca7d9f793d943f",
+        "sha256": "c234749c1f9165d3436d344546b8b97089ff73c1e361aa225d0e0cb544320346",
+        "size": 27620
+      },
+      "target": {
+        "blob_sha": "84615b20c04234b479db8a94989ba2d3c77a4f77",
+        "sha256": "1da446680d2e3b866a910787ec2ab61e1bab54dd97f971a87c8e867e2bd3cc44",
+        "size": 28985
+      }
+    }
+  ],
+  "requirements": [
+    "Verify actual installed baseline before stage or apply; mismatch holds. Manifest covers #188 runtime delta only, not uninstalled #186 or its ancestors.",
+    "Stage exact source and check SHA-256, imports and selected tests before apply.",
+    "Preserve checkpoints/cache, reconcile pending events/inflight/unknown provider effects, require separately authorized idle maintenance and rollback backup; no automatic restart/activation from this manifest.",
+    "Verify loaded PID-bound source and native opt-in at actual approved activation; do not change 9444 or Report Bridge #187."
+  ],
+  "rollback": "Unset TTV_NATIVE_V13 and restore reviewed backup if needed; do not delete cache or checkpoint data."
+}
