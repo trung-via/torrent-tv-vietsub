@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v133-retained-evidence-audit.ps1",
-  "script_sha256": "69545ed32c213eb1c5f237f2ea951a0ac30f5d18d53e6c4659b76e509d2d8ed9",
+  "script_path": "hostops/laptop-ops/operations/v133-retained-language-readonly.ps1",
+  "script_sha256": "f2a2152853aa7036a8b39598027dfe3a8fbe21ec6c415669d53004c7b7509dce",
   "arguments": []
 }
