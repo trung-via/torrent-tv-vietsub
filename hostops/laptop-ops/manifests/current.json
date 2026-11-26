@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v13-resident-evil-benchmark-readonly.ps1",
-  "script_sha256": "6881e4fae4c73a2620b40905be07f5d50a938d8c38704a05e834ebc6d154a1f1",
+  "script_path": "hostops/laptop-ops/operations/v13-resident-evil-training-readonly.ps1",
+  "script_sha256": "0f013e42cf9beba094cbf9754d2680b5c851960ac9ef6bc7a3251c3075a19af5",
   "arguments": []
 }
