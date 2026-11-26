@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v13-john-wick-4-readonly.ps1",
-  "script_sha256": "55c7bdd7a4e864924a29beab3b6b70fdd95ca33519a3198ed596e0f3a6b1bb49",
+  "script_path": "hostops/laptop-ops/operations/v13-jw4-release-comparison-readonly.ps1",
+  "script_sha256": "56b8965c116dc289c541373f413250a522460a21633b12a8e60e13db8a48c9cc",
   "arguments": []
 }
