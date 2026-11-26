@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/v13-current-request-readonly.ps1",
-  "script_sha256": "4eb4b15a426762f9873e8008dbf11b64166eabaf29a374ad234e69adc5e2bca8",
+  "script_sha256": "db8b6be412229693302f6f441ede1c783845227595a28acf9e97763b840b5a81",
   "arguments": []
 }
