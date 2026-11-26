@@ -114,7 +114,7 @@ def _retained_verified(run, media):
 
 
 def recover_comparison_rejected(run, media):
-    """Owner maintenance: revalidate only a completed, retained comparison rejection.
+    """Owner maintenance: revalidate completed, retained release-policy rejection.
 
     No browser/provider call; preserve terminal evidence and original ZIP.
     Caller must stop Owner and bind the exact event/media before requeue.
@@ -123,7 +123,8 @@ def recover_comparison_rejected(run, media):
         _hold("BROWSER_BUSY_OR_UNKNOWN")
     terminal = _json(run / "terminal.json", 4096)
     if (terminal.get("status") != "SOURCE_REJECTED"
-            or terminal.get("reason") != "AGY_EN_RELEASE_COMPARISON_MISSING"
+            or terminal.get("reason") not in {"AGY_EN_RELEASE_COMPARISON_MISSING",
+                                              "AGY_EN_MEDIA_RELEASE_MISMATCH"}
             or not (run / "provider.started.json").is_file()):
         _hold("PRIOR_ATTEMPT_REVIEW_REQUIRED")
     proof, asset = _retained_proof(run, media)

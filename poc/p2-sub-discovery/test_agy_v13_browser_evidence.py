@@ -135,6 +135,19 @@ class V13EvidenceTests(unittest.TestCase):
         self.assertEqual(observation["dialogue_completeness"],"UNVERIFIED")
         self.assertEqual(observation["sync"],"UNVERIFIED")
 
+    def test_native_selected_movie_accepts_encoding_difference_only(self):
+        p = proof()
+        listing = dict(p.outcomes[0]["output"])
+        listing["rows"] = [dict(listing["rows"][0],
+            release="Example.Film.2017.2160p.x264-OTHER.srt"), listing["rows"][1]]
+        self.assertEqual(self.verify(replace(p, outcomes=(out(1, listing), *p.outcomes[1:]))).cues, 125)
+        for bad in ("Example.Film.2018.2160p.x264-OTHER.srt",
+                    "Example.Film.2160p.x264-OTHER.srt",
+                    "Example.Film.2.2017.2160p.x264-OTHER.srt"):
+            listing["rows"][0] = dict(listing["rows"][0], release=bad)
+            with self.assertRaisesRegex(AgyEnglishUnavailable, "RELEASE_MISMATCH"):
+                self.verify(replace(p, outcomes=(out(1, listing), *p.outcomes[1:])))
+
     def test_existing_matcher_still_rejects_different_movie(self):
         p = proof()
         listing = dict(p.outcomes[0]["output"])

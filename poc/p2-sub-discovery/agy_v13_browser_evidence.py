@@ -18,13 +18,13 @@ from typing import Callable
 import urllib.parse
 import zipfile
 
-from agy_opensubtitles_acquisition import AgyEnglishUnavailable, _validate_source
+from agy_opensubtitles_acquisition import AgyEnglishUnavailable
 from matcher import Media, preferred_media_release, parse_release
 from opensubtitles import Asset, MAX_SUBTITLE_BYTES, SubtitleApiError, validate_timed_text
 
 RECIPE_VERSION = "V13.1"
 # Bump whenever local acquisition acceptance semantics change.
-VERIFICATION_REVISION = "V13.1-BR04-1"
+VERIFICATION_REVISION = "V13.1-BR05-1"
 MODEL = "gemini-4-hydrogen-low"
 THINKING_LEVEL = "low"
 MAX_DOWNLOAD_BYTES = 2_000_000
@@ -204,6 +204,20 @@ def _subtitle_bytes(blob: bytes) -> bytes:
     return blob
 
 
+def _check_selected_movie(media, release):
+    """AGY chooses the cut; Owner verifies film identity, not encoding similarity.
+
+    Unknown runtime/FPS are not synchronization proof. Explicit conflicts and
+    invalid SRT remain rejected by the separate timeline checks.
+    """
+    target = preferred_media_release(media)
+    selected = parse_release(release)
+    if (not target.title or not selected.title
+            or target.title.removeprefix("the ") != selected.title.removeprefix("the ")
+            or (target.year is not None and target.year != selected.year)):
+        raise AgyEnglishUnavailable("AGY_EN_MEDIA_RELEASE_MISMATCH")
+
+
 def _check_selected_runtime(gate, duration):
     """Validate explicit runtime for the chosen release, not the search method."""
     # Only labelled HH:MM:SS / minute metadata is interpretable. A minute
@@ -256,13 +270,9 @@ def verify_evidence(request: BrowserRequest, proof: BrowserEvidence) -> Asset:
     if not gate["accepted"] or not gate["chosen_release"]:
         raise AgyEnglishUnavailable("AGY_EN_" + gate["reason"]
                                     if not gate["accepted"] else "AGY_EN_RELEASE_UNOBSERVED")
-    # Do not loosen the existing production matcher merely because the
-    # experimental benchmark accepted a candidate. Cross-release acceptance
-    # still needs the separate cut/timeline adjudication and consumer tests.
-    _validate_source(request.media, {
-        "release_name": gate["chosen_release"],
-        "source_page": gate["chosen_page"],
-    })
+    # The selected candidate's observed download remains bound above.
+    # Encoding metadata (group/source/resolution/codec) is not a cut proof.
+    _check_selected_movie(request.media, gate["chosen_release"])
     _check_selected_runtime(gate, proof.duration_seconds)
     contents = _subtitle_bytes(proof.download_bytes)
     try:
