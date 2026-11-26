@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v13-current-recovered-readonly.ps1",
-  "script_sha256": "81d0b5969ac9766253f399f3a6743c3bf17e1e180d7595a89e4c0ea522b3bbcf",
+  "script_path": "hostops/laptop-ops/operations/v13-download-handoff-readonly.ps1",
+  "script_sha256": "0802c55f1a8cb3ed63d91eba6150c49133717fef5a6e98dc57a2f723f9794e48",
   "arguments": []
 }
