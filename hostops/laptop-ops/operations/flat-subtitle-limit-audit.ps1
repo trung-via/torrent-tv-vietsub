@@ -10,7 +10,7 @@ $py=@'
 import hashlib, json, pathlib, re, sys, time
 root=pathlib.Path(sys.argv[1]); base=root.parent; inbox=root/"inbox"
 sys.path[:0]=[str(root/"app/poc"/p) for p in ("p2-sub-discovery","p2-aisub","p3-vietsub-trigger")]
-from owner_session_bridge import _parse_event
+from owner_session_bridge import _authorized_selection, _BACKGROUND_SCHEMA, _SESSION_SCHEMA
 from cached_en_direct_handoff import CachedEnReceipt,prepare_local_translation_source
 from automatic_lean120_worker import AutomaticLean120Worker,_json_bytes
 from lean120_api import load_profile
@@ -22,22 +22,30 @@ def read(p,cap=2*1024*1024):
     return json.loads(p.read_bytes())
 def require(ok):
     if not ok:raise ValueError()
+stage='HEALTH'
 try:
     health=read(root/"agent-health.json",512)
     require(health["state"]=="READY" and 0<=time.time()-health["observed_utc_epoch"]<=30)
     target="347fc1e23e9b0b24fa8609caf6b3f91eca0f65cca78a432bbd3fc49dfd899f4f"
+    stage='EVENT'
     events=[p for p in inbox.glob("event-*.blocked") if hashlib.sha256(p.stem.removeprefix("event-").encode()).hexdigest()==target]
     if len(events)!=1:
         print("LIMIT_AUDIT_TARGET_MISSING");sys.exit(0)
-    event=_parse_event(events[0]); eid=event.event_id; fp=event.source_fingerprint
-    require(event.authorized_selection is not None and fp is not None)
+    ev=read(events[0],4096);eid=ev["event_id"];fp=ev["source_fingerprint"]
+    require(events[0].name=="event-"+eid+".blocked" and hashlib.sha256(eid.encode()).hexdigest()==target)
+    require(ev["schema"] in (_BACKGROUND_SCHEMA,_SESSION_SCHEMA) and re.fullmatch(r"[a-f0-9]{64}",fp) is not None)
+    if ev["schema"]==_BACKGROUND_SCHEMA:
+        _authorized_selection(ev["authorized_selection"],fp,ev["tv_session_id"])
+    stage='CLAIM'
     require((inbox/("claim-"+eid)).read_bytes()==b"CLAIMED_DO_NOT_AUTO_REPLAY\n")
+    stage='LOG'
     log=root/"diagnostics/owner-full.log"
     with log.open("rb") as f:
         f.seek(max(0,log.stat().st_size-4*1024*1024)); tail=f.read().decode("utf-8","replace")
     marker="OWNER_FULL_TRACE 'P2_EVENT_BLOCKED'"
     blocks=[part for part in tail.split(marker)[1:] if eid in part.splitlines()[0]]
     require(len(blocks)==1 and "ValueError: TV_SUBTITLE_SIZE_LIMIT" in blocks[0])
+    stage='SOURCE'
     cache=base/"subtitle-trials"; state=base/"P2/auto-lean120-state"
     # Resolve exact cache index without calling any source acquirer.
     indexes=[cache/(".dual-source-native-v13-"+fp+"-ai_en.json"),cache/(".dual-source-"+fp+"-ai_en.json")]
@@ -46,10 +54,12 @@ try:
     index=present[0]; row=read(index,512)
     receipt=DualSubtitleCatalog(cache)._file(row,"ai_en")
     source=prepare_local_translation_source(CachedEnReceipt(receipt.file,receipt.sha256,receipt.cues),private_root=cache)
+    stage='JOB'
     worker=AutomaticLean120Worker(state_root=state,profile=load_profile(root/"app/poc/p2-aisub/translator_profile.json"),glossary={},first_window_cues=50,preserve_hydrogen_jobs=True)
     job=worker.job_fingerprint(source); folder=state/job
     require(folder.is_dir() and not folder.is_symlink())
     session=worker.progressive_session(source)
+    stage='CHECKPOINT'
     prefix=0; rev=None
     for w in session.windows:
         cp=folder/f"batch-{w.number:04d}.json"
@@ -60,6 +70,7 @@ try:
         rev=session.commit(w,values,expected_version=w.number-1,source_sha256=source.source_sha256,media_key=source.media_key)
         require(rev.sha256==d["payload_sha256"]);prefix=w.number
     require(prefix>0 and len(list(folder.glob("batch-*.json")))==prefix and prefix<len(session.windows))
+    stage='RESULT'
     ready=0; ambiguous=0
     for m in folder.glob("batch-*.inflight"):
         match=re.fullmatch(r"batch-(\d{4})\.inflight",m.name);require(match is not None)
@@ -70,11 +81,17 @@ try:
         d=read(p); require(d["schema"]=="TTV-P2-LEAN120-RESULT-V1" and d["job"]==job and d["version"]==n and [v["id"] for v in d["translations"]]==list(w.ids))
         require(hashlib.sha256(_json_bytes(d["translations"])).hexdigest()==d["sha256"])
         apply_translations(w.target,{str(v["id"]):v["vi"] for v in d["translations"]});ready+=1
+    stage='PINS'
+    pins={"poc/p2-aisub/cue_pipeline.py":"cf6e55625dc1dc7757f5971f6dfb2dd283175da9","poc/p2-aisub/progressive_handoff.py":"fa160224953486e8edf9c662546ed6debb814c95","poc/p2-aisub/assumed_source_handoff.py":"386645aabba038139c0304aa46cd9e538eecdaf9","poc/p2-sub-discovery/opensubtitles.py":"b6e4919170c09e306db65f631c1e65949768b297","poc/p2-sub-discovery/automatic_vietsub_flow.py":"5ae5b48da30e19192972b263a0844873500e185d","poc/p2-sub-discovery/dual_subtitle_catalog.py":"2e70090ff6bc2b252ebe8381acdf89a9edc31e0c","poc/p2-sub-discovery/p3_p4_ready_registry.py":"e4eca0af41264dec07173018e3605c321a745f2b","poc/p2-aisub/verified_vietsub_ready.py":"0e9fe95b64f14465d48b627e7b936fcba04bc793","poc/p2-aisub/revision_delivery.py":"039805c06b6f38910ef650de49b345f39739539c","poc/p2-aisub/lan_revision_feed.py":"a7a81bcb18ede01d51fd6b0694d1073b9d9956a4","poc/p2-sub-discovery/owner_session_bridge.py":"a3305ff2ef6a926a49d6f42eac6ba461b0775aa6","poc/p2-sub-discovery/agy_v13_browser_evidence.py":"1479fb0c1d26d624ba210cfe1492aaedc0b8add8"}
+    match_count=0
+    for rel,digest in pins.items():
+        b=(root/'app'/rel).read_bytes().replace(b'\r\n',b'\n')
+        if hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()==digest:match_count+=1
     locks=sum(1 for p in state.glob("*/active.lock") if p.is_file())
     pending=sum(1 for p in inbox.glob("event-*.json") if p.is_file())
-    print(f"LIMIT_AUDIT_C{source.cue_count}_B{prefix}_T{len(session.windows)}_R{ready}_U{ambiguous}_L{locks}_Q{pending}")
+    print(f"LIMIT_AUDIT_C{source.cue_count}_B{prefix}_T{len(session.windows)}_R{ready}_U{ambiguous}_L{locks}_Q{pending}_M{match_count}")
 except Exception:
-    print("LIMIT_AUDIT_HOLD_INVALID_OR_CHANGED")
+    print("LIMIT_AUDIT_HOLD_"+stage)
 '@
 $lines=@(& py -3 -I -B -c $py $root 2>$null)
 $code='LIMIT_AUDIT_READ_UNAVAILABLE'

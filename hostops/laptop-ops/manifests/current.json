@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/flat-subtitle-limit-audit.ps1",
-  "script_sha256": "59e3ad2d6dbee51ae87f1ba8aeddc2491f90e53808771d8b81276e6f85447af6",
+  "script_sha256": "e4960ff23d4ba16755fa043ecbe23e6b87f0c086b5b5d738788cbd76663a7cbc",
   "arguments": []
 }
