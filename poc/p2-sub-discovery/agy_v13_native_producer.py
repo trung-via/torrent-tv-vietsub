@@ -218,8 +218,9 @@ def _session_settings(run, home):
     if not isinstance(config, dict) or not isinstance(other, dict):
         _hold("CONFIG_INVALID")
     relative = re.compile(r"(?:read_file|write_file)\(\.git[/\\]aios[/\\]?\)")
-    if re.search(r"\.git[/\\]aios", json.dumps(other).replace("\\\\", "\\")):
-        _hold("SHARED_RELATIVE_RULE")
+    # Shared AI Commerce rules belong to AGY's own config loader. Do not
+    # reject a Torrent TV session merely because a relative rule exists.
+    # Preserve the shared config byte-for-byte and let the CLI report errors.
     permissions = config.setdefault("permissions", {})
     if not isinstance(permissions, dict):
         _hold("CONFIG_INVALID")

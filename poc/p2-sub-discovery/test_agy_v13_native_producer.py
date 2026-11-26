@@ -24,6 +24,27 @@ from owner_torrserver_ffp_tracks import TorrServerProbeBlocked
 
 
 class NativeProducerTests(unittest.TestCase):
+    def test_shared_relative_rule_does_not_block_session_or_edit_globals(self):
+        from agy_v13_native_producer import _session_settings
+        with TemporaryDirectory() as temp:
+            home = Path(temp) / "home"
+            shared = home / ".gemini/config/config.json"
+            primary = home / ".gemini/antigravity-cli/settings.json"
+            shared.parent.mkdir(parents=True)
+            primary.parent.mkdir(parents=True)
+            shared.write_text(json.dumps({"permissions": {
+                "deny": ["write_file(.git/aios/)"],
+                "allow": ["read_file(.git/aios/)"]}}), encoding="utf-8")
+            primary.write_text(json.dumps({"permissions": {
+                "deny": ["write_file(.git/aios/)"]}}), encoding="utf-8")
+            originals = (shared.read_bytes(), primary.read_bytes())
+            run = Path(temp) / "job"
+            run.mkdir()
+            settings = json.loads(_session_settings(run, home).read_text(encoding="utf-8"))
+            self.assertEqual(settings["permissions"]["deny"],
+                             ["write_file(" + (run / ".git/aios").as_posix() + ")"])
+            self.assertEqual((shared.read_bytes(), primary.read_bytes()), originals)
+
     def test_measured_metadata(self):
         self.assertEqual(measured_metadata(b'{"format":{"duration":"7200"},"streams":[{"codec_type":"video","avg_frame_rate":"24/1"}]}'), (7200, 24))
         for raw in (b'{}', b'{"format":{"duration":"7200"},"streams":[{"codec_type":"video","avg_frame_rate":"0/0"}]}'):
