@@ -4,7 +4,7 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/v13-resume-stop.ps1",
-  "script_sha256": "ecef4a7eb0f20a929a49dfed12899de7acd714722041a02e6a8a973ebd5e277d",
+  "script_sha256": "c43c31b3007e22c21d3c50236b065afc0eb9957b0d8f4604dd778c953160dc1c",
   "arguments": [
     "-ResumeStop"
   ]
