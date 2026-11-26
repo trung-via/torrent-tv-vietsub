@@ -124,7 +124,9 @@ def recover_comparison_rejected(run, media):
     terminal = _json(run / "terminal.json", 4096)
     if (terminal.get("status") != "SOURCE_REJECTED"
             or terminal.get("reason") not in {"AGY_EN_RELEASE_COMPARISON_MISSING",
-                                              "AGY_EN_MEDIA_RELEASE_MISMATCH"}
+                                              "AGY_EN_MEDIA_RELEASE_MISMATCH",
+                                              "AGY_EN_LIST_COVERAGE_UNVERIFIED",
+                                              "AGY_EN_DOWNLOAD_BOUND_LIST_COVERAGE_HOLD"}
             or not (run / "provider.started.json").is_file()):
         _hold("PRIOR_ATTEMPT_REVIEW_REQUIRED")
     proof, asset = _retained_proof(run, media)

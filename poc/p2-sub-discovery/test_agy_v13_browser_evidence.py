@@ -62,8 +62,8 @@ class V13EvidenceTests(unittest.TestCase):
         self.assertNotIn("a" * 40, prompt)
 
     def test_compact_recipe_keeps_verifier_contract_and_rollback(self):
-        self.assertEqual(RECIPE_VERSION, "V13.2")
-        self.assertEqual(VERIFICATION_REVISION, "V13.1-BR05-1")
+        self.assertEqual(RECIPE_VERSION, "V13.3")
+        self.assertEqual(VERIFICATION_REVISION, "V13.3-BR06-1")
         self.assertLess(len(RECIPE), len(RECIPE_V13_1) * 0.75)
         prompt = BrowserRequest(MEDIA).prompt(duration_seconds=7200, fps=24)
         self.assertTrue(prompt.startswith(RECIPE))
@@ -101,25 +101,43 @@ class V13EvidenceTests(unittest.TestCase):
         with self.assertRaises(AgyEnglishUnavailable):
             self.verify(replace(p, artifacts=(a,)))
         listing = out(1, dict(p.outcomes[0]["output"], has_next=True))
-        with self.assertRaises(AgyEnglishUnavailable):
-            self.verify(replace(p, outcomes=(listing, *p.outcomes[1:])))
+        self.assertEqual(self.verify(replace(p, outcomes=(listing, *p.outcomes[1:]))).cues,125)
 
-    def test_complete_unrelated_list_cannot_satisfy_selected_group(self):
+    def test_unrelated_complete_list_does_not_veto_bound_selected_row(self):
         p = proof()
         listing = out(1, dict(p.outcomes[0]["output"], has_next=True))
         other = dict(p.outcomes[0]["output"], url=LIST + "-other")
         other["rows"] = [dict(row, href=f"/en/subtitles/{300+i}/other-en")
                          for i, row in enumerate(other["rows"])]
-        with self.assertRaises(AgyEnglishUnavailable):
-            self.verify(replace(p, outcomes=(listing, out(2, other), *p.outcomes[1:])))
+        self.assertEqual(self.verify(replace(p, outcomes=(listing, out(2, other), *p.outcomes[1:]))).cues,125)
 
-    def test_conflicting_terminal_page_is_rejected(self):
+    def test_conflicting_pagination_is_not_source_rejection(self):
         p = proof()
         listing = p.outcomes[0]["output"]
         conflicting = out(0, dict(listing, has_next=True,
             next_href=LIST + "/offset-40"))
+        self.assertEqual(self.verify(replace(p, outcomes=(conflicting, *p.outcomes))).cues,125)
+
+    def test_partial_row_requires_english_detail_click_and_unique_release(self):
+        p=proof()
+        listing=dict(p.outcomes[0]["output"])
+        listing.pop("has_next")
+        listing.pop("total_english")
+        listing["rows"]=[listing["rows"][0]]
+        partial=replace(p,outcomes=(out(1,listing),*p.outcomes[1:]))
+        self.assertEqual(self.verify(partial).cues,125)
+        for wrong in (replace(partial,outcomes=partial.outcomes[1:]),
+                      replace(partial,outcomes=(partial.outcomes[0],partial.outcomes[1],partial.outcomes[-1])),
+                      replace(partial,outcomes=partial.outcomes[:-1])):
+            with self.assertRaises(AgyEnglishUnavailable):
+                self.verify(wrong)
+        for row in (dict(listing["rows"][0],lang="ru"),
+                    dict(listing["rows"][0],release="unknown")):
+            with self.assertRaises(AgyEnglishUnavailable):
+                self.verify(replace(partial,outcomes=(out(1,dict(listing,rows=[row])),*partial.outcomes[1:])))
+        contradiction=out(0,dict(listing,rows=[dict(listing["rows"][0],release="Different.Film.2017")]))
         with self.assertRaises(AgyEnglishUnavailable):
-            self.verify(replace(p, outcomes=(conflicting, *p.outcomes)))
+            self.verify(replace(partial,outcomes=(contradiction,*partial.outcomes)))
 
     def test_duration_overrun_is_rejected_without_retiming(self):
         with self.assertRaisesRegex(AgyEnglishUnavailable, "OVERRUN"):
