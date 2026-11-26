@@ -52,3 +52,10 @@
 ## Legacy và trạng thái
 
 `OMP-EVAL-001` vẫn là **planning alias nội bộ**; `TVAPP-001` Kotlin/Compose shell đã bị ADR-0002 supersede. Các nhánh P1/G0/G1 và Draft PR đang mở là công việc có lịch sử riêng, phải review/reconcile trước merge. Trạng thái runner/build/Redmi/TorrServer cần fresh evidence theo commit/run cụ thể; không suy PASS từ tên PR/workflow. Tham chiếu `PROJECT_CONTRACT.md`, `ARCHITECTURE.md` và ADR-0007.
+
+## G1 — FLAT Vietsub AI latency decision (Owner, 2026-11-27 ICT)
+
+- The Owner supersedes the 120-second first-visible-cue acceptance target with **<=150 seconds** from the actual Redmi Vietsub AI tap to the first rendered Vietnamese cue of the same film/session. The 30-60 second stretch goal remains aspirational. Cached reopen is measured separately. No inferred TV visibility from a server-ready revision.
+- Preserve the accepted one-lane architecture, title/year and genuine timeline conflict checks, candidate-bound EN artifact verification, 50-first/120-following LEAN120 checkpoints, existing parallelism and per-film cache. Do not repeat a paid acquisition or translation simply to benchmark it.
+- Resident Evil baseline (Owner receipt [45863284122](https://github.com/trung-via/torrent-tv-vietsub/actions/runs/45863284122)): event -> AGY start 15s; start -> retained EN ZIP/verified EN 130s; verified EN -> first 50-cue checkpoint 46s; remaining translation 221s; total 412s, 1,021/1,021 cues, 10/10 valid batches, Hydrogen Low. First server checkpoint at 191s already exceeds the new threshold; tap and rendering timestamps were not captured. Owner-reported/video-visible subtitles verify functionality, not latency. The source job and resident test case must not be replayed to train.
+- **Brain Training priority:** distill retained native discovery proof into a compact transferable recipe, compare next fresh authorized film under unchanged verifier, measure event-to-EN and event-to-first checkpoint, and separately record tap-to-visible. Candidate training and adoption are separate; no extra runtime service. Preserve V13.1 as rollback. See [G1 Brain Training](G1_BRAIN_TRAINING.md).
