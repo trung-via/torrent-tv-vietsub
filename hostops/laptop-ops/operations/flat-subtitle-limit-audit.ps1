@@ -38,13 +38,8 @@ try:
         _authorized_selection(ev["authorized_selection"],fp,ev["tv_session_id"])
     stage='CLAIM'
     require((inbox/("claim-"+eid)).read_bytes()==b"CLAIMED_DO_NOT_AUTO_REPLAY\n")
-    stage='LOG'
-    log=root/"diagnostics/owner-full.log"
-    with log.open("rb") as f:
-        f.seek(max(0,log.stat().st_size-4*1024*1024)); tail=f.read().decode("utf-8","replace")
-    marker="OWNER_FULL_TRACE 'P2_EVENT_BLOCKED'"
-    blocks=[part for part in tail.split(marker)[1:] if eid in part.splitlines()[0]]
-    require(len(blocks)==1 and "ValueError: TV_SUBTITLE_SIZE_LIMIT" in blocks[0])
+    # Local console capture may differ from the user-supplied traceback.
+    # Establish the failed boundary directly by replaying only retained bytes.
     stage='SOURCE'
     cache=base/"subtitle-trials"; state=base/"P2/auto-lean120-state"
     # Resolve exact cache index without calling any source acquirer.
@@ -81,6 +76,28 @@ try:
         d=read(p); require(d["schema"]=="TTV-P2-LEAN120-RESULT-V1" and d["job"]==job and d["version"]==n and [v["id"] for v in d["translations"]]==list(w.ids))
         require(hashlib.sha256(_json_bytes(d["translations"])).hexdigest()==d["sha256"])
         apply_translations(w.target,{str(v["id"]):v["vi"] for v in d["translations"]});ready+=1
+    stage='REPLAY'
+    if ready>0:
+        import progressive_handoff as ph
+        w=session.next_window()
+        d=read(folder/f"result-{w.number:04d}.json")
+        values={v["id"]:v["vi"] for v in d["translations"]}
+        old_limit=ph.MAX_TV_BYTES
+        try:
+            session.commit(w,values,expected_version=prefix,source_sha256=source.source_sha256,media_key=source.media_key)
+        except ValueError as exc:
+            require(str(exc)=="TV_SUBTITLE_SIZE_LIMIT")
+        else:
+            raise ValueError("OLD_LIMIT_NOT_REPRODUCED")
+        ph.MAX_TV_BYTES=4*1024*1024
+        try:
+            new=session.commit(w,values,expected_version=prefix,source_sha256=source.source_sha256,media_key=source.media_key)
+            require(new.version==prefix+1 and len(new.payload)>old_limit)
+            verified_bytes=len(new.payload)
+        finally:
+            ph.MAX_TV_BYTES=old_limit
+    else:
+        verified_bytes=0
     stage='PINS'
     pins={"poc/p2-aisub/cue_pipeline.py":"cf6e55625dc1dc7757f5971f6dfb2dd283175da9","poc/p2-aisub/progressive_handoff.py":"fa160224953486e8edf9c662546ed6debb814c95","poc/p2-aisub/assumed_source_handoff.py":"386645aabba038139c0304aa46cd9e538eecdaf9","poc/p2-sub-discovery/opensubtitles.py":"b6e4919170c09e306db65f631c1e65949768b297","poc/p2-sub-discovery/automatic_vietsub_flow.py":"5ae5b48da30e19192972b263a0844873500e185d","poc/p2-sub-discovery/dual_subtitle_catalog.py":"2e70090ff6bc2b252ebe8381acdf89a9edc31e0c","poc/p2-sub-discovery/p3_p4_ready_registry.py":"e4eca0af41264dec07173018e3605c321a745f2b","poc/p2-aisub/verified_vietsub_ready.py":"0e9fe95b64f14465d48b627e7b936fcba04bc793","poc/p2-aisub/revision_delivery.py":"039805c06b6f38910ef650de49b345f39739539c","poc/p2-aisub/lan_revision_feed.py":"a7a81bcb18ede01d51fd6b0694d1073b9d9956a4","poc/p2-sub-discovery/owner_session_bridge.py":"a3305ff2ef6a926a49d6f42eac6ba461b0775aa6","poc/p2-sub-discovery/agy_v13_browser_evidence.py":"1479fb0c1d26d624ba210cfe1492aaedc0b8add8"}
     match_count=0
@@ -89,7 +106,7 @@ try:
         if hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()==digest:match_count+=1
     locks=sum(1 for p in state.glob("*/active.lock") if p.is_file())
     pending=sum(1 for p in inbox.glob("event-*.json") if p.is_file())
-    print(f"LIMIT_AUDIT_C{source.cue_count}_B{prefix}_T{len(session.windows)}_R{ready}_U{ambiguous}_L{locks}_Q{pending}_M{match_count}")
+    print(f"LIMIT_AUDIT_C{source.cue_count}_B{prefix}_T{len(session.windows)}_R{ready}_U{ambiguous}_L{locks}_Q{pending}_M{match_count}_S{verified_bytes}")
 except Exception:
     print("LIMIT_AUDIT_HOLD_"+stage)
 '@
