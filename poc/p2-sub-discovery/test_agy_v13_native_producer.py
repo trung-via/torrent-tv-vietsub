@@ -6,14 +6,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 import json
+import sqlite3
 from unittest import mock
 from types import SimpleNamespace
 
 from agy_opensubtitles_acquisition import AgyEnglishUnavailable
-from agy_v13_browser_evidence import BrowserRequest, make_v13_acquirer
+from agy_v13_browser_evidence import BrowserRequest, make_v13_acquirer, VERIFICATION_REVISION
 from agy_v13_native_producer import (
     NativeBrowserProducer, measured_metadata, native_cache_verified,
     probe_selected, _ensure_browser_listener, NativeNoCall, NativeTerminalNoSource, _terminal_no_source,
+    _download_observation, _finish_no_source, _job, _write,
 )
 from test_agy_v13_browser_evidence import MEDIA, proof
 from owner_torrserver_ffp_tracks import TorrServerProbeBlocked
@@ -192,7 +194,86 @@ class NativeProducerTests(unittest.TestCase):
         self.assertFalse(_terminal_no_source(stream(passive)))
         click = {"step_update": {"tool_name": "call_mcp_tool", "tool_info": {
             "parameters": {"ToolName": "evaluate_script"}, "output": "unknown"}}}
-        self.assertFalse(_terminal_no_source(stream(passive, click, result)))
+        self.assertTrue(_terminal_no_source(stream(passive, click, result)))
+        clicked = {"step_update": {"tool_name": "call_mcp_tool", "tool_info": {
+            "parameters": {"ToolName": "evaluate_script"}, "output": {"clicked": True}}}}
+        self.assertFalse(_terminal_no_source(stream(passive, clicked, result)))
+
+    def _search_trace(self):
+        rows = []
+        for name, output in (("list_pages", "0: https://www.opensubtitles.org/"),
+                             ("navigate_page", "navigation complete"),
+                             ("evaluate_script", {"rows": [], "heading": "English"})):
+            params = {"ServerName": "ttv-browser", "ToolName": name}
+            rows.extend(({"step_update": {"tool_name": "call_mcp_tool",
+                "tool_info": {"parameters": params}}},
+                {"step_update": {"tool_name": "call_mcp_tool",
+                "tool_info": {"parameters": params, "output": output}}}))
+        rows.append({"event":"result","result":{"status":"SUCCESS",
+            "response":'{"status":"NO_PLAUSIBLE_CANDIDATE"}'}})
+        return "\n".join(json.dumps(row) for row in rows)
+
+    def test_real_recipe_trace_requires_unchanged_independent_observations(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            baseline = {"browser":"a","history":"b","files":"c"}
+            observe = mock.Mock(side_effect=[baseline, baseline])
+            wait = mock.Mock()
+            self.assertTrue(_finish_no_source(self._search_trace(), root, root, baseline, root,
+                observe=observe, wait=wait))
+            self.assertEqual(observe.call_count, 2)
+            wait.assert_called_once_with(2)
+            self.assertTrue((root/"no-source-observation.json").is_file())
+            for changed in (None, {**baseline, "history":"new"}, {**baseline, "files":"new"}):
+                self.assertFalse(_finish_no_source(self._search_trace(), root, root, baseline, root,
+                    observe=mock.Mock(side_effect=[baseline, changed]), wait=mock.Mock()))
+            self.assertFalse(_finish_no_source(self._search_trace(), root, root, None, root,
+                observe=mock.Mock(), wait=mock.Mock()))
+
+    def test_history_and_directory_observation_detects_downloads_and_partial(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            profile, dest = root/"profile", root/"downloads"
+            (profile/"Default").mkdir(parents=True)
+            dest.mkdir()
+            (profile/"Default/Preferences").write_text(json.dumps({"download":{"default_directory":str(dest)}}))
+            history = profile/"Default/History"
+            with sqlite3.connect(history) as con:
+                con.execute("create table downloads(id integer,state integer,start_time integer,received_bytes integer,total_bytes integer,target_path text,current_path text)")
+            with mock.patch("agy_v13_native_producer._browser_identity", return_value=("browser","tab")):
+                baseline = _download_observation(profile, dest)
+                self.assertIsNotNone(baseline)
+                self.assertEqual(_download_observation(profile, dest), baseline)
+                partial = dest/"new.crdownload"
+                partial.write_bytes(b"partial")
+                self.assertIsNone(_download_observation(profile, dest))
+                partial.unlink()
+                with sqlite3.connect(history) as con:
+                    con.execute("insert into downloads values(1,0,123,0,5,'x','x')")
+                self.assertIsNone(_download_observation(profile, dest))
+                with sqlite3.connect(history) as con:
+                    con.execute("update downloads set state=2")
+                self.assertNotEqual(_download_observation(profile, dest), baseline)
+
+    def test_old_cache_revision_revalidates_retained_bytes_without_provider(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            execute = mock.Mock(return_value=proof())
+            producer = NativeBrowserProducer(profile=root, probe=lambda _: (7200, 24), execute=execute)
+            asset = make_v13_acquirer(producer)(MEDIA, root)
+            job = _job(root, MEDIA)
+            receipt = json.loads((job/"verified.json").read_text())
+            self.assertEqual(receipt["verification_revision"], VERIFICATION_REVISION)
+            receipt.pop("verification_revision")
+            _write(job/"verified.json", receipt)
+            self.assertTrue(native_cache_verified(root, MEDIA, asset.sha256, asset.cues))
+            self.assertEqual(make_v13_acquirer(producer)(MEDIA, root), asset)
+            execute.assert_called_once()
+            (job/"download.bin").write_bytes(b"changed")
+            self.assertFalse(native_cache_verified(root, MEDIA, asset.sha256, asset.cues))
+            with self.assertRaises(AgyEnglishUnavailable):
+                producer(BrowserRequest(MEDIA), root)
+            execute.assert_called_once()
 
     def test_unknown_effect_blocks_same_and_other_media(self):
         calls = []

@@ -23,8 +23,9 @@ from urllib.request import build_opener, ProxyHandler
 from agy_opensubtitles_acquisition import AgyEnglishUnavailable
 from agy_v13_browser_evidence import (
     BrowserEvidence, BrowserRequest, MAX_DOWNLOAD_BYTES, _valid_probe,
-    verify_evidence, timeline_observation,
+    verify_evidence, timeline_observation, VERIFICATION_REVISION,
 )
+from matcher import Media
 from owner_selected_file_resolver import _one_basename
 from owner_torrserver_readonly import OwnerTorrServerReadError
 from owner_torrserver_ffp_tracks import TorrServerProbeBlocked, _read_local_ffp
@@ -74,6 +75,40 @@ def _digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def _receipt(media, asset):
+    return {"filename": media.filename, "sha256": asset.sha256,
+            "cues": asset.cues, "verification_revision": VERIFICATION_REVISION}
+
+
+def _receipt_matches(row, media, asset):
+    if not isinstance(row, dict):
+        return False
+    # Accept old receipt shape only AFTER revalidating original bytes/evidence.
+    expected = _receipt(media, asset)
+    return (row == expected or
+            {k: v for k, v in row.items() if k != "verification_revision"} ==
+            {k: v for k, v in expected.items() if k != "verification_revision"})
+
+
+def _retained_verified(run, media):
+    evidence = _json(run / "evidence.json")
+    original = Media(**evidence["media"])
+    # P4 may only have exact file coordinates, not the optional release hint.
+    if (original.key != media.key or original.filename != media.filename
+            or (media.torrent_title is not None and original.torrent_title != media.torrent_title)
+            or (media.movie_hash is not None and original.movie_hash != media.movie_hash)):
+        _hold("RETAINED_MEDIA_MISMATCH")
+    artifact = run / "download.bin"
+    if artifact.is_symlink() or not artifact.is_file() or not 0 < artifact.stat().st_size <= MAX_DOWNLOAD_BYTES:
+        _hold("RETAINED_ARTIFACT_INVALID")
+    proof = BrowserEvidence(original, evidence["duration"], evidence["fps"],
+        tuple(evidence["outcomes"]), tuple(evidence["artifacts"]), artifact.read_bytes(), True)
+    asset = verify_evidence(BrowserRequest(original), proof)
+    if not _receipt_matches(_json(run / "verified.json", 4096), original, asset):
+        _hold("RETAINED_RECEIPT_MISMATCH")
+    return proof, asset
+
+
 def native_cache_verified(root, media, sha, cues):
     """A V13 receipt or a previously independently staged exact EN source."""
     try:
@@ -81,9 +116,14 @@ def native_cache_verified(root, media, sha, cues):
         if root.is_symlink() or job.parent.is_symlink() or job.is_symlink():
             return False
         row = _json(job / "verified.json", 4096)
-        if row == {"filename": media.filename, "sha256": sha, "cues": cues}:
+        expected = {"filename": media.filename, "sha256": sha, "cues": cues,
+                    "verification_revision": VERIFICATION_REVISION}
+        if row == expected:
             return True
-    except (OSError, ValueError, TypeError):
+        if isinstance(row, dict) and all(row.get(k) == expected[k] for k in ("filename", "sha256", "cues")):
+            _, asset = _retained_verified(job, media)
+            return (asset.sha256, asset.cues) == (sha, cues)
+    except (OSError, ValueError, TypeError, KeyError, AgyEnglishUnavailable):
         pass
     from brain_english_inbox import acquire_brain_english
     try:
@@ -313,13 +353,12 @@ def _observed_outcomes(stdout, host):
 
 
 def _terminal_no_source(stdout):
-    """Conservative receipt: successful terminal event and only passive tools.
+    """Completed V13.1 trace without explicit download initiation.
 
-    A model's final status alone is not proof. Arbitrary evaluate_script,
-    click, navigation or incomplete streams can have a download effect.
+    This is necessary, not sufficient: the browser/download observations
+    in _finish_no_source independently decide whether to release the claim.
     """
     terminal = []
-    passive = {"list_pages", "select_page", "take_snapshot", "wait_for"}
     seen = False
     pending = {}
     try:
@@ -343,13 +382,17 @@ def _terminal_no_source(stdout):
             if not isinstance(info, dict):
                 return False
             params = info.get("parameters")
-            if not isinstance(params, dict) or params.get("ToolName") not in passive:
+            if not isinstance(params, dict) or params.get("ToolName") not in TOOLS:
                 return False
             tool = params["ToolName"]
             if not ("output" in info or "error" in info):
                 pending[tool] = pending.get(tool, 0) + 1
                 continue
             if info.get("error"):
+                return False
+            output = info.get("output", "")
+            encoded = json.dumps(output) if not isinstance(output, str) else output
+            if re.search(r'"clicked"\s*:\s*true|\bDOWNLOAD_INITIATED\b', encoded, re.I):
                 return False
             if pending.get(tool, 0):
                 pending[tool] -= 1
@@ -366,6 +409,91 @@ def _terminal_no_source(stdout):
         return seen and isinstance(payload, dict) and payload.get("status") == "NO_PLAUSIBLE_CANDIDATE"
     except (ValueError, TypeError, AttributeError):
         return False
+
+
+def _download_destination(profile):
+    prefs = _load_settings(profile / "Default/Preferences")
+    dest = Path(os.path.expandvars(prefs.get("download", {}).get("default_directory") or str(Path.home() / "Downloads")))
+    if not dest.is_absolute() or not dest.is_dir() or dest.is_symlink():
+        _hold("DOWNLOAD_DIR_UNVERIFIED")
+    return dest
+
+
+def _browser_identity():
+    """Read the existing CDP identity only; never navigate/start it here."""
+    opener = build_opener(ProxyHandler({}))
+    def local(path):
+        with opener.open("http://127.0.0.1:9555" + path, timeout=3) as f:
+            return json.loads(f.read(65536))
+    version = local("/json/version")
+    ws = version.get("webSocketDebuggerUrl", "")
+    if not str(version.get("Browser", "")).startswith("Chrome/") or not ws.startswith("ws://127.0.0.1:9555/"):
+        return None
+    tabs = [p for p in local("/json/list") if p.get("type") == "page"]
+    if len(tabs) != 1 or not tabs[0].get("id"):
+        return None
+    url = urlsplit(tabs[0].get("url", ""))
+    if url.scheme != "https" or url.hostname not in SITE:
+        return None
+    return ws, tabs[0]["id"]
+
+
+def _download_observation(profile, dest):
+    """Bounded read-only observation of the same browser, history and files.
+
+    Missing/locked History, active/unknown download rows, partial files,
+    changed destination or browser identity are uncertainty, never 'zero'.
+    Fingerprint actual records, including cancelled/interrupted downloads.
+    """
+    try:
+        identity = _browser_identity()
+        if identity is None or _download_destination(profile).resolve() != dest.resolve():
+            return None
+        history = profile / "Default/History"
+        if history.is_symlink() or not history.is_file():
+            return None
+        with sqlite3.connect(history.resolve().as_uri() + "?mode=ro", uri=True, timeout=3) as con:
+            rows = con.execute("select id,state,start_time,received_bytes,total_bytes,target_path,current_path from downloads order by id limit 10001").fetchall()
+        if len(rows)>10000 or any(row[1] not in (1,2,3) for row in rows):
+            return None
+        files = []
+        for i, path in enumerate(dest.iterdir()):
+            if i>=10000 or path.is_symlink() or path.suffix.lower() in (".crdownload", ".part", ".tmp", ".download"):
+                return None
+            st = path.stat()
+            if path.is_file():
+                files.append((path.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
+        if _browser_identity() != identity:
+            return None
+        return {"browser": _digest(repr(identity).encode()),
+                "history": _digest(repr(rows).encode()),
+                "files": _digest(repr(sorted(files)).encode())}
+    except (OSError, ValueError, TypeError, AttributeError, sqlite3.Error, AgyEnglishUnavailable):
+        return None
+
+
+def _finish_no_source(stdout, profile, dest, before, run, *, observe=None, wait=None):
+    """Reconcile the real search path, not just the model's final message.
+
+    Two unchanged post-CLI observations separated by a quiet interval are
+    bounded local evidence, not a guarantee about future asynchronous JS.
+    Any observed mutation/download/partial/unknown state retains the claim.
+    """
+    if before is None or not _terminal_no_source(stdout):
+        return False
+    observe = observe or _download_observation
+    wait = wait or time.sleep
+    first = observe(profile, dest)
+    if first != before:
+        return False
+    wait(2)
+    second = observe(profile, dest)
+    if second != before:
+        return False
+    _write(run / "no-source-observation.json", {"schema": "TTV-NATIVE-NO-SOURCE-V1",
+        "basis": "CLI_TERMINAL_AND_STABLE_BROWSER_HISTORY_DIRECTORY",
+        "before": before, "after": [first, second], "quiet_seconds": 2})
+    return True
 
 
 def _download_refs(urls):
@@ -444,11 +572,9 @@ def run_windows(request, run, profile, duration, fps):
         _hold("SESSION_SETTINGS_UNAVAILABLE")
     override = _session_settings(run, Path.home())
     try:
-        prefs = _load_settings(profile / "Default/Preferences")
-        dest = Path(os.path.expandvars(prefs.get("download", {}).get("default_directory") or str(Path.home() / "Downloads")))
-        if not dest.is_absolute() or not dest.is_dir() or dest.is_symlink():
-            _hold("DOWNLOAD_DIR_UNVERIFIED")
+        dest = _download_destination(profile)
         before = {f.resolve() for f in dest.iterdir()}
+        baseline = _download_observation(profile, dest)
         prompt = run / "prompt.txt"
         prompt.write_text(request.prompt(duration_seconds=duration, fps=fps), encoding="utf-8")
         env.update(TTV_AGY_PROMPT=str(prompt), TTV_SESSION_SETTINGS=str(override))
@@ -471,7 +597,7 @@ def run_windows(request, run, profile, duration, fps):
             if fresh:
                 break
             time.sleep(1)
-        if not fresh and _terminal_no_source(stdout):
+        if not fresh and _finish_no_source(stdout, profile, dest, baseline, run):
             raise NativeTerminalNoSource("AGY_EN_NATIVE_NO_SOURCE")
         if len(fresh) != 1:
             _hold("DOWNLOAD_UNVERIFIED")
@@ -509,19 +635,9 @@ class NativeBrowserProducer:
             _hold("PRIVATE_ROOT_INVALID")
         pending = parent / "browser.pending"
         if run.is_dir() and (run / "verified.json").is_file():
-            evidence = _json(run / "evidence.json")
-            if evidence["media"] != asdict(request.media):
+            proof, asset = _retained_verified(run, request.media)
+            if proof.media != request.media:
                 _hold("RETAINED_MEDIA_MISMATCH")
-            artifact_file = run / "download.bin"
-            if artifact_file.is_symlink() or not 0 < artifact_file.stat().st_size <= MAX_DOWNLOAD_BYTES:
-                _hold("RETAINED_ARTIFACT_INVALID")
-            raw = artifact_file.read_bytes()
-            proof = BrowserEvidence(request.media, evidence["duration"], evidence["fps"],
-                tuple(evidence["outcomes"]), tuple(evidence["artifacts"]), raw, True)
-            asset = verify_evidence(request, proof)
-            if _json(run / "verified.json") != {"filename": request.media.filename,
-                    "sha256": asset.sha256, "cues": asset.cues}:
-                _hold("RETAINED_RECEIPT_MISMATCH")
             # Recover the narrow crash window after a verified receipt but
             # before releasing this job\'s browser claim. Never clear another job.
             if pending.is_file() and not pending.is_symlink() and pending.read_text("utf-8") == run.name:
@@ -578,8 +694,7 @@ class NativeBrowserProducer:
             asset = verify_evidence(request, proof)
             evidence["timeline_observation"] = timeline_observation(asset.contents, duration)
             _write(run / "evidence.json", evidence)
-            _write(run / "verified.json", {"filename": request.media.filename,
-                "sha256": asset.sha256, "cues": asset.cues})
+            _write(run / "verified.json", _receipt(request.media, asset))
             pending.unlink()
             return proof
         except Exception as exc:

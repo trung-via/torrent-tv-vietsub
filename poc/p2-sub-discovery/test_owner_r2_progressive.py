@@ -408,7 +408,7 @@ class R2RollingTests(unittest.TestCase):
         self.assertEqual(self.provider.calls, [])
 
     def test_native_p4_uses_active_pointer_for_rolling_and_completed_source(self):
-        from agy_v13_browser_evidence import make_v13_acquirer
+        from agy_v13_browser_evidence import make_v13_acquirer, VERIFICATION_REVISION
         from agy_v13_native_producer import _job, _write
         self.flow.source_acquirer = make_v13_acquirer(lambda *_: None)
         self.flow.dual_mode = True
@@ -423,7 +423,8 @@ class R2RollingTests(unittest.TestCase):
         file = write_private_cache(self.cache, MEDIA, asset)
         job = _job(self.cache, MEDIA)
         job.mkdir(parents=True)
-        _write(job / "verified.json", {"filename": MEDIA.filename, "sha256": asset.sha256, "cues": 240})
+        _write(job / "verified.json", {"filename": MEDIA.filename, "sha256": asset.sha256, "cues": 240,
+                                      "verification_revision": VERIFICATION_REVISION})
         DualSubtitleCatalog(self.cache, native=True).record(MEDIA, FP, "ai_en", asset, file, release_matched=True)
         handoff = self.registry._recover_handoff(self.flow, FP, MEDIA)
         self.assertEqual(handoff.source_sha256, asset.sha256)

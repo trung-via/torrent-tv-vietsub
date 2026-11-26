@@ -23,6 +23,8 @@ from matcher import Media, preferred_media_release, parse_release
 from opensubtitles import Asset, MAX_SUBTITLE_BYTES, SubtitleApiError, validate_timed_text
 
 RECIPE_VERSION = "V13.1"
+# Bump whenever local acquisition acceptance semantics change.
+VERIFICATION_REVISION = "V13.1-BR03-1"
 MODEL = "gemini-4-hydrogen-low"
 THINKING_LEVEL = "low"
 MAX_DOWNLOAD_BYTES = 2_000_000
