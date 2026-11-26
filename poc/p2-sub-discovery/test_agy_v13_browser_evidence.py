@@ -62,8 +62,8 @@ class V13EvidenceTests(unittest.TestCase):
         self.assertNotIn("a" * 40, prompt)
 
     def test_compact_recipe_keeps_verifier_contract_and_rollback(self):
-        self.assertEqual(RECIPE_VERSION, "V13.3")
-        self.assertEqual(VERIFICATION_REVISION, "V13.3-BR06-1")
+        self.assertEqual(RECIPE_VERSION, "V13.4")
+        self.assertEqual(VERIFICATION_REVISION, "V13.4-BR07-1")
         self.assertLess(len(RECIPE), len(RECIPE_V13_1) * 0.75)
         prompt = BrowserRequest(MEDIA).prompt(duration_seconds=7200, fps=24)
         self.assertTrue(prompt.startswith(RECIPE))
@@ -138,6 +138,24 @@ class V13EvidenceTests(unittest.TestCase):
         contradiction=out(0,dict(listing,rows=[dict(listing["rows"][0],release="Different.Film.2017")]))
         with self.assertRaises(AgyEnglishUnavailable):
             self.verify(replace(partial,outcomes=(contradiction,*partial.outcomes)))
+
+    def test_blank_row_language_has_independent_english_context(self):
+        p=proof()
+        listing=dict(p.outcomes[0]["output"])
+        listing["rows"]=[dict(listing["rows"][0],lang="")]
+        chosen=dict(p.outcomes[2]["output"],title="Example Film English subtitles")
+        retained=replace(p,outcomes=(out(1,listing),out(3,chosen),p.outcomes[-1]))
+        self.assertEqual(self.verify(retained).cues,125)
+        self.assertEqual(self.verify(replace(retained,outcomes=(out(1,chosen),out(3,listing),p.outcomes[-1]))).cues,125)
+        for bad_listing,bad_detail in (
+            (dict(listing,url=URL+"/en/search/moviename-example"),chosen),
+            (listing,dict(chosen,title="Example Film subtitles")),
+            (dict(listing,rows=[dict(listing["rows"][0],lang="ru")]),chosen),
+            (listing,dict(chosen,language="Russian")),
+            (listing,dict(chosen,fieldsetText="Visible download\nRuntime: 90 minutes")),
+        ):
+            with self.assertRaises(AgyEnglishUnavailable):
+                self.verify(replace(retained,outcomes=(out(1,bad_listing),out(3,bad_detail),p.outcomes[-1])))
 
     def test_duration_overrun_is_rejected_without_retiming(self):
         with self.assertRaisesRegex(AgyEnglishUnavailable, "OVERRUN"):
