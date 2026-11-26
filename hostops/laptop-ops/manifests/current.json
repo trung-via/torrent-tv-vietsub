@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
   "operation": "agy-native-browser-readout-1124",
-  "category": "diagnostics",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v13-resident-evil-training-readonly.ps1",
-  "script_sha256": "0f013e42cf9beba094cbf9754d2680b5c851960ac9ef6bc7a3251c3075a19af5",
+  "script_path": "hostops/laptop-ops/operations/v132-compact-install.ps1",
+  "script_sha256": "7b70850b6113099b7cdeebc3268f7a96fa87a8210b9ffc2f38f469df8084d546",
   "arguments": []
 }
