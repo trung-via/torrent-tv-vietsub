@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/owner-control-enroll.ps1",
-  "script_sha256": "111beff15653645118edf6784974ba31f95b97f0f1673b38852a8e77dc78881d",
+  "script_path": "hostops/laptop-ops/operations/v13-help-gate-hotfix-v2.ps1",
+  "script_sha256": "6f90c473b02b58e1fadd1557c2b77f3688752ab2af5426c6c1a24dee1b5f8c47",
   "arguments": []
 }
