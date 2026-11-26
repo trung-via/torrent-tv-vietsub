@@ -268,7 +268,7 @@ foreach ($anchor in @('internal fun bindP4Session(', 'internal fun receiveP4Revi
                       'P1ProductionSubtitles.importAutomaticBytes(')) {
     if (-not $activityP4.Contains($anchor)) { throw ('STOP: P4 Activity hook missing ' + $anchor) }
 }
-if ($g1Performance) {
+if ($g1Performance -or $g1Limits) {
     foreach ($anchor in @('receiver.acknowledgeOverlayInstalled(', 'state.timeline.textAt(engine.positionMs)',
                           'P4_TV_OVERLAY_INSTALLED', 'timeline.extends(old.timeline)')) {
         if (-not $activityP4.Contains($anchor)) { throw ('STOP: Zero-reload Activity hook missing ' + $anchor) }
