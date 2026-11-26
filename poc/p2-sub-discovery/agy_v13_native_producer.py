@@ -565,11 +565,9 @@ def run_windows(request, run, profile, duration, fps):
               "AGY_ADC_AUTH", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_QUOTA_PROJECT"):
         env.pop(k, None)
     env.update(TTV_AGY_CLI=str(cli), TTV_AGY_MODEL=_validated_antigravity_alias(request.model, request.thinking_level))
-    help_result = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command",
-        "& $env:TTV_AGY_CLI --help; exit $LASTEXITCODE"], env=env,
-        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20)
-    if help_result.returncode or not re.search(r"(?m)^\s*--?settings(?:[ =\t]|$)", help_result.stdout):
-        _hold("SESSION_SETTINGS_UNAVAILABLE")
+    # Do not parse human-oriented help output for each film: AGY 1.5.17
+    # writes --settings to stderr (HostOps 45833062581). Keep the actual
+    # session-local settings argument and existing unknown-effect handling.
     override = _session_settings(run, Path.home())
     try:
         dest = _download_destination(profile)

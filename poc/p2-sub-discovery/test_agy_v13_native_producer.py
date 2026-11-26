@@ -292,8 +292,11 @@ class NativeProducerTests(unittest.TestCase):
                 def patch(name, **kwargs):
                     return stack.enter_context(mock.patch.object(native, name, **kwargs))
                 def fake_run(args, **kwargs):
-                    if "stdout" not in kwargs:
-                        return SimpleNamespace(returncode=0, stdout="  --settings FILE\n")
+                    # No redundant help invocation; preserve the job override.
+                    self.assertNotIn("--help", args[-1])
+                    self.assertIn("--settings $env:TTV_SESSION_SETTINGS", args[-1])
+                    self.assertIn("stdout", kwargs)
+                    self.assertIn("stderr", kwargs)
                     browser_calls.append(args)
                     if len(browser_calls) == 1:
                         output = self._search_trace()
