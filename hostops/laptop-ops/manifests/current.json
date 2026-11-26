@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
   "operation": "agy-native-browser-readout-1124",
-  "category": "diagnostics",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flat-subtitle-limit-audit.ps1",
-  "script_sha256": "04f5bb7f62c49316526c71be047c0aae416d360dcdcaf559f320d1c789338d87",
+  "script_path": "hostops/laptop-ops/operations/flat-subtitle-limit-install.ps1",
+  "script_sha256": "6a71e9bc3a4e8d9a0d0dbfd7eb9934ec03a0e9d84e295fa36f19cfe7b24ef55f",
   "arguments": []
 }
