@@ -3,7 +3,9 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v13-help-gate-hotfix.ps1",
-  "script_sha256": "817e751fa0319bd749ca6878fb7387435a27ced1e95aca17c611c372b967613e",
-  "arguments": []
+  "script_path": "hostops/laptop-ops/operations/owner-control.ps1",
+  "script_sha256": "97800de577706d4735aeeecc75614e4a8fd7c02268a8de92f664a90c587010e3",
+  "arguments": [
+    "-InstallAndFix"
+  ]
 }
