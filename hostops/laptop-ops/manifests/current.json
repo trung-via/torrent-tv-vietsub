@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v13-redmi-render-readonly.ps1",
-  "script_sha256": "138fdc9cfb67bf70bf589bbbd933f11b74e6fbc069ebd84a4e934da7e4bd81cd",
+  "script_path": "hostops/laptop-ops/operations/v13-john-wick-4-readonly.ps1",
+  "script_sha256": "55c7bdd7a4e864924a29beab3b6b70fdd95ca33519a3198ed596e0f3a6b1bb49",
   "arguments": []
 }
