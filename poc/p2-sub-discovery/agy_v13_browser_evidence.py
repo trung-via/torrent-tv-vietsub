@@ -75,7 +75,7 @@ def filter_gate(outputs,artifacts):
             if len(found)!=len(rows):continue
             key=re.sub(r"/offset-\d+","",u.path)
             g=groups.setdefault(key,{"ids":set(),"totals":set(),"last":False,"events":[],"bad_count":False,"release_groups":{},"release_labels":{},"pagination_reports":[]})
-            g["ids"].update(found);g["last"]|=not nxt;g["events"].append(event);g["pagination_reports"].append({"event":event,"has_next":nxt,"next_href":d.get("next_href")})
+            g["ids"].update(found);g["last"]|=not nxt;g["events"].append(event);g["pagination_reports"].append({"event":event,"path":u.path,"has_next":nxt,"next_href":d.get("next_href")})
             for row in rows:
                 if isinstance(row,dict) and isinstance(row.get("release"),str) and row["release"].strip().casefold() not in ("","unknown","null"):
                     g["release_labels"][sid(row.get("href"))]=" ".join(row["release"].casefold().split())
@@ -86,7 +86,34 @@ def filter_gate(outputs,artifacts):
             if type(total) is int and 0<total<=500 and match and int(match[1])==total and d.get("count_scope")=="filtered_results" and d.get("count_label")==page_title:g["totals"].add(total)
             else:g["bad_count"]=True
     count_matched=[g for g in groups.values() if not g["bad_count"] and g["totals"]=={len(g["ids"])}]
-    complete=[g for g in count_matched if g["last"]]
+    def consistent_pages(g):
+        # Count equality alone does not resolve contradictory pagination.
+        # Require one terminal and a complete, acyclic observed next-link chain.
+        pages={}
+        for row in g["pagination_reports"]:
+            path=row["path"]; nxt=row["has_next"]; href=row["next_href"]
+            target=url(href) if href else None
+            if nxt and (not target or target.path==path):
+                return False
+            if not nxt and href:
+                return False
+            edge=target.path if target else None
+            if path in pages and pages[path]!=edge:
+                return False
+            pages[path]=edge
+        targets={x for x in pages.values() if x is not None}
+        if not targets.issubset(pages) or list(pages.values()).count(None)!=1:
+            return False
+        starts=set(pages)-targets
+        if len(starts)!=1:
+            return False
+        current=next(iter(starts)); seen=set()
+        while current is not None:
+            if current in seen:
+                return False
+            seen.add(current);current=pages[current]
+        return seen==set(pages)
+    complete=[g for g in count_matched if g["last"] and consistent_pages(g)]
     count_ok=len(count_matched)==1
     list_ok=len(complete)==1
     chosen="";chosen_release="";chosen_page="";click_ok=False;selected_list_ok=False;compared_groups=0;compared_details=0;compared_labels=0;missing_group=0
@@ -203,6 +230,16 @@ def verify_evidence(request: BrowserRequest, proof: BrowserEvidence) -> Asset:
         count = validate_timed_text(contents, "srt")
     except SubtitleApiError:
         raise AgyEnglishUnavailable("AGY_EN_ARTIFACT_TIMELINE_INVALID") from None
+    # Reject impossible overrun (2s allowance for container rounding/outro).
+    # This sanity bound is not evidence of dialogue alignment or completeness.
+    from opensubtitles import _milliseconds
+    text = contents.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+    for block in re.split(r"\n[ \t]*\n", text.strip()):
+        lines = [line.strip() for line in block.split("\n")]
+        timing = next(line for line in lines[:2] if "-->" in line)
+        end = _milliseconds(timing.split("-->", 1)[1].strip().split(" ", 1)[0], "srt")
+        if end > (proof.duration_seconds + 2) * 1000:
+            raise AgyEnglishUnavailable("AGY_EN_ARTIFACT_OVERRUN")
     # A valid SRT is not proof of exact playback synchronization.
     return Asset(0, "en", "srt", contents, hashlib.sha256(contents).hexdigest(), count)
 
@@ -216,4 +253,5 @@ def make_v13_acquirer(runner: NativeRunner) -> Callable[[Media, Path], Asset]:
         request = BrowserRequest(media)
         return verify_evidence(request, runner(request, cache_root))
 
+    acquire.native_v13 = True
     return acquire

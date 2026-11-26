@@ -306,13 +306,20 @@ class AutomaticVietsubFlow:
                 raise
         catalog = DualSubtitleCatalog(self.cache_root)
         ai = catalog.read(media, fingerprint, "ai_en")
-        if ai is None and staged is None:
+        native = getattr(self.source_acquirer, "native_v13", False) is True
+        if ai is None and staged is None and not native:
             imported = catalog.import_legacy(media, fingerprint, only_en=True)
             if imported is not None and imported.kind == "ai_en":
                 ai = imported
         if ai is not None and staged is not None and ai.sha256 != staged.sha256:
             self.emit("AUTO_EN_SOURCE=BRAIN_EN_CACHE_CONFLICT")
             return AutoResult("REVIEW_REQUIRED")
+        if native and ai is not None:
+            from agy_v13_native_producer import native_cache_verified
+            if not ai.release_matched or not native_cache_verified(
+                    self.cache_root, media, ai.sha256, ai.cues):
+                self.emit("AUTO_EN_SOURCE=NATIVE_CACHE_REVIEW_REQUIRED")
+                return AutoResult("REVIEW_REQUIRED")
         if ai is not None:
             data = ai.file.read_bytes()
             source = Asset(0, "en", "srt", data, ai.sha256, ai.cues)

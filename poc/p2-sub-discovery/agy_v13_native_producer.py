@@ -66,7 +66,10 @@ def _digest(data):
 def native_cache_verified(root, media, sha, cues):
     """A V13 receipt or a previously independently staged exact EN source."""
     try:
-        row = _json(_job(root, media) / "verified.json", 4096)
+        job = _job(root, media)
+        if root.is_symlink() or job.parent.is_symlink() or job.is_symlink():
+            return False
+        row = _json(job / "verified.json", 4096)
         if row == {"filename": media.filename, "sha256": sha, "cues": cues}:
             return True
     except (OSError, ValueError, TypeError):
@@ -252,7 +255,7 @@ def _fresh_downloads(profile, dest, before, wall):
                     if row[2] != 1 or row[3] <= 0:
                         continue
                     f = Path(row[1])
-                    if f.parent.resolve() != dest.resolve():
+                    if f.is_symlink() or f.parent.resolve() != dest.resolve():
                         continue
                     refs = _download_refs(x[0] for x in con.execute(
                         "select url from downloads_url_chains where id=? order by chain_index", (row[0],)))
@@ -317,6 +320,7 @@ def run_windows(request, run, profile, duration, fps):
         env.update(TTV_AGY_PROMPT=str(prompt), TTV_SESSION_SETTINGS=str(override))
         cmd = "$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
         wall = time.time()
+        _write(run / "provider.started.json", {"started": wall})
         with (run / "agy-stdout.jsonl").open("xb") as out, (run / "agy-stderr.txt").open("xb") as err:
             completed = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", cmd],
                 env=env, cwd=run, stdout=out, stderr=err, timeout=420)
@@ -364,7 +368,10 @@ class NativeBrowserProducer:
             evidence = _json(run / "evidence.json")
             if evidence["media"] != asdict(request.media):
                 _hold("RETAINED_MEDIA_MISMATCH")
-            raw = (run / "download.bin").read_bytes()
+            artifact_file = run / "download.bin"
+            if artifact_file.is_symlink() or not 0 < artifact_file.stat().st_size <= MAX_DOWNLOAD_BYTES:
+                _hold("RETAINED_ARTIFACT_INVALID")
+            raw = artifact_file.read_bytes()
             proof = BrowserEvidence(request.media, evidence["duration"], evidence["fps"],
                 tuple(evidence["outcomes"]), tuple(evidence["artifacts"]), raw, True)
             asset = verify_evidence(request, proof)
@@ -397,6 +404,8 @@ class NativeBrowserProducer:
                 f.write(proof.download_bytes)
                 f.flush()
                 os.fsync(f.fileno())
+            if (run / "download.bin").read_bytes() != proof.download_bytes:
+                _hold("ARTIFACT_READBACK_MISMATCH")
             _write(run / "evidence.json", {"media": asdict(request.media),
                 "duration": duration, "fps": fps, "outcomes": proof.outcomes,
                 "artifacts": proof.artifacts})
@@ -405,9 +414,13 @@ class NativeBrowserProducer:
             pending.unlink()
             return proof
         except Exception as exc:
+            pre_provider = self.execute is run_windows and not (run / "provider.started.json").exists()
             if run.is_dir():
-                _write(run / "terminal.json", {"status": "RESULT_UNKNOWN_REVIEW_REQUIRED",
+                _write(run / "terminal.json", {"status": "PRE_PROVIDER_BLOCKED" if pre_provider else "RESULT_UNKNOWN_REVIEW_REQUIRED",
                     "error_type": type(exc).__name__})
+            if pre_provider:
+                pending.unlink()
+                raise AgyEnglishUnavailable("AGY_EN_NATIVE_PRE_PROVIDER_BLOCKED") from None
             raise AgyEnglishUnavailable("AGY_EN_NATIVE_RESULT_UNKNOWN") from None
 
 

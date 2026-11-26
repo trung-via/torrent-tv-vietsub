@@ -100,6 +100,18 @@ class V13EvidenceTests(unittest.TestCase):
         with self.assertRaises(AgyEnglishUnavailable):
             self.verify(replace(p, outcomes=(listing, out(2, other), *p.outcomes[1:])))
 
+    def test_conflicting_terminal_page_is_rejected(self):
+        p = proof()
+        listing = p.outcomes[0]["output"]
+        conflicting = out(0, dict(listing, has_next=True,
+            next_href=LIST + "/offset-40"))
+        with self.assertRaises(AgyEnglishUnavailable):
+            self.verify(replace(p, outcomes=(conflicting, *p.outcomes)))
+
+    def test_duration_overrun_is_rejected_without_retiming(self):
+        with self.assertRaisesRegex(AgyEnglishUnavailable, "OVERRUN"):
+            self.verify(replace(proof(), duration_seconds=1))
+
     def test_existing_matcher_still_rejects_different_movie(self):
         p = proof()
         listing = dict(p.outcomes[0]["output"])
