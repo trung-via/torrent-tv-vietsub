@@ -224,6 +224,9 @@ def _session_settings(run, home):
     permissions = config.setdefault("permissions", {})
     if not isinstance(permissions, dict):
         _hold("CONFIG_INVALID")
+    # Keep unfamiliar/absolute/glob rules unchanged. The CLI owns rule
+    # parsing and enforcement; no guessed syntax error is a Torrent TV HOLD.
+    restricted_browser = False
     for key in ("allow", "deny", "ask"):
         rules = permissions.setdefault(key, [])
         if not isinstance(rules, list):
@@ -232,15 +235,16 @@ def _session_settings(run, home):
             if not isinstance(rule, str):
                 continue
             if key != "allow" and (rule.startswith("mcp(ttv-browser") or rule == "mcp(*)"):
-                _hold("EXISTING_RESTRICTION")
+                restricted_browser = True
             if relative.fullmatch(rule):
                 rules[i] = rule.split("(")[0] + "(" + (run / ".git/aios").as_posix() + ")"
-            elif re.search(r"\.git[/\\]aios", rule):
-                _hold("RELATIVE_RULE_UNKNOWN")
-    for tool in TOOLS:
-        grant = "mcp(ttv-browser/" + tool + ")"
-        if grant not in permissions["allow"]:
-            permissions["allow"].append(grant)
+    # Respect existing deny/ask rules; do not add competing allow entries
+    # for this browser if the owner already configured a restriction.
+    if not restricted_browser:
+        for tool in TOOLS:
+            grant = "mcp(ttv-browser/" + tool + ")"
+            if grant not in permissions["allow"]:
+                permissions["allow"].append(grant)
     config.pop("agentMode", None)
     agents = run / ".agents"
     agents.mkdir()

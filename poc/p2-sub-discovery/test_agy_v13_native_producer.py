@@ -45,6 +45,23 @@ class NativeProducerTests(unittest.TestCase):
                              ["write_file(" + (run / ".git/aios").as_posix() + ")"])
             self.assertEqual((shared.read_bytes(), primary.read_bytes()), originals)
 
+    def test_unfamiliar_rules_preserved_without_preflight_hold(self):
+        from agy_v13_native_producer import _session_settings
+        with TemporaryDirectory() as temp:
+            home = Path(temp) / "home"
+            primary = home / ".gemini/antigravity-cli/settings.json"
+            primary.parent.mkdir(parents=True)
+            rules = {"allow": ["read_file(.git/aios/**)", "read_file(C:/repo/.git/aios)"],
+                     "deny": ["write_file(.git/aios/**)", "mcp(ttv-browser/click)"],
+                     "ask": ["mcp(ttv-browser/navigate_page)"]}
+            primary.write_text(json.dumps({"permissions": rules}), encoding="utf-8")
+            original = primary.read_bytes()
+            run = Path(temp) / "job"
+            run.mkdir()
+            settings = json.loads(_session_settings(run, home).read_text(encoding="utf-8"))
+            self.assertEqual(settings["permissions"], rules)
+            self.assertEqual(primary.read_bytes(), original)
+
     def test_measured_metadata(self):
         self.assertEqual(measured_metadata(b'{"format":{"duration":"7200"},"streams":[{"codec_type":"video","avg_frame_rate":"24/1"}]}'), (7200, 24))
         for raw in (b'{}', b'{"format":{"duration":"7200"},"streams":[{"codec_type":"video","avg_frame_rate":"0/0"}]}'):
