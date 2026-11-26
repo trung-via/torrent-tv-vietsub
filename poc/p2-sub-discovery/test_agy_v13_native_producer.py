@@ -185,6 +185,10 @@ class NativeProducerTests(unittest.TestCase):
             "response": '{"status":"NO_PLAUSIBLE_CANDIDATE"}'}}
         stream = lambda *rows: "\n".join(json.dumps(row) for row in rows)
         self.assertTrue(_terminal_no_source(stream(passive, result)))
+        call = {"step_update": {"tool_name": "call_mcp_tool", "tool_info": {
+            "parameters": {"ToolName": "list_pages"}}}}
+        self.assertTrue(_terminal_no_source(stream(call, passive, result)))
+        self.assertFalse(_terminal_no_source(stream(call, result)))
         self.assertFalse(_terminal_no_source(stream(passive)))
         click = {"step_update": {"tool_name": "call_mcp_tool", "tool_info": {
             "parameters": {"ToolName": "evaluate_script"}, "output": "unknown"}}}

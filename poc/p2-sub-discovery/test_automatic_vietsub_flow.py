@@ -182,6 +182,19 @@ class AutomaticFlowTests(unittest.TestCase):
         runner.assert_called_once()
         self.assertEqual(len(self.gemini.calls), calls)
 
+    def test_native_no_call_reaches_existing_owner_retry_contract(self):
+        from agy_v13_browser_evidence import make_v13_acquirer
+        from agy_v13_native_producer import NativeNoCall
+        from owner_session_bridge import PreProviderTransient
+        media = Media("owner", "a" * 40, 2, VIDEO)
+        fp = hashlib.sha256("\x00".join(media.key[:2]+(str(media.file_index),)).encode()).hexdigest()
+        dual = self._dual()
+        dual.source_acquirer = make_v13_acquirer(mock.Mock(
+            side_effect=NativeNoCall("AGY_EN_NATIVE_PRE_PROVIDER_BLOCKED")))
+        with self.assertRaisesRegex(PreProviderTransient, "AGY_OWNER_PREFLIGHT_UNAVAILABLE"):
+            dual.selected_media(VIDEO, verified_media=media, source_fingerprint=fp)
+        self.assertEqual(self.gemini.calls, [])
+
     def test_vi_download_failure_unreachable_in_torrent_only_mode(self):
         self.provider.vi = (row(8, VI, "vi"),)
         original = self.provider.__call__

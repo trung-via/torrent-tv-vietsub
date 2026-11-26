@@ -10,7 +10,7 @@ import zipfile
 
 from agy_opensubtitles_acquisition import AgyEnglishUnavailable
 from agy_v13_browser_evidence import (
-    BrowserEvidence, BrowserRequest, make_v13_acquirer, verify_evidence,
+    BrowserEvidence, BrowserRequest, make_v13_acquirer, verify_evidence, timeline_observation,
 )
 from automatic_vietsub_flow import build_owner_auto_flow
 from brain_english_inbox import acquire_brain_english
@@ -111,6 +111,30 @@ class V13EvidenceTests(unittest.TestCase):
     def test_duration_overrun_is_rejected_without_retiming(self):
         with self.assertRaisesRegex(AgyEnglishUnavailable, "OVERRUN"):
             self.verify(replace(proof(), duration_seconds=1))
+
+    def test_requires_observed_second_plausible_release_family(self):
+        p = proof()
+        incomplete = (p.outcomes[0], *p.outcomes[2:])
+        with self.assertRaisesRegex(AgyEnglishUnavailable, "RELEASE_COMPARISON_MISSING"):
+            self.verify(replace(p, outcomes=incomplete))
+
+    def test_explicit_runtime_conflict_cannot_pass_same_release_match(self):
+        p = proof()
+        chosen = dict(p.outcomes[2]["output"], fieldsetText="Visible download\nRuntime: 01:30:00")
+        events = (*p.outcomes[:2], out(3, chosen), p.outcomes[3])
+        with self.assertRaisesRegex(AgyEnglishUnavailable, "EXPLICIT_RUNTIME_CONFLICT"):
+            self.verify(replace(p, outcomes=events))
+        matching = dict(chosen, fieldsetText="Visible download\nRuntime: 120 minutes")
+        self.assertEqual(self.verify(replace(p, outcomes=(*p.outcomes[:2], out(3, matching), p.outcomes[3]))).cues,125)
+
+    def test_timeline_observation_never_claims_complete_dialogue(self):
+        p = proof()
+        observation = timeline_observation(self.verify(p).contents, p.duration_seconds)
+        self.assertEqual(observation["cues"],125)
+        self.assertEqual(observation["first_10m_cues"],125)
+        self.assertLess(observation["timeline_span_fraction"],0.1)
+        self.assertEqual(observation["dialogue_completeness"],"UNVERIFIED")
+        self.assertEqual(observation["sync"],"UNVERIFIED")
 
     def test_existing_matcher_still_rejects_different_movie(self):
         p = proof()

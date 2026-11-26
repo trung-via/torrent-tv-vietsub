@@ -23,9 +23,10 @@ from urllib.request import build_opener, ProxyHandler
 from agy_opensubtitles_acquisition import AgyEnglishUnavailable
 from agy_v13_browser_evidence import (
     BrowserEvidence, BrowserRequest, MAX_DOWNLOAD_BYTES, _valid_probe,
-    verify_evidence,
+    verify_evidence, timeline_observation,
 )
 from owner_selected_file_resolver import _one_basename
+from owner_torrserver_readonly import OwnerTorrServerReadError
 from owner_torrserver_ffp_tracks import TorrServerProbeBlocked, _read_local_ffp
 from translator_gateway import preflight_antigravity, _validated_antigravity_alias
 
@@ -320,6 +321,7 @@ def _terminal_no_source(stdout):
     terminal = []
     passive = {"list_pages", "select_page", "take_snapshot", "wait_for"}
     seen = False
+    pending = {}
     try:
         for line in stdout.splitlines():
             if not line.strip():
@@ -335,7 +337,7 @@ def _terminal_no_source(stdout):
             name = step.get("tool_name")
             if not name:
                 continue
-            if name != "call_mcp_tool":
+            if terminal or name != "call_mcp_tool":
                 return False
             info = step.get("tool_info")
             if not isinstance(info, dict):
@@ -343,10 +345,16 @@ def _terminal_no_source(stdout):
             params = info.get("parameters")
             if not isinstance(params, dict) or params.get("ToolName") not in passive:
                 return False
-            if not ("output" in info or "error" in info) or info.get("error"):
+            tool = params["ToolName"]
+            if not ("output" in info or "error" in info):
+                pending[tool] = pending.get(tool, 0) + 1
+                continue
+            if info.get("error"):
                 return False
+            if pending.get(tool, 0):
+                pending[tool] -= 1
             seen = True
-        if len(terminal) != 1 or not isinstance(terminal[0], dict):
+        if any(pending.values()) or len(terminal) != 1 or not isinstance(terminal[0], dict):
             return False
         result = terminal[0]
         if result.get("status") != "SUCCESS":
@@ -533,7 +541,7 @@ class NativeBrowserProducer:
             duration, fps = self.probe(request.media)
             if not _valid_probe(duration, fps):
                 raise AgyEnglishUnavailable("AGY_EN_NATIVE_VIDEO_PROBE_REQUIRED")
-        except (AgyEnglishUnavailable, OSError, TimeoutError) as exc:
+        except (AgyEnglishUnavailable, OwnerTorrServerReadError, OSError, TimeoutError) as exc:
             if str(exc) in ("AGY_EN_NATIVE_MEDIA_CHANGED", "AGY_EN_NATIVE_MEDIA_ID_INVALID"):
                 raise
             raise NativeNoCall("AGY_EN_NATIVE_PRE_PROVIDER_BLOCKED") from None
@@ -564,10 +572,12 @@ class NativeBrowserProducer:
                 os.fsync(f.fileno())
             if (run / "download.bin").read_bytes() != proof.download_bytes:
                 _hold("ARTIFACT_READBACK_MISMATCH")
-            _write(run / "evidence.json", {"media": asdict(request.media),
-                "duration": duration, "fps": fps, "outcomes": proof.outcomes,
-                "artifacts": proof.artifacts})
+            evidence = {"media": asdict(request.media), "duration": duration,
+                "fps": fps, "outcomes": proof.outcomes, "artifacts": proof.artifacts}
+            _write(run / "evidence.json", evidence)
             asset = verify_evidence(request, proof)
+            evidence["timeline_observation"] = timeline_observation(asset.contents, duration)
+            _write(run / "evidence.json", evidence)
             _write(run / "verified.json", {"filename": request.media.filename,
                 "sha256": asset.sha256, "cues": asset.cues})
             pending.unlink()

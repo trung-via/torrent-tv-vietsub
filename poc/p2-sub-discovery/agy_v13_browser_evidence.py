@@ -19,7 +19,7 @@ import urllib.parse
 import zipfile
 
 from agy_opensubtitles_acquisition import AgyEnglishUnavailable, _validate_source
-from matcher import Media, preferred_media_release
+from matcher import Media, preferred_media_release, parse_release
 from opensubtitles import Asset, MAX_SUBTITLE_BYTES, SubtitleApiError, validate_timed_text
 
 RECIPE_VERSION = "V13.1"
@@ -53,7 +53,7 @@ def filter_gate(outputs,artifacts):
             except (ValueError,TypeError):continue
             if isinstance(x,dict):result.append(x)
         return result
-    groups={};details={};clicks=[]
+    groups={};details={};detail_text={};clicks=[]
     for out in outputs:
         if out.get("error") or out.get("tool")!="evaluate_script":continue
         for d in docs(out.get("output")):
@@ -62,6 +62,7 @@ def filter_gate(outputs,artifacts):
             did=sid(d.get("url"))
             if did and d.get("btnVisible") is True and isinstance(d.get("fieldsetText"),str) and d["fieldsetText"] and sid(d.get("downloadHref"))==did:
                 details.setdefault(did,[]).append(event)
+                detail_text[(did,event)]=d["fieldsetText"]
             if d.get("clicked") is True:
                 cid=sid(d.get("pageUrl"))
                 if cid and str(d.get("id"))==cid and sid(d.get("href"))==cid and "downloaderChecked" in d and d["downloaderChecked"] in (False,None):
@@ -117,6 +118,7 @@ def filter_gate(outputs,artifacts):
     count_ok=len(count_matched)==1
     list_ok=len(complete)==1
     chosen="";chosen_release="";chosen_page="";click_ok=False;selected_list_ok=False;compared_groups=0;compared_details=0;compared_labels=0;missing_group=0
+    chosen_details=[]; release_rows={}; compared_ids=set()
     if len(clicks)==1:
         chosen,event,chosen_page=clicks[0]
         matching=[g for g in groups.values() if chosen in g["ids"] and any(max(g["events"])<x<event for x in details.get(chosen,[]))]
@@ -126,13 +128,16 @@ def filter_gate(outputs,artifacts):
             selected_list_ok=any(group is g for g in complete)
             chosen_release=group["release_labels"].get(chosen,"")
             eligible={candidate for candidate,events in details.items() if candidate in group["ids"] and any(max(group["events"])<x<event for x in events)}
+            chosen_details=[detail_text[(chosen,x)] for x in details[chosen] if max(group["events"])<x<event]
+            release_rows={candidate:{"release":label,"group":group["release_groups"].get(candidate)} for candidate,label in group["release_labels"].items()}
+            compared_ids=eligible
             compared_details=len(eligible)
             compared_groups=len({group["release_groups"][candidate] for candidate in eligible if candidate in group["release_groups"]})
             compared_labels=len({group["release_labels"][candidate] for candidate in eligible if candidate in group["release_labels"]})
             missing_group=len(eligible-set(group["release_groups"]))
     ids={sid(x) for x in artifacts[0].get("candidate_refs",[])}-{""} if len(artifacts)==1 and artifacts[0].get("copied_to_job") is True else set()
     download_ok=bool(click_ok and ids=={chosen})
-    return {"accepted":bool(list_ok and selected_list_ok and click_ok and download_ok),"reason":"ENGLISH_LIST_AND_DOWNLOAD_BOUND" if list_ok and selected_list_ok and download_ok else "DOWNLOAD_BOUND_LIST_COVERAGE_HOLD" if download_ok else "DOWNLOAD_UNVERIFIED" if click_ok else "CLICK_UNBOUND" if list_ok else "LIST_COVERAGE_UNVERIFIED","chosen_candidate":chosen,"chosen_release":chosen_release,"chosen_page":chosen_page,"selected_list_verified":selected_list_ok,"english_list_verified":list_ok,"scoped_count_matches_unique_rows":count_ok,"pagination_terminal_verified":list_ok,"english_candidates":len(complete[0]["ids"]) if list_ok else 0,"english_rows_observed":len(next(iter(groups.values()))["ids"]) if len(groups)==1 else 0,"ordinary_click_bound":click_ok,"download_verified":download_ok,"detail_candidates":len(details),"distinct_release_groups_compared":compared_groups,"candidate_details_compared_before_click":compared_details,"distinct_observed_release_labels_compared":compared_labels,"compared_candidates_missing_group":missing_group,"release_compatibility_verified":False}
+    return {"accepted":bool(list_ok and selected_list_ok and click_ok and download_ok),"reason":"ENGLISH_LIST_AND_DOWNLOAD_BOUND" if list_ok and selected_list_ok and download_ok else "DOWNLOAD_BOUND_LIST_COVERAGE_HOLD" if download_ok else "DOWNLOAD_UNVERIFIED" if click_ok else "CLICK_UNBOUND" if list_ok else "LIST_COVERAGE_UNVERIFIED","chosen_candidate":chosen,"chosen_release":chosen_release,"chosen_page":chosen_page,"selected_list_verified":selected_list_ok,"english_list_verified":list_ok,"scoped_count_matches_unique_rows":count_ok,"pagination_terminal_verified":list_ok,"english_candidates":len(complete[0]["ids"]) if list_ok else 0,"english_rows_observed":len(next(iter(groups.values()))["ids"]) if len(groups)==1 else 0,"ordinary_click_bound":click_ok,"download_verified":download_ok,"detail_candidates":len(details),"distinct_release_groups_compared":compared_groups,"candidate_details_compared_before_click":compared_details,"distinct_observed_release_labels_compared":compared_labels,"compared_candidates_missing_group":missing_group,"release_compatibility_verified":False,"chosen_detail_texts":chosen_details,"release_rows":release_rows,"compared_candidate_ids":sorted(compared_ids)}
 
 @dataclass(frozen=True)
 class BrowserRequest:
@@ -197,6 +202,51 @@ def _subtitle_bytes(blob: bytes) -> bytes:
     return blob
 
 
+def _check_candidate_comparison(media, gate, duration):
+    """Enforce the observed comparison promised by V13.1, not model opinion.
+
+    Runtime is used only when explicitly labelled in the visible selected
+    detail. Missing runtime/FPS are unknown, never invented or retimed.
+    """
+    target = preferred_media_release(media)
+    plausible = {}
+    for candidate, row in gate["release_rows"].items():
+        release = parse_release(row["release"])
+        if release.title == target.title and release.year is not None and release.year == target.year and row["group"]:
+            plausible[candidate] = row["group"]
+    if len(set(plausible.values())) > 1:
+        compared = {plausible[c] for c in gate["compared_candidate_ids"] if c in plausible}
+        if len(compared) < 2:
+            raise AgyEnglishUnavailable("AGY_EN_RELEASE_COMPARISON_MISSING")
+    # Only labelled HH:MM:SS / minute metadata is interpretable. A minute
+    # precision allowance avoids rejecting ordinary rounded site metadata.
+    for text in gate["chosen_detail_texts"]:
+        for match in re.finditer(r"(?im)^\s*(?:movie\s+)?(?:runtime|duration|length)\s*:\s*(\d{1,2}):([0-5]\d):([0-5]\d)\b", text):
+            h,m,s=map(int,match.groups())
+            if abs((h*3600+m*60+s)-duration)>60:
+                raise AgyEnglishUnavailable("AGY_EN_EXPLICIT_RUNTIME_CONFLICT")
+        for match in re.finditer(r"(?im)^\s*(?:movie\s+)?(?:runtime|duration|length)\s*:\s*(\d{1,4})\s*(?:minutes?|mins?)\b", text):
+            if abs(int(match.group(1))*60-duration)>60:
+                raise AgyEnglishUnavailable("AGY_EN_EXPLICIT_RUNTIME_CONFLICT")
+
+
+def timeline_observation(contents, duration):
+    """Measured subtitle span, not a dialogue-completeness verdict."""
+    from opensubtitles import _milliseconds
+    text = contents.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+    starts=[]; ends=[]
+    for block in re.split(r"\n[ \t]*\n", text.strip()):
+        lines = [line.strip() for line in block.split("\n")]
+        timing = next(line for line in lines[:2] if "-->" in line)
+        left,right=timing.split("-->",1)
+        starts.append(_milliseconds(left.strip(),"srt"))
+        ends.append(_milliseconds(right.strip().split(" ",1)[0],"srt"))
+    return {"first_cue_ms":min(starts),"last_cue_ms":max(ends),
+            "cues":len(starts),"first_10m_cues":sum(t<600000 for t in starts),
+            "timeline_span_fraction":round((max(ends)-min(starts))/(duration*1000),6),
+            "dialogue_completeness":"UNVERIFIED","sync":"UNVERIFIED"}
+
+
 def verify_evidence(request: BrowserRequest, proof: BrowserEvidence) -> Asset:
     if not isinstance(proof, BrowserEvidence) or proof.media != request.media:
         raise AgyEnglishUnavailable("AGY_EN_MEDIA_BINDING_MISMATCH")
@@ -225,6 +275,7 @@ def verify_evidence(request: BrowserRequest, proof: BrowserEvidence) -> Asset:
         "release_name": gate["chosen_release"],
         "source_page": gate["chosen_page"],
     })
+    _check_candidate_comparison(request.media, gate, proof.duration_seconds)
     contents = _subtitle_bytes(proof.download_bytes)
     try:
         count = validate_timed_text(contents, "srt")
@@ -232,14 +283,9 @@ def verify_evidence(request: BrowserRequest, proof: BrowserEvidence) -> Asset:
         raise AgyEnglishUnavailable("AGY_EN_ARTIFACT_TIMELINE_INVALID") from None
     # Reject impossible overrun (2s allowance for container rounding/outro).
     # This sanity bound is not evidence of dialogue alignment or completeness.
-    from opensubtitles import _milliseconds
-    text = contents.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
-    for block in re.split(r"\n[ \t]*\n", text.strip()):
-        lines = [line.strip() for line in block.split("\n")]
-        timing = next(line for line in lines[:2] if "-->" in line)
-        end = _milliseconds(timing.split("-->", 1)[1].strip().split(" ", 1)[0], "srt")
-        if end > (proof.duration_seconds + 2) * 1000:
-            raise AgyEnglishUnavailable("AGY_EN_ARTIFACT_OVERRUN")
+    observation = timeline_observation(contents, proof.duration_seconds)
+    if observation["last_cue_ms"] > (proof.duration_seconds + 2) * 1000:
+        raise AgyEnglishUnavailable("AGY_EN_ARTIFACT_OVERRUN")
     # A valid SRT is not proof of exact playback synchronization.
     return Asset(0, "en", "srt", contents, hashlib.sha256(contents).hexdigest(), count)
 
