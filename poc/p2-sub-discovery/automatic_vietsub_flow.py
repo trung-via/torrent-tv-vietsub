@@ -652,9 +652,13 @@ class AutomaticVietsubFlow:
 
 
 def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
-                          model_preflight: Callable[[], None] | None = None
+                          model_preflight: Callable[[], None] | None = None,
+                          native_browser_runner: Callable | None = None
                           ) -> AutomaticVietsubFlow:
-    """Owner bootstrap: one Brain-staged English SRT, then AGY translation.
+    """Owner bootstrap: one EN source, then existing AGY translation.
+
+    The installed/default staged-EN route stays unchanged. A native Owner
+    runner can opt in to the V13.1 evidence adapter after live acceptance.
 
     Host app resolves owner-local preference (enabled) once at startup and
     supplies user-owned credential environment. None of these credentials
@@ -679,7 +683,10 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     from owner_vietsub_pipeline import _P2
     from translator_gateway import preflight_provider, provider_enabled
     from brain_english_inbox import acquire_brain_english
+    from agy_v13_browser_evidence import make_v13_acquirer
 
+    acquisition = (acquire_brain_english if native_browser_runner is None
+                   else make_v13_acquirer(native_browser_runner))
     profile = load_profile(_P2 / "translator_profile.json")
     if not provider_enabled(profile.provider):
         raise ValueError("AUTO_VIETSUB_PROVIDER_NOT_ENABLED")
@@ -714,5 +721,5 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
             auto_download=True, auto_translate_en=True),
         model_preflight=lambda: preflight(),
         dual_mode=True,
-        source_acquirer=acquire_brain_english,
+        source_acquirer=acquisition,
     )
