@@ -36,22 +36,43 @@ try:
     for l in lines:
         for k,v in (("P2_EVENT_CLAIMED","CLAIMED"),("P2_PREPROVIDER_TRANSIENT","DEFERRED"),("P2_EVENT_BLOCKED","BLOCKED"),("P2_EVENT_FINISHED","FINISHED")):
             if "OWNER_FULL_TRACE '"+k+"'" in l:outcome=v
+    import ast
+    event_id=None
+    for l in lines:
+        m=re.match(r"OWNER_FULL_TRACE 'P2_(?:EVENT_CLAIMED|PREPROVIDER_TRANSIENT|EVENT_BLOCKED|EVENT_FINISHED)' (\{.*\})$",l)
+        if m:
+            try:
+                d=ast.literal_eval(m.group(1)); x=d.get("event_id")
+                if isinstance(x,str) and re.fullmatch(r"[a-f0-9]{32}",x):event_id=x
+            except (ValueError,SyntaxError):pass
+    if event_id is None:
+        print("R_EVENT_UNBOUND");sys.exit(0)
+    inbox=root/"inbox"
+    evs=[inbox/("event-"+event_id+ext) for ext in (".json",".blocked",".done",".review")]
+    evs=[p for p in evs if p.is_file() and not p.is_symlink()]
+    if len(evs)!=1:
+        print("R_EVENT_FILE_UNBOUND");sys.exit(0)
+    ev=load(evs[0]);fp=ev.get("source_fingerprint")
+    if ev.get("event_id")!=event_id or not isinstance(fp,str) or not re.fullmatch(r"[a-f0-9]{64}",fp):
+        print("R_FINGERPRINT_UNBOUND");sys.exit(0)
     native=root.parent/"subtitle-trials"/".native-v13"
-    recent=[]
+    folders=[native/fp]
     if native.is_dir() and not native.is_symlink():
-        for d in native.iterdir():
-            if not d.is_dir() or d.is_symlink():continue
-            f=d/"terminal.json"
-            if f.is_file() and not f.is_symlink() and 0<=time.time()-f.stat().st_mtime<=600:
-                recent.append(f)
-    terminal="NONE"
-    if len(recent)==1:
-        q=load(recent[0])
-        s=q.get("status")
-        terminal={"PRE_PROVIDER_BLOCKED":"PRECALL","NO_SOURCE":"NOSOURCE","SOURCE_REJECTED":"REJECT","RESULT_UNKNOWN_REVIEW_REQUIRED":"UNKNOWN"}.get(s,"OTHER")
-    elif len(recent)>1:terminal="MULTI"
-    pending=int((native/"browser.pending").is_file())
-    print("R_"+reason+"_P2_"+outcome+"_N_"+terminal+"_B"+str(pending))
+        folders+=sorted(native.glob(fp+".preprovider-*"),key=lambda p:p.stat().st_mtime,reverse=True)[:8]
+    terminals=[]
+    allowed={"AGY_EN_NATIVE_GLOBAL_MCP_CONFLICT","AGY_EN_NATIVE_CONFIG_INVALID","AGY_EN_NATIVE_SHARED_RELATIVE_RULE","AGY_EN_NATIVE_EXISTING_RESTRICTION","AGY_EN_NATIVE_RELATIVE_RULE_UNKNOWN","AGY_EN_NATIVE_BROWSER_START_UNVERIFIED","AGY_EN_NATIVE_BROWSER_PROFILE_RUNNING_NO_LISTENER","AGY_EN_NATIVE_BROWSER_PROFILE_OR_EXECUTABLE_MISSING","AGY_EN_NATIVE_BROWSER_IDENTITY","AGY_EN_NATIVE_CDP_IDENTITY","AGY_EN_NATIVE_TASK_TAB_AMBIGUOUS","AGY_EN_NATIVE_TASK_TAB_UNAVAILABLE","AGY_EN_NATIVE_PROFILE_REQUIRED","AGY_EN_NATIVE_SESSION_SETTINGS_UNAVAILABLE","AGY_EN_NATIVE_VIDEO_PROBE_REQUIRED","AGY_EN_NATIVE_FFPROBE_REQUIRED","AGY_EN_NATIVE_FFPROBE_UNAVAILABLE"}
+    for d in folders:
+        f=d/"terminal.json"
+        if d.is_symlink() or not f.is_file() or f.is_symlink():continue
+        q=load(f);v=q.get("reason");status=q.get("status")
+        code=v.removeprefix("AGY_EN_NATIVE_") if v in allowed else ("OTHER_"+str(q.get("error_type")) if q.get("error_type") in {"ValueError","OSError","TimeoutError","URLError","RuntimeError","AgyEnglishUnavailable","FileNotFoundError","TimeoutExpired","PermissionError","HTTPError"} else "OTHER")
+        if status=="PRE_PROVIDER_BLOCKED":terminals.append((f.stat().st_mtime,code))
+    if terminals:
+        terminal=max(terminals)[1]
+        print("R_EXACT_"+terminal.upper())
+    else:
+        print("R_EXACT_NO_TERMINAL")
+
 except Exception:
     print("R_READ_UNAVAILABLE")
 '@
