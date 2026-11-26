@@ -11,6 +11,7 @@ import zipfile
 from agy_opensubtitles_acquisition import AgyEnglishUnavailable
 from agy_v13_browser_evidence import (
     BrowserEvidence, BrowserRequest, make_v13_acquirer, verify_evidence, timeline_observation,
+    RECIPE, RECIPE_V13_1, RECIPE_VERSION, VERIFICATION_REVISION,
 )
 from automatic_vietsub_flow import build_owner_auto_flow
 from brain_english_inbox import acquire_brain_english
@@ -59,6 +60,18 @@ class V13EvidenceTests(unittest.TestCase):
         for value in ("RIFE interpolated", "next_href", "OpenSubtitles.org", "7200"):
             self.assertIn(value, prompt)
         self.assertNotIn("a" * 40, prompt)
+
+    def test_compact_recipe_keeps_verifier_contract_and_rollback(self):
+        self.assertEqual(RECIPE_VERSION, "V13.2")
+        self.assertEqual(VERIFICATION_REVISION, "V13.1-BR05-1")
+        self.assertLess(len(RECIPE), len(RECIPE_V13_1) * 0.75)
+        prompt = BrowserRequest(MEDIA).prompt(duration_seconds=7200, fps=24)
+        self.assertTrue(prompt.startswith(RECIPE))
+        for key in ("total_english", "count_scope", "count_label", "has_next",
+                    "next_href", "fieldsetText", "downloadHref", "downloaderChecked",
+                    "clicked:true", "pageId", "once", "runtime", "Stop browser actions"):
+            self.assertIn(key, prompt)
+        self.assertEqual(self.verify(proof()).cues, 125)
 
     def test_zip_only_one_srt(self):
         b = io.BytesIO()

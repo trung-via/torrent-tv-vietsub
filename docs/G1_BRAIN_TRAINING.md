@@ -33,3 +33,7 @@ Objective: produce one candidate-bound English SRT for the exact film and plausi
 Candidate goals: <=8 observed outcomes where possible without skipping necessary controls, <=75s from provider start to verified EN. A tool count is a diagnostic, not a hard stop. Measure a new cold film, exact recipe loaded, independent EN artifact receipt and same-film rendered cue. Do not replay Resident Evil. Do not change model, LEAN120 size, verifier or production configuration merely to promote this candidate.
 
 Status: BT1 retained live teacher case verified; BT2 candidate written, untested. BT3/BT4 Student live comparison and BT6 adoption pending authorization for recipe deployment and a distinct cold film; no runtime effect claimed.
+
+## BT3 source candidate
+
+Owner approved continuation into V13.2 Compact. Source uses the shorter prompt by default, retains V13.1 prompt for rollback, preserves VERIFICATION_REVISION V13.1-BR05-1 and all existing evidence checks. No change to model, CLI transport, translation windows, or cache format. Next fresh film only; no replay of Resident Evil. Offline checks prove contract compatibility, not measured latency. Deployment and Student benchmark require their own receipts.
