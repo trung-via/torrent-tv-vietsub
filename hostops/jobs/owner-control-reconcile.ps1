@@ -22,3 +22,37 @@ if(Test-Path -LiteralPath $f -PathType Leaf){
  $r=Get-Content -LiteralPath $f -Raw|ConvertFrom-Json
  if($r.nonce -ceq $req.nonce -and $r.reason -cmatch '^[A-Z0-9_]{3,120}$'){Write-Output ('EXACT_STAGE='+$r.reason)}
 }else{Write-Output 'EXACT_STAGE=MISSING'}
+
+# Observe task permissions and exact local files, only if already readable.
+$helperTask=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-Laptop-HostOps' -TaskPath '\'
+$ownerTask=Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\'
+$service=New-Object -ComObject 'Schedule.Service'
+$service.Connect()
+foreach($t in @($helperTask,$ownerTask)){
+ try{
+   $sd=[Security.AccessControl.RawSecurityDescriptor]::new($service.GetFolder('\').GetTask($t.TaskName).GetSecurityDescriptor(4))
+   $aces=@($sd.DiscretionaryAcl|Where-Object{$_.SecurityIdentifier.Value -ceq 'S-1-5-20'}|ForEach-Object{ '{0:X8}' -f $_.AccessMask })
+   Write-Output ('TASK_RIGHTS_'+$t.TaskName+'='+($aces -join ','))
+ }catch{Write-Output ('TASK_RIGHTS_'+$t.TaskName+'=UNREADABLE')}
+}
+$arg=[string]$helperTask.Actions[0].Arguments
+if($arg -match '-File\s+"([^"]+\\OwnerBridge\\Maintenance\\owner-laptop-ops-helper\.ps1)"'){
+ $helper=$Matches[1];$maintenance=Split-Path -Parent $helper;$root=Split-Path -Parent $maintenance
+ foreach($pair in @(@('HELPER',$helper),@('CONTROL',(Join-Path $maintenance 'owner-control.ps1')),@('PRODUCER',(Join-Path $root 'app\poc\p2-sub-discovery\agy_v13_native_producer.py')))){
+  try{
+   $h=(Get-FileHash -LiteralPath $pair[1] -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+   Write-Output ('FILE_'+$pair[0]+'_SHA256='+$h)
+  }catch{Write-Output ('FILE_'+$pair[0]+'_STATUS=UNREADABLE_OR_ABSENT')}
+ }
+ $run=Join-Path (Split-Path -Parent $root) ('LaptopHostOps\run-'+$req.nonce)
+ foreach($pair in @(@('RUN_MANIFEST','manifest.json'),@('RUN_SCRIPT','operation.ps1'),@('RUN_LOG','full-owner-output.log'))){
+   try{$f=Get-Item -LiteralPath (Join-Path $run $pair[1]) -ErrorAction Stop;Write-Output ('PRIVATE_'+$pair[0]+'_BYTES='+$f.Length)}catch{Write-Output ('PRIVATE_'+$pair[0]+'=UNREADABLE_OR_ABSENT')}
+ }
+}else{Write-Output 'HELPER_PATH=UNRECOGNIZED'}
+# Query only exact task event IDs and result codes, not raw event messages.
+try{
+ $events=@(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TaskScheduler/Operational';StartTime=([DateTimeOffset]::FromUnixTimeSeconds([long]$req.requested_utc_epoch).LocalDateTime.AddSeconds(-5));Id=100,101,102,103,111,129,200,201,202,203,322,329} -ErrorAction Stop)
+ foreach($ev in @($events|Where-Object{$_.Message -like '*TorrentTV-Vietsub-Laptop-HostOps*'}|Select-Object -First 16)){
+   Write-Output ('HELPER_EVENT='+$ev.Id+'_'+$ev.TimeCreated.ToUniversalTime().ToString('yyyyMMddTHHmmssZ'))
+ }
+}catch{Write-Output 'HELPER_EVENTS=UNAVAILABLE'}
