@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v13-baseline-detail.ps1",
-  "script_sha256": "46cf1f7fb4247668138d84e50bd8eae023a22399bee0ae795dfc1d2f598d0fe2",
+  "script_path": "hostops/laptop-ops/operations/v13-baseline-ast.ps1",
+  "script_sha256": "74355fdef7266bb93155b7c27a85e4a936325d7804792214594bf8bca9e3809d",
   "arguments": []
 }
