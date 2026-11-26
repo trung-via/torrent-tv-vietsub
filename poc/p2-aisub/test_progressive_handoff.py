@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import unittest
+from unittest.mock import patch
 
 from cue_pipeline import parse_cues
 from progressive_handoff import (
@@ -175,11 +176,31 @@ class OfflineProgressiveTests(unittest.TestCase):
         w = session.next_window()
         assert w is not None
         huge = {i:"B"*2000 for i in w.ids}
-        with self.assertRaisesRegex(ValueError,"TV_SUBTITLE_SIZE_LIMIT"):
-            session.commit(w, huge, expected_version=1,
-                           source_sha256=session.source_sha256,media_key=KEY_A)
+        # A small injected ceiling tests atomic rollback without a multi-MiB fixture.
+        with patch("progressive_handoff.MAX_TV_BYTES", 256 * 1024):
+            with self.assertRaisesRegex(ValueError,"TV_SUBTITLE_SIZE_LIMIT"):
+                session.commit(w, huge, expected_version=1,
+                               source_sha256=session.source_sha256,media_key=KEY_A)
         self.assertIs(session.revision,first)
         self.assertLess(len(first.payload), MAX_TV_BYTES)
+
+    def test_full_film_above_legacy_byte_and_cue_caps(self):
+        from revision_delivery import sign_revision
+        from lan_revision_feed import offer_wire
+        session = ProgressiveSubtitleSession(srt(3381), "srt", KEY_A, first_window_cues=50)
+        original = parse_cues(srt(3381), "srt")
+        for window in session.windows:
+            revision = session.commit(
+                window, {i: "Lời dịch thử nghiệm " * 5 + str(i) for i in window.ids},
+                expected_version=window.number - 1, source_sha256=session.source_sha256,
+                media_key=KEY_A)
+            offer = sign_revision(revision, "synthetic_tv_session_0001", b"synthetic_test_pairing_secret_32b")
+            self.assertTrue(offer_wire(offer))
+        self.assertTrue(revision.complete)
+        self.assertEqual(revision.translated_count, 3381)
+        self.assertGreater(len(revision.payload), 256 * 1024)
+        self.assertEqual([(x.start_ms, x.end_ms) for x in original],
+                         [(x.start_ms, x.end_ms) for x in parse_cues(revision.payload, "srt")])
 
     def test_vtt_identifier_settings_and_cumulative_render(self):
         raw = (b"WEBVTT\n\nscene-one\n00:00:01.000 --> 00:00:02.250 align:start\nHello\n"

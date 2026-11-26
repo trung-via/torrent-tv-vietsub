@@ -22,13 +22,16 @@ internal data class P4SubtitleOffer(
     val signature: String,
 )
 
+internal const val P4_MAX_SUBTITLE_BYTES = 4 * 1024 * 1024
+internal const val P4_MAX_SUBTITLE_CUES = 20_000
+
 internal data class P4Cue(val startMs: Long, val endMs: Long, val text: String)
 
 internal class P4CueTimeline(val cues: List<P4Cue>) {
     fun extends(previous: P4CueTimeline): Boolean =
         cues.size >= previous.cues.size && cues.take(previous.cues.size) == previous.cues
 
-    // Bounded by the authenticated 2,000-cue payload. Overlaps and seeks
+    // Bounded by the authenticated 20,000-cue payload. Overlaps and seeks
     // deliberately use the actual playback clock, not elapsed wall time.
     fun textAt(positionMs: Long): String = cues.asSequence()
         .takeWhile { it.startMs <= positionMs }
@@ -160,8 +163,8 @@ internal class P4SignedReceiver(
             !SHA.matches(o.sourceSha256) || !SHA.matches(o.payloadSha256) ||
             !SHA.matches(o.signature)) throw IllegalArgumentException("P4_OFFER_IDENTITY_INVALID")
         if (o.version !in 1..1_000_000 || o.format !in setOf("srt", "vtt") ||
-            o.translatedCount !in 1..2000 || o.totalCount !in o.translatedCount..2000 ||
-            o.lastEndMs <= 0 || o.payload.isEmpty() || o.payload.size > 256 * 1024) {
+            o.translatedCount !in 1..P4_MAX_SUBTITLE_CUES || o.totalCount !in o.translatedCount..P4_MAX_SUBTITLE_CUES ||
+            o.lastEndMs <= 0 || o.payload.isEmpty() || o.payload.size > P4_MAX_SUBTITLE_BYTES) {
             throw IllegalArgumentException("P4_OFFER_BOUNDS_INVALID")
         }
         if (shaHex(o.payload) != o.payloadSha256) {
@@ -179,7 +182,7 @@ internal class P4SignedReceiver(
     companion object {
     internal fun parseTimeline(payload: ByteArray, fmt: String): P4CueTimeline {
         require(fmt in setOf("srt", "vtt") && payload.isNotEmpty() &&
-            payload.size <= 256 * 1024) { "P4_TIMELINE_BOUNDS_INVALID" }
+            payload.size <= P4_MAX_SUBTITLE_BYTES) { "P4_TIMELINE_BOUNDS_INVALID" }
         val body = try {
             Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT)
@@ -196,7 +199,7 @@ internal class P4SignedReceiver(
             }
             sections.drop(1)
         } else sections
-        if (blocks.isEmpty() || blocks.size > 2000) {
+        if (blocks.isEmpty() || blocks.size > P4_MAX_SUBTITLE_CUES) {
             throw IllegalArgumentException("P4_CUE_COUNT_INVALID")
         }
         var previousStart = -1L

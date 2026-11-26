@@ -25,9 +25,19 @@ internal class P4LanSessionExpired : IllegalStateException("P4_LAN_SESSION_EXPIR
 internal class P4LanAuthorizationRejected : SecurityException("P4_LAN_AUTH_REJECTED")
 
 internal object P4LanClient {
-    private const val MAX_WIRE_BYTES = 400_000
+    private const val MAX_WIRE_BYTES = 6 * 1024 * 1024
+    private const val MAX_BASE64_CHARS = 4 * ((P4_MAX_SUBTITLE_BYTES + 2) / 3)
     private val SESSION_RX = Regex("[A-Za-z0-9_-]{16,80}")
-    private val B64_RX = Regex("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
+    // Linear validation: a repeated-group regex can overflow the JVM stack on a full film.
+    private fun validBase64(value: String): Boolean {
+        if (value.isEmpty() || value.length > MAX_BASE64_CHARS || value.length % 4 != 0) return false
+        val padding = if (value.endsWith("==")) 2 else if (value.endsWith("=")) 1 else 0
+        for (i in 0 until value.length - padding) {
+            val c = value[i]
+            if (c !in 'A'..'Z' && c !in 'a'..'z' && c !in '0'..'9' && c != '+' && c != '/') return false
+        }
+        return true
+    }
 
     internal fun endpoint(host: String, port: Int, sessionId: String): URL {
         if (!isPrivateIPv4(host)) throw IllegalArgumentException("P4_LAN_IP_REQUIRED")
@@ -134,13 +144,16 @@ internal object P4LanClient {
             throw IllegalArgumentException("P4_LAN_ENVELOPE_INVALID")
         }
         val encoded = json.getString("payload_b64")
-        if (!B64_RX.matches(encoded) || encoded.length > 350_000) {
+        if (!validBase64(encoded)) {
             throw IllegalArgumentException("P4_LAN_BASE64_INVALID")
         }
         val payload = try { Base64.decode(encoded, Base64.NO_WRAP) }
             catch (_: IllegalArgumentException) {
                 throw IllegalArgumentException("P4_LAN_BASE64_INVALID")
             }
+        if (payload.isEmpty() || payload.size > P4_MAX_SUBTITLE_BYTES) {
+            throw IllegalArgumentException("P4_LAN_PAYLOAD_TOO_LARGE")
+        }
         return P4SubtitleOffer(
             sessionId=json.getString("session_id"),
             mediaKey=json.getString("media_key"),

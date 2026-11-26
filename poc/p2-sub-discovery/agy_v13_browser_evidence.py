@@ -27,7 +27,7 @@ RECIPE_VERSION = "V13.4"
 VERIFICATION_REVISION = "V13.4-BR07-1"
 MODEL = "gemini-4-hydrogen-low"
 THINKING_LEVEL = "low"
-MAX_DOWNLOAD_BYTES = 2_000_000
+MAX_DOWNLOAD_BYTES = 6 * 1024 * 1024
 os_hosts = {"www.opensubtitles.org", "opensubtitles.org"}
 
 # Prompt retained from native BT26, with no fixture IDs, answers or paths.

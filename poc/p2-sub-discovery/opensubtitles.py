@@ -21,7 +21,8 @@ from matcher import Decision, Media, SearchResults, Subtitle, choose, preferred_
 
 
 BASE_URL = "https://api.opensubtitles.com/api/v1"
-MAX_SUBTITLE_BYTES = 256 * 1024
+MAX_SUBTITLE_BYTES = 4 * 1024 * 1024
+MAX_SUBTITLE_CUES = 20_000
 MAX_JSON_BYTES = 2 * 1024 * 1024
 _USER_AGENT = "TorrentTVVietsub/0.1 (personal-local-client)"
 _ALLOWED_HOSTS = {"api.opensubtitles.com", "vip-api.opensubtitles.com"}
@@ -295,6 +296,8 @@ def validate_timed_text(contents: bytes, fmt: str) -> int:
             raise SubtitleApiError("BAD_SUBTITLE_TIMELINE")
         previous_start = start
         count += 1
+        if count > MAX_SUBTITLE_CUES:
+            raise SubtitleApiError("INVALID_SUBTITLE_CUE_COUNT")
     if count == 0:
         raise SubtitleApiError("EMPTY_SUBTITLE")
     return count

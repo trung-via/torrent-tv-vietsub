@@ -149,5 +149,15 @@ fun main() {
     check(overlay.acknowledgeOverlayInstalled(session, media, "ON", "VLC",
         1, first.payloadSha256) == "OVERLAY_INSTALLED")
     check(overlay.lastAppliedForTest() == 1)
+    val large = (1..3381).joinToString("\n\n", postfix="\n") { i ->
+        val n = i - 1
+        val stamp = "%02d:%02d:%02d".format(java.util.Locale.ROOT, n / 3600, n / 60 % 60, n % 60)
+        "$i\n$stamp,000 --> $stamp,850\n" + "Lời dịch thử nghiệm ".repeat(5)
+    }.toByteArray(Charsets.UTF_8)
+    check(large.size > 256 * 1024)
+    val largeTimeline = receiver.parseTimeline(large, "srt")
+    check(largeTimeline.cues.size == 3381)
+    check(largeTimeline.textAt(3380_000).isNotBlank())
+    check(largeTimeline.textAt(0).isNotBlank()) // seek backwards
     println("P4_NATIVE_SIGNED_RECEIVER_SYNTHETIC_PASS (Kotlin/JVM, Python-HMAC cross-language)")
 }

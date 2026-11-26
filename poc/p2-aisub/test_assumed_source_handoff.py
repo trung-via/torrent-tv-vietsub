@@ -68,7 +68,7 @@ class AssumedSourceHandoffTests(unittest.TestCase):
     def test_invalid_source_rejected_without_claiming_language_verification(self):
         for raw,fmt in [
             (b"\xff","srt"),(b"not timed text","srt"),(b"WEBVTT\n\n","vtt"),
-            (synthetic_srt(1),"ass"),(b"","srt"),(b"x"*(256*1024+1),"srt")
+            (synthetic_srt(1),"ass"),(b"","srt"),(b"x"*(4*1024*1024+1),"srt")
         ]:
             with self.subTest(fmt=fmt,sz=len(raw)),self.assertRaises(ValueError):
                 AssumedEnglishSubtitle.from_supplied(media_key=MEDIA,fmt=fmt,source_bytes=raw)

@@ -16,7 +16,7 @@ from threading import Lock
 import uuid
 
 from matcher import Media
-from opensubtitles import Asset, SubtitleApiError, validate_timed_text
+from opensubtitles import Asset, MAX_SUBTITLE_BYTES, SubtitleApiError, validate_timed_text
 
 
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
@@ -68,7 +68,7 @@ class DualSubtitleCatalog:
                 or type(row["release_matched"]) is not bool):
             raise SubtitleApiError("DUAL_SOURCE_INDEX_INVALID")
         file = self.root / row["file"]
-        if file.is_symlink() or not file.is_file() or not 0 < file.stat().st_size <= 256 * 1024:
+        if file.is_symlink() or not file.is_file() or not 0 < file.stat().st_size <= MAX_SUBTITLE_BYTES:
             raise SubtitleApiError("DUAL_SOURCE_FILE_INVALID")
         try:
             raw = file.read_bytes()

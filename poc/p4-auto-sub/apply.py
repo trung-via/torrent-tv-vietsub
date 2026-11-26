@@ -161,6 +161,12 @@ NEW_COMMIT = '''        val p = prefs(ctx)
 def patch_g1(text: str) -> str:
     if "importAutomaticBytes(" in text:
         raise ValueError("P4_ALREADY_APPLIED")
+    # Keep the original G1 source/blob pin intact; the composed P4 helper
+    # must accept the same full-film payload that its signed receiver validates.
+    old_max = "private const val MAX = 256 * 1024"
+    if text.count(old_max) != 1:
+        raise ValueError("P4_G1_SUBTITLE_LIMIT_ANCHOR_INVALID")
+    text = text.replace(old_max, "private const val MAX = P4_MAX_SUBTITLE_BYTES", 1)
     for key, replacement in [(OLD_HEAD, NEW_HEAD), (OLD_COMMIT, NEW_COMMIT)]:
         if text.count(key) != 1:
             raise ValueError("P4_G1_EXACT_SOURCE_ANCHOR_INVALID")

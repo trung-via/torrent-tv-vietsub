@@ -28,7 +28,10 @@ jobs:
           github.event.pull_request.head.ref == 'fix/p2-dual-candidates-20261122'))) ||
        (github.event.pull_request.number == 186 &&
         github.event.pull_request.head.ref == 'feature/p2-lean120-parallel-20261124' &&
-        github.event.pull_request.base.ref == 'feature/brain-en-inbox-temporary-20261123'))
+        github.event.pull_request.base.ref == 'feature/brain-en-inbox-temporary-20261123') ||
+       (github.event.pull_request.number == 189 &&
+        github.event.pull_request.head.ref == 'fix/g1-flat-subtitle-limits-20261127' &&
+        github.event.pull_request.base.ref == 'feature/g1-v13-owner-evidence-20261126'))
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -79,7 +82,10 @@ jobs:
           github.event.pull_request.head.ref == 'fix/p2-dual-candidates-20261122'))) ||
        (github.event.pull_request.number == 186 &&
         github.event.pull_request.head.ref == 'feature/p2-lean120-parallel-20261124' &&
-        github.event.pull_request.base.ref == 'feature/brain-en-inbox-temporary-20261123'))
+        github.event.pull_request.base.ref == 'feature/brain-en-inbox-temporary-20261123') ||
+       (github.event.pull_request.number == 189 &&
+        github.event.pull_request.head.ref == 'fix/g1-flat-subtitle-limits-20261127' &&
+        github.event.pull_request.base.ref == 'feature/g1-v13-owner-evidence-20261126'))
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 100
     steps:

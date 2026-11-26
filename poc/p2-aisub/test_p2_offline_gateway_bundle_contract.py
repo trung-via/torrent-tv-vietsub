@@ -31,10 +31,11 @@ class P2OfflineGatewayBundleContract(unittest.TestCase):
             source = (ROOT / "poc/p2-aisub" / name).read_text(encoding="utf-8")
             digest = hashlib.sha256(source.replace("\r\n", "\n").encode()).hexdigest()
             if name in ("translator_gateway.py", "automatic_lean120_worker.py",
-                        "progressive_handoff.py"):
+                        "progressive_handoff.py", "assumed_source_handoff.py",
+                        "cue_pipeline.py", "lan_revision_feed.py", "revision_delivery.py"):
                 # P2-F4 is a historical, immutable offline installer. The
                 # new AGY repair, background per-film worker and 50-first
-                # translation planner need a new reviewed Owner release;
+                # translation planner and full-film limits need a new reviewed Owner release;
                 # this old installer must NOT silently migrate the runtime.
                 frozen = {
                     "translator_gateway.py":
@@ -43,6 +44,14 @@ class P2OfflineGatewayBundleContract(unittest.TestCase):
                         "d8744716ef9d9aa2b0518245310cb8b6235213fa7afb5423d70e521efd2b07a0",
                     "progressive_handoff.py":
                         "d17551aa8bd77e9da93c56f323a863b5f9555d1fc49add7eb9bbb3a617cfcc99",
+                    "assumed_source_handoff.py":
+                        "2a3071202746d1026121dba521d8fd8f89e5d00e043400a248aa9e5cadb13615",
+                    "cue_pipeline.py":
+                        "d63f9142fdabb0936372607e525a183fc3d7770d2903e39e6d1a57cf4dfb5126",
+                    "lan_revision_feed.py":
+                        "952e8b55e546b907839c2491c6de6311671889e1f824a1ad1723f043ce738bc4",
+                    "revision_delivery.py":
+                        "2eefdb3e144eaa8e83148f31eb4b5b98d3dbd168bd659fd32f9bb3f830e1d0ca",
                 }[name]
                 self.assertIn(f"'{name}' = '{frozen}'", script)
                 self.assertNotEqual(digest, frozen)

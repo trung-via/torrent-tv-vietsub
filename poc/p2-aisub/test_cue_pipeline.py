@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from cue_pipeline import apply_translations, parse_cues, render, main
+from cue_pipeline import MAX_BYTES, apply_translations, parse_cues, render, main
 
 SRT = b"1\n00:00:01,000 --> 00:00:02,500\nHello\n\n2\n00:00:03,001 --> 00:00:05,000\nWelcome back\n"
 VTT = b"WEBVTT\n\nline-one\n00:00:01.000 --> 00:00:02.500 align:start\nHello\n\n00:00:03.001 --> 00:00:05.000\nGoodbye\n"
@@ -98,7 +98,7 @@ class CueQATests(unittest.TestCase):
 
     def test_large_input_rejected(self):
         with self.assertRaisesRegex(ValueError, "INPUT_TOO_LARGE"):
-            parse_cues(b"a" * 1000001, "srt")
+            parse_cues(b"a" * (MAX_BYTES + 1), "srt")
 
     def test_invalid_timestamp_rejected(self):
         with self.assertRaises(ValueError):
