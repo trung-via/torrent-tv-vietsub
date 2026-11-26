@@ -152,23 +152,35 @@ class AutomaticFlowTests(unittest.TestCase):
         self.assertEqual(self.flow._cache_index(VIDEO, source_fingerprint=fp).read_bytes(),
                          legacy)
 
-    def test_native_rejects_unproven_dual_cache_without_replay(self):
+    def test_native_supersedes_unproven_dual_cache_without_deleting_it(self):
+        from dataclasses import replace
         from agy_v13_browser_evidence import make_v13_acquirer
+        from agy_v13_native_producer import NativeBrowserProducer
+        from test_agy_v13_browser_evidence import proof
         media = Media("owner", "a" * 40, 2, VIDEO)
         fp = hashlib.sha256("\x00".join((media.server_profile_id, media.torrent_hash,
             str(media.file_index))).encode()).hexdigest()
         data = srt()
         asset = Asset(0, "en", "srt", data, hashlib.sha256(data).hexdigest(), 125)
         file = write_private_cache(self.cache, media, asset)
-        DualSubtitleCatalog(self.cache).record(media, fp, "ai_en", asset, file, release_matched=True)
-        runner = mock.Mock(side_effect=AssertionError("must not replay"))
+        legacy = DualSubtitleCatalog(self.cache)
+        legacy.record(media, fp, "ai_en", asset, file, release_matched=True)
+        old_pointer = legacy._index(fp, "ai_en").read_bytes()
+        runner = mock.Mock(side_effect=lambda req, *_: replace(proof(), media=req.media))
         dual = self._dual()
-        dual.source_acquirer = make_v13_acquirer(runner)
+        dual.source_acquirer = make_v13_acquirer(NativeBrowserProducer(
+            profile=self.cache, probe=lambda _: (7200, 24), execute=runner))
         result = dual.selected_media(VIDEO, verified_media=media, source_fingerprint=fp)
-        self.assertEqual(result.status, "REVIEW_REQUIRED")
+        self.assertEqual(result.status, "VIETSUB_READY")
+        self.assertEqual(legacy._index(fp, "ai_en").read_bytes(), old_pointer)
         self.assertEqual(file.read_bytes(), data)
-        runner.assert_not_called()
-        self.assertEqual(self.gemini.calls, [])
+        active = DualSubtitleCatalog(self.cache, native=True).read(media, fp, "ai_en")
+        self.assertNotEqual(active.sha256, asset.sha256)
+        calls = len(self.gemini.calls)
+        again = dual.selected_media(VIDEO, verified_media=media, source_fingerprint=fp)
+        self.assertEqual(again.status, "VIETSUB_READY")
+        runner.assert_called_once()
+        self.assertEqual(len(self.gemini.calls), calls)
 
     def test_vi_download_failure_unreachable_in_torrent_only_mode(self):
         self.provider.vi = (row(8, VI, "vi"),)

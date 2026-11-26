@@ -404,8 +404,34 @@ class R2RollingTests(unittest.TestCase):
         raw = self.source.read_bytes()
         asset = Asset(0, "en", "srt", raw, hashlib.sha256(raw).hexdigest(), 240)
         DualSubtitleCatalog(self.cache).record(MEDIA, FP, "ai_en", asset, self.source, release_matched=True)
-        with self.assertRaisesRegex(P3ReadyRejected, "P4_NATIVE_EN_NOT_VERIFIED"):
-            self.registry._recover_handoff(self.flow, FP, MEDIA)
+        self.assertIsNone(self.registry._recover_handoff(self.flow, FP, MEDIA))
+        self.assertEqual(self.provider.calls, [])
+
+    def test_native_p4_uses_active_pointer_for_rolling_and_completed_source(self):
+        from agy_v13_browser_evidence import make_v13_acquirer
+        from agy_v13_native_producer import _job, _write
+        self.flow.source_acquirer = make_v13_acquirer(lambda *_: None)
+        self.flow.dual_mode = True
+        raw = self.source.read_bytes()
+        legacy = Asset(0, "en", "srt", raw, hashlib.sha256(raw).hexdigest(), 240)
+        catalog = DualSubtitleCatalog(self.cache)
+        catalog.record(MEDIA, FP, "ai_en", legacy, self.source, release_matched=True)
+        old = catalog._index(FP, "ai_en").read_bytes()
+        new_raw = raw.replace(b"_EN_", b"_NEW_EN_")
+        self.assertNotEqual(raw, new_raw)
+        asset = Asset(0, "en", "srt", new_raw, hashlib.sha256(new_raw).hexdigest(), 240)
+        file = write_private_cache(self.cache, MEDIA, asset)
+        job = _job(self.cache, MEDIA)
+        job.mkdir(parents=True)
+        _write(job / "verified.json", {"filename": MEDIA.filename, "sha256": asset.sha256, "cues": 240})
+        DualSubtitleCatalog(self.cache, native=True).record(MEDIA, FP, "ai_en", asset, file, release_matched=True)
+        handoff = self.registry._recover_handoff(self.flow, FP, MEDIA)
+        self.assertEqual(handoff.source_sha256, asset.sha256)
+        source = self.registry._source(flow=self.flow, fingerprint=FP, media=MEDIA,
+            result=AutoResult("VIETSUB_READY", cue_count=240, translated_cues=240))
+        self.assertEqual(source[2], asset.sha256)
+        self.assertEqual(catalog._index(FP, "ai_en").read_bytes(), old)
+        self.assertEqual(self.source.read_bytes(), raw)
         self.assertEqual(self.provider.calls, [])
 
     def test_p4_diagnoses_no_index_and_pending_checkpoint_without_replay(self):

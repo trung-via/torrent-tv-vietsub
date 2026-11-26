@@ -95,10 +95,10 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                 BrainEnglishUnavailable, acquire_brain_english,
             )
             if getattr(getattr(flow, "source_acquirer", None), "native_v13", False) is True:
-                from agy_v13_native_producer import native_cache_verified
-                if not native_cache_verified(flow.cache_root, receipt.media,
-                                             receipt.source_sha256, receipt.total_cues):
-                    raise P3ReadyRejected("P4_NATIVE_EN_NOT_VERIFIED")
+                active = DualSubtitleCatalog(flow.cache_root, native=True).read(
+                    receipt.media, receipt.fingerprint, "ai_en")
+                if active is None or (active.sha256, active.cues) != (receipt.source_sha256, receipt.total_cues):
+                    return None  # Never publish an old ready pointer.
             if getattr(flow, "source_acquirer", None) is acquire_brain_english:
                 # Completed P2 artifacts must obey the SAME verified staged
                 # Brain source as the rolling checkpoint path. No old EN
@@ -171,14 +171,10 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                 except BrainEnglishUnavailable:
                     raise P3ReadyRejected("P4_BRAIN_EN_NOT_READY") from None
         if media is not None:
-            dual = DualSubtitleCatalog(root).read(media, fingerprint, "ai_en")
+            dual = DualSubtitleCatalog(root, native=native).read(media, fingerprint, "ai_en")
             if dual is not None and staged is not None and (
                     dual.sha256 != staged.sha256 or dual.cues != staged.cues):
                 raise P3ReadyRejected("P4_BRAIN_EN_CACHE_CONFLICT")
-            if native and dual is not None:
-                from agy_v13_native_producer import native_cache_verified
-                if not dual.release_matched or not native_cache_verified(root, media, dual.sha256, dual.cues):
-                    raise P3ReadyRejected("P4_NATIVE_EN_NOT_VERIFIED")
             if dual is not None:
                 handoff = prepare_local_translation_source(
                     CachedEnReceipt(dual.file, dual.sha256, dual.cues),
@@ -322,6 +318,11 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                                    current.file_index)
         self._current(media, current.tv_session_id, fingerprint)
         handoff = self._recover_handoff(flow, fingerprint, media)
+        if getattr(getattr(flow, "source_acquirer", None), "native_v13", False) is True:
+            with self._lock:
+                prior = self._rolling.get(media_key)
+                if prior is not None and (handoff is None or prior.source_sha256 != handoff.source_sha256):
+                    del self._rolling[media_key]  # Old feed invalid; no disk changes.
         if handoff is None:
             # May be a VI source or an early request before EN cache exists.
             # The original completed-VI factory is still allowed to resolve.
@@ -362,12 +363,8 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         root = cls._root(getattr(flow, "cache_root", None))
         native = getattr(getattr(flow, "source_acquirer", None), "native_v13", False) is True
         if media is not None:
-            dual = DualSubtitleCatalog(root).read(media, fingerprint, "ai_en")
+            dual = DualSubtitleCatalog(root, native=native).read(media, fingerprint, "ai_en")
             if dual is not None:
-                if native:
-                    from agy_v13_native_producer import native_cache_verified
-                    if not dual.release_matched or not native_cache_verified(root, media, dual.sha256, dual.cues):
-                        raise P3ReadyRejected("P4_NATIVE_EN_NOT_VERIFIED")
                 raw = cls._file(root, dual.file,
                                 sha=handoff.source_sha256, cues=handoff.cue_count)
                 expected = prepare_local_translation_source(
@@ -532,6 +529,9 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             self._file(receipt.source_root, receipt.source_file,
                        sha=receipt.source_sha256, cues=receipt.source_cues)
             self._restore_current_checkpoint(media_key)
+            with self._lock:
+                if self._rolling.get(media_key) is not receipt:
+                    raise P3ReadyRejected("P4_ROLLING_SOURCE_CHANGED")
             latest = self._current(receipt.media, receipt.tv_session,
                                    receipt.fingerprint)
             if p4_key_from_verified_current(receipt.media, latest) != media_key:
