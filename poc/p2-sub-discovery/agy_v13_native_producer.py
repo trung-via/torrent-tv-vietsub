@@ -14,6 +14,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+from threading import Lock
 import time
 from urllib.parse import urlsplit
 from urllib.request import build_opener, ProxyHandler
@@ -356,8 +357,15 @@ class NativeBrowserProducer:
         self.profile = profile
         self.probe = probe
         self.execute = execute
+        self._browser_lock = Lock()
 
     def __call__(self, request, cache_root):
+        # Existing Owner film workers can wait here for the one browser;
+        # translation happens after this lock is released.
+        with self._browser_lock:
+            return self._acquire(request, cache_root)
+
+    def _acquire(self, request, cache_root):
         run = _job(cache_root, request.media)
         parent = run.parent
         parent.mkdir(parents=True, exist_ok=True)
@@ -378,6 +386,10 @@ class NativeBrowserProducer:
             if _json(run / "verified.json") != {"filename": request.media.filename,
                     "sha256": asset.sha256, "cues": asset.cues}:
                 _hold("RETAINED_RECEIPT_MISMATCH")
+            # Recover the narrow crash window after a verified receipt but
+            # before releasing this job\'s browser claim. Never clear another job.
+            if pending.is_file() and not pending.is_symlink() and pending.read_text("utf-8") == run.name:
+                pending.unlink()
             return proof
         if run.exists():
             _hold("PRIOR_ATTEMPT_REVIEW_REQUIRED")
@@ -394,11 +406,15 @@ class NativeBrowserProducer:
                 os.fsync(f.fileno())
         except FileExistsError:
             _hold("BROWSER_BUSY_OR_UNKNOWN")
+        completed_artifact = False
         try:
             run.mkdir()
             proof = self.execute(request, run, self.profile, duration, fps)
-            asset = verify_evidence(request, proof)
-            if (proof.duration_seconds, proof.fps) != (duration, fps):
+            # A returned synchronous browser receipt proves the invocation
+            # finished. A later source-quality rejection is not an uncertain
+            # browser effect. Keep the raw evidence even if the gate rejects.
+            completed_artifact = isinstance(proof, BrowserEvidence)
+            if not completed_artifact or (proof.duration_seconds, proof.fps) != (duration, fps):
                 _hold("PROBE_BINDING_MISMATCH")
             with (run / "download.bin").open("xb") as f:
                 f.write(proof.download_bytes)
@@ -409,18 +425,23 @@ class NativeBrowserProducer:
             _write(run / "evidence.json", {"media": asdict(request.media),
                 "duration": duration, "fps": fps, "outcomes": proof.outcomes,
                 "artifacts": proof.artifacts})
+            asset = verify_evidence(request, proof)
             _write(run / "verified.json", {"filename": request.media.filename,
                 "sha256": asset.sha256, "cues": asset.cues})
             pending.unlink()
             return proof
         except Exception as exc:
             pre_provider = self.execute is run_windows and not (run / "provider.started.json").exists()
+            known = completed_artifact or pre_provider
+            status = ("PRE_PROVIDER_BLOCKED" if pre_provider else
+                      "SOURCE_REJECTED" if completed_artifact else "RESULT_UNKNOWN_REVIEW_REQUIRED")
             if run.is_dir():
-                _write(run / "terminal.json", {"status": "PRE_PROVIDER_BLOCKED" if pre_provider else "RESULT_UNKNOWN_REVIEW_REQUIRED",
-                    "error_type": type(exc).__name__})
-            if pre_provider:
+                code = str(exc) if isinstance(exc, AgyEnglishUnavailable) and re.fullmatch(r"AGY_EN_[A-Z0-9_]+", str(exc)) else None
+                _write(run / "terminal.json", {"status": status,
+                    "error_type": type(exc).__name__, "reason": code})
+            if known:
                 pending.unlink()
-                raise AgyEnglishUnavailable("AGY_EN_NATIVE_PRE_PROVIDER_BLOCKED") from None
+                raise AgyEnglishUnavailable("AGY_EN_NATIVE_" + status) from None
             raise AgyEnglishUnavailable("AGY_EN_NATIVE_RESULT_UNKNOWN") from None
 
 

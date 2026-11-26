@@ -397,6 +397,17 @@ class R2RollingTests(unittest.TestCase):
         self.assertNotIn("ROLLING_FEED_MISSING", statuses)
         self.assertEqual(len(self.provider.calls), 0)
 
+    def test_native_p4_refuses_legacy_index_and_unproven_dual(self):
+        from agy_v13_browser_evidence import make_v13_acquirer
+        self.flow.source_acquirer = make_v13_acquirer(lambda *_: None)
+        self.assertIsNone(self.registry._recover_handoff(self.flow, FP, MEDIA))
+        raw = self.source.read_bytes()
+        asset = Asset(0, "en", "srt", raw, hashlib.sha256(raw).hexdigest(), 240)
+        DualSubtitleCatalog(self.cache).record(MEDIA, FP, "ai_en", asset, self.source, release_matched=True)
+        with self.assertRaisesRegex(P3ReadyRejected, "P4_NATIVE_EN_NOT_VERIFIED"):
+            self.registry._recover_handoff(self.flow, FP, MEDIA)
+        self.assertEqual(self.provider.calls, [])
+
     def test_p4_diagnoses_no_index_and_pending_checkpoint_without_replay(self):
         statuses = []
         registry = R2OwnerProgressiveRegistry(
