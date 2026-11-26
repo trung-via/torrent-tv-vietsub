@@ -16,6 +16,7 @@ import sqlite3
 import subprocess
 from threading import Lock
 import time
+import uuid
 from urllib.parse import urlsplit
 from urllib.request import build_opener, ProxyHandler
 
@@ -32,6 +33,14 @@ SITE = {"opensubtitles.org", "www.opensubtitles.org"}
 TOOLS = ("list_pages", "select_page", "navigate_page", "take_snapshot",
          "click", "fill", "press_key", "wait_for", "evaluate_script")
 MAX_JSON = 16 * 1024 * 1024
+
+
+class NativeNoCall(AgyEnglishUnavailable):
+    """Only a proven pre-provider failure may be retried by Owner."""
+
+
+class NativeTerminalNoSource(AgyEnglishUnavailable):
+    """Known finished CLI and proven absence of a download-capable action."""
 
 
 def _hold(code):
@@ -302,6 +311,55 @@ def _observed_outcomes(stdout, host):
     return tuple(outcomes)
 
 
+def _terminal_no_source(stdout):
+    """Conservative receipt: successful terminal event and only passive tools.
+
+    A model's final status alone is not proof. Arbitrary evaluate_script,
+    click, navigation or incomplete streams can have a download effect.
+    """
+    terminal = []
+    passive = {"list_pages", "select_page", "take_snapshot", "wait_for"}
+    seen = False
+    try:
+        for line in stdout.splitlines():
+            if not line.strip():
+                continue
+            event = json.loads(line)
+            if not isinstance(event, dict):
+                return False
+            if event.get("event") == "result":
+                terminal.append(event.get("result"))
+            step = event.get("step_update")
+            if not isinstance(step, dict):
+                continue
+            name = step.get("tool_name")
+            if not name:
+                continue
+            if name != "call_mcp_tool":
+                return False
+            info = step.get("tool_info")
+            if not isinstance(info, dict):
+                return False
+            params = info.get("parameters")
+            if not isinstance(params, dict) or params.get("ToolName") not in passive:
+                return False
+            if not ("output" in info or "error" in info) or info.get("error"):
+                return False
+            seen = True
+        if len(terminal) != 1 or not isinstance(terminal[0], dict):
+            return False
+        result = terminal[0]
+        if result.get("status") != "SUCCESS":
+            return False
+        payload = result.get("structured_output")
+        if not isinstance(payload, dict):
+            response = result.get("response")
+            payload = json.loads(response) if isinstance(response, str) else None
+        return seen and isinstance(payload, dict) and payload.get("status") == "NO_PLAUSIBLE_CANDIDATE"
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def _download_refs(urls):
     result = []
     for url in urls:
@@ -397,13 +455,16 @@ def run_windows(request, run, profile, duration, fps):
         stream = run / "agy-stdout.jsonl"
         if not 0 < stream.stat().st_size <= MAX_JSON:
             _hold("STREAM_INVALID")
-        outcomes = _observed_outcomes(stream.read_text(encoding="utf-8", errors="replace"), host)
+        stdout = stream.read_text(encoding="utf-8", errors="strict")
+        outcomes = _observed_outcomes(stdout, host)
         fresh = []
         for attempt in range(12):
             fresh = _fresh_downloads(profile, dest, before, wall)
             if fresh:
                 break
             time.sleep(1)
+        if not fresh and _terminal_no_source(stdout):
+            raise NativeTerminalNoSource("AGY_EN_NATIVE_NO_SOURCE")
         if len(fresh) != 1:
             _hold("DOWNLOAD_UNVERIFIED")
         data, artifact = fresh[0]
@@ -458,12 +519,24 @@ class NativeBrowserProducer:
             if pending.is_file() and not pending.is_symlink() and pending.read_text("utf-8") == run.name:
                 pending.unlink()
             return proof
+        # Recover only a known no-call attempt and preserve its audit.
+        recover = False
         if run.exists():
-            _hold("PRIOR_ATTEMPT_REVIEW_REQUIRED")
-        # Fail before claiming a provider attempt if metadata isn't measured.
-        duration, fps = self.probe(request.media)
-        if not _valid_probe(duration, fps):
-            _hold("VIDEO_PROBE_REQUIRED")
+            terminal = _json(run / "terminal.json", 4096)
+            recover = (terminal.get("status") == "PRE_PROVIDER_BLOCKED"
+                       and not (run / "provider.started.json").exists()
+                       and not (run / "provider.started.json").is_symlink()
+                       and not pending.exists() and not pending.is_symlink())
+            if not recover:
+                _hold("PRIOR_ATTEMPT_REVIEW_REQUIRED")
+        try:
+            duration, fps = self.probe(request.media)
+            if not _valid_probe(duration, fps):
+                raise AgyEnglishUnavailable("AGY_EN_NATIVE_VIDEO_PROBE_REQUIRED")
+        except (AgyEnglishUnavailable, OSError, TimeoutError) as exc:
+            if str(exc) in ("AGY_EN_NATIVE_MEDIA_CHANGED", "AGY_EN_NATIVE_MEDIA_ID_INVALID"):
+                raise
+            raise NativeNoCall("AGY_EN_NATIVE_PRE_PROVIDER_BLOCKED") from None
         # One cross-process browser claim. Do not automatically remove a stale
         # marker: PowerShell timeout may leave a native descendant alive.
         try:
@@ -475,6 +548,8 @@ class NativeBrowserProducer:
             _hold("BROWSER_BUSY_OR_UNKNOWN")
         completed_artifact = False
         try:
+            if recover:
+                run.rename(parent / (run.name + ".preprovider-" + uuid.uuid4().hex))
             run.mkdir()
             proof = self.execute(request, run, self.profile, duration, fps)
             # A returned synchronous browser receipt proves the invocation
@@ -499,8 +574,10 @@ class NativeBrowserProducer:
             return proof
         except Exception as exc:
             pre_provider = self.execute is run_windows and not (run / "provider.started.json").exists()
-            known = completed_artifact or pre_provider
+            terminal_no_source = isinstance(exc, NativeTerminalNoSource)
+            known = completed_artifact or pre_provider or terminal_no_source
             status = ("PRE_PROVIDER_BLOCKED" if pre_provider else
+                      "NO_SOURCE" if terminal_no_source else
                       "SOURCE_REJECTED" if completed_artifact else "RESULT_UNKNOWN_REVIEW_REQUIRED")
             if run.is_dir():
                 code = str(exc) if isinstance(exc, AgyEnglishUnavailable) and re.fullmatch(r"AGY_EN_[A-Z0-9_]+", str(exc)) else None
@@ -508,6 +585,10 @@ class NativeBrowserProducer:
                     "error_type": type(exc).__name__, "reason": code})
             if known:
                 pending.unlink()
+                if pre_provider:
+                    raise NativeNoCall("AGY_EN_NATIVE_PRE_PROVIDER_BLOCKED") from None
+                if terminal_no_source:
+                    raise NativeTerminalNoSource("AGY_EN_NATIVE_NO_SOURCE") from None
                 raise AgyEnglishUnavailable("AGY_EN_NATIVE_" + status) from None
             raise AgyEnglishUnavailable("AGY_EN_NATIVE_RESULT_UNKNOWN") from None
 

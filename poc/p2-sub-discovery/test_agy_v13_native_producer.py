@@ -5,6 +5,7 @@ from threading import Event
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+import json
 from unittest import mock
 from types import SimpleNamespace
 
@@ -12,7 +13,7 @@ from agy_opensubtitles_acquisition import AgyEnglishUnavailable
 from agy_v13_browser_evidence import BrowserRequest, make_v13_acquirer
 from agy_v13_native_producer import (
     NativeBrowserProducer, measured_metadata, native_cache_verified,
-    probe_selected, _ensure_browser_listener,
+    probe_selected, _ensure_browser_listener, NativeNoCall, NativeTerminalNoSource, _terminal_no_source,
 )
 from test_agy_v13_browser_evidence import MEDIA, proof
 from owner_torrserver_ffp_tracks import TorrServerProbeBlocked
@@ -128,6 +129,66 @@ class NativeProducerTests(unittest.TestCase):
                 producer(BrowserRequest(MEDIA), root)
             self.assertEqual(producer(BrowserRequest(replace(MEDIA, file_index=3)), root).media.file_index, 3)
             self.assertEqual(calls, [2, 3])
+
+    def test_preprovider_recovery_retains_receipt_and_calls_only_once(self):
+        import agy_v13_native_producer as native
+        attempts = []
+        def execute(req, run, *args):
+            attempts.append(req.media)
+            if len(attempts) == 1:
+                raise AgyEnglishUnavailable("AGY_EN_NATIVE_TASK_TAB_UNAVAILABLE")
+            native._write(run / "provider.started.json", {"started": 1})
+            return proof()
+        with TemporaryDirectory() as temp, mock.patch.object(native, "run_windows", execute):
+            root = Path(temp)
+            producer = NativeBrowserProducer(profile=root, probe=lambda _: (7200, 24), execute=execute)
+            with self.assertRaises(NativeNoCall):
+                producer(BrowserRequest(MEDIA), root)
+            self.assertFalse((root / ".native-v13/browser.pending").exists())
+            self.assertEqual(producer(BrowserRequest(MEDIA), root), proof())
+            self.assertEqual(producer(BrowserRequest(MEDIA), root), proof())
+            self.assertEqual(len(attempts), 2)
+            archives = list((root / ".native-v13").glob("*.preprovider-*"))
+            self.assertEqual(len(archives), 1)
+            self.assertIn("PRE_PROVIDER_BLOCKED", (archives[0] / "terminal.json").read_text())
+
+    def test_metadata_error_is_proven_no_call(self):
+        with TemporaryDirectory() as temp:
+            execute = mock.Mock(side_effect=AssertionError("no provider"))
+            producer = NativeBrowserProducer(profile=Path(temp), execute=execute,
+                probe=mock.Mock(side_effect=AgyEnglishUnavailable("AGY_EN_NATIVE_VIDEO_PROBE_REQUIRED")))
+            with self.assertRaises(NativeNoCall):
+                producer(BrowserRequest(MEDIA), Path(temp))
+            execute.assert_not_called()
+
+    def test_terminal_no_source_releases_browser_but_not_same_job(self):
+        calls = []
+        def execute(req, *args):
+            calls.append(req.media.file_index)
+            if req.media == MEDIA:
+                raise NativeTerminalNoSource("AGY_EN_NATIVE_NO_SOURCE")
+            return replace(proof(), media=req.media)
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            producer = NativeBrowserProducer(profile=root, probe=lambda _: (7200, 24), execute=execute)
+            with self.assertRaises(NativeTerminalNoSource):
+                producer(BrowserRequest(MEDIA), root)
+            with self.assertRaises(AgyEnglishUnavailable):
+                producer(BrowserRequest(MEDIA), root)
+            self.assertEqual(producer(BrowserRequest(replace(MEDIA, file_index=3)), root).media.file_index, 3)
+            self.assertEqual(calls, [2, 3])
+
+    def test_no_source_requires_terminal_and_passive_observed_tools(self):
+        passive = {"step_update": {"tool_name": "call_mcp_tool", "tool_info": {
+            "parameters": {"ToolName": "list_pages"}, "output": "0: page"}}}
+        result = {"event": "result", "result": {"status": "SUCCESS",
+            "response": '{"status":"NO_PLAUSIBLE_CANDIDATE"}'}}
+        stream = lambda *rows: "\n".join(json.dumps(row) for row in rows)
+        self.assertTrue(_terminal_no_source(stream(passive, result)))
+        self.assertFalse(_terminal_no_source(stream(passive)))
+        click = {"step_update": {"tool_name": "call_mcp_tool", "tool_info": {
+            "parameters": {"ToolName": "evaluate_script"}, "output": "unknown"}}}
+        self.assertFalse(_terminal_no_source(stream(passive, click, result)))
 
     def test_unknown_effect_blocks_same_and_other_media(self):
         calls = []

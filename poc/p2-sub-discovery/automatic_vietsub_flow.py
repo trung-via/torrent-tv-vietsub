@@ -346,6 +346,14 @@ class AutomaticVietsubFlow:
                     return AutoResult("REVIEW_REQUIRED")
                 raise
             except AgyEnglishUnavailable as exc:
+                if native:
+                    from agy_v13_native_producer import NativeNoCall, NativeTerminalNoSource
+                    if isinstance(exc, NativeNoCall):
+                        from owner_session_bridge import PreProviderTransient
+                        raise PreProviderTransient("AGY_OWNER_PREFLIGHT_UNAVAILABLE") from None
+                    if isinstance(exc, NativeTerminalNoSource):
+                        self.emit("AUTO_EN_SOURCE=AGY_NATIVE_NO_SOURCE")
+                        return AutoResult("REVIEW_REQUIRED")
                 if str(exc) == "AGY_EN_NO_MATCH":
                     self.emit("AUTO_EN_SOURCE=AGY_OPENSUB_NO_MATCH")
                     return AutoResult("REVIEW_REQUIRED")
