@@ -1,11 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
   "operation": "agy-native-browser-readout-1124",
-  "category": "owner-maintenance",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/v13-resume-stop.ps1",
-  "script_sha256": "c43c31b3007e22c21d3c50236b065afc0eb9957b0d8f4604dd778c953160dc1c",
-  "arguments": [
-    "-ResumeStop"
-  ]
+  "script_path": "hostops/laptop-ops/operations/v13-current-request-readonly.ps1",
+  "script_sha256": "4eb4b15a426762f9873e8008dbf11b64166eabaf29a374ad234e69adc5e2bca8",
+  "arguments": []
 }
