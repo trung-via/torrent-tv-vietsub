@@ -12,12 +12,12 @@ import hashlib
 import re
 from typing import Mapping
 
-from cue_pipeline import Cue, apply_translations, parse_cues, render
+from cue_pipeline import MAX_BYTES, Cue, apply_translations, parse_cues, render
 
 MAX_TARGET_CUES = 120
 MAX_TARGET_CHARS = 6500
 CONTEXT_CUES = 4
-MAX_TV_BYTES = 256 * 1024
+MAX_TV_BYTES = MAX_BYTES
 MEDIA_KEY = re.compile(r"media\.[0-9a-f]{64}\Z")
 
 

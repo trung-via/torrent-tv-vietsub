@@ -16,7 +16,7 @@ from typing import Callable
 
 from matcher import Media, parse_release, preferred_media_release
 from local_en_direct import LocalMediaSelection, find_local_english
-from opensubtitles import Asset, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
+from opensubtitles import Asset, MAX_SUBTITLE_BYTES, OpenSubtitles, SubtitleApiError, write_private_cache, validate_timed_text
 from owner_torrserver_subs import (
     OwnerTorrServerSubtitleReader, SidecarInventory, TorrServerSubsUnavailable,
 )
@@ -240,7 +240,7 @@ class AutomaticVietsubFlow:
                 or not final.is_file()):
             raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
         payload = final.read_bytes()
-        if len(payload) > 256 * 1024:
+        if len(payload) > MAX_SUBTITLE_BYTES:
             raise ValueError("AUTO_CACHED_VI_FINAL_INVALID")
         number = len(self.worker.progressive_session(source).windows)
         last = folder / f"batch-{number:04d}.json"

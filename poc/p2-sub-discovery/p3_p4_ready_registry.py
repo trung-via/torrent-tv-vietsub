@@ -30,7 +30,7 @@ from matcher import Media
 from verified_vietsub_ready import VerifiedVietsubReady
 from automatic_lean120_worker import AutomaticLean120Worker
 from cached_en_direct_handoff import CachedEnReceipt, prepare_local_translation_source
-from cue_pipeline import parse_cues
+from cue_pipeline import MAX_BYTES, parse_cues
 
 _SHA = re.compile(r"[a-f0-9]{64}\Z")
 _SOURCE = re.compile(r"[a-f0-9]{64}\.srt\Z")
@@ -115,7 +115,7 @@ class P3OwnerReadyRegistry:
             canonical = file.resolve(strict=True)
             if (not canonical.is_relative_to(base.resolve(strict=True))
                     or not canonical.is_file()
-                    or not 0 < canonical.stat().st_size <= 256 * 1024):
+                    or not 0 < canonical.stat().st_size <= MAX_BYTES):
                 raise P3ReadyRejected("P3_READY_FILE_OUTSIDE_ROOT")
             raw = canonical.read_bytes()
             if hashlib.sha256(raw).hexdigest() != sha:
@@ -198,7 +198,7 @@ class P3OwnerReadyRegistry:
             if not file.is_file() or file.is_symlink():
                 raise P3ReadyRejected("P3_READY_P2_COMPLETE_OUTPUT_MISSING")
             payload = file.read_bytes()
-            if (not 0 < len(payload) <= 256*1024
+            if (not 0 < len(payload) <= MAX_BYTES
                     or len(parse_cues(payload, "srt")) != source_cues):
                 raise P3ReadyRejected("P3_READY_P2_OUTPUT_INVALID")
             # Ensures full-film LEAN120 kept source IDs and timecodes; no

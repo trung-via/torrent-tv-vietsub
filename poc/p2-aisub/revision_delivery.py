@@ -16,7 +16,7 @@ import json
 import re
 from typing import Callable
 
-from cue_pipeline import parse_cues
+from cue_pipeline import MAX_CUES, parse_cues
 from progressive_handoff import MAX_TV_BYTES, SubtitleRevision
 
 _SESSION = re.compile(r"[A-Za-z0-9_-]{16,80}\Z")
@@ -62,7 +62,7 @@ def _validated_offer(offer: SignedSubtitleOffer) -> None:
         or type(offer.total_count) is not int
         or offer.translated_count < 1
         or offer.translated_count > offer.total_count
-        or offer.total_count > 2000):
+        or offer.total_count > MAX_CUES):
         raise ValueError("P4_CUE_COUNT_INVALID")
     if type(offer.last_end_ms) is not int or offer.last_end_ms <= 0:
         raise ValueError("P4_HORIZON_INVALID")

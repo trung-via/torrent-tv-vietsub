@@ -28,7 +28,7 @@ from progressive_handoff import SubtitleRevision
 from revision_delivery import SignedSubtitleOffer, sign_revision
 
 _SESSION = re.compile(r"[A-Za-z0-9_-]{16,80}\Z")
-MAX_WIRE_BYTES = 400_000
+MAX_WIRE_BYTES = 6 * 1024 * 1024
 _RFC1918 = tuple(ipaddress.IPv4Network(x) for x in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
 ))

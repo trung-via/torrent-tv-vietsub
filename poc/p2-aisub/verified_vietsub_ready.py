@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import hashlib
 import re
 
-from cue_pipeline import parse_cues
+from cue_pipeline import MAX_CUES, parse_cues
 from progressive_handoff import SubtitleRevision, MAX_TV_BYTES
 
 _MEDIA = re.compile(r"media\.[0-9a-f]{64}\Z")
@@ -43,7 +43,7 @@ class VerifiedVietsubReady:
         source = parse_cues(source_bytes, "srt")
         translated = parse_cues(vietsub_bytes, "srt")
         if (not source or not translated
-                or len(source) > 2000  # existing P4SignedReceiver contract
+                or len(source) > MAX_CUES  # shared full-film contract
                 or len(source) != len(translated)
                 or any((a.number, a.start_ms, a.end_ms, a.identifier, a.settings)
                        != (b.number, b.start_ms, b.end_ms, b.identifier, b.settings)

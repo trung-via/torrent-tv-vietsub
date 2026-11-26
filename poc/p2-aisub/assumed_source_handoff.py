@@ -13,13 +13,13 @@ from dataclasses import dataclass
 import hashlib
 import re
 
-from cue_pipeline import parse_cues
+from cue_pipeline import MAX_BYTES, parse_cues
 from lan_revision_feed import SessionRevisionFeed, translate_into_feed
 from lean120_api import ModelProfile
 from progressive_handoff import SubtitleRevision
 
 MEDIA = re.compile(r"media\.[0-9a-f]{64}\Z")
-MAX_SOURCE_BYTES = 256 * 1024
+MAX_SOURCE_BYTES = MAX_BYTES
 
 
 @dataclass(frozen=True)
