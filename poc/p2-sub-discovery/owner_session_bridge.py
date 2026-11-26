@@ -49,6 +49,7 @@ _RETRY_DELAYS = (5, 15, 30)
 _FULL_LOG = None
 _FULL_LOG_LOCK = threading.RLock()
 _ENQUEUE_LOCK = threading.RLock()
+_PREPROVIDER_RELEASE_LOCK = threading.RLock()
 
 
 class _OwnerLogTee:
@@ -222,8 +223,12 @@ def _retry_state(file: Path) -> tuple[int, int]:
 
 def _record_preprovider_retry(file: Path, attempts: int, now: int) -> None:
     """Durably record a bounded retry BEFORE releasing the provider claim."""
+    _write_retry_record(file, attempts, now + _RETRY_DELAYS[attempts - 1])
+
+
+def _write_retry_record(file: Path, attempts: int, retry_at: int) -> None:
     record = {"schema": _RETRY_SCHEMA, "attempts": attempts,
-              "not_before_epoch": now + _RETRY_DELAYS[attempts - 1]}
+              "not_before_epoch": retry_at}
     temporary = file.parent / ("preprovider-retry-" + secrets.token_hex(8) + ".tmp")
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -235,6 +240,27 @@ def _record_preprovider_retry(file: Path, attempts: int, now: int) -> None:
         os.replace(temporary, file)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _release_preprovider_claim(claim: Path, retry: Path) -> bool:
+    """Only an atomic pre-provider receipt on THIS claim permits release.
+
+    A normal or unknown-effect claim is never removed. If a transient
+    filesystem failure prevents completing the handoff, a later poll can
+    finish the same receipt, preserving the original retry deadline.
+    Caller holds _PREPROVIDER_RELEASE_LOCK.
+    """
+    if not claim.exists() or claim.is_symlink():
+        return False
+    try:
+        attempts, retry_at = _retry_state(claim)
+        if not attempts:
+            return False
+        _write_retry_record(retry, attempts, retry_at)
+        claim.unlink()
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def _remove_finished_retry(file: Path) -> None:
@@ -440,6 +466,11 @@ def poll_private_events(
             emit("OWNER_BRIDGE_EVENT_REJECTED")
             continue
         retry = _retry_file(inbox, event.event_id)
+        claim = inbox / ("claim-" + event.event_id)
+        # Complete an interrupted handoff only if the claim itself contains
+        # the explicit pre-provider receipt from that attempt.
+        with _PREPROVIDER_RELEASE_LOCK:
+            _release_preprovider_claim(claim, retry)
         try:
             retry_attempts, retry_at = _retry_state(retry)
         except (OSError, ValueError) as exc:
@@ -452,7 +483,6 @@ def poll_private_events(
             continue
         if int(time.time()) < retry_at:
             continue
-        claim = inbox / ("claim-" + event.event_id)
         try:
             fd = os.open(claim, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
@@ -504,10 +534,14 @@ def poll_private_events(
                     emit("OWNER_BRIDGE_EVENT_BLOCKED_NO_RETRY")
                 else:
                     try:
-                        _record_preprovider_retry(
-                            retry, min(retry_attempts + 1, len(_RETRY_DELAYS)),
-                            int(time.time()))
-                        claim.unlink()
+                        with _PREPROVIDER_RELEASE_LOCK:
+                            # Commit the no-provider outcome to the exact claim
+                            # before attempting the recoverable retry handoff.
+                            _record_preprovider_retry(
+                                claim, min(retry_attempts + 1, len(_RETRY_DELAYS)),
+                                int(time.time()))
+                            if not _release_preprovider_claim(claim, retry):
+                                raise OSError("PREPROVIDER_RELEASE_PENDING")
                     except (OSError, ValueError):
                         emit("OWNER_BRIDGE_EVENT_PREPROVIDER_DEFER_HOLD")
                     else:
