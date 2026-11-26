@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flat-subtitle-limit-live-read.ps1",
-  "script_sha256": "7456c28e0dee541d303d5bc02a69fa2b40e12e6a629a055bb80652584443ec84",
+  "script_path": "hostops/laptop-ops/operations/g1-benchmark-event-read.ps1",
+  "script_sha256": "8d024bce4e5a1a614e49bfa8b64cd858f1d6af28df21ce4ff8b86b3ae9f37f9d",
   "arguments": []
 }
