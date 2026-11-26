@@ -172,6 +172,30 @@ class NativeProducerTests(unittest.TestCase):
             self.assertEqual(producer(BrowserRequest(replace(MEDIA, file_index=3)), root).media.file_index, 3)
             self.assertEqual(calls, [2, 3])
 
+    def test_recover_retained_comparison_rejection_without_provider(self):
+        from dataclasses import asdict
+        from agy_v13_native_producer import recover_comparison_rejected
+        p = proof()
+        p = replace(p, outcomes=(p.outcomes[0], *p.outcomes[2:]))
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = _job(root, MEDIA)
+            run.mkdir(parents=True)
+            (run / "download.bin").write_bytes(p.download_bytes)
+            _write(run / "evidence.json", {"media": asdict(MEDIA), "duration": p.duration_seconds,
+                   "fps": p.fps, "outcomes": p.outcomes, "artifacts": p.artifacts})
+            _write(run / "provider.started.json", {"started": 1})
+            _write(run / "terminal.json", {"status": "SOURCE_REJECTED",
+                   "reason": "AGY_EN_RELEASE_COMPARISON_MISSING"})
+            asset = recover_comparison_rejected(run, MEDIA)
+            self.assertEqual(asset.cues, 125)
+            self.assertEqual((run / "download.bin").read_bytes(), p.download_bytes)
+            self.assertTrue((run / "terminal.json").exists())
+            execute = mock.Mock(side_effect=AssertionError("no second provider"))
+            producer = NativeBrowserProducer(profile=root, probe=execute, execute=execute)
+            self.assertEqual(producer(BrowserRequest(MEDIA), root), p)
+            execute.assert_not_called()
+
     def test_preprovider_recovery_retains_receipt_and_calls_only_once(self):
         import agy_v13_native_producer as native
         attempts = []

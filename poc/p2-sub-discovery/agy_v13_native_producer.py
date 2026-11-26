@@ -90,7 +90,7 @@ def _receipt_matches(row, media, asset):
             {k: v for k, v in expected.items() if k != "verification_revision"})
 
 
-def _retained_verified(run, media):
+def _retained_proof(run, media):
     evidence = _json(run / "evidence.json")
     original = Media(**evidence["media"])
     # P4 may only have exact file coordinates, not the optional release hint.
@@ -103,10 +103,37 @@ def _retained_verified(run, media):
         _hold("RETAINED_ARTIFACT_INVALID")
     proof = BrowserEvidence(original, evidence["duration"], evidence["fps"],
         tuple(evidence["outcomes"]), tuple(evidence["artifacts"]), artifact.read_bytes(), True)
-    asset = verify_evidence(BrowserRequest(original), proof)
-    if not _receipt_matches(_json(run / "verified.json", 4096), original, asset):
+    return proof, verify_evidence(BrowserRequest(original), proof)
+
+
+def _retained_verified(run, media):
+    proof, asset = _retained_proof(run, media)
+    if not _receipt_matches(_json(run / "verified.json", 4096), proof.media, asset):
         _hold("RETAINED_RECEIPT_MISMATCH")
     return proof, asset
+
+
+def recover_comparison_rejected(run, media):
+    """Owner maintenance: revalidate only a completed, retained comparison rejection.
+
+    No browser/provider call; preserve terminal evidence and original ZIP.
+    Caller must stop Owner and bind the exact event/media before requeue.
+    """
+    if run.is_symlink() or run.parent.is_symlink() or (run.parent / "browser.pending").exists():
+        _hold("BROWSER_BUSY_OR_UNKNOWN")
+    terminal = _json(run / "terminal.json", 4096)
+    if (terminal.get("status") != "SOURCE_REJECTED"
+            or terminal.get("reason") != "AGY_EN_RELEASE_COMPARISON_MISSING"
+            or not (run / "provider.started.json").is_file()):
+        _hold("PRIOR_ATTEMPT_REVIEW_REQUIRED")
+    proof, asset = _retained_proof(run, media)
+    receipt = run / "verified.json"
+    if receipt.exists():
+        if not _receipt_matches(_json(receipt, 4096), proof.media, asset):
+            _hold("RETAINED_RECEIPT_MISMATCH")
+    else:
+        _write(receipt, _receipt(proof.media, asset))
+    return asset
 
 
 def native_cache_verified(root, media, sha, cues):

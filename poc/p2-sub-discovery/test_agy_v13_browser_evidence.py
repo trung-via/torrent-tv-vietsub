@@ -112,11 +112,10 @@ class V13EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(AgyEnglishUnavailable, "OVERRUN"):
             self.verify(replace(proof(), duration_seconds=1))
 
-    def test_requires_observed_second_plausible_release_family(self):
+    def test_selected_release_does_not_require_second_family_detail(self):
         p = proof()
         incomplete = (p.outcomes[0], *p.outcomes[2:])
-        with self.assertRaisesRegex(AgyEnglishUnavailable, "RELEASE_COMPARISON_MISSING"):
-            self.verify(replace(p, outcomes=incomplete))
+        self.assertEqual(self.verify(replace(p, outcomes=incomplete)).cues, 125)
 
     def test_explicit_runtime_conflict_cannot_pass_same_release_match(self):
         p = proof()
