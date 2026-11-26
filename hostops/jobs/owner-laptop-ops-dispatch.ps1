@@ -188,6 +188,36 @@ foreach ($dir in @($inbox,$outbox)) {
 $requestFile = Join-Path $inbox 'request.json'
 $receiptFile = Join-Path $outbox 'receipt.json'
 $history = Join-Path $spool 'History'
+# Human-approved recovery of ONE timed-out operation: preserve the original request,
+# never fabricate its receipt, and submit only an Owner read-only reconciliation.
+if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/owner-control-recovery-readonly.ps1') {
+    if ($manifest.category -cne 'diagnostics' -or $manifest.arguments.Count -ne 0 -or
+        [string](Get-ScheduledTask -TaskName $name -TaskPath '\').State -cne 'Ready') {
+        throw 'OWNER_CONTROL_RECOVERY_NOT_IDLE'
+    }
+    $old = Get-Content -LiteralPath $requestFile -Raw | ConvertFrom-Json
+    if ($old.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or
+        $old.source_commit -cne '40b23c6556bc4258b69392e6990ba4bca9e16cf3' -or
+        $old.nonce -cnotmatch '^[a-f0-9]{32}$') { throw 'OWNER_CONTROL_RECOVERY_WRONG_REQUEST' }
+    $last = Get-ScheduledTaskInfo -TaskName $name -TaskPath '\'
+    if ($last.LastTaskResult -ne 0 -or
+        $last.LastRunTime.ToUniversalTime() -lt [DateTimeOffset]::FromUnixTimeSeconds([long]$old.requested_utc_epoch).UtcDateTime.AddSeconds(-2)) {
+        throw 'OWNER_CONTROL_RECOVERY_TASK_RESULT_UNKNOWN'
+    }
+    if (-not (Test-Path -LiteralPath $history -PathType Container)) {
+        New-Item -ItemType Directory -Path $history | Out-Null
+    }
+    $archive = Join-Path $history ('request-' + $old.nonce + '.json')
+    if (Test-Path -LiteralPath $archive) { throw 'OWNER_CONTROL_RECOVERY_ARCHIVE_EXISTS' }
+    $archiveHash = (Get-FileHash -LiteralPath $requestFile -Algorithm SHA256).Hash
+    Move-Item -LiteralPath $requestFile -Destination $archive -ErrorAction Stop
+    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -cne $archiveHash) {
+        throw 'OWNER_CONTROL_RECOVERY_ARCHIVE_HASH'
+    }
+    $record = Join-Path $history ('unknown-effect-' + $old.nonce + '.json')
+    [IO.File]::WriteAllText($record,(@{schema='TTV-HOSTOPS-UNKNOWN-EFFECT-V1';nonce=$old.nonce;source_commit=$old.source_commit;state='ARCHIVED_NO_REPLAY';reconciliation_source=$commit}|ConvertTo-Json -Compress))
+    Write-Output 'HOSTOPS_OWNER_CONTROL_TIMEOUT_ARCHIVED_NO_REPLAY'
+}
 if (Test-Path -LiteralPath $requestFile) {
     if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) {
         throw 'HOSTOPS_OWNER_OPS_UNRESOLVED_PREVIOUS_REQUEST'
