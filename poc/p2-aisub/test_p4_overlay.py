@@ -17,6 +17,7 @@ def fake_g1() -> str:
     return (
         "// Synthetic, not real OMP source\n"
         "class P1ProductionSubtitles {\n"
+        "    private const val MAX = 256 * 1024\n"
         + module.OLD_HEAD + "\n"
         + "        val dir = folder(ctx)\n"
         + "        val target = file(ctx, k, v)\n"
@@ -74,6 +75,7 @@ class P4SourcePatchTest(unittest.TestCase):
         self.assertIn("fun importSelected(ctx: Context, uri: Uri", result)
         self.assertIn("val bytes = readDocument(ctx, uri)", result)
         self.assertIn("fun importAutomaticBytes(", result)
+        self.assertIn("private const val MAX = P4_MAX_SUBTITLE_BYTES", result)
         self.assertIn("fun snapshotAutomaticBefore(", result)
         self.assertIn("fun rollbackAutomatic(", result)
         self.assertIn("key != expectedMediaKey", result)
