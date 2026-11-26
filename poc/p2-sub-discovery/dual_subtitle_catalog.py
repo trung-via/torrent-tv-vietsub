@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import re
+from threading import Lock
+import uuid
 
 from matcher import Media
 from opensubtitles import Asset, SubtitleApiError, validate_timed_text
@@ -21,6 +23,7 @@ _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _SRT = re.compile(r"[0-9a-f]{64}\.srt\Z")
 _SCHEMA = "TTV-DUAL-SOURCE-V1"
 _KIND_LANGUAGE = {"ai_en": "en", "downloaded_vi": "vi"}
+_NATIVE_INDEX_LOCK = Lock()
 
 
 @dataclass(frozen=True)
@@ -33,11 +36,12 @@ class SourceReceipt:
 
 
 class DualSubtitleCatalog:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, native: bool = False):
         if (not isinstance(root, Path) or not root.is_absolute()
                 or root.is_symlink()):
             raise SubtitleApiError("DUAL_CACHE_ROOT_INVALID")
         self.root = root
+        self.native = native
 
     @staticmethod
     def _verify_binding(media: Media, fingerprint: str) -> None:
@@ -50,7 +54,8 @@ class DualSubtitleCatalog:
             raise SubtitleApiError("DUAL_MEDIA_BINDING_MISMATCH")
 
     def _index(self, fingerprint: str, kind: str) -> Path:
-        return self.root / (".dual-source-" + fingerprint + "-" + kind + ".json")
+        prefix = ".dual-source-native-v13-" if self.native and kind == "ai_en" else ".dual-source-"
+        return self.root / (prefix + fingerprint + "-" + kind + ".json")
 
     def _file(self, row: dict, kind: str) -> SourceReceipt:
         if (not isinstance(row, dict)
@@ -80,6 +85,16 @@ class DualSubtitleCatalog:
             raise SubtitleApiError("DUAL_SOURCE_KIND_INVALID")
         index = self._index(fingerprint, kind)
         if not index.exists() and not index.is_symlink():
+            if self.native and kind == "ai_en":
+                # Reuse old EN only with independent proof; do not change it.
+                try:
+                    legacy = DualSubtitleCatalog(self.root).read(media, fingerprint, kind)
+                except SubtitleApiError:
+                    return None
+                if legacy is not None and legacy.release_matched:
+                    from agy_v13_native_producer import native_cache_verified
+                    if native_cache_verified(self.root, media, legacy.sha256, legacy.cues):
+                        return legacy
             return None
         if index.is_symlink() or not index.is_file() or not 0 < index.stat().st_size <= 512:
             raise SubtitleApiError("DUAL_SOURCE_INDEX_INVALID")
@@ -87,7 +102,12 @@ class DualSubtitleCatalog:
             row = json.loads(index.read_text("utf-8"))
         except (OSError, UnicodeError, ValueError):
             raise SubtitleApiError("DUAL_SOURCE_INDEX_INVALID") from None
-        return self._file(row, kind)
+        receipt = self._file(row, kind)
+        if self.native and kind == "ai_en":
+            from agy_v13_native_producer import native_cache_verified
+            if not receipt.release_matched or not native_cache_verified(self.root, media, receipt.sha256, receipt.cues):
+                raise SubtitleApiError("DUAL_NATIVE_SOURCE_UNVERIFIED")
+        return receipt
 
     def record(self, media: Media, fingerprint: str, kind: str,
                asset: Asset, file: Path, *, release_matched: bool) -> SourceReceipt:
@@ -110,6 +130,27 @@ class DualSubtitleCatalog:
         receipt = self._file(row, kind)
         index = self._index(fingerprint, kind)
         raw = json.dumps(row, separators=(",", ":"), sort_keys=True).encode()
+        if self.native and kind == "ai_en":
+            from agy_v13_native_producer import native_cache_verified
+            if not release_matched or not native_cache_verified(self.root, media, receipt.sha256, receipt.cues):
+                raise SubtitleApiError("DUAL_NATIVE_SOURCE_UNVERIFIED")
+            # Owner is the sole writer. Publish atomically to P4 readers;
+            # the old pointer, SRT and checkpoint remain intact.
+            with _NATIVE_INDEX_LOCK:
+                if index.exists() or index.is_symlink():
+                    if self.read(media, fingerprint, kind) != receipt:
+                        raise SubtitleApiError("DUAL_SOURCE_INDEX_CONFLICT")
+                    return receipt
+                tmp = index.with_name(index.name + "." + uuid.uuid4().hex + ".tmp")
+                try:
+                    with tmp.open("xb") as handle:
+                        handle.write(raw)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(tmp, index)
+                finally:
+                    tmp.unlink(missing_ok=True)
+            return receipt
         try:
             fd = os.open(index, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:

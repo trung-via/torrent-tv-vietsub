@@ -192,6 +192,25 @@ class OwnerIntegratedRuntimeTests(unittest.TestCase):
             diagnostic.assert_called_once_with(
                 owner_root=self.owner, wiring=self.wiring, state="READY")
 
+    def test_native_owner_factory_only_wires_existing_r2_flow(self):
+        from owner_p3_p4_runtime import _native_owner_factory
+        from p3_owner_state_wiring_r2 import R2OwnerP3StatusComposition
+        from types import SimpleNamespace
+        with self.assertRaisesRegex(OwnerRuntimeBlocked, "P3_P4_NATIVE_R2_REQUIRED"):
+            _native_owner_factory(self.wiring)
+        # The same R2 composition fields; patch only the existing worker
+        # factory so no Windows or provider path can run in this test.
+        wiring = R2OwnerP3StatusComposition(**vars(self.wiring))
+        flow = SimpleNamespace(source_acquirer=None)
+        runner = mock.Mock(side_effect=AssertionError("startup must not invoke AGY"))
+        with mock.patch("agy_v13_native_producer.owner_native_runner", return_value=runner), mock.patch.object(
+                R2OwnerP3StatusComposition, "trusted_v3_factory", return_value=flow) as old_factory:
+            factory = _native_owner_factory(wiring)
+            self.assertIs(factory(flow), flow)
+            self.assertIs(flow.source_acquirer.native_v13, True)
+            old_factory.assert_called_once_with(flow)
+            runner.assert_not_called()
+
     def test_no_implicit_live_start_in_ci_or_without_explicit_grant(self):
         with mock.patch("owner_p3_p4_runtime.make_integrated_https_server") as server:
             with self.assertRaisesRegex(OwnerRuntimeBlocked, "EXPLICIT_INTERACTIVE"):

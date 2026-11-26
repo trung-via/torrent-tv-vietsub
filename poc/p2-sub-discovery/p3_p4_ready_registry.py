@@ -137,7 +137,8 @@ class P3OwnerReadyRegistry:
         # Never mistake a legacy VI index for the new AI source.
         if getattr(flow, "dual_mode", False) is True:
             kind = "ai_en" if result.status == "VIETSUB_READY" else "downloaded_vi"
-            receipt = DualSubtitleCatalog(cache).read(media, fingerprint, kind)
+            native = getattr(getattr(flow, "source_acquirer", None), "native_v13", False) is True
+            receipt = DualSubtitleCatalog(cache, native=native).read(media, fingerprint, kind)
             if receipt is None or receipt.cues != result.cue_count:
                 raise P3ReadyRejected("P3_READY_DUAL_SOURCE_MISSING")
             raw = cls._file(cache, receipt.file,

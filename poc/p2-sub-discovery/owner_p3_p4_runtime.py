@@ -113,6 +113,20 @@ def make_integrated_https_server(*, wiring: OwnerP3StatusComposition,
     return server
 
 
+def _native_owner_factory(wiring):
+    """Opt-in source candidate; no provider or Chrome operation at startup."""
+    from p3_owner_state_wiring_r2 import R2OwnerP3StatusComposition
+    from agy_v13_native_producer import owner_native_runner
+    from agy_v13_browser_evidence import make_v13_acquirer
+    if not isinstance(wiring, R2OwnerP3StatusComposition):
+        raise OwnerRuntimeBlocked("P3_P4_NATIVE_R2_REQUIRED")
+    runner = owner_native_runner(wiring.current._ts)
+    def factory(flow):
+        flow.source_acquirer = make_v13_acquirer(runner)
+        return wiring.trusted_v3_factory(flow)
+    return factory
+
+
 def _serve_and_consume(*, server: HTTPServer, wiring: OwnerP3StatusComposition,
                        owner_root: Path, cache_root: Path, state_root: Path,
                        interval_seconds: float,
@@ -122,16 +136,18 @@ def _serve_and_consume(*, server: HTTPServer, wiring: OwnerP3StatusComposition,
     # Wire the exact Owner cache before listening: a missing Brain SRT
     # must not be consumed into a terminal REVIEW_REQUIRED event.
     from p3_signed_signal_to_owner import SignedP3ToOwner
+    native = os.environ.get("TTV_NATIVE_V13") == "1"
     listener = Thread(target=server.serve_forever,
                       kwargs={"poll_interval": 0.2},
                       name="torrent-tv-owner-p3-p4-https", daemon=True)
     try:
-        if isinstance(getattr(wiring, "signal", None), SignedP3ToOwner):
+        factory = _native_owner_factory(wiring) if native else wiring.trusted_v3_factory
+        if not native and isinstance(getattr(wiring, "signal", None), SignedP3ToOwner):
             wiring.signal.bind_brain_english_inbox(cache_root)
         listener.start()
         agent(private_root=owner_root, cache_root=cache_root,
               state_root=state_root, interval_seconds=interval_seconds,
-              trusted_v3_factory=wiring.trusted_v3_factory,
+              trusted_v3_factory=factory,
               diagnostic_tick=lambda state: _diagnostic_tick(
                   owner_root=owner_root, wiring=wiring, state=state))
     finally:

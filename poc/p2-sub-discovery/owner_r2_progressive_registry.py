@@ -94,6 +94,11 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             from brain_english_inbox import (
                 BrainEnglishUnavailable, acquire_brain_english,
             )
+            if getattr(getattr(flow, "source_acquirer", None), "native_v13", False) is True:
+                active = DualSubtitleCatalog(flow.cache_root, native=True).read(
+                    receipt.media, receipt.fingerprint, "ai_en")
+                if active is None or (active.sha256, active.cues) != (receipt.source_sha256, receipt.total_cues):
+                    return None  # Never publish an old ready pointer.
             if getattr(flow, "source_acquirer", None) is acquire_brain_english:
                 # Completed P2 artifacts must obey the SAME verified staged
                 # Brain source as the rolling checkpoint path. No old EN
@@ -153,6 +158,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
         """Trust only the existing private source receipt and its EN bytes."""
         root = cls._root(getattr(flow, "cache_root", None))
         staged = None
+        native = getattr(getattr(flow, "source_acquirer", None), "native_v13", False) is True
         # P4 must not bypass the temporary Brain source gate by resurrecting
         # a prior dual/legacy AI cache before the new film's staged SRT exists.
         if media is not None:
@@ -165,7 +171,7 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                 except BrainEnglishUnavailable:
                     raise P3ReadyRejected("P4_BRAIN_EN_NOT_READY") from None
         if media is not None:
-            dual = DualSubtitleCatalog(root).read(media, fingerprint, "ai_en")
+            dual = DualSubtitleCatalog(root, native=native).read(media, fingerprint, "ai_en")
             if dual is not None and staged is not None and (
                     dual.sha256 != staged.sha256 or dual.cues != staged.cues):
                 raise P3ReadyRejected("P4_BRAIN_EN_CACHE_CONFLICT")
@@ -175,6 +181,8 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                     private_root=root)
                 cls._cached_en(flow, fingerprint, handoff, media)
                 return handoff
+        if native:
+            return None  # No legacy index fallback in the native candidate.
         index = root / (".auto-source-" + fingerprint + ".json")
         if not index.is_file():
             return None  # A first P2 checkpoint has not been prepared yet.
@@ -310,6 +318,11 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                                    current.file_index)
         self._current(media, current.tv_session_id, fingerprint)
         handoff = self._recover_handoff(flow, fingerprint, media)
+        if getattr(getattr(flow, "source_acquirer", None), "native_v13", False) is True:
+            with self._lock:
+                prior = self._rolling.get(media_key)
+                if prior is not None and (handoff is None or prior.source_sha256 != handoff.source_sha256):
+                    del self._rolling[media_key]  # Old feed invalid; no disk changes.
         if handoff is None:
             # May be a VI source or an early request before EN cache exists.
             # The original completed-VI factory is still allowed to resolve.
@@ -348,8 +361,9 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                    handoff: AssumedEnglishSubtitle,
                    media: Media | None = None) -> tuple[Path, Path, bytes]:
         root = cls._root(getattr(flow, "cache_root", None))
+        native = getattr(getattr(flow, "source_acquirer", None), "native_v13", False) is True
         if media is not None:
-            dual = DualSubtitleCatalog(root).read(media, fingerprint, "ai_en")
+            dual = DualSubtitleCatalog(root, native=native).read(media, fingerprint, "ai_en")
             if dual is not None:
                 raw = cls._file(root, dual.file,
                                 sha=handoff.source_sha256, cues=handoff.cue_count)
@@ -362,6 +376,8 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
                         or expected.source_bytes != handoff.source_bytes):
                     raise P3ReadyRejected("P4_ROLLING_P2_SOURCE_MISMATCH")
                 return root, dual.file, raw
+        if native:
+            raise P3ReadyRejected("P4_NATIVE_EN_NOT_VERIFIED")
         index = root / (".auto-source-" + fingerprint + ".json")
         try:
             if index.is_symlink() or not index.is_file() or index.stat().st_size > 512:
@@ -513,6 +529,9 @@ class R2OwnerProgressiveRegistry(P3OwnerReadyRegistry):
             self._file(receipt.source_root, receipt.source_file,
                        sha=receipt.source_sha256, cues=receipt.source_cues)
             self._restore_current_checkpoint(media_key)
+            with self._lock:
+                if self._rolling.get(media_key) is not receipt:
+                    raise P3ReadyRejected("P4_ROLLING_SOURCE_CHANGED")
             latest = self._current(receipt.media, receipt.tv_session,
                                    receipt.fingerprint)
             if p4_key_from_verified_current(receipt.media, latest) != media_key:

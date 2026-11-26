@@ -304,9 +304,10 @@ class AutomaticVietsubFlow:
                     self.emit("AUTO_EN_SOURCE=BRAIN_EN_NOT_STAGED")
                     return AutoResult("REVIEW_REQUIRED")
                 raise
-        catalog = DualSubtitleCatalog(self.cache_root)
+        native = getattr(self.source_acquirer, "native_v13", False) is True
+        catalog = DualSubtitleCatalog(self.cache_root, native=native)
         ai = catalog.read(media, fingerprint, "ai_en")
-        if ai is None and staged is None:
+        if ai is None and staged is None and not native:
             imported = catalog.import_legacy(media, fingerprint, only_en=True)
             if imported is not None and imported.kind == "ai_en":
                 ai = imported
@@ -339,6 +340,14 @@ class AutomaticVietsubFlow:
                     return AutoResult("REVIEW_REQUIRED")
                 raise
             except AgyEnglishUnavailable as exc:
+                if native:
+                    from agy_v13_native_producer import NativeNoCall, NativeTerminalNoSource
+                    if isinstance(exc, NativeNoCall):
+                        from owner_session_bridge import PreProviderTransient
+                        raise PreProviderTransient("AGY_OWNER_PREFLIGHT_UNAVAILABLE") from None
+                    if isinstance(exc, NativeTerminalNoSource):
+                        self.emit("AUTO_EN_SOURCE=AGY_NATIVE_NO_SOURCE")
+                        return AutoResult("REVIEW_REQUIRED")
                 if str(exc) == "AGY_EN_NO_MATCH":
                     self.emit("AUTO_EN_SOURCE=AGY_OPENSUB_NO_MATCH")
                     return AutoResult("REVIEW_REQUIRED")
@@ -652,9 +661,13 @@ class AutomaticVietsubFlow:
 
 
 def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
-                          model_preflight: Callable[[], None] | None = None
+                          model_preflight: Callable[[], None] | None = None,
+                          native_browser_runner: Callable | None = None
                           ) -> AutomaticVietsubFlow:
-    """Owner bootstrap: one Brain-staged English SRT, then AGY translation.
+    """Owner bootstrap: one EN source, then existing AGY translation.
+
+    The installed/default staged-EN route stays unchanged. A native Owner
+    runner can opt in to the V13.1 evidence adapter after live acceptance.
 
     Host app resolves owner-local preference (enabled) once at startup and
     supplies user-owned credential environment. None of these credentials
@@ -679,7 +692,10 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
     from owner_vietsub_pipeline import _P2
     from translator_gateway import preflight_provider, provider_enabled
     from brain_english_inbox import acquire_brain_english
+    from agy_v13_browser_evidence import make_v13_acquirer
 
+    acquisition = (acquire_brain_english if native_browser_runner is None
+                   else make_v13_acquirer(native_browser_runner))
     profile = load_profile(_P2 / "translator_profile.json")
     if not provider_enabled(profile.provider):
         raise ValueError("AUTO_VIETSUB_PROVIDER_NOT_ENABLED")
@@ -714,5 +730,5 @@ def build_owner_auto_flow(*, enabled: bool, cache_root: Path, state_root: Path,
             auto_download=True, auto_translate_en=True),
         model_preflight=lambda: preflight(),
         dual_mode=True,
-        source_acquirer=acquire_brain_english,
+        source_acquirer=acquisition,
     )
