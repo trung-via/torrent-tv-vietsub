@@ -19,7 +19,7 @@ from itertools import islice
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, ProxyHandler
 
-from agy_owner_warm_session import OwnerAgyWarmSession, WarmSessionError
+from agy_owner_warm_session import OwnerAgyWarmSession, WarmSessionError, warm_reason
 from translator_gateway import preflight_antigravity, _validated_antigravity_alias
 
 
@@ -31,7 +31,18 @@ class MovieQuery:
 
 
 MAX_BATCH = 2
-BATCH_SECONDS = 90
+# Independent budgets, at most two turns, no automatic retries.
+TURN_SECONDS = 120
+
+
+class G2BatchReview(WarmSessionError):
+    """A failed batch retains verified completed rows, not a success verdict."""
+
+    def __init__(self, reason, rows, *, browser_restored):
+        super().__init__(reason)
+        self.reason = reason
+        self.rows = tuple(rows)
+        self.browser_restored = browser_restored
 
 
 def _source(url):
@@ -158,7 +169,9 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
     effects_started = False
     restored = False
     finished = False
-    deadline = time.monotonic() + BATCH_SECONDS
+    rows = []
+    failure = None
+    started_at = time.monotonic()
     opener = build_opener(ProxyHandler({}))
 
     def cdp(path, method="GET"):
@@ -236,16 +249,12 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
             current = next((p for p in pages() if p.get("id") == target), {})
             if urlsplit(current.get("url", "")).hostname != source_host:
                 raise WarmSessionError("G2_TASK_SOURCE_UNVERIFIED")
-        rows = []
         session = session_factory(ps=ps, env=env, root=run)
         with session:
-            for q in queries:
+            for index, q in enumerate(queries):
                 if rows and should_yield():
                     break
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                session.timeout = remaining
+                session.timeout = TURN_SECONDS
                 task_page()
                 request_id = uuid.uuid4().hex
                 result = session.turn(_prompt(q, source_url, request_id), run / request_id,
@@ -256,11 +265,18 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
                                  "final_ms": result.final_ms,
                                  "mcp_outcomes": result.mcp_outcomes,
                                  "mcp_errors": result.mcp_errors}
+                row["turn_index"] = index
+                row["turn_request_id"] = request_id
+                row["query"] = asdict(q)
                 _write(run / request_id / "result.json", row)
                 rows.append(row)
+                _write(run / "checkpoint.json", {"status": "IN_PROGRESS",
+                       "results": rows, "requested_count": len(queries)})
                 if row["status"] in ("ACCESS_BLOCKED", "UNKNOWN"):
                     break
         finished = True
+    except Exception as exc:
+        failure = warm_reason(exc)
     finally:
         # Only close this job's temporary tab after the owned CLI is known exited.
         if target is not None and (session is None or not session.started or session.clean_exit):
@@ -273,12 +289,21 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
                     restored = snapshot() == baseline and browser_id() == browser_identity
             except Exception:
                 restored = False
-        if finished and restored:
-            _write(run / "completed.json", {"results": rows, "clean_exit": session.clean_exit,
-                  "status": "COMPLETE" if len(rows) == len(queries) else "PARTIAL"})
-        if (not effects_started or restored) and pending.is_file() and not pending.is_symlink():
-            if pending.read_text("utf-8") == run.name:
-                pending.unlink()
         if effects_started and not restored:
-            raise WarmSessionError("G2_BROWSER_EFFECT_REVIEW_REQUIRED")
+            failure = "G2_BROWSER_EFFECT_REVIEW_REQUIRED"
+        try:
+            if finished and restored and failure is None:
+                _write(run / "completed.json", {"results": rows, "clean_exit": session.clean_exit,
+                      "status": "COMPLETE" if len(rows) == len(queries) else "PARTIAL"})
+            elif failure is not None and run.is_dir():
+                _write(run / "terminal.json", {"status": "REVIEW_REQUIRED", "reason": failure,
+                       "results": rows, "requested_count": len(queries), "browser_restored": restored,
+                       "elapsed_ms": round((time.monotonic() - started_at) * 1000)})
+            if (not effects_started or restored) and pending.is_file() and not pending.is_symlink():
+                if pending.read_text("utf-8") == run.name:
+                    pending.unlink()
+        except Exception as exc:
+            failure = failure or warm_reason(exc)
+    if failure is not None:
+        raise G2BatchReview(failure, rows, browser_restored=restored)
     return rows

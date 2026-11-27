@@ -818,9 +818,16 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
                                  "request_id": request_id, "status": status, "results": rows})
                 emit("OWNER_G2_" + status)
             except Exception as exc:
+                from agy_owner_warm_session import warm_reason
+                from owner_g2_discovery import G2BatchReview
                 owner_full_trace("OWNER_G2_REVIEW_REQUIRED", error=exc)
+                detail = {"reason": warm_reason(exc), "results": []}
+                if isinstance(exc, G2BatchReview):
+                    detail.update(reason=exc.reason, results=list(exc.rows),
+                                  browser_restored=exc.browser_restored)
                 _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
-                                 "request_id": request_id, "status": "REVIEW_REQUIRED"})
+                                 "request_id": request_id, "status": "REVIEW_REQUIRED",
+                                 **detail})
                 emit("OWNER_G2_REVIEW_REQUIRED")
         submit(run_claimed)
         return 1

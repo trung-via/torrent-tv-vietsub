@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch, Mock
 
 from agy_owner_warm_session import OwnerAgyWarmSession, WarmSessionError, _source_page
-from owner_g2_discovery import MovieQuery, _metadata, discover_movie_batch
+from owner_g2_discovery import MovieQuery, _metadata, discover_movie_batch, G2BatchReview, TURN_SECONDS
 from agy_v13_native_producer import NativeBrowserProducer
 from owner_session_bridge import poll_private_g2, enqueue_g2_metadata
 from owner_g2_submit import submit_private_file
@@ -89,6 +89,8 @@ class WarmTests(unittest.TestCase):
                 s.turn("first", root/"one")
                 with self.assertRaisesRegex(WarmSessionError, "CONVERSATION_CHANGED"):
                     s.turn("second", root/"two")
+                terminal = json.loads((root/"two"/"turn-terminal.json").read_text())
+                self.assertEqual(terminal["reason"], "AGY_STREAM_CONVERSATION_CHANGED")
                 with self.assertRaisesRegex(WarmSessionError, "NOT_READY"):
                     s.turn("third", root/"three")
             self.assertEqual(len(proc.messages), 2)
@@ -156,8 +158,8 @@ class WarmTests(unittest.TestCase):
 
     def test_blank_baseline_preserved_and_changed_baseline_holds(self):
         # Full native batch lifecycle with a fake CDP transport and no provider.
-        for changed in (False, True):
-            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as d:
+        for changed, timeout in ((False, False), (True, False), (False, True)):
+            with self.subTest(changed=changed, timeout=timeout), tempfile.TemporaryDirectory() as d:
                 root = Path(d)
                 baseline_id, target_id = "a"*32, "b"*32
                 tabs = {baseline_id: "about:blank"}
@@ -183,8 +185,12 @@ class WarmTests(unittest.TestCase):
                 session = Mock(started=True, clean_exit=True)
                 session.__enter__ = Mock(return_value=session)
                 session.__exit__ = Mock(return_value=False)
+                budgets = []
                 def turn(prompt, run, **kwargs):
                     run.mkdir()
+                    budgets.append(session.timeout)
+                    if timeout and len(budgets) == 2:
+                        raise WarmSessionError("AGY_STREAM_TURN_TIMEOUT")
                     if changed:
                         tabs[baseline_id] = "https://other.example/"
                     return SimpleNamespace(response={}, first_mcp_ms=1, final_ms=2,
@@ -198,12 +204,24 @@ class WarmTests(unittest.TestCase):
                      patch("agy_v13_native_producer._ensure_browser_listener"), \
                      patch("agy_v13_native_producer._session_settings", return_value=root/"settings.json"), \
                      patch("owner_g2_discovery._metadata", return_value={"status":"NO_MATCH","candidates":[]}):
-                    args = (root, [MovieQuery("Example", 2026)], root/"cache")
+                    queries = [MovieQuery("Example", 2026)] * (2 if timeout else 1)
+                    args = (root, queries, root/"cache")
                     kwargs = dict(source_url=source, authorized_source=True,
                                   session_factory=Mock(return_value=session))
                     if changed:
                         with self.assertRaisesRegex(WarmSessionError, "BROWSER_EFFECT_REVIEW_REQUIRED"):
                             discover_movie_batch(*args, **kwargs)
+                    elif timeout:
+                        with self.assertRaises(G2BatchReview) as ctx:
+                            discover_movie_batch(*args, **kwargs)
+                        self.assertEqual(ctx.exception.reason, "AGY_STREAM_TURN_TIMEOUT")
+                        self.assertEqual(len(ctx.exception.rows), 1)
+                        self.assertTrue(ctx.exception.browser_restored)
+                        self.assertEqual(budgets, [TURN_SECONDS, TURN_SECONDS])
+                        saved = next((root/"cache"/".native-v13").glob("g2-*/checkpoint.json"))
+                        self.assertEqual(len(json.loads(saved.read_text())["results"]), 1)
+                        self.assertEqual(json.loads((saved.parent/"terminal.json").read_text())["reason"],
+                                         "AGY_STREAM_TURN_TIMEOUT")
                     else:
                         rows = discover_movie_batch(*args, **kwargs)
                         self.assertEqual(len(rows), 1)
@@ -212,7 +230,7 @@ class WarmTests(unittest.TestCase):
                 self.assertEqual("/json/close/"+target_id in commands, not changed)
                 if not changed:
                     self.assertEqual(tabs, {baseline_id:"about:blank"})
-                    self.assertEqual(len(list((root/"cache"/".native-v13").glob("g2-*/completed.json"))), 1)
+                    self.assertEqual(len(list((root/"cache"/".native-v13").glob("g2-*/completed.json"))), 0 if timeout else 1)
 
     def test_g2_batch_limit_before_provider(self):
         with patch("owner_g2_discovery.preflight_antigravity") as call:
@@ -261,6 +279,28 @@ class WarmTests(unittest.TestCase):
             self.assertEqual(discover.call_count, 1)
             self.assertEqual(json.loads((inbox/("g2-"+rid+".receipt.json")).read_text("utf-8"))["status"],
                              "REVIEW_REQUIRED")
+
+    def test_private_g2_partial_receipt_no_replay(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            rid = "e"*32
+            enqueue_g2_metadata(owner_root=root, request={
+                "schema": "TTV-OWNER-G2-METADATA-V1", "request_id": rid,
+                "source_url": "https://example.org/", "authorized_source": True,
+                "queries": [{"title": "Example", "year": 2026}]*2})
+            row = {"status": "NO_MATCH", "candidates": [], "turn_index": 0}
+            discover = Mock(side_effect=G2BatchReview(
+                "AGY_STREAM_TURN_TIMEOUT", [row], browser_restored=True))
+            args = dict(owner_root=root, cache_root=root/"cache", discover=discover,
+                        submit=lambda work: work(), emit=lambda _: None)
+            self.assertEqual(poll_private_g2(**args), 1)
+            self.assertEqual(poll_private_g2(**args), 0)
+            discover.assert_called_once()
+            receipt = json.loads((root/"inbox"/("g2-"+rid+".receipt.json")).read_text())
+            self.assertEqual(receipt["status"], "REVIEW_REQUIRED")
+            self.assertEqual(receipt["reason"], "AGY_STREAM_TURN_TIMEOUT")
+            self.assertEqual(receipt["results"], [row])
+            self.assertTrue(receipt["browser_restored"])
 
     def test_private_writer_reuses_identity_and_consumer_receipt(self):
         with tempfile.TemporaryDirectory() as d:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import queue
 import re
@@ -18,6 +19,15 @@ from urllib.parse import urlsplit
 
 class WarmSessionError(RuntimeError):
     """An incomplete or unverified turn must not be silently replayed."""
+
+
+def warm_reason(error):
+    if isinstance(error, WarmSessionError) and len(error.args) == 1:
+        value = error.args[0]
+        if isinstance(value, str) and re.fullmatch(r"(?:AGY_STREAM|G2)_[A-Z0-9_]{1,70}", value):
+            return value
+    return "G2_UNCLASSIFIED_" + (type(error).__name__.upper()
+                                if type(error).__name__ in ("OSError", "TimeoutError", "JSONDecodeError", "BrokenPipeError", "ValueError") else "ERROR")
 
 
 @dataclass(frozen=True)
@@ -214,8 +224,19 @@ class OwnerAgyWarmSession:
                     if source_host is not None and not bound_read:
                         raise WarmSessionError("AGY_STREAM_SOURCE_PAGE_UNBOUND")
                     return WarmTurn(payload, sid, first, ms, count, errors)
-        except BaseException:
+        except BaseException as exc:
             self._failed = True
+            if isinstance(exc, Exception):
+                try:
+                    with (run / "turn-terminal.json").open("x", encoding="utf-8") as f:
+                        json.dump({"reason": warm_reason(exc),
+                                   "elapsed_ms": round((time.monotonic() - sent) * 1000),
+                                   "timeout_ms": round(self.timeout * 1000),
+                                   "mcp_outcomes": count, "mcp_errors": errors}, f)
+                        f.flush()
+                        os.fsync(f.fileno())
+                except OSError:
+                    pass
             raise
 
     def __exit__(self, exc_type, exc, tb):
