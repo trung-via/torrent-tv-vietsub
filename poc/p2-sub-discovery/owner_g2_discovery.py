@@ -122,7 +122,7 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
                          model="gemini-4-hydrogen-low", thinking_level="low",
                          session_factory=OwnerAgyWarmSession, should_yield=lambda: False):
     """Call under NativeBrowserProducer._browser_lock; no runtime startup effect."""
-    from agy_v13_native_producer import _verify_browser, _session_settings, _write
+    from agy_v13_native_producer import _ensure_browser_listener, _session_settings, _write
     if authorized_source is not True:
         raise ValueError("G2_SOURCE_AUTHORITY_REQUIRED")
     source_host = _source(source_url)
@@ -152,6 +152,8 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
         raise WarmSessionError("G2_BROWSER_BUSY_OR_UNKNOWN") from None
     target = None
     initial_ids = set()
+    baseline = {}
+    browser_identity = None
     session = None
     effects_started = False
     restored = False
@@ -166,14 +168,53 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
     def pages():
         return [p for p in json.loads(cdp("/json/list")) if p.get("type") == "page"]
 
+    def browser_id():
+        version = json.loads(cdp("/json/version"))
+        identity = version.get("webSocketDebuggerUrl", "")
+        if (not str(version.get("Browser", "")).startswith("Chrome/")
+                or not isinstance(identity, str)
+                or not identity.startswith("ws://127.0.0.1:9555/devtools/browser/")):
+            raise WarmSessionError("G2_BROWSER_IDENTITY")
+        return identity
+
+    def snapshot():
+        result = {}
+        for page in pages():
+            i, url = page.get("id"), page.get("url")
+            if (not isinstance(i, str) or not re.fullmatch(r"[A-Fa-f0-9]{32}", i)
+                    or i in result or not isinstance(url, str)):
+                raise WarmSessionError("G2_PAGE_IDENTITY")
+            result[i] = url
+        return result
+
+    def task_page():
+        current = snapshot()
+        if (set(current) != initial_ids | {target}
+                or any(current.get(i) != url for i, url in baseline.items())
+                or urlsplit(current[target]).scheme != "https"
+                or urlsplit(current[target]).hostname != source_host):
+            raise WarmSessionError("G2_TASK_SOURCE_CHANGED")
+
     try:
         run.mkdir()
         cli = preflight_antigravity()
-        # Preserve G1's one-tab OpenSubtitles precondition on entry and exit.
-        _verify_browser(ps, profile)
-        initial_ids = {p["id"] for p in pages()}
+        # Reuse the enrolled Chrome, not G1's page-specific precondition.
+        # An idle blank/new-tab or existing OpenSubtitles tab is sufficient;
+        # do not navigate it, read its content or change G1's rules.
+        _ensure_browser_listener(ps, profile)
+        browser_identity = browser_id()
+        baseline = snapshot()
+        initial_ids = set(baseline)
         if len(initial_ids) != 1:
             raise WarmSessionError("G2_BASE_TAB_AMBIGUOUS")
+        base_url = next(iter(baseline.values()))
+        base = urlsplit(base_url)
+        if (base_url not in ("about:blank", "chrome://newtab/", "chrome://new-tab-page/")
+                and not (base.scheme == "https" and base.hostname in
+                         ("opensubtitles.org", "www.opensubtitles.org"))):
+            raise WarmSessionError("G2_BASE_TAB_UNRELATED")
+        if base.hostname == source_host:
+            raise WarmSessionError("G2_BASE_SOURCE_AMBIGUOUS")
         override = _session_settings(run, Path.home())
         env = dict(os.environ)
         for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL",
@@ -205,15 +246,11 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
                 if remaining <= 0:
                     break
                 session.timeout = remaining
-                current = [p for p in pages() if p.get("id") == target]
-                if len(current) != 1 or urlsplit(current[0].get("url", "")).hostname != source_host:
-                    raise WarmSessionError("G2_TASK_SOURCE_CHANGED")
+                task_page()
                 request_id = uuid.uuid4().hex
                 result = session.turn(_prompt(q, source_url, request_id), run / request_id,
                                       source_host=source_host)
-                current = [p for p in pages() if p.get("id") == target]
-                if len(current) != 1 or urlsplit(current[0].get("url", "")).hostname != source_host:
-                    raise WarmSessionError("G2_TASK_SOURCE_CHANGED")
+                task_page()
                 row = _metadata(result.response, q, request_id)
                 row["timing"] = {"first_mcp_ms": result.first_mcp_ms,
                                  "final_ms": result.final_ms,
@@ -228,12 +265,12 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
         # Only close this job's temporary tab after the owned CLI is known exited.
         if target is not None and (session is None or not session.started or session.clean_exit):
             try:
-                current_ids = {p["id"] for p in pages()}
-                if current_ids == initial_ids | {target}:
-                    cdp("/json/close/" + target)
-                restored = {p["id"] for p in pages()} == initial_ids
-                if restored:
-                    _verify_browser(ps, profile)
+                if browser_id() == browser_identity:
+                    current = snapshot()
+                    if (set(current) == initial_ids | {target}
+                            and all(current.get(i) == url for i, url in baseline.items())):
+                        cdp("/json/close/" + target)
+                    restored = snapshot() == baseline and browser_id() == browser_identity
             except Exception:
                 restored = False
         if finished and restored:
