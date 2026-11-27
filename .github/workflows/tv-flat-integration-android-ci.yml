@@ -31,7 +31,10 @@ jobs:
         github.event.pull_request.base.ref == 'feature/brain-en-inbox-temporary-20261123') ||
        (github.event.pull_request.number == 189 &&
         github.event.pull_request.head.ref == 'fix/g1-flat-subtitle-limits-20261127' &&
-        github.event.pull_request.base.ref == 'feature/g1-v13-owner-evidence-20261126'))
+        github.event.pull_request.base.ref == 'feature/g1-v13-owner-evidence-20261126') ||
+       (github.event.pull_request.number == 195 &&
+        github.event.pull_request.head.ref == 'feat/g2-owner-warm-session-20261127' &&
+        github.event.pull_request.base.ref == 'perf/g1-v135-acquisition-20261127'))
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -85,7 +88,10 @@ jobs:
         github.event.pull_request.base.ref == 'feature/brain-en-inbox-temporary-20261123') ||
        (github.event.pull_request.number == 189 &&
         github.event.pull_request.head.ref == 'fix/g1-flat-subtitle-limits-20261127' &&
-        github.event.pull_request.base.ref == 'feature/g1-v13-owner-evidence-20261126'))
+        github.event.pull_request.base.ref == 'feature/g1-v13-owner-evidence-20261126') ||
+       (github.event.pull_request.number == 195 &&
+        github.event.pull_request.head.ref == 'feat/g2-owner-warm-session-20261127' &&
+        github.event.pull_request.base.ref == 'perf/g1-v135-acquisition-20261127'))
     runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
     timeout-minutes: 100
     steps:

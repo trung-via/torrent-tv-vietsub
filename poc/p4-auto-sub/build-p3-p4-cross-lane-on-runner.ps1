@@ -28,7 +28,10 @@ $g1Performance = ($requestedPr -eq 186 -and
 $g1Limits = ($requestedPr -eq 189 -and
     $env:GITHUB_HEAD_REF -ceq 'fix/g1-flat-subtitle-limits-20261127' -and
     $env:GITHUB_BASE_REF -ceq 'feature/g1-v13-owner-evidence-20261126')
-if (@(@($pr162,$pr168,$flat,$g1Performance,$g1Limits) | Where-Object { $_ }).Count -ne 1) {
+$g2Flow = ($requestedPr -eq 195 -and
+    $env:GITHUB_HEAD_REF -ceq 'feat/g2-owner-warm-session-20261127' -and
+    $env:GITHUB_BASE_REF -ceq 'perf/g1-v135-acquisition-20261127')
+if (@(@($pr162,$pr168,$flat,$g1Performance,$g1Limits,$g2Flow) | Where-Object { $_ }).Count -ne 1) {
     throw 'STOP: expected exactly one approved build-only PR identity'
 }
 $branch = if ($pr162) { 'feature/p3-p4-cross-lane-tv-owner-compose-20261114' } elseif ($pr168) {
@@ -36,7 +39,9 @@ $branch = if ($pr162) { 'feature/p3-p4-cross-lane-tv-owner-compose-20261114' } e
 } else { $env:GITHUB_HEAD_REF }
 $baseBranch = if ($pr168) { 'feature/p3-owner-v2-offline-activation-20261115' } elseif ($g1Performance) {
     'feature/brain-en-inbox-temporary-20261123'
-} elseif ($g1Limits) { 'feature/g1-v13-owner-evidence-20261126' } else { 'main' }
+} elseif ($g1Limits) { 'feature/g1-v13-owner-evidence-20261126' } elseif ($g2Flow) {
+    'perf/g1-v135-acquisition-20261127'
+} else { 'main' }
 $allowedWorkflows = if ($pr162) {
     @('.github/workflows/tv-p3-p4-cross-lane-android-ci.yml')
 } elseif ($pr168) {
@@ -93,7 +98,7 @@ if ($pr162 -and [int]$eventData.number -ne 162) {
 if ($pr168 -and [int]$eventData.number -ne 168) {
     throw 'STOP: PR #168 event number mismatch'
 }
-if (($flat -or $g1Performance -or $g1Limits) -and [int]$eventData.number -ne $requestedPr) {
+if (($flat -or $g1Performance -or $g1Limits -or $g2Flow) -and [int]$eventData.number -ne $requestedPr) {
     throw 'STOP: FLAT event number mismatch'
 }
 if ($eventData.repository.private -ne $true -and $eventData.repository.private -ne $false) {
@@ -268,7 +273,7 @@ foreach ($anchor in @('internal fun bindP4Session(', 'internal fun receiveP4Revi
                       'P1ProductionSubtitles.importAutomaticBytes(')) {
     if (-not $activityP4.Contains($anchor)) { throw ('STOP: P4 Activity hook missing ' + $anchor) }
 }
-if ($g1Performance -or $g1Limits) {
+if ($g1Performance -or $g1Limits -or $g2Flow) {
     foreach ($anchor in @('receiver.acknowledgeOverlayInstalled(', 'state.timeline.textAt(engine.positionMs)',
                           'P4_TV_OVERLAY_INSTALLED', 'timeline.extends(old.timeline)')) {
         if (-not $activityP4.Contains($anchor)) { throw ('STOP: Zero-reload Activity hook missing ' + $anchor) }
