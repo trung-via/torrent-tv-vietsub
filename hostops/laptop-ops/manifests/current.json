@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g2-sintel-library-once",
-  "category": "owner-maintenance",
+  "operation": "owner-g21-r4-readout",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g2-sintel-library-once.ps1",
-  "script_sha256": "5c5c706e018598dce8dd41f6e9f3368825023fb1ddd999528d38df16f67c2e28",
+  "script_path": "hostops/laptop-ops/operations/g2-sintel-readout.ps1",
+  "script_sha256": "e26ecb0ebf2b2c2aa04446cc4210c6747db2cbd10fc093b03886f3a9049ac00a",
   "arguments": []
 }
