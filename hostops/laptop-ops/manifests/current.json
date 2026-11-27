@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "agy-native-browser-readout-1124",
+  "operation": "owner-g21-r4-reconcile",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-v33-r4-live-window-r1.ps1",
-  "script_sha256": "d9cfeb501ebc02a915efc21f6a0e974833c135df010d70e9c82f237c9a09a467",
+  "script_path": "hostops/laptop-ops/operations/g21-r4-owner-reconcile.ps1",
+  "script_sha256": "d77f47bf9b6880a150a830c9430a67ab16ec6fea0b00cb98c48973ff86e16cd6",
   "arguments": []
 }
