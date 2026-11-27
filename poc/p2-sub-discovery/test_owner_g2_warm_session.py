@@ -10,6 +10,7 @@ from unittest.mock import patch, Mock
 from agy_owner_warm_session import OwnerAgyWarmSession, WarmSessionError
 from owner_g2_discovery import MovieQuery, _metadata, discover_movie_batch
 from agy_v13_native_producer import NativeBrowserProducer
+from owner_session_bridge import poll_private_g2
 
 
 class FakePipe:
@@ -19,7 +20,7 @@ class FakePipe:
         msg = json.loads(line)
         self.owner.messages.append(msg)
         n = len(self.owner.messages)
-        for e in [
+        for e in (self.owner.events if self.owner.events is not None else [
             {"event": "step_update", "step_update": {"tool_name": "call_mcp_tool",
                 "tool_info": {"parameters": {"ToolName": "evaluate_script", "ServerName": "ttv-browser"}}}},
             {"event": "step_update", "step_update": {"tool_name": "call_mcp_tool",
@@ -27,7 +28,7 @@ class FakePipe:
             {"event": "result", "result": {
                 "conversation_id": self.owner.ids[n-1],
                 "response": json.dumps({"turn": n})}},
-        ]:
+        ]):
             self.owner.lines.put(json.dumps(e) + "\n")
     def flush(self):
         pass
@@ -37,7 +38,8 @@ class FakePipe:
 
 class FakeProcess:
     pid = 42
-    def __init__(self, ids):
+    def __init__(self, ids, events=None):
+        self.events = events
         self.ids = ids
         self.messages = []
         self.lines = queue.Queue()
@@ -119,6 +121,73 @@ class WarmTests(unittest.TestCase):
             self.assertEqual(result, ["fixture"])
             self.assertEqual(call.call_count, 1)
         self.assertFalse(producer._browser_lock.locked())
+
+    def test_source_page_requires_fresh_matching_read(self):
+        def outcome(tool, args, output):
+            return {"event": "step_update", "step_update": {"tool_name": "call_mcp_tool",
+                    "tool_info": {"parameters": {"ToolName": tool, "ServerName": "ttv-browser",
+                                                  "Arguments": json.dumps(args)}, "output": output}}}
+        for page_id, allowed in ((2, True), (3, False)):
+            with self.subTest(page_id=page_id), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                events = [outcome("list_pages", {}, "1: https://www.opensubtitles.org/\n2: https://example.org/"),
+                          outcome("evaluate_script", {"pageId": page_id}, "metadata"),
+                          {"event": "result", "result": {"conversation_id": "A", "response": "{}"}}]
+                proc = FakeProcess(["A"], events=events)
+                with OwnerAgyWarmSession(ps="pwsh", env={}, root=root, popen=Mock(return_value=proc)) as session:
+                    if allowed:
+                        self.assertEqual(session.turn("query", root/"turn", source_host="example.org").mcp_outcomes, 2)
+                    else:
+                        with self.assertRaisesRegex(WarmSessionError, "SOURCE_PAGE_UNBOUND"):
+                            session.turn("query", root/"turn", source_host="example.org")
+
+    def test_g2_batch_limit_before_provider(self):
+        with patch("owner_g2_discovery.preflight_antigravity") as call:
+            with self.assertRaisesRegex(ValueError, "BATCH_LIMIT"):
+                discover_movie_batch(None, (MovieQuery("Example", 2026) for _ in range(3)),
+                                     None, source_url="https://example.org", authorized_source=True)
+            call.assert_not_called()
+
+    def test_private_g2_request_consumed_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            inbox = root/"inbox"
+            inbox.mkdir()
+            rid = "a"*32
+            payload = {"schema": "TTV-OWNER-G2-METADATA-V1", "request_id": rid,
+                       "authorized_source": True, "source_url": "https://example.org/",
+                       "queries": [{"title": "Example", "year": 2026}]}
+            event = inbox/("g2-"+rid+".json")
+            event.write_text(json.dumps(payload), encoding="utf-8")
+            discover = Mock(return_value=[{"status": "NO_MATCH", "candidates": []}])
+            args = dict(owner_root=root, cache_root=root/"cache", discover=discover,
+                        submit=lambda work: work(), emit=lambda _: None)
+            self.assertEqual(poll_private_g2(**args), 1)
+            self.assertEqual(poll_private_g2(**args), 0)
+            discover.assert_called_once_with((MovieQuery("Example", 2026),), root/"cache",
+                                              source_url="https://example.org/", authorized_source=True)
+            receipt = json.loads((inbox/("g2-"+rid+".receipt.json")).read_text("utf-8"))
+            self.assertEqual(receipt["status"], "COMPLETE")
+            self.assertTrue((inbox/("g2-"+rid+".claim")).is_file())
+
+    def test_private_g2_request_does_not_replay_unknown_effect(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            inbox = root/"inbox"
+            inbox.mkdir()
+            rid = "b"*32
+            (inbox/("g2-"+rid+".json")).write_text(json.dumps({
+                "schema": "TTV-OWNER-G2-METADATA-V1", "request_id": rid,
+                "source_url": "https://example.org/", "authorized_source": True,
+                "queries": [{"title": "Example", "year": 2026}]}), encoding="utf-8")
+            discover = Mock(side_effect=WarmSessionError("UNKNOWN"))
+            args = dict(owner_root=root, cache_root=root/"cache", discover=discover,
+                        submit=lambda work: work(), emit=lambda _: None)
+            self.assertEqual(poll_private_g2(**args), 1)
+            self.assertEqual(poll_private_g2(**args), 0)
+            self.assertEqual(discover.call_count, 1)
+            self.assertEqual(json.loads((inbox/("g2-"+rid+".receipt.json")).read_text("utf-8"))["status"],
+                             "REVIEW_REQUIRED")
 
 
 if __name__ == "__main__":
