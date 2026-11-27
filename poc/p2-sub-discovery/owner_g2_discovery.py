@@ -1,7 +1,8 @@
-"""G2.1 metadata-only consumer of the existing Owner browser and AGY session.
+"""G2.1 metadata and authorized release selection in the existing Owner AGY session.
 
 The trusted Owner caller establishes C1.5/C5 source and content authority.
-No acquisition, magnet handoff, add, play, network ingress or scheduler here.
+Selection mode returns an Owner-private locator for permitted media only.
+No download, torrent add, play, network ingress or scheduler here.
 The G1 producer's in-process lock and existing browser.pending claim are shared.
 """
 from __future__ import annotations
@@ -28,6 +29,11 @@ class MovieQuery:
     title: str
     year: int
     resolution: str = "1080p"
+    select_release: bool = False
+    media_authorized: bool = False
+    play: bool = False
+    codec: str | None = None
+    release_contains: str | None = None
 
 
 MAX_BATCH = 2
@@ -63,7 +69,13 @@ def _query(q):
     if (not isinstance(q, MovieQuery) or not isinstance(q.title, str)
             or not q.title.strip() or len(q.title) > 200
             or type(q.year) is not int or not 1900 <= q.year <= 2100
-            or q.resolution not in ("720p", "1080p", "2160p")):
+            or q.resolution not in ("720p", "1080p", "2160p")
+            or any(type(v) is not bool for v in (q.select_release, q.media_authorized, q.play))
+            or (q.select_release and not q.media_authorized)
+            or (not q.select_release and (q.media_authorized or q.play or q.codec is not None or q.release_contains is not None))
+            or (q.codec is not None and q.codec not in ("H264", "H265", "AV1", "VP9"))
+            or (q.release_contains is not None and (not isinstance(q.release_contains, str)
+                or not q.release_contains.strip() or len(q.release_contains) > 160))):
         raise ValueError("G2_QUERY_INVALID")
     return q
 
@@ -111,7 +123,145 @@ def _metadata(payload, query, request_id):
     return {"status": status, "candidates": rows, "evidence": "MODEL_REPORTED_METADATA"}
 
 
+def _link_hash(link):
+    """Validate the same v1 BTIH magnet representation accepted by G2.2."""
+    import base64
+    from urllib.parse import parse_qs
+    if not isinstance(link, str) or len(link) > 16384 or any(ord(c) <= 32 for c in link):
+        return None
+    try:
+        u = urlsplit(link)
+        xt = parse_qs(u.query).get("xt", [])
+        if u.scheme != "magnet" or u.netloc or u.path or u.fragment or len(xt) != 1:
+            return None
+        prefix, value = xt[0][:9], xt[0][9:]
+        if prefix.lower() != "urn:btih:":
+            return None
+        if re.fullmatch(r"[a-fA-F0-9]{40}", value):
+            return value.lower()
+        if re.fullmatch(r"[A-Z2-7]{32}", value.upper()):
+            return base64.b32decode(value.upper()).hex()
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _observed_locator(trace, source_host, release_name, link):
+    """Check the actual same-turn, page-bound browser output, not AGY's final prose.
+
+    This attests that the locator and release label were reported in a fresh
+    source read. It does not establish media rights, actual bytes or peer rate.
+    """
+    from agy_owner_warm_session import _page_argument, _source_page
+    from html import unescape
+    pending = None
+    page = None
+    if not trace.is_file() or trace.is_symlink() or trace.stat().st_size > 16 * 1024 * 1024:
+        return False
+    with trace.open(encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                st = json.loads(line).get("step_update")
+            except (ValueError, AttributeError):
+                continue
+            if not isinstance(st, dict) or st.get("tool_name") != "call_mcp_tool":
+                continue
+            info = st.get("tool_info")
+            if not isinstance(info, dict):
+                continue
+            params = info.get("parameters")
+            if isinstance(params, dict) and params.get("ToolName"):
+                server = next((params[k] for k in ("ServerName", "Server", "serverName", "server")
+                               if isinstance(params.get(k), str)), None)
+                pending = (params["ToolName"], server, _page_argument(params))
+            if "output" not in info and not info.get("error"):
+                continue
+            if pending and pending[1] == "ttv-browser" and not (info.get("error") or st.get("error")):
+                output = info.get("output")
+                if pending[0] == "list_pages":
+                    page = _source_page(output, source_host)
+                elif (pending[0] in ("evaluate_script", "take_snapshot") and page is not None
+                      and pending[2] == page and isinstance(output, str)):
+                    visible = unescape(output)
+                    # Match a whole observed link rather than an arbitrary hash substring.
+                    links = re.findall(r"magnet:\?[^\s\"'<>]+", visible, re.I)
+                    if (_normalized(release_name) in _normalized(visible)
+                            and any(x.rstrip("),]}") == link for x in links)):
+                        return True
+            pending = None
+    return False
+
+
+def _selected_metadata(payload, query, request_id, source_host, trace):
+    """One AGY task finds, compares and selects; deterministic check of its pick."""
+    meta = _metadata(payload, query, request_id)
+    if meta["status"] != "MATCH_FOUND":
+        return meta
+    ranked = []
+    for row in payload["candidates"]:
+        title = row.get("title")
+        name = row.get("release_name")
+        if (not isinstance(title, str) or _normalized(title) != _normalized(query.title)
+                or type(row.get("year")) is not int or row["year"] != query.year
+                or row.get("resolution") != query.resolution
+                or not isinstance(name, str) or not name.strip() or len(name) > 300
+                or (query.codec is not None and row.get("codec") != query.codec)
+                or (query.release_contains is not None and
+                    _normalized(query.release_contains) not in _normalized(name))):
+            continue
+        size, seeds = row.get("size_mb"), row.get("seeds")
+        preferred = type(size) is int and 5000 <= size <= 12000
+        rank = (preferred, seeds if type(seeds) is int and seeds >= 0 else -1)
+        ranked.append((rank, name))
+    if not ranked:
+        return {**meta, "status": "NO_ELIGIBLE_RELEASE"}
+    picked = payload.get("selected")
+    if not isinstance(picked, dict) or set(picked) != {"release_name", "link"}:
+        return {**meta, "status": "SELECTED_RELEASE_MISSING"}
+    name, link = picked["release_name"], picked["link"]
+    if not isinstance(name, str) or not isinstance(link, str):
+        return {**meta, "status": "SELECTED_RELEASE_MISSING"}
+    matching = [rank for rank, n in ranked if n == name]
+    if len(matching) != 1 or matching[0] != max(rank for rank, _ in ranked):
+        return {**meta, "status": "SELECTED_RELEASE_NOT_TOP_MATCH"}
+    target = _link_hash(link)
+    if not target or not _observed_locator(trace, source_host, name, link):
+        return {**meta, "status": "SELECTED_LOCATOR_UNVERIFIED"}
+    # Authority is supplied by the trusted request, never copied from the model.
+    if not query.select_release or query.media_authorized is not True:
+        raise WarmSessionError("G2_MEDIA_AUTHORITY_REQUIRED")
+    return {**meta, "status": "SELECTION_READY", "release_name": name,
+            "evidence": "MODEL_REPORTED_METADATA_BOUND_LOCATOR",
+            "selection": {"link": link, "expected_hash": target,
+                          "title": query.title, "source_authorized": True,
+                          "media_authorized": True, "release_matched": True,
+                          "file_id": None}}
+
+
 def _prompt(query, source_url, request_id):
+    if query.select_release:
+        return (
+            "Torrent TV G2.1: one job, find and choose the best matching release of "
+            "the specifically authorized media on the approved legal source. "
+            "Use the existing ttv-browser task tab and ordinary visible controls. "
+            "List pages and bind every fresh source read to the numeric pageId. "
+            "Do not use a different source, bypass restrictions, log in, download media, "
+            "add to TorrServer, play, or run shell. Stop if access or distribution rights "
+            "are unclear; never infer rights from the mere presence of a link. "
+            "Query: " + json.dumps(asdict(query), ensure_ascii=False) + ". Source: " +
+            json.dumps(source_url) + ". Request ID: " + request_id + ". "
+            "Exact film title/year and requested resolution are mandatory; match codec "
+            "and release_contains if supplied. Prefer 5000-12000 MB, then higher reported "
+            "seeds. Size is a soft preference; seeds do not prove throughput. "
+            "Compare only observed eligible releases. Use current source read evidence, "
+            "not previous turns. For a permitted release, read its exact release label "
+            "and direct magnet link together in a fresh page-bound browser result. "
+            "Return compact JSON with request_id, status (MATCH_FOUND, NO_MATCH, "
+            "ACCESS_BLOCKED, UNKNOWN), candidates (title, year, resolution, codec, "
+            "size_mb, seeds, release_name; unknown numeric data null), and selected "
+            "(release_name, link) for the best eligible release only, otherwise null. "
+            "Do not fabricate candidates or locators. The locator stays local to Owner."
+        )
     return (
         "Torrent TV G2.1 authorized read-only metadata request. "
         "Use only ttv-browser MCP on the dedicated task tab for this approved HTTPS source. "
@@ -142,6 +292,8 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
     queries = tuple(_query(q) for q in islice(queries, MAX_BATCH + 1))
     if len(queries) > MAX_BATCH:
         raise ValueError("G2_BATCH_LIMIT")
+    if any(q.select_release for q in queries) and len(queries) != 1:
+        raise ValueError("G2_SINGLE_SELECTION_REQUIRED")
     if not queries:
         return []
     if os.name != "nt" or any(os.environ.get(k, "").lower() == "true" for k in ("CI", "GITHUB_ACTIONS")):
@@ -273,7 +425,9 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
                 result = session.turn(_prompt(q, source_url, request_id), run / request_id,
                                       source_host=source_host)
                 task_page()
-                row = _metadata(result.response, q, request_id)
+                row = (_selected_metadata(result.response, q, request_id, source_host,
+                                          run / request_id / "agy-stdout.jsonl")
+                       if q.select_release else _metadata(result.response, q, request_id))
                 row["timing"] = {"first_mcp_ms": result.first_mcp_ms,
                                  "final_ms": result.final_ms,
                                  "mcp_outcomes": result.mcp_outcomes,

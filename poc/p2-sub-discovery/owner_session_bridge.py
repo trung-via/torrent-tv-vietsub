@@ -716,7 +716,7 @@ def _g2_request(payload, request_id):
     from owner_g2_discovery import MovieQuery, MAX_BATCH, _source, _query
     if (not isinstance(payload, dict)
             or set(payload) != {"schema", "request_id", "source_url", "authorized_source", "queries"}
-            or payload["schema"] != "TTV-OWNER-G2-METADATA-V1"
+            or payload["schema"] not in ("TTV-OWNER-G2-METADATA-V1", "TTV-OWNER-G2-SELECTION-V1")
             or not isinstance(request_id, str) or not _ID.fullmatch(request_id)
             or payload["request_id"] != request_id
             or payload["authorized_source"] is not True
@@ -725,7 +725,12 @@ def _g2_request(payload, request_id):
             or not 1 <= len(payload["queries"]) <= MAX_BATCH):
         raise ValueError("G2_REQUEST_INVALID")
     _source(payload["source_url"])
-    return tuple(_query(MovieQuery(**q)) for q in payload["queries"])
+    queries = tuple(_query(MovieQuery(**q)) for q in payload["queries"])
+    selected = payload["schema"] == "TTV-OWNER-G2-SELECTION-V1"
+    if (selected and (len(queries) != 1 or not queries[0].select_release)
+            or not selected and any(q.select_release for q in queries)):
+        raise ValueError("G2_REQUEST_MODE_MISMATCH")
+    return queries
 
 
 def enqueue_g2_metadata(*, owner_root: Path, request: dict) -> str:
@@ -777,6 +782,52 @@ def enqueue_g2_metadata(*, owner_root: Path, request: dict) -> str:
         tmp.unlink(missing_ok=True)
 
 
+def _publish_g2_selection(inbox, request_id, query, rows):
+    """Publish the actual G2.2 request only after the complete selection returns.
+
+    No provider, torrent add or launch in this function. Existing claims and
+    receipts prevent replay; never publish a partial/failed browser result.
+    """
+    if len(rows) != 1 or rows[0].get("status") != "SELECTION_READY":
+        return False
+    row = rows[0]
+    from dataclasses import asdict
+    if (row.get("owner_request_id") != request_id or row.get("query") != asdict(query)
+            or query.media_authorized is not True or not query.select_release):
+        raise ValueError("G2_SELECTION_BINDING_INVALID")
+    selection = row.get("selection")
+    if not isinstance(selection, dict) or set(selection) != {
+            "link", "expected_hash", "title", "source_authorized",
+            "media_authorized", "release_matched", "file_id"}:
+        raise ValueError("G2_SELECTION_BINDING_INVALID")
+    from owner_g2_discovery import _link_hash
+    if (_link_hash(selection["link"]) != selection["expected_hash"]
+            or not selection["expected_hash"] or selection["title"] != query.title
+            or any(selection[k] is not True for k in
+                   ("source_authorized", "media_authorized", "release_matched"))
+            or selection["file_id"] is not None):
+        raise ValueError("G2_SELECTION_BINDING_INVALID")
+    path = inbox / ("g2-" + request_id + ".selected.json")
+    body = {"schema": "TTV-G2-SELECTED-RELEASE-V1", "request_id": request_id,
+            "selection": selection, "play": query.play}
+    data = json.dumps(body, ensure_ascii=True, separators=(",", ":"),
+                      sort_keys=True).encode("utf-8")
+    tmp = inbox / (".g2-selected-" + request_id + "-" + secrets.token_hex(8) + ".tmp")
+    try:
+        with tmp.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            if path.is_symlink() or not path.is_file() or path.read_bytes() != data:
+                raise ValueError("G2_SELECTION_RECEIPT_CONFLICT") from None
+    finally:
+        tmp.unlink(missing_ok=True)
+    return True
+
+
 def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emit=print) -> int:
     """One bounded, explicitly authorized Owner-local metadata request.
     
@@ -814,8 +865,12 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
                 rows = discover(queries, cache_root, source_url=request["source_url"],
                                 authorized_source=True, owner_request_id=request_id)
                 status = "COMPLETE" if len(rows) == len(queries) else "PARTIAL"
+                detail = {}
+                if queries[0].select_release:
+                    published = _publish_g2_selection(inbox, request_id, queries[0], rows)
+                    detail["selection_published"] = published
                 _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
-                                 "request_id": request_id, "status": status, "results": rows})
+                                 "request_id": request_id, "status": status, "results": rows, **detail})
                 emit("OWNER_G2_" + status)
             except Exception as exc:
                 from agy_owner_warm_session import warm_reason

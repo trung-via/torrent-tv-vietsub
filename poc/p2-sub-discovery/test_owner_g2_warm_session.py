@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch, Mock
 
 from agy_owner_warm_session import OwnerAgyWarmSession, WarmSessionError, _source_page
-from owner_g2_discovery import MovieQuery, _metadata, discover_movie_batch, G2BatchReview, TURN_SECONDS
+from owner_g2_discovery import MovieQuery, _metadata, discover_movie_batch, G2BatchReview, TURN_SECONDS, _selected_metadata, _prompt
 from agy_v13_native_producer import NativeBrowserProducer
 from owner_session_bridge import poll_private_g2, enqueue_g2_metadata
 from owner_g2_submit import submit_private_file
@@ -94,6 +94,69 @@ class WarmTests(unittest.TestCase):
                 with self.assertRaisesRegex(WarmSessionError, "NOT_READY"):
                     s.turn("third", root/"three")
             self.assertEqual(len(proc.messages), 2)
+
+    def test_authorized_selection_is_exact_top_release_and_observed_locator(self):
+        with tempfile.TemporaryDirectory() as d:
+            trace = Path(d)/"agy-stdout.jsonl"
+            link = "magnet:?xt=urn:btih:" + "a"*40
+            q = MovieQuery("Licensed fixture", 2026, select_release=True, media_authorized=True, play=True)
+            def event(params=None, output=None):
+                info = {"parameters": params} if params else {"output": output}
+                return {"step_update": {"tool_name": "call_mcp_tool", "tool_info": info}}
+            events = [
+                event({"ToolName":"list_pages","ServerName":"ttv-browser"}),
+                event(output="1: https://example.org/releases"),
+                event({"ToolName":"evaluate_script","ServerName":"ttv-browser","Arguments":{"pageId":1}}),
+                event(output="Fixture.Release.A " + link),
+            ]
+            trace.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
+            def row(name, seeds, resolution="1080p", size=8000):
+                return {"title":"Licensed fixture","year":2026,"resolution":resolution,
+                        "size_mb":size,"seeds":seeds,"release_name":name}
+            payload = {"request_id":"turn", "status":"MATCH_FOUND",
+                       "candidates":[row("Fixture.Release.A",9),row("Fixture.Release.B",3),
+                                     row("Wrong.resolution",999,"2160p"),row("Large",100,size=20000)],
+                       "selected":{"release_name":"Fixture.Release.A","link":link}}
+            got = _selected_metadata(payload,q,"turn","example.org",trace)
+            self.assertEqual(got["status"],"SELECTION_READY")
+            self.assertEqual(got["selection"]["expected_hash"],"a"*40)
+            payload["selected"]["release_name"]="Fixture.Release.B"
+            self.assertEqual(_selected_metadata(payload,q,"turn","example.org",trace)["status"],
+                             "SELECTED_RELEASE_NOT_TOP_MATCH")
+            payload["selected"]={"release_name":"Fixture.Release.A","link":"magnet:?xt=urn:btih:"+"b"*40}
+            self.assertEqual(_selected_metadata(payload,q,"turn","example.org",trace)["status"],
+                             "SELECTED_LOCATOR_UNVERIFIED")
+            self.assertIn("one job", _prompt(q,"https://example.org","turn"))
+
+    def test_selection_private_consumer_publishes_exact_g22_input_once(self):
+        from dataclasses import asdict
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            rid="f"*32
+            q=MovieQuery("Licensed fixture",2026,select_release=True,media_authorized=True,play=True)
+            request={"schema":"TTV-OWNER-G2-SELECTION-V1","request_id":rid,
+                     "authorized_source":True,"source_url":"https://example.org/releases","queries":[asdict(q)]}
+            enqueue_g2_metadata(owner_root=root,request=request)
+            selection={"link":"magnet:?xt=urn:btih:"+"a"*40,"expected_hash":"a"*40,
+                       "title":q.title,"source_authorized":True,"media_authorized":True,
+                       "release_matched":True,"file_id":None}
+            discover=Mock(return_value=[{"status":"SELECTION_READY","owner_request_id":rid,
+                                        "query":asdict(q),"selection":selection}])
+            args=dict(owner_root=root,cache_root=root/"cache",discover=discover,
+                      submit=lambda work:work(),emit=lambda _:None)
+            self.assertEqual(poll_private_g2(**args),1)
+            output=root/"inbox"/("g2-"+rid+".selected.json")
+            self.assertEqual(json.loads(output.read_text()),{"schema":"TTV-G2-SELECTED-RELEASE-V1",
+                             "request_id":rid,"selection":selection,"play":True})
+            self.assertEqual(poll_private_g2(**args),0)
+            discover.assert_called_once()
+
+    def test_selection_authority_required_before_provider(self):
+        with patch("owner_g2_discovery.preflight_antigravity") as provider:
+            with self.assertRaisesRegex(ValueError,"G2_QUERY_INVALID"):
+                discover_movie_batch(None,[MovieQuery("Fixture",2026,select_release=True)],None,
+                                     source_url="https://example.org",authorized_source=True)
+            provider.assert_not_called()
 
     def test_metadata_exact_identity_soft_size_and_resolution(self):
         q = MovieQuery("Example", 2026)
