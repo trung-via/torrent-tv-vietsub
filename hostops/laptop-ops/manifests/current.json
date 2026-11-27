@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
   "operation": "agy-native-browser-readout-1124",
-  "category": "owner-maintenance",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-teacher-neon-high.ps1",
-  "script_sha256": "412348d60bb20c24ad14874dfdc620f141a4199489f0204364f94b5f4aebdc95",
+  "script_path": "hostops/laptop-ops/operations/g21-training-readout.ps1",
+  "script_sha256": "ea4f6ec61916a35ad19532b3e9b6e618d06969ec30d05e29f47d0290d73f1552",
   "arguments": []
 }
