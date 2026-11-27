@@ -1,5 +1,6 @@
 # G2.3: reuse #191 paired remote protocol; input is private G2.2 receipt.
-param([Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{32}
+param([Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{32}$')][string]$RequestId)
+$LibraryReceipt=Join-Path $env:ProgramData ('TorrentTVVietsub\LaptopHostOps\Receipts\g2-'+$RequestId+'.library.json')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win'){throw 'G23_WRONG_RUNNER'}
