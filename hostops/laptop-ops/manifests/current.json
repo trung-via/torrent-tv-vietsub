@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-v33-native-trace-replay.ps1",
-  "script_sha256": "409860483be5acb8229a2b78e30cc6685e7a4753ec01e0209e54b1d1c312fb98",
+  "script_path": "hostops/laptop-ops/operations/g21-v33-list-shape.ps1",
+  "script_sha256": "563f320b8cbcb0ea882dc6ae4712d451a6abdffa673cb8ff0483dcafdbb3228c",
   "arguments": []
 }
