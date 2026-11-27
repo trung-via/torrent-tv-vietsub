@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g2-speed-first-bunny",
-  "category": "owner-maintenance",
+  "operation": "owner-g2-deploy-readout",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g2-speed-first-bunny.ps1",
-  "script_sha256": "c92f1f5d40790ee7402388247dabef0c9b09a95decf92c459c4824959b262705",
+  "script_path": "hostops/laptop-ops/operations/g2-deploy-readout.ps1",
+  "script_sha256": "55eb681f829d7217306661a8cc73a964b4fe9a6ea8e3339d2ae8494aed0af569",
   "arguments": []
 }
