@@ -3,7 +3,7 @@
   "operation": "owner-g21-r4-readout",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-r4-readout.ps1",
-  "script_sha256": "a6b05cd7dec8d818f19c114436314f02edbaf30b5ed01a78465bcf9c947a8c47",
+  "script_path": "hostops/laptop-ops/operations/g21-r4-timing.ps1",
+  "script_sha256": "6ed404f77fb420aee86c7e5e036e0042707b98e84a179a5e2c16ce973e3e13a8",
   "arguments": []
 }
