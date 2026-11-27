@@ -34,41 +34,23 @@ def main():
     # Distinct one-shot legal media trial. Do not repeat earlier provider effects.
     for p in (root/"NativeBrowserTest").glob("g2-speed-first-bunny-*"):
         if p!=run and (p/"isolated-cache").exists():return "G2_SPEED_PRIOR_EFFECT_HOLD"
-    # New HEAD requires only a new isolated checkout, not installation.
-    checkout=run/"candidate";checkout.mkdir()
-    env=dict(os.environ,GIT_TERMINAL_PROMPT="0",GCM_INTERACTIVE="never")
-    git=shutil.which("git")
-    if not git:return "G21_R5_GIT_UNAVAILABLE"
-    def g(*a):
-        p=subprocess.run([git,*a],cwd=checkout,env=env,capture_output=True,text=True,
-            encoding="utf-8",errors="replace",timeout=60)
-        with (run/"git-private.txt").open("a",encoding="utf-8") as f:f.write(p.stdout+"\n"+p.stderr+"\n")
-        if p.returncode:raise RuntimeError("GIT_"+a[0].upper())
-        return p.stdout.strip()
-    try:
-        g("init","-q");g("fetch","--depth=1","--no-tags","https://github.com/trung-via/torrent-tv-vietsub.git",head)
-        if g("rev-parse","FETCH_HEAD")!=head:return "G21_R5_SOURCE_DRIFT"
-        g("checkout","--detach","FETCH_HEAD")
-        if g("rev-parse","HEAD")!=head:return "G21_R5_SOURCE_DRIFT"
-    except (RuntimeError,subprocess.TimeoutExpired):return "G21_R5_SOURCE_FETCH_HOLD"
+    # Reuse the exact prior run's verified checkout and checks. No rebuild.
+    matches=[]
+    for folder in (spool/"History",spool/"Receipts"):
+        for p in folder.glob("receipt*.json"):
+            d=read_doc(p);n=d.get("nonce","")
+            if d.get("source_commit")!="3d741240bf6c055c731412532d88bef0d1a45090" or d.get("result")!="SUCCESS" or not re.fullmatch("[a-f0-9]{32}",str(n)):continue
+            st=read_doc(spool/"Receipts"/("odyssey-stage-"+n+".json"))
+            if st.get("nonce")==n and st.get("reason")=="G21_V33_R4_IDLE_OPEN_WORK_P1_I0_B0":matches.append(n)
+    matches=list(set(matches))
+    if len(matches)!=1:return "G2_SPEED_PRIOR_CHECKS_HOLD"
+    old=root/"NativeBrowserTest"/("g2-speed-first-bunny-"+matches[0])
+    if read_doc(old/"SOURCE_CHECKS.json")!={"targeted_python":2,"powershell_parse":2,"head":head}:return "G2_SPEED_PRIOR_CHECKS_HOLD"
+    checkout=old/"candidate"
+    if subprocess.check_output(["git","-C",str(checkout),"rev-parse","HEAD"],text=True).strip()!=head:return "G2_SPEED_SOURCE_DRIFT"
+    if subprocess.check_output(["git","-C",str(checkout),"status","--porcelain","--untracked-files=no"],text=True).strip():return "G2_SPEED_SOURCE_DIRTY"
     sys.path[:0]=[str(checkout/"poc/p2-sub-discovery"),str(checkout/"poc/p2-aisub")]
-    import unittest,io
-    import test_owner_g2_warm_session as warm_tests
-    suite=unittest.TestSuite()
-    for cls in vars(warm_tests).values():
-        if isinstance(cls,type) and issubclass(cls,unittest.TestCase):
-            for method in ("test_authorized_selection_is_exact_top_release_and_observed_locator",
-                           "test_selection_private_consumer_publishes_exact_g22_input_once"):
-                if hasattr(cls,method):suite.addTest(cls(method))
-    report=io.StringIO()
-    result=unittest.TextTestRunner(stream=report,verbosity=2).run(suite)
-    (run/"targeted-test.txt").write_text(report.getvalue(),encoding="utf-8")
-    if suite.countTestCases()!=2 or not result.wasSuccessful():return "G2_SPEED_TARGETED_TEST_FAIL"
-    for name in ("owner_movie_play.ps1","owner_movie_flow.ps1"):
-        path=str(checkout/"poc/p2-source"/name).replace("'","''")
-        cmd="$t=$null;$e=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('"+path+"',[ref]$t,[ref]$e);if($e.Count){exit 1};'PASS'"
-        if ps(cmd)!="PASS":return "G2_SPEED_POWERSHELL_PARSE_HOLD"
-    write(run/"SOURCE_CHECKS.json",{"targeted_python":2,"powershell_parse":2,"head":head})
+    write(run/"SOURCE_CHECKS_REUSED.json",{"head":head,"prior":matches[0]})
     from owner_g2_submit import submit_private_file
     from owner_session_bridge import poll_private_g2, install_owner_full_diagnostics
     from agy_v13_native_producer import NativeBrowserProducer
@@ -146,26 +128,6 @@ def main():
         return process_inventory(owner_pid)[0]
     def alive(pid):
         return ps("if(Get-Process -Id "+str(pid)+" -ErrorAction SilentlyContinue){'YES'}else{'NO'}")=="YES"
-    def observe_idle():
-        p,i,b=pending()
-        if p or i or b:raise ValueError("OPEN_WORK_P"+str(p)+"_I"+str(i)+"_B"+str(b))
-        if task_state().upper()=="RUNNING":
-            h=obj(health,512);d=obj(snap,4096)
-            if (h.get("schema")!="TTV-OWNER-AGENT-HEALTH-V1" or h.get("state")!="READY"
-                or type(h.get("pid")) is not int or h["pid"]<=0 or not alive(h["pid"])
-                or not 0<=time.time()-h.get("observed_utc_epoch",0)<=12
-                or d.get("schema") not in ("TTV-HOSTOPS-OWNER-SNAPSHOT-V2","TTV-HOSTOPS-OWNER-SNAPSHOT-V3","TTV-HOSTOPS-OWNER-SNAPSHOT-V4")
-                or d.get("status")!="READY_FRESH" or not 0<=time.time()-d.get("snapshot_utc_epoch",0)<=12
-                or d.get("p3_state") not in ("FRESH_OFF","FRESH_OTHER","FRESH_INACTIVE","STALE","MISSING")
-                or d.get("p2",{}).get("status")!="CLEAR"
-                or d["p2"].get("pending_events")!=0 or d["p2"].get("inflight_count")!=0):
-                raise ValueError("IDLE_NOT_VERIFIED")
-            active,other,runtime=process_inventory(h["pid"])
-            write(run/"PROCESS_SCOPE.json",{"torrent_tv_active":active,"other_provider_processes":other,"owner_runtime":runtime})
-            if busy(worker_snapshot()):raise ValueError("PROVIDER_ACTIVE")
-            return h["pid"]
-        if providers():raise ValueError("PROVIDER_ACTIVE")
-        return None
     # Reuse the existing task identity guards from the pinned checkout.
     def quote(v):return "'"+str(v).replace("'","''")+"'"
     guards=checkout/"poc"/"p2-sub-discovery"
@@ -194,16 +156,6 @@ function Workers{
         data=json.loads(raw)
         if not isinstance(data,list):raise ValueError("WORKERS_SCHEMA")
         return data
-    def stop_residual(known):
-        # After scheduler stop, only exact previous worker identities may be stopped.
-        encoded=json.dumps(known,separators=(",",":"))
-        cmd=worker_guard+r"""$before=@(ConvertFrom-Json -InputObject """+quote(encoded)+r"""); if((Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -TaskPath '\').State.ToString() -cne 'Disabled'){throw 'TASK_NOT_DISABLED'}
-        foreach($w in @(Workers)){
-            $same=@($before|Where-Object{[int]$_.ProcessId -eq [int]$w.ProcessId -and ([datetime]$_.CreationDate).ToUniversalTime() -eq ([datetime]$w.CreationDate).ToUniversalTime() -and $_.CommandLine -ceq $w.CommandLine})
-            if($same.Count -ne 1){throw 'WORKER_DRIFT'}
-            Stop-Process -Id ([int]$w.ProcessId) -Force -ErrorAction Stop
-        }; 'STOP_CHECKED'"""
-        task_cmd(cmd)
     def busy(known):
         ids={int(w["ProcessId"]) for w in known}
         rows=json.loads(ps(r"""@(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine)|ConvertTo-Json -Compress -Depth 3"""))
@@ -220,52 +172,27 @@ function Workers{
                 if parent not in table:break
                 parent=int(table[parent]["ParentProcessId"])
         return False
+    # Human stopped Owner. Pending unexecuted G1 events remain untouched.
+    # Never overlap a live worker or unresolved provider/browser effect.
     prior=task_state().upper()
-    if prior!="RUNNING":return "G21_ACCEPTANCE_OWNER_NOT_RUNNING_HOLD"
-    try:
-        task_cmd("'VERIFIED'")
-        oldpid=observe_idle()
-        known=worker_snapshot()
-        if prior=="RUNNING" and not any(int(w["ProcessId"])==oldpid for w in known):return "G21_R4_WORKER_ID_HOLD"
-        if prior!="RUNNING" and known:return "G21_R4_RESIDUAL_HOLD"
-        time.sleep(1)
-        if task_state().upper()!=prior or observe_idle()!=oldpid or worker_snapshot()!=known:
-            return "G21_V33_R4_IDLE_CHANGED"
-    except Exception as e:
-        write(run/"IDLE_HOLD.json",{"reason":str(e)})
-        reason=str(e)
-        return "G21_V33_R4_IDLE_"+reason if re.fullmatch(r"(?:OPEN_WORK_P\d+_I\d+_B\d+|PROVIDER_ACTIVE|IDLE_NOT_VERIFIED)",reason) else "G21_V33_R4_IDLE_HOLD"
+    if prior!="DISABLED":return "G2_SPEED_OWNER_NOT_STOPPED"
+    task_cmd("'VERIFIED'")
+    p,i,b=pending()
+    if i or b:return "G2_SPEED_OPEN_EFFECT_I"+str(i)+"_B"+str(b)
+    for event in inbox.glob("event-*.json"):
+        if (inbox/("claim-"+event.stem.removeprefix("event-"))).exists():return "G2_SPEED_UNRESOLVED_EVENT_CLAIM"
+    active,other,runtime=process_inventory()
+    if worker_snapshot() or active or runtime or busy([]):return "G2_SPEED_WORKER_ACTIVE"
+    write(run/"OWNER_RECOVERY.json",{"prior":prior,"stage":"UNCHANGED_DISABLED","preserved_events":p})
     profile=root/"NativeBrowserTest"/"CDP9555Profile"
     from agy_v13_native_producer import _ensure_browser_listener
     try:
         _ensure_browser_listener(shutil.which("pwsh"),profile)
     except Exception:
         return "G21_V33_R4_BROWSER_HOLD"
-    # Journal original task state BEFORE any task mutation; never alter app/cache.
-    write(run/"OWNER_RECOVERY.json",{"prior":prior,"pid":oldpid,"stage":"PREPARED"})
-    changed=False
-    outcome="G21_V33_R4_LOCAL_ERROR"
     try:
-        if prior!="DISABLED":
-            changed=True
-            task_cmd("Disable-ScheduledTask -InputObject $task|Out-Null")
-            if prior=="RUNNING":
-                if pending()!=(0,0,0) or busy(worker_snapshot()):return "G21_V33_R4_OPEN_WORK_CHANGED"
-                if task_state().upper()=="RUNNING":task_cmd("Stop-ScheduledTask -InputObject $task")
-                # Stop-ScheduledTask can terminate launcher without its Python child.
-                # Recheck durable work and only act on the same verified worker.
-                if pending()!=(0,0,0) or busy(worker_snapshot()):return "G21_R4_POST_STOP_WORK_HOLD"
-                if worker_snapshot():
-                    stop_residual(known)
-        for _ in range(10):
-            if task_state().upper()=="DISABLED" and not worker_snapshot():break
-            time.sleep(.3)
-        else:
-            write(run/"STOP_OBSERVATION.json",{"task":task_state(),"worker_count":len(worker_snapshot()),"oldpid_alive":oldpid is not None and alive(oldpid)})
-            return "G21_R4_STOP_UNVERIFIED"
-        active,other,runtime=process_inventory(oldpid)
-        if pending()!=(0,0,0) or busy([]) or runtime:return "G21_V33_R4_STOP_WORK_HOLD"
-        write(run/"OWNER_RECOVERY.json",{"prior":prior,"pid":oldpid,"stage":"QUIESCENT"})
+        if task_state().upper()!="DISABLED" or worker_snapshot() or pending()[1:]!=(0,0) or busy([]):
+            return "G2_SPEED_QUIESCENCE_CHANGED"
         current=pages()
         if len(current)!=1 or current[0].get("id")!=original["id"] or current[0].get("url")!=original["url"]:
             return "G21_V33_R4_BASE_CHANGED"
@@ -315,41 +242,7 @@ function Workers{
             return "G2_SPEED_SELECTION_BINDING_HOLD"
         return "G2_SPEED_SELECTION_PASS_AGY"+str(ms)+"_TOTAL"+str(elapsed)
     finally:
-        if changed:
-            try:
-                # Restore original enabled state even on timeout/error/early return.
-                # Never create a second Owner after a partial stop.
-                if task_state().upper()!="RUNNING" and worker_snapshot():
-                    remaining=worker_snapshot()
-                    if task_state().upper()!="DISABLED" or pending()!=(0,0,0) or busy(remaining):
-                        raise RuntimeError("RESTORE_RESIDUAL_UNVERIFIED")
-                    stop_residual(known)
-                    if worker_snapshot():raise RuntimeError("RESTORE_RESIDUAL_UNVERIFIED")
-                task_cmd("Enable-ScheduledTask -InputObject $task|Out-Null")
-                if prior=="RUNNING":
-                    if task_state().upper()!="RUNNING":
-                        if worker_snapshot():raise RuntimeError("RESTORE_RESIDUAL_UNVERIFIED")
-                        task_cmd("Start-ScheduledTask -InputObject $task")
-                    ok=False
-                    for _ in range(30):
-                        try:
-                            hh=obj(health,512)
-                            if (task_state().upper()=="RUNNING" and hh.get("state")=="READY"
-                                and type(hh.get("pid")) is int and alive(hh["pid"])
-                                and any(int(w["ProcessId"])==hh["pid"] for w in worker_snapshot())
-                                and 0<=time.time()-hh.get("observed_utc_epoch",0)<=10):
-                                ok=True;break
-                        except Exception:pass
-                        time.sleep(1)
-                    if not ok:raise RuntimeError("RESTORE_HEALTH_UNVERIFIED")
-                elif task_state().upper() not in ("READY","RUNNING"):
-                    raise RuntimeError("RESTORE_ENABLE_UNVERIFIED")
-                write(run/"OWNER_RECOVERY.json",{"prior":prior,"stage":"RESTORED"})
-            except Exception as e:
-                write(run/"OWNER_RECOVERY.json",{"prior":prior,"stage":"RESTORE_HOLD","error":str(e)})
-                return "G21_V33_R4_OWNER_RESTORE_HOLD"
-        else:
-            write(run/"OWNER_RECOVERY.json",{"prior":prior,"stage":"UNCHANGED_DISABLED"})
+        write(run/"OWNER_RECOVERY.json",{"prior":prior,"stage":"UNCHANGED_DISABLED" if task_state().upper()=="DISABLED" else "EXTERNAL_STATE_CHANGED","preserved_events":p})
 
 try:
     import urllib.parse
