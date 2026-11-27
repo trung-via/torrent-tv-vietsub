@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
   "operation": "agy-native-browser-readout-1124",
-  "category": "diagnostics",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-training-full-report.ps1",
-  "script_sha256": "3bd64c5d92aebe1cc0fbc53fba274a640e55040995f0a98c315cdf757c503ecb",
+  "script_path": "hostops/laptop-ops/operations/g21-student-hydrogen-v2.ps1",
+  "script_sha256": "cba6c8de3ae3199bd8bf1be83c13764dc984328c3ce0bf5cb9c96e5447bc05f7",
   "arguments": []
 }
