@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 
-from agy_owner_warm_session import OwnerAgyWarmSession, WarmSessionError
+from agy_owner_warm_session import OwnerAgyWarmSession, WarmSessionError, _source_page
 from owner_g2_discovery import MovieQuery, _metadata, discover_movie_batch
 from agy_v13_native_producer import NativeBrowserProducer
 from owner_session_bridge import poll_private_g2, enqueue_g2_metadata
@@ -123,6 +123,16 @@ class WarmTests(unittest.TestCase):
             self.assertEqual(call.call_count, 1)
         self.assertFalse(producer._browser_lock.locked())
 
+    def test_native_list_pages_prefix_and_ambiguity(self):
+        host = "example.org"
+        self.assertEqual(_source_page("1: Other https://other.example/\n2: Movie title - https://example.org/ [selected]", host), 2)
+        self.assertEqual(_source_page("2: https://example.org/", host), 2)
+        self.assertIsNone(_source_page("2: title https://example.org/\n3: title https://example.org/other", host))
+        self.assertIsNone(_source_page("2: https://example.org/ https://other.example/", host))
+        self.assertIsNone(_source_page("2: title https://example.org.evil.example/", host))
+        self.assertIsNone(_source_page("2: title https://example.org@other.example/", host))
+        self.assertIsNone(_source_page("2: title http://example.org/", host))
+
     def test_source_page_requires_fresh_matching_read(self):
         def outcome(tool, args, output):
             return {"event": "step_update", "step_update": {"tool_name": "call_mcp_tool",
@@ -131,7 +141,7 @@ class WarmTests(unittest.TestCase):
         for page_id, allowed in ((2, True), (3, False)):
             with self.subTest(page_id=page_id), tempfile.TemporaryDirectory() as d:
                 root = Path(d)
-                events = [outcome("list_pages", {}, "1: https://www.opensubtitles.org/\n2: https://example.org/"),
+                events = [outcome("list_pages", {}, "1: OpenSubtitles https://www.opensubtitles.org/\n2: Movie title https://example.org/"),
                           outcome("evaluate_script", {"pageId": page_id}, "metadata"),
                           {"event": "result", "result": {"conversation_id": "A", "response": "{}"}}]
                 proc = FakeProcess(["A"], events=events)
