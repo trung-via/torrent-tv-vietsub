@@ -87,55 +87,72 @@ try{
  $attempt=ReadDoc (Join-Path $dir ('g23-'+$RequestId+'-launch-attempt.json'))
  if(-not $attempt -or $attempt.attempt -cne $RequestId -or $attempt.hash -cne $hash -or $attempt.file -ne $idx -or $attempt.state -cne 'DISPATCH_STARTED'){throw 'ATTEMPT_BINDING'}
  Write-Host 'G23_AUDIT_ATTEMPT=BOUND'
- function PostRead([string]$endpoint,[hashtable]$body){
-  $r=Invoke-WebRequest -Uri ('http://127.0.0.1:8090/'+$endpoint) -Method POST -ContentType 'application/json' -Body ($body|ConvertTo-Json -Compress) -TimeoutSec 5 -NoProxy -MaximumRedirection 0
-  return ,($r.Content|ConvertFrom-Json -Depth 50 -NoEnumerate)
- }
- function SafeNum($obj,[string]$key){
-  if($null -ne $obj -and $obj.PSObject.Properties[$key] -and [string]$obj.$key -match '^\d+(?:\.\d+)?$'){return [string]$obj.$key}
-  return 'UNKNOWN'
- }
- try{
-  $settings=PostRead 'settings' @{action='get'}
-  $track='UNKNOWN'
-  if($settings.PSObject.Properties['TrackTimecode'] -and $settings.TrackTimecode -is [bool]){$track=[string]$settings.TrackTimecode}
-  Write-Host ('G23_AUDIT_TRACK_TIMECODE='+$track)
- }catch{Write-Host 'G23_AUDIT_TRACK_TIMECODE=UNKNOWN'}
- # Inspect the existing native session, not the server's optional history.
- function Observe([int]$n){
-  $ac=((& $adb -s $serial shell dumpsys activity activities 2>$null)|Out-String)
-  $fg=[bool](@($ac -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match [regex]::Escape($pkg+'/') -and $_ -match 'PlayerActivity'}).Count)
-  $raw=((& $adb -s $serial shell dumpsys media_session 2>$null)|Out-String)
-  $blocks=[regex]::Matches($raw,'(?ms)^\s{4,}[^\r\n]+?\(userId=\d+\)\s*\r?\n.*?(?=^\s{4,}[^\r\n]+?\(userId=\d+\)\s*\r?\n|\z)')
-  $scoped=@($blocks|Where-Object{$_.Value -match ('(?m)^\s*package\s*=\s*'+[regex]::Escape($pkg)+'\s*$')})
-  # Android variants format session headers differently. Fall back to
-  # the package line's own block, ending before any other package line.
-  if($scoped.Count -eq 0){
-   $scoped=@([regex]::Matches($raw,'(?ms)^\s*package\s*=\s*'+[regex]::Escape($pkg)+'[ \t]*\r?\n.*?(?=^\s*package\s*=|\z)'))
-  }
-  $state='UNKNOWN';$pos='UNKNOWN';$rate='UNKNOWN';$updated='UNKNOWN';$title=$false;$active=$false
-  if($scoped.Count -eq 1){
-   $block=$scoped[0].Value
-   $active=$block -match '(?m)^\s*active=true\s*$'
-   $title=$block -match '(?im)^\s*(?:metadata|description|title)[^\r\n]*\bSintel\b'
-   $st=[regex]::Match($block,'(?m)\bstate=PlaybackState\s*\{state=(\d+),\s*position=(-?\d+),[^\r\n]*?speed=([-\d.]+)[^\r\n]*?updated=(\d+)')
-   if($st.Success){$state=$st.Groups[1].Value;$pos=$st.Groups[2].Value;$rate=$st.Groups[3].Value;$updated=$st.Groups[4].Value}
-   else{
-    $st=[regex]::Match($block,'(?m)\bstate=PlaybackState\s*\{state=(\d+),\s*position=(-?\d+),[^\r\n]*?speed=([-\d.]+)')
-    if($st.Success){$state=$st.Groups[1].Value;$pos=$st.Groups[2].Value;$rate=$st.Groups[3].Value}
+ # Read the actual display and video surface, without altering playback.
+ Add-Type -AssemblyName System.Drawing
+ function ReadSurface{
+  $list=@(& $adb -s $serial shell dumpsys SurfaceFlinger --list 2>$null)
+  $layers=@($list|Where-Object{$_ -match 'SurfaceView|BLAST' -and $_ -match [regex]::Escape($pkg) -and $_ -match 'PlayerActivity'})
+  $latest=[long]0;$valid=0
+  foreach($layer in $layers){
+   $safe=$layer.Trim()
+   if($safe -notmatch '^[a-zA-Z0-9 ._()/\[\]#:=+\-]+$'){continue}
+   $lines=@(& $adb -s $serial shell "dumpsys SurfaceFlinger --latency '$safe'" 2>$null)
+   foreach($line in $lines){
+    if($line -match '^\s*(\d+)\s+(\d+)\s+(\d+)\s*$'){
+     $present=[long]$Matches[2]
+     if($present -gt 0 -and $present -lt [long]::MaxValue){$valid++;$latest=[Math]::Max($latest,$present)}
+    }
    }
   }
-  # No raw activity, metadata, tokens or media identifiers leave runner.
-  Write-Host ('G23_NATIVE_SAMPLE='+$n+' FG='+$fg+' SESSIONS='+$scoped.Count+' ACTIVE='+$active+' TITLE='+$title+' STATE='+$state+' POSITION_MS='+$pos+' SPEED='+$rate+' UPDATED='+$updated)
-  return [pscustomobject]@{fg=$fg;count=$scoped.Count;active=$active;title=$title;state=$state;pos=$pos;updated=$updated}
+  return [pscustomobject]@{layers=$layers.Count;valid=$valid;latest=$latest}
  }
- $a=Observe 1
- Start-Sleep -Seconds 8
- $b=Observe 2
- if($a.fg -and $b.fg -and $a.count -eq 1 -and $b.count -eq 1 -and $a.title -and $b.title -and $a.state -eq '3' -and $b.state -eq '3' -and $a.pos -match '^\d+$' -and $b.pos -match '^\d+$' -and [long]$b.pos -gt [long]$a.pos){
-  Write-Host 'G23_NATIVE=TITLE_BOUND_PROGRESS_PASS'
- }else{Write-Host 'G23_NATIVE=PROGRESS_UNVERIFIED'}
- Write-Host 'G23_AUDIT=READ_ONLY_COMPLETE'
+ function ReadFrame{
+  $tmp=Join-Path ([IO.Path]::GetTempPath()) ('ttv-g23-'+[guid]::NewGuid().ToString('N')+'.png')
+  try{
+   # PowerShell 7.4+ preserves native stdout bytes on redirection.
+   & $adb -s $serial exec-out screencap -p > $tmp
+   if($LASTEXITCODE -ne 0){throw 'SCREEN_READ'}
+   $bmp=[Drawing.Bitmap]::new($tmp)
+   try{
+    $values=[System.Collections.Generic.List[int]]::new()
+    $lo=255;$hi=0
+    for($y=1;$y -le 24;$y++){
+     for($x=1;$x -le 40;$x++){
+      $px=$bmp.GetPixel([int]($bmp.Width*(0.12+0.76*$x/41)),[int]($bmp.Height*(0.2+0.6*$y/25)))
+      $v=[int](($px.R+$px.G+$px.B)/3)
+      $values.Add($v);$lo=[Math]::Min($lo,$v);$hi=[Math]::Max($hi,$v)
+     }
+    }
+    return [pscustomobject]@{samples=$values.ToArray();contrast=$hi-$lo}
+   }finally{$bmp.Dispose()}
+  }finally{Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue}
+ }
+ function Foreground{
+  $ac=((& $adb -s $serial shell dumpsys activity activities 2>$null)|Out-String)
+  return [bool](@($ac -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match [regex]::Escape($pkg+'/') -and $_ -match 'PlayerActivity'}).Count)
+ }
+ $fg1=Foreground
+ if(-not $fg1){Write-Host 'G23_DISPLAY=PLAYER_NOT_FOREGROUND';exit 0}
+ $a=ReadSurface
+ $f1=ReadFrame
+ Start-Sleep -Seconds 5
+ $fg2=Foreground
+ $b=ReadSurface
+ $f2=ReadFrame
+ Start-Sleep -Seconds 5
+ $fg3=Foreground
+ $c=ReadSurface
+ $f3=ReadFrame
+ function Difference($x,$y){
+  $changed=0
+  for($i=0;$i -lt $x.samples.Count;$i++){if([Math]::Abs($x.samples[$i]-$y.samples[$i]) -ge 15){$changed++}}
+  return $changed
+ }
+ $d1=Difference $f1 $f2;$d2=Difference $f2 $f3
+ Write-Host ('G23_DISPLAY_FG='+$fg1+','+$fg2+','+$fg3+' CONTRAST='+$f1.contrast+','+$f2.contrast+','+$f3.contrast+' CHANGED='+$d1+','+$d2+'/960')
+ Write-Host ('G23_SURFACE_LAYERS='+$a.layers+','+$b.layers+','+$c.layers+' VALID='+$a.valid+','+$b.valid+','+$c.valid+' PRESENT_ADVANCED='+($a.latest -gt 0 -and $b.latest -gt $a.latest -and $c.latest -gt $b.latest))
+ # Frame change is evidence of rendered motion, not by itself proof of film identity.
+ Write-Host 'G23_DISPLAY=READ_ONLY_COMPLETE'
 
 }catch{
  Write-Host ('G23_AUDIT_HOLD_STAGE='+$stage)
