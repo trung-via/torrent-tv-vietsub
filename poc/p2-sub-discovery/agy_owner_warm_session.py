@@ -1,0 +1,177 @@
+"""Owner-local, bounded AGY stream-json session (V3.1 proof: 45988083997).
+
+One existing CLI process, sequential turns. No daemon, provider fallback,
+automatic retry, browser access or global configuration change.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from pathlib import Path
+import queue
+import re
+import subprocess
+from threading import Thread
+import time
+
+
+class WarmSessionError(RuntimeError):
+    """An incomplete or unverified turn must not be silently replayed."""
+
+
+@dataclass(frozen=True)
+class WarmTurn:
+    response: dict
+    conversation_id: str
+    first_mcp_ms: int
+    final_ms: int
+    mcp_outcomes: int
+    mcp_errors: int
+
+
+class OwnerAgyWarmSession:
+    def __init__(self, *, ps, env, root, timeout=120, popen=subprocess.Popen):
+        self.root = Path(root)
+        self.timeout = timeout
+        self._popen = popen
+        self._ps = ps
+        self._env = env
+        self._queue = queue.Queue()
+        self.process = None
+        self.conversation_id = None
+        self.clean_exit = False
+        self.started = False
+        self._failed = False
+
+    def __enter__(self):
+        cmd = ("& $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox "
+               "--settings $env:TTV_SESSION_SETTINGS --print= "
+               "--input-format stream-json --output-format stream-json; exit $LASTEXITCODE")
+        self._stderr = (self.root / "agy-stderr.txt").open("x", encoding="utf-8")
+        try:
+            self.process = self._popen(
+                [self._ps, "-NoProfile", "-NonInteractive", "-Command", cmd],
+                env=self._env, cwd=self.root, stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=self._stderr, text=True,
+                encoding="utf-8", errors="replace", bufsize=1)
+        except BaseException:
+            self._stderr.close()
+            raise
+        self.started = True
+        Thread(target=self._read, daemon=True, name="ttv-agy-stream-reader").start()
+        return self
+
+    def _read(self):
+        try:
+            for line in self.process.stdout:
+                self._queue.put((time.monotonic(), line))
+        finally:
+            self._queue.put((time.monotonic(), None))
+
+    def turn(self, prompt, run):
+        if self._failed or self.process is None or self.process.poll() is not None:
+            raise WarmSessionError("AGY_STREAM_NOT_READY")
+        run = Path(run)
+        run.mkdir()
+        sent = time.monotonic()
+        first = None
+        count = errors = 0
+        pending = None
+        observed = set()
+        try:
+            with (run / "agy-stdout.jsonl").open("x", encoding="utf-8") as raw, \
+                 (run / "event-arrivals.jsonl").open("x", encoding="utf-8") as timing:
+                message = {"event": "user", "message": {"content": [
+                    {"type": "text", "text": prompt}]}}
+                self.process.stdin.write(json.dumps(message, ensure_ascii=False) + "\n")
+                self.process.stdin.flush()
+                total = 0
+                while True:
+                    left = self.timeout - (time.monotonic() - sent)
+                    if left <= 0:
+                        raise WarmSessionError("AGY_STREAM_TURN_TIMEOUT")
+                    try:
+                        at, line = self._queue.get(timeout=min(left, .25))
+                    except queue.Empty:
+                        if self.process.poll() is not None:
+                            raise WarmSessionError("AGY_STREAM_EXITED_EARLY")
+                        continue
+                    if line is None:
+                        raise WarmSessionError("AGY_STREAM_EOF")
+                    total += len(line.encode("utf-8"))
+                    if total > 16 * 1024 * 1024:
+                        raise WarmSessionError("AGY_STREAM_OUTPUT_LIMIT")
+                    raw.write(line)
+                    raw.flush()
+                    try:
+                        e = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(e, dict):
+                        continue
+                    ms = max(0, round((at - sent) * 1000))
+                    timing.write(json.dumps({"elapsed_ms": ms, "event": e.get("event")}) + "\n")
+                    timing.flush()
+                    st = e.get("step_update")
+                    if isinstance(st, dict) and st.get("tool_name") == "call_mcp_tool":
+                        if first is None:
+                            first = ms
+                        info = st.get("tool_info")
+                        if isinstance(info, dict):
+                            params = info.get("parameters")
+                            if isinstance(params, dict):
+                                pending = (params.get("ToolName"), next(
+                                    (params[k] for k in ("ServerName", "Server", "serverName", "server")
+                                     if isinstance(params.get(k), str)), None))
+                            if "output" in info or info.get("error"):
+                                count += 1
+                                err = bool(info.get("error") or st.get("error"))
+                                errors += int(err)
+                                if pending and not err and pending[1] == "ttv-browser":
+                                    observed.add(pending[0])
+                                pending = None
+                    r = e.get("result")
+                    if e.get("event") != "result" or not isinstance(r, dict):
+                        continue
+                    sid = r.get("conversation_id")
+                    if not isinstance(sid, str) or not sid:
+                        raise WarmSessionError("AGY_STREAM_CONVERSATION_MISSING")
+                    if self.conversation_id is not None and sid != self.conversation_id:
+                        raise WarmSessionError("AGY_STREAM_CONVERSATION_CHANGED")
+                    self.conversation_id = sid
+                    response = r.get("response")
+                    if not isinstance(response, str):
+                        raise WarmSessionError("AGY_STREAM_RESULT_INVALID")
+                    response = response.strip()
+                    fence = re.fullmatch(r"\x60{3}(?:json)?\s*(.*?)\s*\x60{3}", response, re.S)
+                    payload = json.loads(fence[1] if fence else response)
+                    if not isinstance(payload, dict):
+                        raise WarmSessionError("AGY_STREAM_RESULT_INVALID")
+                    if first is None or not observed.intersection({"evaluate_script", "take_snapshot"}):
+                        raise WarmSessionError("AGY_STREAM_FRESH_BROWSER_READ_MISSING")
+                    return WarmTurn(payload, sid, first, ms, count, errors)
+        except BaseException:
+            self._failed = True
+            raise
+
+    def __exit__(self, exc_type, exc, tb):
+        p = self.process
+        try:
+            if p is None:
+                return False
+            try:
+                p.stdin.close()
+            except (OSError, ValueError):
+                pass
+            try:
+                self.clean_exit = p.wait(timeout=10) == 0
+            except subprocess.TimeoutExpired:
+                # Only the PID created by this object, never unrelated Chrome/AGY.
+                subprocess.run(["taskkill.exe", "/PID", str(p.pid), "/T", "/F"],
+                               capture_output=True, timeout=10, check=False)
+                p.wait(timeout=10)
+            if not self.clean_exit and exc_type is None:
+                raise WarmSessionError("AGY_STREAM_EXIT_UNVERIFIED")
+        finally:
+            self._stderr.close()
+        return False
