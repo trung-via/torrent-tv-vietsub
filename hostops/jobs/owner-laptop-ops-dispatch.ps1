@@ -345,7 +345,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
-    if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/g21-training-full-report.ps1' -and $receipt.result -ceq 'SUCCESS') {
+    if ($manifest.script_path -cin @('hostops/laptop-ops/operations/g21-training-full-report.ps1','hostops/laptop-ops/operations/g21-student-v2-readout.ps1') -and $receipt.result -ceq 'SUCCESS') {
         $file = Join-Path $outbox ('g21-full-report-' + $nonce + '.json')
         if (Test-Path -LiteralPath $file -PathType Leaf) {
             $item = Get-Item -LiteralPath $file -Force
@@ -353,7 +353,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 $v = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
                 if ($v.schema -ceq 'G21_TRAINING_FULL_REPORT_V1' -and $v.nonce -ceq $nonce -and @($v.lines).Count -le 100) {
                     foreach ($line in @($v.lines)) {
-                        if ($line -isnot [string] -or $line -cnotmatch '^G21_FULL_R[12]_(?:SUMMARY|RECIPE|A[0-9]{1,2}|C[0-9]{1,2})=[A-Z0-9_:+,]{1,500}$') { throw 'G21_FULL_REPORT_LINE_INVALID' }
+                        if ($line -isnot [string] -or $line -cnotmatch '^G21_FULL_R[12]_(?:SUMMARY|RECIPE|TIMING|A[0-9]{1,2}|C[0-9]{1,2})=[A-Z0-9_:+,]{1,500}$') { throw 'G21_FULL_REPORT_LINE_INVALID' }
                     }
                     foreach ($line in @($v.lines)) { Write-Output $line }
                 }
