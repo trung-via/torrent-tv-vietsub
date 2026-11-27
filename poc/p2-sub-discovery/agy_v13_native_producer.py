@@ -661,6 +661,16 @@ class NativeBrowserProducer:
         with self._browser_lock:
             return self._acquire(request, cache_root)
 
+    def discover_movies(self, queries, cache_root, *, source_url, authorized_source,
+                        model="gemini-4-hydrogen-low", thinking_level="low"):
+        """G2 caller uses the same Owner instance and browser lock as G1."""
+        from owner_g2_discovery import discover_movie_batch
+        with self._browser_lock:
+            return discover_movie_batch(
+                self.profile, queries, cache_root, source_url=source_url,
+                authorized_source=authorized_source, model=model,
+                thinking_level=thinking_level)
+
     def _acquire(self, request, cache_root):
         run = _job(cache_root, request.media)
         parent = run.parent
