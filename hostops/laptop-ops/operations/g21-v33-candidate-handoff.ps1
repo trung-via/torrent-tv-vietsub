@@ -22,7 +22,7 @@ def ps(cmd,timeout=15):
 def task_state():
     return ps("(Get-ScheduledTask -TaskName 'TorrentTV-Vietsub-OwnerAgent' -ErrorAction Stop).State.ToString()")
 def busy():
-    q=ps(r"""$p=@(Get-CimInstance Win32_Process | Where-Object {$_.CommandLine -and (
+    q=ps(r"""$p=@(Get-CimInstance Win32_Process | Where-Object {$_.ProcessId -ne $PID -and $_.CommandLine -and (
        ($_.Name -match '^(agy|antigravity)(\.exe)?$') -or
        ($_.Name -match '^(node|python|pythonw|py|pwsh|powershell)\.exe$' -and
         $_.CommandLine -match 'chrome-devtools-mcp|owner_p3_p4_entrypoint|owner_session_bridge|owner-p3-p4|run-owner-agent')
