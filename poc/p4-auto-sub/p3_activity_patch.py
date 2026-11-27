@@ -366,7 +366,15 @@ def patch_activity(text: str) -> str:
             applicationContext, session.request, session.index,
             "PLAY_REQUEST_ACCEPTED", engine is VlcEngine)
         restoreP4SavedOverlay()
-        consumeG2VietsubLaunch()
+        val g2Expected = session.request
+        val g2ExpectedIndex = index()
+        handler.post {
+            // load() resets closedSent and flow after session.load().
+            if (!closedSent && !isFinishing && !isDestroyed &&
+                session.request === g2Expected && index() == g2ExpectedIndex) {
+                consumeG2VietsubLaunch()
+            }
+        }
         handler.removeCallbacks(p3StatusTick)
         handler.postDelayed(p3StatusTick, 3_000L)
         flow.reset()"""),

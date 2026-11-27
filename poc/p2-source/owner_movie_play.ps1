@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 if($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win'){throw 'G23_WRONG_RUNNER'}
 $adb='C:\TOOL\Android-SDK\platform-tools\adb.exe'
 $pkg='com.spacesarmat.omp.test'
-$serial=$null;$forward=$null;$ws=$null;$stage='DEVICE'
+$serial=$null;$forward=$null;$ws=$null;$stage='DEVICE';$g2OptInStaged=$false
 try{
 
  $stage='LIBRARY_RECEIPT'
@@ -127,6 +127,7 @@ try{
   $command="run-as $pkg sh -c 'umask 077; printf %s `"$markerText`" > files/g2-vietsub-launch-v1.tmp && mv files/g2-vietsub-launch-v1.tmp files/g2-vietsub-launch-v1.txt'"
   & $adb -s $serial shell $command 2>$null|Out-Null
   if($LASTEXITCODE -ne 0){throw 'G2_VIETSUB_OPTIN_STAGE_FAILED'}
+  $g2OptInStaged=$true
   Write-Host 'G2_VIETSUB_OPTIN=STAGED'
  }
  $body=@{params=@{torrent=$hash;file=$idx;t=$start;from='Torrent TV Windows Runner'}}|ConvertTo-Json -Depth 4 -Compress
@@ -151,6 +152,10 @@ try{
  Write-Host ('G23_ERROR_TYPE='+$_.Exception.GetType().Name)
  exit 1
 }finally{
+ if($g2OptInStaged -and $serial){
+  # One attempted launch only; remove any unconsumed short-lived opt-in.
+  & $adb -s $serial shell "run-as $pkg rm -f files/g2-vietsub-launch-v1.txt files/g2-vietsub-launch-v1.tmp" 2>$null|Out-Null
+ }
  if($ws){$ws.Dispose()}
  if($serial -and $forward -match '^\d{1,5}$'){& $adb -s $serial forward --remove ('tcp:'+$forward) 2>$null|Out-Null}
 }

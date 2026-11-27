@@ -873,6 +873,13 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
                     if published and handoff is not None:
                         try:
                             detail["library_status"] = handoff(inbox, request_id)
+                            # Only a known pending file list is reconciled. The
+                            # existing hash claim prevents replay of an add.
+                            for _ in range(6):
+                                if detail["library_status"] != "FILE_SELECTION_PENDING":
+                                    break
+                                time.sleep(5)
+                                detail["library_status"] = handoff(inbox, request_id)
                         except Exception as exc:
                             owner_full_trace("OWNER_G2_LIBRARY_REVIEW_REQUIRED", error=exc)
                             detail["library_status"] = "LIBRARY_REVIEW_REQUIRED"

@@ -105,6 +105,7 @@ class P3TvSourceContractTests(unittest.TestCase):
         self.assertIn("expires > now + 120L", text)
         self.assertEqual(text.count("P3SelectedMediaPublisher.requestViewer("), 1)
         self.assertIn("requestCurrentVietsub()", text)
+        self.assertIn("session.request === g2Expected && index() == g2ExpectedIndex", text)
 
     def test_only_actual_accepted_load_and_successful_next_emit(self):
         self.assertIn('session.load(production.request, next)\n        P3SelectedMediaPublisher.accepted(', self.patched)
