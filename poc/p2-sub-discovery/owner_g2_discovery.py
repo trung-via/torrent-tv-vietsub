@@ -164,14 +164,20 @@ def _link_hash(link):
     return None
 
 
-def _observed_locator(trace, source_host, release_name, link):
+def _observed_locator(trace, source_host, release_name, link, *, verified_release_hash=None):
     """Check the actual same-turn, page-bound browser output, not AGY's final prose.
 
     This attests that the locator and release label were reported in a fresh
-    source read. It does not establish media rights, actual bytes or peer rate.
+    source read. An independently verified release hash permits plain source
+    output; otherwise require a release/link pair from the same source row.
+    This does not establish media rights, actual bytes or peer rate.
     """
     from agy_owner_warm_session import _page_argument, _source_page
     from html import unescape
+    target = _link_hash(link)
+    if target is None or not isinstance(release_name, str) or not release_name.strip():
+        return False
+    independently_bound = verified_release_hash is not None and target == verified_release_hash
     pending = None
     page = None
     if not trace.is_file() or trace.is_symlink() or trace.stat().st_size > 16 * 1024 * 1024:
@@ -200,9 +206,19 @@ def _observed_locator(trace, source_host, release_name, link):
                     page = _source_page(output, source_host)
                 elif (pending[0] in ("evaluate_script", "take_snapshot") and page is not None
                       and pending[2] == page and isinstance(output, str)):
-                    # Require a single observed release object containing both
-                    # fields, not a page containing unrelated labels and links.
+                    visible = unescape(output)
+                    # Actual native trace may be a snapshot, not JSON. The
+                    # independently verified identity binds this exact locator.
+                    if independently_bound and _normalized(release_name) in _normalized(visible) and link in visible:
+                        return True
+                    # Without independent identity, accept an explicit source
+                    # row only, never unrelated labels/links on a whole page.
                     # MCP tools may wrap JSON in a text/code-fence envelope.
+                    # Ordinary Markdown link or same-row table text also binds
+                    # a release label and locator, without a JSON-only recipe.
+                    if any(_normalized(m.group(1)) == _normalized(release_name)
+                           and m.group(2) == link for m in re.finditer(r'\[([^\]\r\n]+)\]\((magnet:[^\s)]+)\)', visible)):
+                        return True
                     decoder = json.JSONDecoder()
                     for start in re.finditer(r"\{", output):
                         try:
@@ -269,7 +285,8 @@ def _selected_metadata(payload, query, request_id, source_host, trace):
     ranked.sort(key=lambda x: (x[1].casefold(), x[3]))
     ranked.sort(key=lambda x: x[0], reverse=True)
     for _, name, link, target, row in ranked:
-        if not _observed_locator(trace, source_host, name, link):
+        if not _observed_locator(trace, source_host, name, link,
+                                 verified_release_hash=query.verified_release_hash):
             continue
         resolution = row.get("resolution")
         if resolution not in ("720p", "1080p", "2160p"):
@@ -314,8 +331,8 @@ def _prompt(query, source_url, request_id):
             "Compare only observed eligible releases. Use current source read evidence, "
             "not previous turns. For a permitted release, read its exact release label "
             "and direct magnet link from the same visible release row in a fresh page-bound browser result. "
-            "For that read, emit a JSON object with release_name and link taken from the source row, "
-            "not copied from your own final answer. "
+            "Use a normal snapshot or compact read of that row; no special evidence JSON is required. "
+            "Do not copy evidence from your own final answer. "
             "Return compact JSON with request_id, status (MATCH_FOUND, NO_MATCH, "
             "ACCESS_BLOCKED, UNKNOWN), candidates (title, year, resolution, codec, "
             "size_mb, seeds, release_name, link; unknown numeric data null). Include observed "

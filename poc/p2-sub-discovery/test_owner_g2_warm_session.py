@@ -146,6 +146,26 @@ class WarmTests(unittest.TestCase):
             accepted = decide([missing])
             self.assertEqual(accepted["status"],"SELECTION_READY")
             self.assertEqual(accepted["identity_evidence"],"TRUSTED_RELEASE_HASH")
+            # Native snapshot: exact title and locator in the same bound read,
+            # with no release_name/link JSON object.
+            def plain(text, page=1, host="example.org"):
+                events=[
+                    event({"ToolName":"list_pages","ServerName":"ttv-browser"}),
+                    event(output="1: https://"+host+"/releases"),
+                    event({"ToolName":"take_snapshot","ServerName":"ttv-browser","Arguments":{"pageId":page}}),
+                    event(output=text),
+                ]
+                trace.write_text("\n".join(json.dumps(e) for e in events),encoding="utf-8")
+                payload={"request_id":"turn","status":"MATCH_FOUND","candidates":[missing],
+                         "selected":{"release_name":"Exact","link":exact["link"]}}
+                return _selected_metadata(payload,q,"turn","example.org",trace)
+            snapshot="row Exact\n  link "+exact["link"]
+            self.assertEqual(plain(snapshot)["status"],"SELECTION_READY")
+            self.assertEqual(plain(snapshot,page=2)["status"],"SELECTED_LOCATOR_UNVERIFIED")
+            self.assertEqual(plain(snapshot,host="other.org")["status"],"SELECTED_LOCATOR_UNVERIFIED")
+            self.assertEqual(plain("row Exact")["status"],"SELECTED_LOCATOR_UNVERIFIED")
+            self.assertEqual(plain("row Other\n  link "+exact["link"])["status"],"SELECTED_LOCATOR_UNVERIFIED")
+            self.assertEqual(plain("row Exact\n  link "+large["link"])["status"],"SELECTED_LOCATOR_UNVERIFIED")
             self.assertEqual(decide([dict(missing, year=2025)])["status"],"NO_EXACT_MATCH_REPORTED")
             self.assertEqual(decide([dict(missing, title="Other film")])["status"],"NO_EXACT_MATCH_REPORTED")
             q = replace(q, verified_release_hash="b"*40)
