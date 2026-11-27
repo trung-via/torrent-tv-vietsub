@@ -1,6 +1,6 @@
 # PROJECT CONTRACT v2.1 — Torrent TV Vietsub (independent, OMP-first, research-aligned)
 
-**Ngày cập nhật:** 2026-10-28  
+**Ngày cập nhật:** 2026-11-27  
 **Trạng thái:** `DRAFT_FOR_PR_REVIEW` — Human đã quyết định tách hoàn toàn khỏi AIOS; nội dung tài liệu này chỉ trở thành baseline trên `main` sau khi PR được review/merge.  
 **Repo sản phẩm:** `trung-via/torrent-tv-vietsub` (PRIVATE tại lần kiểm tra 2026-11-04; PUBLIC được Human cho phép sau preflight).  
 **Tên sản phẩm:** **Torrent TV Vietsub**; bỏ hậu tố “— AIOS”.  
