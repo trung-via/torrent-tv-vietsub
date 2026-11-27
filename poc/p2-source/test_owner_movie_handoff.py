@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock
-from owner_movie_handoff import SelectedRelease, HandoffHold, add_selected_release, handoff_private_request
+from owner_movie_handoff import SelectedRelease, HandoffHold, add_selected_release, handoff_private_request, publish_library_receipt
 
 H = "a" * 40
 S = SelectedRelease("magnet:?xt=urn:btih:" + H, H, "Licensed fixture",
@@ -82,9 +82,34 @@ class HandoffTests(unittest.TestCase):
             with self.assertRaisesRegex(HandoffHold, "RECEIPT_CONFLICT"):
                 handoff_private_request(root, rid, post=p)
 
+    def test_owner_publishes_only_bound_library_receipt_to_existing_spool(self):
+        with TemporaryDirectory() as d:
+            root = Path(d)/"owner"
+            root.mkdir()
+            outbox = Path(d)/"Receipts"
+            outbox.mkdir()
+            rid = "d"*32
+            name = "g2-"+rid
+            (root/(name+".selected.json")).write_text(json.dumps({
+                "schema":"TTV-G2-SELECTED-RELEASE-V1", "request_id":rid,
+                "selection":asdict(S), "play":True}), encoding="utf-8")
+            p = Mock(side_effect=[[{"hash": H}], META])
+            self.assertEqual(publish_library_receipt(root,rid,post=p,outbox=outbox), "LIBRARY_READY")
+            dest = outbox/(name+".library.json")
+            self.assertEqual(dest.read_bytes(), (root/(name+".library.json")).read_bytes())
+            self.assertNotIn(S.link, dest.read_text())
+            self.assertEqual(publish_library_receipt(root,rid,post=p,outbox=outbox), "LIBRARY_READY")
+            self.assertEqual(p.call_count, 2)
+            dest.write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(HandoffHold, "HOSTOPS_RECEIPT_CONFLICT"):
+                publish_library_receipt(root,rid,post=p,outbox=outbox)
+            self.assertEqual(dest.read_text(), "{}")
+
     def test_omp_consumer_uses_receipt_before_device_and_one_launch(self):
         script = (Path(__file__).resolve().parent/"owner_movie_play.ps1").read_text()
         self.assertNotIn("primetime", script.lower())
+        self.assertIn(r"Receipts\g2-", script)
+        self.assertIn("request_id -cne $RequestId", script)
         self.assertLess(script.index("TTV-G2-LIBRARY-RECEIPT-V1"), script.index("$devices="))
         self.assertIn("$hash=[string]$selected.torrent_hash", script)
         self.assertIn("$idx=[int]$selected.file_id", script)

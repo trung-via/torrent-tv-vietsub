@@ -227,12 +227,69 @@ def handoff_private_request(private_root: Path, request_id: str, *, post=_post):
     return result.status
 
 
+def publish_library_receipt(private_root: Path, request_id: str, *, post=_post, outbox=None):
+    """Reuse enrolled HostOps Receipts. Owner writes; the paired runner reads.
+
+    No locator or credential crosses the account boundary. A ready receipt is
+    immutable per request, and only a trusted, already authorized selection is
+    accepted by handoff_private_request. No ACL or service changes.
+    """
+    if outbox is None:
+        program_data = os.environ.get("ProgramData")
+        if os.name != "nt" or not program_data:
+            raise HandoffHold("G2_OWNER_WINDOWS_REQUIRED")
+        outbox = Path(program_data)/"TorrentTVVietsub"/"LaptopHostOps"/"Receipts"
+    dest = Path(outbox)
+    if not dest.is_absolute() or not dest.is_dir() or dest.is_symlink():
+        raise HandoffHold("G2_HOSTOPS_RECEIPTS_UNAVAILABLE")
+    status = handoff_private_request(private_root, request_id, post=post)
+    if status != "LIBRARY_READY":
+        return status
+    name = "g2-" + request_id + ".library.json"
+    source = Path(private_root)/name
+    raw = source.read_bytes()
+    if not 0 < len(raw) <= 8192:
+        raise HandoffHold("G2_LIBRARY_RECEIPT_INVALID")
+    target = dest/name
+    if target.is_symlink():
+        raise HandoffHold("G2_HOSTOPS_RECEIPT_CONFLICT")
+    if target.exists():
+        if target.read_bytes() != raw:
+            raise HandoffHold("G2_HOSTOPS_RECEIPT_CONFLICT")
+        return status
+    # Windows rename without replacement prevents overwriting another result.
+    # Unique temporary file means a prior interrupted copy does not block reads.
+    import tempfile
+    fd, temp = tempfile.mkstemp(prefix="g2-publish-", suffix=".tmp", dir=dest)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.name == "nt":
+            try:
+                os.rename(temp, target)
+            except FileExistsError:
+                if target.is_symlink() or target.read_bytes() != raw:
+                    raise HandoffHold("G2_HOSTOPS_RECEIPT_CONFLICT") from None
+        else:
+            # Offline test transport only; hard link publishes without replace.
+            try:
+                os.link(temp, target)
+            except FileExistsError:
+                if target.is_symlink() or target.read_bytes() != raw:
+                    raise HandoffHold("G2_HOSTOPS_RECEIPT_CONFLICT") from None
+    finally:
+        Path(temp).unlink(missing_ok=True)
+    return status
+
+
 if __name__ == "__main__":
     import sys
     try:
         if len(sys.argv) != 3:
             raise HandoffHold("G2_ARGUMENTS_INVALID")
-        print(handoff_private_request(Path(sys.argv[1]), sys.argv[2]))
+        print(publish_library_receipt(Path(sys.argv[1]), sys.argv[2]))
     except Exception:
         print("G2_LIBRARY_HANDOFF_REVIEW_REQUIRED")
         sys.exit(1)
