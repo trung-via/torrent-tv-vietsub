@@ -1,5 +1,7 @@
 """Offline pure-policy regression tests; no GitHub, Windows, ADB or network."""
 import unittest
+import re
+from pathlib import Path
 from datetime import datetime
 from unittest.mock import patch
 
@@ -147,6 +149,46 @@ class BrainMergePolicyTests(unittest.TestCase):
         self.assertEqual(tv.classify_files([{
             "filename": ".github/workflows/omp-fast-build.yml", "status": "modified",
         }]), "code")
+
+    def test_hostops_scope_and_mixed_changes(self):
+        host = {"filename": tv.HOSTOPS_WORKFLOW, "status": "modified"}
+        doc = {"filename": "docs/HOSTOPS_V1.md", "status": "modified"}
+        self.assertEqual(tv.classify_files([host, doc]), "hostops")
+        self.assertEqual(tv.classify_files([host, {"filename": "src/app.py", "status": "modified"}]), "code")
+        self.assertEqual(tv.classify_files([host, {"filename": ".github/scripts/tv_brain_merge.py", "status": "modified"}]), "code")
+        self.assertEqual(tv.classify_files([{"filename": tv.HOSTOPS_WORKFLOW, "previous_filename": "src/app.py", "status": "renamed"}]), "code")
+
+    def test_hostops_requires_policy_check_not_product_ci(self):
+        for checks in ([], [check(tv.CODE_TEST)], [check(tv.POLICY_TEST, app="third-party")]):
+            with self.assertRaises(tv.Hold):
+                tv.check_ci(checks, [], "hostops")
+        tv.check_ci([check(tv.POLICY_TEST)], [], "hostops")
+        with self.assertRaises(tv.Hold):
+            tv.check_ci([check(tv.POLICY_TEST), check("other", conclusion="failure")], [], "hostops")
+
+    def test_hostops_workflow_routes_consistent(self):
+        source = (Path(__file__).resolve().parents[1] / "workflows" / "torrent-tv-hostops.yml").read_text(encoding="utf-8")
+        guards = re.findall(r"github\.event\.issue\.number == (\d+) &&", source)
+        destinations = re.findall(r"/issues/(\d+)/comments", source)
+        summaries = re.findall(r"Issue: #(\d+)", source)
+        self.assertEqual(len(guards), 3)
+        self.assertEqual(len(destinations), 2)
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(len(set(guards + destinations + summaries)), 1)
+        for guard in ("github.repository == 'trung-via/torrent-tv-vietsub'",
+                      "github.actor == 'trung-via'",
+                      "github.event.comment.user.login == 'trung-via'",
+                      "github.event.comment.author_association == 'OWNER'",
+                      "github.event.issue.pull_request == null",
+                      "startsWith(github.event.comment.body, '/tv-hostops ')"):
+            self.assertEqual(source.count(guard), 3)
+        self.assertEqual(source.count("runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]"), 1)
+        self.assertEqual(source.count("runs-on: ubuntu-latest"), 2)
+        self.assertEqual(source.count("issues: write"), 2)
+        self.assertEqual(source.count("contents: none"), 2)
+        self.assertIn("permissions:\n  contents: read", source)
+        self.assertIn("cancel-in-progress: false", source)
+        self.assertIn("branch head differs from approved exact SHA", source)
 
     def test_renamed_non_document_stays_code(self):
         self.assertEqual(tv.classify_files([{
