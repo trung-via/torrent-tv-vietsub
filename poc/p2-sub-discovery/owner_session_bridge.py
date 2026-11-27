@@ -711,13 +711,78 @@ def _owner_process_lock(private_root: Path):
             handle.close()
 
 
+def _g2_request(payload, request_id):
+    """Same request contract at producer and consumer; owner-local authority only."""
+    from owner_g2_discovery import MovieQuery, MAX_BATCH, _source, _query
+    if (not isinstance(payload, dict)
+            or set(payload) != {"schema", "request_id", "source_url", "authorized_source", "queries"}
+            or payload["schema"] != "TTV-OWNER-G2-METADATA-V1"
+            or not isinstance(request_id, str) or not _ID.fullmatch(request_id)
+            or payload["request_id"] != request_id
+            or payload["authorized_source"] is not True
+            or not isinstance(payload["source_url"], str)
+            or not isinstance(payload["queries"], list)
+            or not 1 <= len(payload["queries"]) <= MAX_BATCH):
+        raise ValueError("G2_REQUEST_INVALID")
+    _source(payload["source_url"])
+    return tuple(_query(MovieQuery(**q)) for q in payload["queries"])
+
+
+def enqueue_g2_metadata(*, owner_root: Path, request: dict) -> str:
+    """Trusted local writer; publish a complete file once, never overwrite.
+
+    A repeated identical request ID returns its existing receipt/claim identity,
+    not another provider call. Input stays owner-private; no public GitHub payload.
+    """
+    request_id = request.get("request_id") if isinstance(request, dict) else None
+    _g2_request(request, request_id)
+    body = json.dumps(request, ensure_ascii=False, separators=(",", ":"),
+                      sort_keys=True, allow_nan=False).encode("utf-8")
+    if len(body) > 8192:
+        raise ValueError("G2_REQUEST_SIZE")
+    inbox = _private_dir(owner_root)
+    path = inbox / ("g2-" + request_id + ".json")
+    claim = inbox / ("g2-" + request_id + ".claim")
+    receipt = inbox / ("g2-" + request_id + ".receipt.json")
+
+    def existing():
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 8192:
+            raise ValueError("G2_REQUEST_ID_CONFLICT")
+        try:
+            prior = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            raise ValueError("G2_REQUEST_ID_CONFLICT") from None
+        if prior != request:
+            raise ValueError("G2_REQUEST_ID_CONFLICT")
+        return request_id
+
+    if path.exists() or path.is_symlink():
+        return existing()
+    if claim.exists() or claim.is_symlink() or receipt.exists() or receipt.is_symlink():
+        raise ValueError("G2_REQUEST_PRIOR_EFFECT_REVIEW")
+    tmp = inbox / (".g2-" + request_id + "-" + secrets.token_hex(8) + ".tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(body)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # NTFS/local filesystem atomic exclusive publication; no replace fallback.
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            return existing()
+        return request_id
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emit=print) -> int:
     """One bounded, explicitly authorized Owner-local metadata request.
     
     The existing private inbox is the handoff; the runner wake is inert.
     A durable claim prevents automatic replay after an uncertain effect.
     """
-    from owner_g2_discovery import MovieQuery, MAX_BATCH, _source, _query
     from agy_v13_native_producer import _write
     inbox = _private_dir(owner_root)
     for path in sorted(inbox.glob("g2-*.json")):
@@ -733,16 +798,7 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
             if not 0 < path.stat().st_size <= 8192:
                 raise ValueError("G2_REQUEST_SIZE")
             request = json.loads(path.read_text(encoding="utf-8"))
-            if (not isinstance(request, dict)
-                    or set(request) != {"schema", "request_id", "source_url", "authorized_source", "queries"}
-                    or request["schema"] != "TTV-OWNER-G2-METADATA-V1"
-                    or request["request_id"] != request_id
-                    or request["authorized_source"] is not True
-                    or not isinstance(request["queries"], list)
-                    or not 1 <= len(request["queries"]) <= MAX_BATCH):
-                raise ValueError("G2_REQUEST_INVALID")
-            _source(request["source_url"])
-            queries = tuple(_query(MovieQuery(**q)) for q in request["queries"])
+            queries = _g2_request(request, request_id)
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             emit("OWNER_G2_REQUEST_REJECTED")
             continue
