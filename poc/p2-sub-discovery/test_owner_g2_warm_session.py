@@ -1,5 +1,7 @@
 """Synthetic tests only: no provider, browser, network, TV or Windows side effects."""
 import io
+import os
+from types import SimpleNamespace
 import json
 from pathlib import Path
 import queue
@@ -151,6 +153,66 @@ class WarmTests(unittest.TestCase):
                     else:
                         with self.assertRaisesRegex(WarmSessionError, "SOURCE_PAGE_UNBOUND"):
                             session.turn("query", root/"turn", source_host="example.org")
+
+    def test_blank_baseline_preserved_and_changed_baseline_holds(self):
+        # Full native batch lifecycle with a fake CDP transport and no provider.
+        for changed in (False, True):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                baseline_id, target_id = "a"*32, "b"*32
+                tabs = {baseline_id: "about:blank"}
+                source = "https://example.org/"
+                commands = []
+                def open_cdp(request, timeout):
+                    path = request.full_url.split("9555", 1)[1]
+                    commands.append(path)
+                    if path == "/json/version":
+                        obj = {"Browser": "Chrome/1",
+                               "webSocketDebuggerUrl": "ws://127.0.0.1:9555/devtools/browser/fixture"}
+                    elif path == "/json/list":
+                        obj = [{"type": "page", "id": i, "url": url} for i, url in tabs.items()]
+                    elif path == "/json/new?" + source:
+                        tabs[target_id] = source
+                        obj = {"id": target_id, "url": source}
+                    elif path == "/json/close/" + target_id:
+                        del tabs[target_id]
+                        obj = {}
+                    else:
+                        raise AssertionError(path)
+                    return io.BytesIO(json.dumps(obj).encode())
+                session = Mock(started=True, clean_exit=True)
+                session.__enter__ = Mock(return_value=session)
+                session.__exit__ = Mock(return_value=False)
+                def turn(prompt, run, **kwargs):
+                    run.mkdir()
+                    if changed:
+                        tabs[baseline_id] = "https://other.example/"
+                    return SimpleNamespace(response={}, first_mcp_ms=1, final_ms=2,
+                                           mcp_outcomes=1, mcp_errors=0)
+                session.turn.side_effect = turn
+                with patch("owner_g2_discovery.os", SimpleNamespace(name="nt", environ={}, fsync=os.fsync)), \
+                     patch("owner_g2_discovery.shutil.which", return_value="pwsh"), \
+                     patch("owner_g2_discovery.preflight_antigravity", return_value="agy"), \
+                     patch("owner_g2_discovery._validated_antigravity_alias", return_value="fixture"), \
+                     patch("owner_g2_discovery.build_opener", return_value=SimpleNamespace(open=open_cdp)), \
+                     patch("agy_v13_native_producer._ensure_browser_listener"), \
+                     patch("agy_v13_native_producer._session_settings", return_value=root/"settings.json"), \
+                     patch("owner_g2_discovery._metadata", return_value={"status":"NO_MATCH","candidates":[]}):
+                    args = (root, [MovieQuery("Example", 2026)], root/"cache")
+                    kwargs = dict(source_url=source, authorized_source=True,
+                                  session_factory=Mock(return_value=session))
+                    if changed:
+                        with self.assertRaisesRegex(WarmSessionError, "BROWSER_EFFECT_REVIEW_REQUIRED"):
+                            discover_movie_batch(*args, **kwargs)
+                    else:
+                        rows = discover_movie_batch(*args, **kwargs)
+                        self.assertEqual(len(rows), 1)
+                pending = root/"cache"/".native-v13"/"browser.pending"
+                self.assertEqual(pending.exists(), changed)
+                self.assertEqual("/json/close/"+target_id in commands, not changed)
+                if not changed:
+                    self.assertEqual(tabs, {baseline_id:"about:blank"})
+                    self.assertEqual(len(list((root/"cache"/".native-v13").glob("g2-*/completed.json"))), 1)
 
     def test_g2_batch_limit_before_provider(self):
         with patch("owner_g2_discovery.preflight_antigravity") as call:
