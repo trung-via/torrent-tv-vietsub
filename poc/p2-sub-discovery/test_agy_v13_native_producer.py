@@ -8,7 +8,7 @@ import unittest
 import json
 import sqlite3
 import os
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 from unittest import mock
 from types import SimpleNamespace
 
@@ -347,7 +347,7 @@ class NativeProducerTests(unittest.TestCase):
             dest.mkdir()
             (profile/"Default/Preferences").write_text(json.dumps({"download":{"default_directory":str(dest)}}))
             history = profile/"Default/History"
-            with sqlite3.connect(history) as con:
+            with closing(sqlite3.connect(history)) as con, con:
                 con.execute("create table downloads(id integer,state integer,start_time integer,received_bytes integer,total_bytes integer,target_path text,current_path text)")
             with mock.patch("agy_v13_native_producer._browser_identity", return_value=("browser","tab")):
                 baseline = _download_observation(profile, dest)
@@ -357,10 +357,10 @@ class NativeProducerTests(unittest.TestCase):
                 partial.write_bytes(b"partial")
                 self.assertIsNone(_download_observation(profile, dest))
                 partial.unlink()
-                with sqlite3.connect(history) as con:
+                with closing(sqlite3.connect(history)) as con, con:
                     con.execute("insert into downloads values(1,0,123,0,5,'x','x')")
                 self.assertIsNone(_download_observation(profile, dest))
-                with sqlite3.connect(history) as con:
+                with closing(sqlite3.connect(history)) as con, con:
                     con.execute("update downloads set state=2")
                 self.assertNotEqual(_download_observation(profile, dest), baseline)
 

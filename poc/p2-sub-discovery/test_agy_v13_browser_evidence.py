@@ -11,7 +11,7 @@ import zipfile
 from agy_opensubtitles_acquisition import AgyEnglishUnavailable
 from agy_v13_browser_evidence import (
     BrowserEvidence, BrowserRequest, make_v13_acquirer, verify_evidence, timeline_observation,
-    RECIPE, RECIPE_V13_1, RECIPE_VERSION, VERIFICATION_REVISION,
+    RECIPE, RECIPE_V13_1, RECIPE_V13_4, RECIPE_VERSION, VERIFICATION_REVISION,
 )
 from automatic_vietsub_flow import build_owner_auto_flow
 from brain_english_inbox import acquire_brain_english
@@ -62,9 +62,13 @@ class V13EvidenceTests(unittest.TestCase):
         self.assertNotIn("a" * 40, prompt)
 
     def test_compact_recipe_keeps_verifier_contract_and_rollback(self):
-        self.assertEqual(RECIPE_VERSION, "V13.4")
+        self.assertEqual(RECIPE_VERSION, "V13.5")
         self.assertEqual(VERIFICATION_REVISION, "V13.4-BR07-1")
         self.assertLess(len(RECIPE), len(RECIPE_V13_1) * 0.75)
+        self.assertLess(len(RECIPE), len(RECIPE_V13_4))
+        self.assertIn('Return ONLY compact JSON', RECIPE)
+        self.assertIn('in that same action', RECIPE)
+        self.assertIn('NO_PLAUSIBLE_CANDIDATE', RECIPE)
         prompt = BrowserRequest(MEDIA).prompt(duration_seconds=7200, fps=24)
         self.assertTrue(prompt.startswith(RECIPE))
         for key in ("total_english", "count_scope", "count_label", "has_next",
