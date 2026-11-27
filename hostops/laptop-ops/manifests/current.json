@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g21-r4-reconcile",
+  "operation": "owner-g21-r4-acceptance",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-r4-owner-reconcile.ps1",
-  "script_sha256": "d77f47bf9b6880a150a830c9430a67ab16ec6fea0b00cb98c48973ff86e16cd6",
+  "script_path": "hostops/laptop-ops/operations/g21-r4-acceptance.ps1",
+  "script_sha256": "527870a07f48db25072f7ec570b8ce8eb998f57507b4b8a619d10d0cf9841994",
   "arguments": []
 }
