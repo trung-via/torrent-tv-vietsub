@@ -1,28 +1,30 @@
 # Torrent TV HostOps v1 — GitHub → Windows PowerShell (independent project)
 
-Status: **source prepared; activation requires workflow merge and real runner receipt**. Owner issue: [#82](https://github.com/trung-via/torrent-tv-vietsub/issues/82).
+> Inbox rollover (2026-11-27): #82 reached GitHub's 2,500-comment limit; its history remains unchanged. #196 is the successor when the trusted workflow is merged. Run 46000758351 executed the Windows job but both receipt posts failed HTTP 403. Reconcile by exact Actions run/job ID before any retry; a missing comment is not evidence of non-execution. Initial probe verifies only the route, not Owner or TV acceptance.
+
+Status: **source prepared; activation requires workflow merge and real runner receipt**. Owner issue: [#196](https://github.com/trung-via/torrent-tv-vietsub/issues/196).
 
 ## Purpose
 
-Reduce Human PowerShell work by using the existing dedicated Windows runner (`torrent-tv-vietsub-win`) from this repository only. GitHub-connected ChatGPT can create the job script on an exact `hostops/<job-id>` branch and leave an owner-authorized comment in Issue #82. GitHub Actions executes the pinned script as the **existing runner service account**, collects its exit code and log, and ChatGPT inspects the receipt. No AIOS/AI Commerce runner/service/secret reuse and no extra Windows installer are implied.
+Reduce Human PowerShell work by using the existing dedicated Windows runner (`torrent-tv-vietsub-win`) from this repository only. GitHub-connected ChatGPT can create the job script on an exact `hostops/<job-id>` branch and leave an owner-authorized comment in Issue #196. GitHub Actions executes the pinned script as the **existing runner service account**, collects its exit code and log, and ChatGPT inspects the receipt. No AIOS/AI Commerce runner/service/secret reuse and no extra Windows installer are implied.
 
 ## Activation and limitations
 
 1. Review and merge the `torrent-tv-hostops.yml` workflow on `main` so the `issue_comment` event is recognized by GitHub Actions. This new workflow is inert on a feature branch.
-2. Post `/tv-hostops probe` as the authenticated owner to Issue #82. Inspect the Actions run, actual runner identity, and exit code. A skipped/queued job is **not** proof of HostOps success. If the runner is offline, this bridge cannot start a Windows service or change its credentials.
+2. Post `/tv-hostops probe` as the authenticated owner to Issue #196. Inspect the Actions run, actual runner identity, and exit code. A skipped/queued job is **not** proof of HostOps success. If the runner is offline, this bridge cannot start a Windows service or change its credentials.
 3. Post `/tv-hostops write-probe` and inspect the receipt. The test creates, verifies, and removes a disposable file in `RUNNER_TEMP`; it does **not** grant Windows Administrator privileges.
 4. For source/build/test jobs: create dedicated branch `hostops/<job-id>`, add `hostops/jobs/<job-id>.ps1` to it, pin its **exact 40-character branch-tip SHA**, and comment `/tv-hostops run <SHA> <job-id>`. The workflow checks the branch head against that SHA before checkout and PowerShell execution. Branch movement requires a new explicit comment.
 5. Continue development through ordinary feature branches/PRs, using GitHub connector for persistent source writes. HostOps source/build/test operations run as the runner's Windows identity. Branch jobs are arbitrary PowerShell and thus should only be authored and approved by the owner in this personal-project setup.
 
 ## Supported commands
 
-| Owner comment in Issue #82 | Side effect |
+| Owner comment in Issue #196 | Side effect |
 | --- | --- |
 | `/tv-hostops probe` | Read-only host/runner/git preflight |
 | `/tv-hostops write-probe` | One reversible test file in runner temporary directory |
 | `/tv-hostops run <sha> <job-id>` | Execute only the script on exact SHA of repo-local `hostops/<job-id>`; full runner-user filesystem permissions apply |
 
-No GitHub App `workflow_dispatch` action is needed; the existing connector can comment on Issue #82 using the authenticated owner identity. Any other comment author or any other Issue is skipped. A public repository does **not** automatically make arbitrary comments authorized to run host commands.
+No GitHub App `workflow_dispatch` action is needed; the existing connector can comment on Issue #196 using the authenticated owner identity. Any other comment author or any other Issue is skipped. A public repository does **not** automatically make arbitrary comments authorized to run host commands.
 
 ## Scope and evidence
 

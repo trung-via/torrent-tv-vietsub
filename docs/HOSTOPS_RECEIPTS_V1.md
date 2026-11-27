@@ -1,13 +1,15 @@
 # HostOps v1.1 — Issue-linked run receipts (source-only)
 
+> Inbox rollover (2026-11-27): #82 reached GitHub's 2,500-comment limit; its history remains unchanged. #196 is the successor when the trusted workflow is merged. Run 46000758351 executed the Windows job but both receipt posts failed HTTP 403. Reconcile by exact Actions run/job ID before any retry; a missing comment is not evidence of non-execution. Initial probe verifies only the route, not Owner or TV acceptance.
+
 ## Why
 The Torrent TV HostOps owner-only issue-comment workflow previously created an Actions run but never posted its `run_id` back to the command inbox. The ChatGPT GitHub connector can read job logs when the run/job ID is known, but does not list runs. Thus command #6725005504 (`g1thorprobe2`) could not be reconciled to a verified log from the chat alone. **Do not fabricate a run ID.**
 
 ## Change, narrowly scoped
-- Leave existing `owner-command` Windows job and its `contents: read` workflow token **byte-for-byte unchanged**.
-- New `run-link-receipt` GitHub-hosted Ubuntu metadata job posts `HOSTOPS_RUN_LINK_V1` to Issue #82 with triggering comment ID, actual workflow `github.run_id`, and clickable Actions URL, **even while dedicated Windows runner is queued/offline**.
+- Keep existing `owner-command` Windows execution logic and its `contents: read` workflow token unchanged; v1.2 changes only its inbox guard and summary.
+- New `run-link-receipt` GitHub-hosted Ubuntu metadata job posts `HOSTOPS_RUN_LINK_V1` to Issue #196 with triggering comment ID, actual workflow `github.run_id`, and clickable Actions URL, **even while dedicated Windows runner is queued/offline**.
 - New `final-result-receipt` GitHub-hosted metadata job runs after `owner-command` reaches a terminal result and posts `HOSTOPS_JOB_RESULT_V1` with `needs['owner-command'].result` (`success`, `failure`, `cancelled`, `skipped`).
-- Both metadata jobs require the exact repository, authenticated OWNER `trung-via`, only Issue #82 (not PR), and `/tv-hostops ` prefix. They run *no owner branch code* and do not checkout repository contents.
+- Both metadata jobs require the exact repository, authenticated OWNER `trung-via`, only Issue #196 (not PR), and `/tv-hostops ` prefix. They run *no owner branch code* and do not checkout repository contents.
 - Only those GitHub-hosted metadata jobs receive `issues: write`; their `contents: none` and short timeout isolate permissions from Windows PowerShell. No new Windows host privileges, ADB actions, media or TorrServer access.
 - GitHub bot's own receipt comments cause skipped event runs, not a new executable owner command, because the actor/author association do not pass the OWNER guard.
 
@@ -18,11 +20,11 @@ The Torrent TV HostOps owner-only issue-comment workflow previously created an A
 - This change cannot retrospectively attach a run ID to previously created commands. Send a fresh owner-approved probe only after the PR is merged and receipt job is verified.
 
 ## Acceptance / fail closed
-1. Confirm PR diff contains only `torrent-tv-hostops.yml` metadata jobs and this document, without changing the Windows job.
-2. Check `github.actor`, `event.comment.user.login`, author association `OWNER`, issue #82 and non-PR guard on **each** metadata job.
+1. For v1.2 confirm workflow changes are limited to the three inbox guards, two receipt destinations and summary; associated HostOps documentation may change. No Windows execution logic changes.
+2. Check `github.actor`, `event.comment.user.login`, author association `OWNER`, issue #196 and non-PR guard on **each** metadata job.
 3. Confirm credential separation: Windows `contents: read`, receipt jobs `issues: write` and `contents: none`, no checkout.
 4. GitHub Actions YAML/CI validation at exact PR HEAD before merge.
-5. After authorized merge, post exactly one `/tv-hostops probe` to Issue #82, verify bot `HOSTOPS_RUN_LINK_V1` includes matching source comment ID and existing Actions run. Then verify `HOSTOPS_JOB_RESULT_V1` matches job conclusion. This is not a real TV proof.
+5. After authorized merge, post exactly one `/tv-hostops probe` to Issue #196, verify bot `HOSTOPS_RUN_LINK_V1` includes matching source comment ID and existing Actions run. Then verify `HOSTOPS_JOB_RESULT_V1` matches job conclusion. This is not a real TV proof.
 6. Negative test: comments from other actors, PRs, or other Issues produce no receipt and no Windows run. GitHub bot receipt comments must not re-trigger owner jobs.
 
 ## Rollback
