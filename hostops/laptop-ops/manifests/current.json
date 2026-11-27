@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "agy-browser-headless-restore-1124",
+  "operation": "agy-native-browser-readout-1124",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-cdp9555-recovery.ps1",
-  "script_sha256": "30b08062a15de31bacee80c70f7b64068de00e7f389f817587def0d6b8e63e22",
+  "script_path": "hostops/laptop-ops/operations/g21-teacher-neon-high.ps1",
+  "script_sha256": "412348d60bb20c24ad14874dfdc620f141a4199489f0204364f94b5f4aebdc95",
   "arguments": []
 }
