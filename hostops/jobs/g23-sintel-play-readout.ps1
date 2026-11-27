@@ -87,72 +87,50 @@ try{
  $attempt=ReadDoc (Join-Path $dir ('g23-'+$RequestId+'-launch-attempt.json'))
  if(-not $attempt -or $attempt.attempt -cne $RequestId -or $attempt.hash -cne $hash -or $attempt.file -ne $idx -or $attempt.state -cne 'DISPATCH_STARTED'){throw 'ATTEMPT_BINDING'}
  Write-Host 'G23_AUDIT_ATTEMPT=BOUND'
- # Read the actual display and video surface, without altering playback.
- Add-Type -AssemblyName System.Drawing
- function ReadSurface{
-  $list=@(& $adb -s $serial shell dumpsys SurfaceFlinger --list 2>$null)
-  $layers=@($list|Where-Object{$_ -match 'SurfaceView|BLAST' -and $_ -match [regex]::Escape($pkg) -and $_ -match 'PlayerActivity'})
-  $latest=[long]0;$valid=0
-  foreach($layer in $layers){
-   $safe=$layer.Trim()
-   if($safe -notmatch '^[a-zA-Z0-9 ._()/\[\]#:=+\-]+$'){continue}
-   $lines=@(& $adb -s $serial shell "dumpsys SurfaceFlinger --latency '$safe'" 2>$null)
-   foreach($line in $lines){
-    if($line -match '^\s*(\d+)\s+(\d+)\s+(\d+)\s*$'){
-     $present=[long]$Matches[2]
-     if($present -gt 0 -and $present -lt [long]::MaxValue){$valid++;$latest=[Math]::Max($latest,$present)}
-    }
+ # Classify current OMP screen through actual accessibility tree. No key events.
+ $ac=((& $adb -s $serial shell dumpsys activity activities 2>$null)|Out-String)
+ $fg=[bool](@($ac -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match [regex]::Escape($pkg+'/') -and $_ -match 'PlayerActivity'}).Count)
+ if(-not $fg){Write-Host 'G23_UI=NOT_FOREGROUND';exit 0}
+ $remote='/data/local/tmp/ttv-g23-'+[guid]::NewGuid().ToString('N')+'.xml'
+ try{
+  $dump=((& $adb -s $serial shell uiautomator dump --compressed $remote 2>$null)|Out-String)
+  $dumpExit=$LASTEXITCODE
+  $xmlText=((& $adb -s $serial shell cat $remote 2>$null)|Out-String)
+  $catExit=$LASTEXITCODE
+  if($dumpExit -ne 0 -or $catExit -ne 0 -or $xmlText -notmatch '<hierarchy\b'){Write-Host ('G23_UI=UNAVAILABLE DUMP_EXIT='+$dumpExit+' CAT_EXIT='+$catExit)}
+  else{
+   [xml]$doc=$xmlText
+   $nodes=@($doc.SelectNodes('//node'))
+   function NodeText([string]$id){
+    $found=@($nodes|Where-Object{$_.GetAttribute('resource-id') -eq ($pkg+':id/'+$id)})
+    return (($found|ForEach-Object{$_.GetAttribute('text')}) -join ' ')
    }
+   $title=NodeText 'player_title';$time=NodeText 'player_time';$button=NodeText 'player_btn_pause'
+   $err=NodeText 'player_error_text';$buffer=NodeText 'player_buffering_text';$engine=NodeText 'player_engine'
+   $kind='NONE'
+   if($err){
+    $kind='OTHER'
+    if($err -match '(?i)seed|peer|сид|пир|раздач|no sources'){ $kind='SWARM_OR_RELEASE'}
+    elseif($err -match '(?i)codec|decoder|decode|кодек|декод|unsupported|not supported'){ $kind='CODEC'}
+    elseif($err -match '(?i)network|connection|timeout|http|сет|соединен|сервер|time.out'){ $kind='NETWORK'}
+   }
+   $mode='UNKNOWN'
+   if($button -match '(?i)^(play|resume|воспроизвести|продолжить|播放|继续|phát|tiếp tục)$'){$mode='PAUSED'}
+   elseif($button -match '(?i)^(pause|пауза|приостановить|暂停|tạm dừng)$'){$mode='PLAY_REQUESTED'}
+   $clock='UNKNOWN'
+   if($time -match '^\d{1,3}:\d{2}(?::\d{2})?\s*/\s*\d{1,3}:\d{2}(?::\d{2})?$'){$clock=$time}
+   $eng='UNKNOWN';if($engine -match '(?i)VLC'){$eng='VLC'}elseif($engine -match '2160'){$eng='2160'}
+   $ompNodes=@($nodes|Where-Object{$_.GetAttribute('package') -eq $pkg}).Count
+   Write-Host ('G23_UI=NODES OMP='+$ompNodes+' TITLE_SINTEL='+($title -match '(?i)\bSintel\b')+' TIME='+$clock+' MODE='+$mode+' BUFFER='+[bool]$buffer+' ERROR='+$kind+' ENGINE='+$eng)
   }
-  return [pscustomobject]@{layers=$layers.Count;valid=$valid;latest=$latest}
+ }finally{& $adb -s $serial shell rm -f $remote 2>$null|Out-Null}
+ # Categorize recent logs from the current OMP PID, never emit raw lines.
+ $pidText=((& $adb -s $serial shell pidof $pkg 2>$null)|Out-String).Trim()
+ if($pidText -match '^\d+$'){
+  $log=((& $adb -s $serial logcat -d --pid=$pidText -t 1500 2>$null)|Out-String)
+  Write-Host ('G23_LOG_VLC_START_TIMEOUT='+($log -match 'VLC has not started in')+' VLC_START_FAILED='+($log -match 'VLC failed to start')+' DECODER_ERROR='+($log -match '(?i)MediaCodec.*(?:error|fail)|decoder.*(?:error|failed)')+' HTTP_ERROR='+($log -match '(?i)HTTP.*(?:404|403|500|503)|connection refused|sockettimeoutexception'))
  }
- function ReadFrame{
-  $tmp=Join-Path ([IO.Path]::GetTempPath()) ('ttv-g23-'+[guid]::NewGuid().ToString('N')+'.png')
-  try{
-   # PowerShell 7.4+ preserves native stdout bytes on redirection.
-   & $adb -s $serial exec-out screencap -p > $tmp
-   if($LASTEXITCODE -ne 0){throw 'SCREEN_READ'}
-   $bmp=[Drawing.Bitmap]::new($tmp)
-   try{
-    $values=[System.Collections.Generic.List[int]]::new()
-    $lo=255;$hi=0
-    for($y=1;$y -le 24;$y++){
-     for($x=1;$x -le 40;$x++){
-      $px=$bmp.GetPixel([int]($bmp.Width*(0.12+0.76*$x/41)),[int]($bmp.Height*(0.2+0.6*$y/25)))
-      $v=[int](($px.R+$px.G+$px.B)/3)
-      $values.Add($v);$lo=[Math]::Min($lo,$v);$hi=[Math]::Max($hi,$v)
-     }
-    }
-    return [pscustomobject]@{samples=$values.ToArray();contrast=$hi-$lo}
-   }finally{$bmp.Dispose()}
-  }finally{Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue}
- }
- function Foreground{
-  $ac=((& $adb -s $serial shell dumpsys activity activities 2>$null)|Out-String)
-  return [bool](@($ac -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match [regex]::Escape($pkg+'/') -and $_ -match 'PlayerActivity'}).Count)
- }
- $fg1=Foreground
- if(-not $fg1){Write-Host 'G23_DISPLAY=PLAYER_NOT_FOREGROUND';exit 0}
- $a=ReadSurface
- $f1=ReadFrame
- Start-Sleep -Seconds 5
- $fg2=Foreground
- $b=ReadSurface
- $f2=ReadFrame
- Start-Sleep -Seconds 5
- $fg3=Foreground
- $c=ReadSurface
- $f3=ReadFrame
- function Difference($x,$y){
-  $changed=0
-  for($i=0;$i -lt $x.samples.Count;$i++){if([Math]::Abs($x.samples[$i]-$y.samples[$i]) -ge 15){$changed++}}
-  return $changed
- }
- $d1=Difference $f1 $f2;$d2=Difference $f2 $f3
- Write-Host ('G23_DISPLAY_FG='+$fg1+','+$fg2+','+$fg3+' CONTRAST='+$f1.contrast+','+$f2.contrast+','+$f3.contrast+' CHANGED='+$d1+','+$d2+'/960')
- Write-Host ('G23_SURFACE_LAYERS='+$a.layers+','+$b.layers+','+$c.layers+' VALID='+$a.valid+','+$b.valid+','+$c.valid+' PRESENT_ADVANCED='+($a.latest -gt 0 -and $b.latest -gt $a.latest -and $c.latest -gt $b.latest))
- # Frame change is evidence of rendered motion, not by itself proof of film identity.
- Write-Host 'G23_DISPLAY=READ_ONLY_COMPLETE'
+ Write-Host 'G23_UI_READ_ONLY_COMPLETE'
 
 }catch{
  Write-Host ('G23_AUDIT_HOLD_STAGE='+$stage)
