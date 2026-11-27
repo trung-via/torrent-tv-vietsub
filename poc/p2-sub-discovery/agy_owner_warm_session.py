@@ -119,7 +119,7 @@ class OwnerAgyWarmSession:
                         info = st.get("tool_info")
                         if isinstance(info, dict):
                             params = info.get("parameters")
-                            if isinstance(params, dict):
+                            if isinstance(params, dict) and params.get("ToolName"):
                                 pending = (params.get("ToolName"), next(
                                     (params[k] for k in ("ServerName", "Server", "serverName", "server")
                                      if isinstance(params.get(k), str)), None))
