@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/g2-speed-first-bunny.ps1",
-  "script_sha256": "b43abc9cba16f635c37ea3f414550ec05bccd1022b1a6289867d2ada1cc31f94",
+  "script_sha256": "c92f1f5d40790ee7402388247dabef0c9b09a95decf92c459c4824959b262705",
   "arguments": []
 }

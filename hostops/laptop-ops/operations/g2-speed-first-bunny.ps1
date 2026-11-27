@@ -66,22 +66,6 @@ def main():
     first=submit_private_file(private,req);second=submit_private_file(private,req)
     event=private/"inbox"/("g2-"+nonce+".json")
     if first!=nonce or second!=nonce or not event.is_file():return "G21_V33_WRITER_HOLD"
-    # Record structural prior evidence only; no model call here.
-    preflight={"head":head,"writer_idempotent":True,"owner_task":task_state()}
-    try:
-        before=pages()
-        preflight["pages"]=len(before)
-        preflight["baseline_opensubtitles"]=sum(urllib.parse.urlsplit(p.get("url","")).hostname in ("opensubtitles.org","www.opensubtitles.org") for p in before)
-    except Exception:
-        before=[];preflight["pages"]=-1
-    write(run/"PREFLIGHT.json",preflight)
-    if len(before)!=1:return "G21_V33_R4_BASE_TAB_COUNT_"+str(len(before))
-    original=before[0]
-    blank=original.get("url") in ("about:blank","chrome://newtab/","chrome://new-tab-page/")
-    if preflight.get("baseline_opensubtitles")!=1 and not blank:
-        return "G21_V33_R4_BASE_OTHER_TAB_HOLD"
-    if not re.fullmatch(r"[A-Fa-f0-9]{32}",str(original.get("id",""))):
-        return "G21_V33_R4_BASE_ID_HOLD"
     owner=root/"OwnerBridge"
     state=root/"P2"/"auto-lean120-state"
     inbox=owner/"inbox"
@@ -193,10 +177,34 @@ function Workers{
     try:
         if task_state().upper()!="DISABLED" or worker_snapshot() or pending()[1:]!=(0,0) or busy([]):
             return "G2_SPEED_QUIESCENCE_CHANGED"
-        current=pages()
-        if len(current)!=1 or current[0].get("id")!=original["id"] or current[0].get("url")!=original["url"]:
-            return "G21_V33_R4_BASE_CHANGED"
-        before=current
+        # Listener identity verified above; allow Chrome startup to settle.
+        for _ in range(20):
+            try: before=pages()
+            except Exception: before=[]
+            if before:break
+            time.sleep(.5)
+        if not before:
+            # Only enrolled, verified loopback Chrome with zero page targets.
+            opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open("http://127.0.0.1:9555/json/version",timeout=3) as f:
+                version=json.load(f)
+            if not str(version.get("Browser","")).startswith("Chrome/") or not str(version.get("webSocketDebuggerUrl","")).startswith("ws://127.0.0.1:9555/devtools/browser/"):
+                return "G2_SPEED_CDP_IDENTITY_HOLD"
+            if pages():return "G2_SPEED_BASE_CHANGED"
+            with opener.open(urllib.request.Request("http://127.0.0.1:9555/json/new?about:blank",method="PUT"),timeout=5) as f:
+                tab=json.load(f)
+            before=pages()
+            if len(before)!=1 or before[0].get("id")!=tab.get("id"):return "G2_SPEED_BLANK_UNVERIFIED"
+        if len(before)!=1:return "G21_V33_R4_BASE_TAB_COUNT_"+str(len(before))
+        original=before[0]
+        url=original.get("url","")
+        base=urllib.parse.urlsplit(url)
+        if url not in ("about:blank","chrome://newtab/","chrome://new-tab-page/") and not (base.scheme=="https" and base.hostname in ("opensubtitles.org","www.opensubtitles.org")):
+            return "G21_V33_R4_BASE_OTHER_TAB_HOLD"
+        if not re.fullmatch("[A-Fa-f0-9]{32}",str(original.get("id",""))):return "G21_V33_R4_BASE_ID_HOLD"
+        write(run/"PREFLIGHT.json",{"head":head,"pages":1,"owner_task":prior,"writer_idempotent":True})
+        if task_state().upper()!="DISABLED" or worker_snapshot() or pending()[1:]!=(0,0) or busy([]):
+            return "G2_SPEED_QUIESCENCE_CHANGED"
         cache=run/"isolated-cache";cache.mkdir()
         producer=NativeBrowserProducer(profile=profile,probe=lambda _:None)
         conf=[pathlib.Path.home()/".gemini/antigravity-cli/settings.json",
