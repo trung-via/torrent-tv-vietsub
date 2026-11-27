@@ -310,36 +310,23 @@ def _selected_metadata(payload, query, request_id, source_host, trace):
 def _prompt(query, source_url, request_id):
     if query.select_release:
         return (
-            "Torrent TV G2.1: one job, find and choose the best matching release of "
-            "the specifically authorized media on the approved legal source. "
-            "Use the existing ttv-browser task tab and ordinary visible controls. "
-            "List pages and bind every fresh source read to the numeric pageId. "
-            "Do not use a different source, bypass restrictions, log in, download media, "
-            "add to TorrServer, play, or run shell. Stop if access or distribution rights "
-            "are unclear; never infer rights from the mere presence of a link. "
-            "Query: " + json.dumps({k: v for k, v in asdict(query).items() if k != "verified_release_hash"}, ensure_ascii=False) + ". Source: " +
-            json.dumps(source_url) + ". Request ID: " + request_id + ". "
-            "Exact film title/year: use the actual year when present; if absent return null, never invent it. "
-            "Still return the matching title and observed locator for independent identity verification. "
-            "Match an explicit release_contains if supplied. "
-            "Select one best available exact-film release whenever an authorized observed locator exists. "
-            "Rank first by requested quality (exact resolution, otherwise nearest known resolution, "
-            "unknown quality last; prefer requested codec at equivalent resolution), then higher "
-            "reported seeds, then soft size preference 5000-12000 MB. "
-            "Never reject an exact-film release solely for quality, seed or size; "
-            "unknown seed/size are allowed. Seeds do not prove throughput. "
-            "Compare only observed eligible releases. Use current source read evidence, "
-            "not previous turns. For a permitted release, read its exact release label "
-            "and direct magnet link from the same visible release row in a fresh page-bound browser result. "
-            "Use a normal snapshot or compact read of that row; no special evidence JSON is required. "
-            "Do not copy evidence from your own final answer. "
-            "Return compact JSON with request_id, status (MATCH_FOUND, NO_MATCH, "
-            "ACCESS_BLOCKED, UNKNOWN), candidates (title, year, resolution, codec, "
-            "size_mb, seeds, release_name, link; unknown numeric data null). Include observed "
-            "links for usable alternatives so Owner can choose the best verified release even if "
-            "your first choice is unusable. Return selected (release_name, link) for your best "
-            "available release; use NO_MATCH only if no correct permitted film is available. "
-            "Do not fabricate candidates or locators. The locator stays local to Owner."
+            "Find one best available authorized release of this exact film. "
+            "Use only the approved source and ttv-browser task tab: list_pages, "
+            "then a fresh read with that pageId. Stop when a usable match is found; "
+            "compare visible alternatives only, no exhaustive search. "
+            "Rank quality (nearest resolution, requested codec), then reported seeds, "
+            "then soft 5000-12000 MB. Never reject an exact-film release solely for quality, seed or size. "
+            "Read the release label and direct magnet from its source row; normal snapshot is enough. "
+            "Unknown metadata including year is null, never invent. Match explicit release_contains. "
+            "Stop if rights or access unclear. No bypass, login, other source, download, add, playback or shell. "
+            "Query: " + json.dumps({k: v for k, v in asdict(query).items()
+                                    if k not in ("verified_release_hash", "play", "select_release", "media_authorized")
+                                    and v is not None}, ensure_ascii=False) +
+            ". Source: " + json.dumps(source_url) + ". Request ID: " + request_id + ". "
+            "Return compact JSON: request_id, status (MATCH_FOUND, NO_MATCH, ACCESS_BLOCKED, UNKNOWN), "
+            "candidates [{title,year,resolution,codec,size_mb,seeds,release_name,link}], "
+            "selected {release_name,link}. One best observed release plus usable alternatives if already seen. "
+            "No prose; no fabricated links."
         )
     return (
         "Torrent TV G2.1 authorized read-only metadata request. "

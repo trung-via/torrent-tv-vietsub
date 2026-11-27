@@ -82,7 +82,26 @@ P4_BUTTON_REQUEST = """        add(if (p4LanScope != null || p4ActivationInFligh
                 P3SelectedMediaPublisher.setEnabled(applicationContext, false)
                 showMessage("Đã hủy Vietsub AI cho phim này.", false)
             } else {
-                requestCurrentVietsub()
+                // Import ONLY a previously authorized private ADB bootstrap;
+                // this does not trust a new PC, open a listener or bypass TLS.
+                P4OwnerBootstrap.consume(applicationContext)
+                val enabled = P3SelectedMediaPublisher.enabled(applicationContext) ||
+                    P3SelectedMediaPublisher.setEnabled(applicationContext, true)
+                val selectedIndex = index()
+                val allowed = enabled && P3SelectedMediaPublisher.requestViewer(
+                    applicationContext, current, selectedIndex, engine is VlcEngine
+                ) { acknowledged ->
+                    showP3Delivery(current, selectedIndex, acknowledged)
+                }
+                if (allowed) {
+                    p3ActivationAttempts = 0
+                    p3LastDelivery = null
+                    handler.removeCallbacks(p3ActivationTick)
+                    p3ActivationTick.run()
+                    showMessage("Đang gửi yêu cầu tìm Vietsub cho phim này đến PC...", false)
+                } else {
+                    showMessage("Không thể gửi: kiểm tra ghép PC an toàn và phim VLC.", true)
+                }
             }
         }
 """
@@ -159,58 +178,7 @@ P4_SWITCH_SOURCE = """    /** Switch only after a new source-specific, signed P4
 
 """
 
-P3_RETRY = """    /** Same request path for the TV button and an explicitly authorized G2 launch. */
-    private fun requestCurrentVietsub() {
-        if (closedSent || isFinishing || isDestroyed || !::session.isInitialized ||
-            engine !is VlcEngine || p4LanScope != null || p4ActivationInFlight) return
-        val current = session.request ?: return
-        // Import ONLY a previously authorized private ADB bootstrap;
-        // this does not trust a new PC, open a listener or bypass TLS.
-        P4OwnerBootstrap.consume(applicationContext)
-        val enabled = P3SelectedMediaPublisher.enabled(applicationContext) ||
-            P3SelectedMediaPublisher.setEnabled(applicationContext, true)
-        val selectedIndex = index()
-        val allowed = enabled && P3SelectedMediaPublisher.requestViewer(
-            applicationContext, current, selectedIndex, engine is VlcEngine
-        ) { acknowledged ->
-            showP3Delivery(current, selectedIndex, acknowledged)
-        }
-        if (allowed) {
-            p3ActivationAttempts = 0
-            p3LastDelivery = null
-            handler.removeCallbacks(p3ActivationTick)
-            p3ActivationTick.run()
-            showMessage("Đang gửi yêu cầu tìm Vietsub cho phim này đến PC...", false)
-        } else {
-            showMessage("Không thể gửi: kiểm tra ghép PC an toàn và phim VLC.", true)
-        }
-    }
-
-    /** One-shot debug-runner launch opt-in, never a general autoplay preference. */
-    private fun consumeG2VietsubLaunch() {
-        val file = java.io.File(applicationContext.filesDir, "g2-vietsub-launch-v1.txt")
-        if (!file.isFile) return
-        val raw = try {
-            if (file.length() !in 1L..160L) return
-            file.readText(Charsets.US_ASCII).trim()
-        } catch (_: Exception) { return }
-        finally { file.delete() }
-        val parts = raw.split('|')
-        if (parts.size != 3 || !Regex("[a-f0-9]{40}").matches(parts[0])) return
-        val expectedIndex = parts[1].toIntOrNull() ?: return
-        val expires = parts[2].toLongOrNull() ?: return
-        val now = System.currentTimeMillis() / 1000L
-        if (expires < now || expires > now + 120L) return
-        val current = session.request ?: return
-        val item = current.queue.getOrNull(index()) ?: return
-        if (item.hash?.lowercase() != parts[0] || item.fileIndex != expectedIndex ||
-            engine !is VlcEngine || current.engine != EngineMode.VLC) return
-        if (P3SelectedMediaPublisher.viewerRequested(applicationContext, current, index(), true)) return
-        requestCurrentVietsub()
-        android.util.Log.i("TorrentTV-Vietsub", "G2_VIETSUB_REQUEST_ATTEMPTED")
-    }
-
-    /** Bound only to explicit request, never to a native Play event. */
+P3_RETRY = """    /** Bound only to explicit request, never to a native Play event. */
     private var p3ActivationAttempts = 0
     private var p3LastDelivery: Boolean? = null
 
@@ -366,15 +334,6 @@ def patch_activity(text: str) -> str:
             applicationContext, session.request, session.index,
             "PLAY_REQUEST_ACCEPTED", engine is VlcEngine)
         restoreP4SavedOverlay()
-        val g2Expected = session.request
-        val g2ExpectedIndex = index()
-        handler.post {
-            // load() resets closedSent and flow after session.load().
-            if (!closedSent && !isFinishing && !isDestroyed &&
-                session.request === g2Expected && index() == g2ExpectedIndex) {
-                consumeG2VietsubLaunch()
-            }
-        }
         handler.removeCallbacks(p3StatusTick)
         handler.postDelayed(p3StatusTick, 3_000L)
         flow.reset()"""),

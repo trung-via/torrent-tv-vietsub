@@ -1,20 +1,18 @@
-# Flow 3 integrated candidate
+# Flow 3 — standalone movie playback
 
-One existing AGY task -> Owner-private selected.json -> Owner G2.2 ->
-existing HostOps receipt -> paired runner owner_movie_flow.ps1 -> exact OMP
-file -> one-shot app-private Vietsub opt-in -> existing signed P3/P4.
-
-The canonical Python handoff is in p2-sub-discovery, included by the existing
-Owner installer *.py copy. The runner scripts remain in p2-source. The existing
-private G2 submit command is the input; an approved HostOps invocation must
-run owner_movie_flow.ps1 with the same request ID. No new worker/service.
-Only authorized media/source, exact film identity and observed usable locator.
-TV opt-in expires, is consumed after accepted load and bound to exact hash/file
-and current request object. The existing button uses the same viewer path.
-It is not a permanent autoplay preference. Receipt and opt-in do not establish
-actual playback or cue rendering. The earlier #199 trial is not replayed.
-
-Source integration only. Still required: approved runner invocation and private
-request ingress, #42 review on exact target, real APK build/installation and
-Owner deployment, then speed-first training and full native acceptance.
-Rollback: preserve installed Owner/APK, discard candidate. No new workflow.
+One approved private movie request -> existing AGY worker -> exact selected release
+-> existing Owner handoff -> TorrServer Library -> existing paired runner -> OMP.
+No Vietsub opt-in, no Android modifications, no extra worker or service.
+The private request play flag is explicit. The existing submit helper is the ingress;
+owner_movie_flow.ps1 waits for the exact ready receipt, then invokes play once.
+A one-shot launch claim preserves uncertain effects. Never replay a search/add/launch
+without reconciliation. An ACK/foreground is an operational receipt, not a playback PASS.
+TrackTimecode=false forces server history timecode to zero; history is optional resume
+information, not an acceptance gate. Actual playback requires direct observed evidence.
+Preserve existing G1 manual request and all earlier subtitle behavior.
+Training: compare observed search latency, source-bound selected identity and optional
+metadata; no exhaustive search or extra AGY turn. No locator supplied to AGY. No
+new TV launch or torrent addition during discovery-only training.
+Baseline: Sintel actual AGY 60488 ms, Owner add/readback 5234 ms, playback verified by
+Human after single ACK; recovered phases, not continuous latency. See Issue #191.
+Candidate only; exact-head review and installed Owner acceptance remain separate.

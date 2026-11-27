@@ -1,12 +1,12 @@
 # G2.3: reuse #191 paired remote protocol; input is private G2.2 receipt.
-param([Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{32}$')][string]$RequestId,[switch]$EnableVietsub)
+param([Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{32}$')][string]$RequestId)
 $LibraryReceipt=Join-Path $env:ProgramData ('TorrentTVVietsub\LaptopHostOps\Receipts\g2-'+$RequestId+'.library.json')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if($env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win'){throw 'G23_WRONG_RUNNER'}
 $adb='C:\TOOL\Android-SDK\platform-tools\adb.exe'
 $pkg='com.spacesarmat.omp.test'
-$serial=$null;$forward=$null;$ws=$null;$stage='DEVICE';$g2OptInStaged=$false
+$serial=$null;$forward=$null;$ws=$null;$stage='DEVICE'
 try{
 
  $stage='LIBRARY_RECEIPT'
@@ -120,42 +120,26 @@ try{
   $stream.Write($bytes,0,$bytes.Length)
   $stream.Flush($true)
  }finally{$stream.Dispose()}
- if($EnableVietsub){
-  if($idx -gt 65535){throw 'G2_VIETSUB_FILE_INDEX'}
-  $expiry=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()+90
-  $markerText=$hash+'|'+$idx+'|'+$expiry
-  $command="run-as $pkg sh -c 'umask 077; printf %s `"$markerText`" > files/g2-vietsub-launch-v1.tmp && mv files/g2-vietsub-launch-v1.tmp files/g2-vietsub-launch-v1.txt'"
-  & $adb -s $serial shell $command 2>$null|Out-Null
-  if($LASTEXITCODE -ne 0){throw 'G2_VIETSUB_OPTIN_STAGE_FAILED'}
-  $g2OptInStaged=$true
-  Write-Host 'G2_VIETSUB_OPTIN=STAGED'
- }
  $body=@{params=@{torrent=$hash;file=$idx;t=$start;from='Torrent TV Windows Runner'}}|ConvertTo-Json -Depth 4 -Compress
  $r=Invoke-RestMethod -Uri ($base+'/omp/launch') -Method POST -Headers @{Authorization=('Bearer '+$token)} -ContentType 'application/json' -Body $body -TimeoutSec 8 -NoProxy -MaximumRedirection 0
  if($r.ok -ne $true){throw 'LAUNCH_NOT_ACKNOWLEDGED'}
  Write-Host 'G23_LAUNCH=ACK'
  $stage='OBSERVE_PLAYER'
- $last=$null;$advanced=$false;$seen=$false
- for($n=0;$n -lt 9;$n++){
-  Start-Sleep -Seconds 5
-  $fg=PlayerForeground
-  if($fg){$seen=$true}
-  $pos=ReadViewed
-  if($fg -and $null -ne $pos -and $null -ne $last -and $pos -gt $last -and $pos -gt $start){$advanced=$true;break}
-  if($fg -and $null -ne $pos){$last=$pos}
+ # Dispatch success is not proof of rendering. TrackTimecode can be disabled;
+ # do not wait for history writes or require them for normal dispatch.
+ $seen=$false
+ for($n=0;$n -lt 10;$n++){
+  if(PlayerForeground){$seen=$true;break}
+  Start-Sleep -Seconds 1
  }
  Write-Host ('G23_NATIVE_PLAYER_FOREGROUND='+$seen)
- Write-Host ('G23_EXACT_FILE_PROGRESS_ADVANCED='+$advanced)
- if($seen -and $advanced){Write-Host 'G23_PLAY=EXACT_PROGRESS_PASS'}else{Write-Host 'G23_PLAY=ACK_ONLY_NATIVE_PROGRESS_UNVERIFIED'}
+ if($seen){Write-Host 'G23_PLAY=LAUNCH_ACK_PLAYER_FOREGROUND'}else{Write-Host 'G23_PLAY=LAUNCH_ACK_FOREGROUND_UNVERIFIED'}
+
 }catch{
  Write-Host ('G23_HOLD_STAGE='+$stage)
  Write-Host ('G23_ERROR_TYPE='+$_.Exception.GetType().Name)
  exit 1
 }finally{
- if($g2OptInStaged -and $serial){
-  # One attempted launch only; remove any unconsumed short-lived opt-in.
-  & $adb -s $serial shell "run-as $pkg rm -f files/g2-vietsub-launch-v1.txt files/g2-vietsub-launch-v1.tmp" 2>$null|Out-Null
- }
  if($ws){$ws.Dispose()}
  if($serial -and $forward -match '^\d{1,5}$'){& $adb -s $serial forward --remove ('tcp:'+$forward) 2>$null|Out-Null}
 }
