@@ -102,7 +102,7 @@ def verify_review(event: dict, pr: dict, main_sha: str) -> str:
     ensure(pr["head"]["repo"]["full_name"] == REPO, "FORK_OR_UNTRUSTED_HEAD")
     ensure(pr["base"]["repo"]["full_name"] == REPO, "WRONG_BASE_REPO")
     ensure(SHA.fullmatch(head) is not None and SHA.fullmatch(base) is not None, "INVALID_SHA")
-    ensure(pr["mergeable"] is True and pr["mergeable_state"] == "clean", "NOT_MERGEABLE_CLEAN")
+    ensure(pr["mergeable"] is True and pr["mergeable_state"] in {"clean", "unstable"}, "NOT_MERGEABLE")
     ensure(bool(r.get("submitted_at")), "NO_REVIEW_TIME")
     return expected
 
@@ -118,12 +118,32 @@ def verify_verdict(comments: list[dict], expected: str, review: dict) -> None:
     ensure(dt(winner["updated_at"]) <= dt(review["submitted_at"]), "PASS_EDITED_AFTER_REVIEW_WAKE")
 
 
+def is_self_check(c: dict) -> bool:
+    return (
+        c.get("name") == SELF_CHECK
+        and c.get("app", {}).get("slug") == "github-actions"
+        and re.fullmatch(
+            r"https://github\.com/trung-via/torrent-tv-vietsub/actions/runs/[0-9]+/job/[0-9]+",
+            c.get("details_url") or "",
+        ) is not None
+    )
+
+
+def verify_mergeability(pr: dict, check_runs: list[dict]) -> None:
+    ensure(pr.get("mergeable") is True, "NOT_MERGEABLE")
+    state = pr.get("mergeable_state")
+    ensure(
+        state == "clean" or (state == "unstable" and any(is_self_check(c) for c in check_runs)),
+        "NOT_MERGEABLE_WITH_TRUSTED_SELF_CHECK",
+    )
+
+
 def check_ci(check_runs: list[dict], statuses: list[dict], scope: str) -> None:
     ensure(all(s.get("state") == "success" for s in statuses), "COMMIT_STATUS_NOT_SUCCESS")
     winners: set[str] = set()
     for c in check_runs:
         name = c.get("name", "")
-        if name == SELF_CHECK:
+        if is_self_check(c):
             continue
         ensure(
             c.get("status") == "completed" and c.get("conclusion") in {"success", "neutral", "skipped"},
@@ -169,16 +189,52 @@ def pages(path: str, token: str, max_pages: int = 10) -> list[dict]:
     raise Hold("PAGINATION_LIMIT_REACHED")
 
 
-def verify_pr_snapshot(token: str, number: int, head: str, base: str) -> None:
+def read_check_runs(path: str, token: str, max_pages: int = 10) -> list[dict]:
+    all_items = []
+    for page in range(1, max_pages + 1):
+        obj = api(f"{path}?per_page=100&page={page}&filter=latest", token)
+        ensure(isinstance(obj, dict) and isinstance(obj.get("check_runs"), list)
+               and isinstance(obj.get("total_count"), int), "INVALID_CHECK_RUNS_RESPONSE")
+        items = obj["check_runs"]
+        all_items.extend(items)
+        if len(items) < 100:
+            ensure(len(all_items) == obj["total_count"], "INCOMPLETE_CHECK_RUNS")
+            ensure(len({c.get("id") for c in all_items}) == len(all_items), "DUPLICATE_CHECK_RUNS")
+            return all_items
+    raise Hold("CHECK_RUN_PAGINATION_LIMIT_REACHED")
+
+
+def read_ci(pr: dict, token: str, scope: str) -> None:
+    shas = {pr["head"]["sha"]}
+    merge_sha = pr.get("merge_commit_sha")
+    ensure(isinstance(merge_sha, str) and SHA.fullmatch(merge_sha) is not None,
+           "MERGE_REF_UNAVAILABLE")
+    shas.add(merge_sha)
+    observed = {}
+    statuses = []
+    for sha in shas:
+        for c in read_check_runs(f"/repos/{REPO}/commits/{sha}/check-runs", token):
+            observed[c["id"]] = c
+        current = {}
+        for status in pages(f"/repos/{REPO}/commits/{sha}/statuses", token):
+            ensure(bool(status.get("context")), "INVALID_COMMIT_STATUS")
+            current.setdefault(status["context"], status)
+        statuses.extend(current.values())
+    check_ci(list(observed.values()), statuses, scope)
+    verify_mergeability(pr, list(observed.values()))
+
+
+def verify_pr_snapshot(token: str, number: int, head: str, base: str) -> dict:
     p = api(f"/repos/{REPO}/pulls/{number}", token)
     current = api(f"/repos/{REPO}/branches/{MAIN}", token)
     ensure(
         p["state"] == "open" and not p["draft"] and not p["merged"]
         and p["head"]["sha"] == head and p["base"]["sha"] == base
         and current["commit"]["sha"] == base and p["mergeable"] is True
-        and p["mergeable_state"] == "clean",
+        and p["mergeable_state"] in {"clean", "unstable"},
         "PR_OR_MAIN_CHANGED_BEFORE_MERGE",
     )
+    return p
 
 
 def execute(event: dict, token: str) -> str:
@@ -201,19 +257,12 @@ def execute(event: dict, token: str) -> str:
     files = pages(f"/repos/{REPO}/pulls/{number}/files", token)
     ensure(len(files) == int(pr["changed_files"]), "INCOMPLETE_DIFF_FILE_LIST")
     scope = classify_files(files)
-    check_shas = {pr["head"]["sha"]}
-    if pr.get("merge_commit_sha") and SHA.fullmatch(pr["merge_commit_sha"]):
-        check_shas.add(pr["merge_commit_sha"])
-    observed = {}
-    statuses = []
-    for sha in check_shas:
-        for c in pages(f"/repos/{REPO}/commits/{sha}/check-runs", token):
-            observed[(c.get("name"), c.get("id"))] = c
-        statuses += api(f"/repos/{REPO}/commits/{sha}/status", token).get("statuses", [])
-    check_ci(list(observed.values()), statuses, scope)
+    read_ci(pr, token, scope)
 
     head, base = pr["head"]["sha"], pr["base"]["sha"]
-    verify_pr_snapshot(token, number, head, base)
+    latest = verify_pr_snapshot(token, number, head, base)
+    ensure(latest.get("merge_commit_sha") == pr.get("merge_commit_sha"), "MERGE_REF_CHANGED")
+    read_ci(latest, token, scope)
     # Fail closed if a HOLD superseded PASS while the CI checks were read.
     verify_verdict(pages(f"/repos/{REPO}/issues/{number}/comments", token), expected, event["review"])
     result = api(
