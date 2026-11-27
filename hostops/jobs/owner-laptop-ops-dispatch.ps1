@@ -476,6 +476,19 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-g2-flow-submit') {
+        $path=Join-Path $outbox ('g2-flow-submit-'+$nonce+'.json')
+        $item=Get-Item -LiteralPath $path -ErrorAction Stop
+        if($item.Length -le 0 -or $item.Length -gt 512 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'G2_SUBMIT_RECEIPT_INVALID'}
+        $v=Get-Content -LiteralPath $path -Raw|ConvertFrom-Json
+        if($v.schema -cne 'TTV-G2-HOSTOPS-SUBMIT-V1' -or $v.nonce -cne $nonce -or $v.request_id -cnotmatch '^[a-f0-9]{32}$'){throw 'G2_SUBMIT_RECEIPT_INVALID'}
+        $flow=Join-Path $env:GITHUB_WORKSPACE 'poc\p2-source\owner_movie_flow.ps1'
+        $play=Join-Path $env:GITHUB_WORKSPACE 'poc\p2-source\owner_movie_play.ps1'
+        if ((& git hash-object -- $flow).Trim() -cne '35a4ca63134db865dfcc734a8c21a987ea99fae7' -or (& git hash-object -- $play).Trim() -cne 'cacc0195818ed8032c55415c374422dd1788c7f6'){throw 'G2_FLOW_SOURCE_DRIFT'}
+        & pwsh -NoLogo -NoProfile -NonInteractive -File $flow -RequestId $v.request_id
+        if($LASTEXITCODE -ne 0){throw 'G2_FLOW_HOLD_NO_REPLAY'}
+        return
+    }
     if ($receipt.operation -ceq 'owner-g2-199-tos-single') {
         $stagePath=Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')
         $v=Get-Content -LiteralPath $stagePath -Raw|ConvertFrom-Json
