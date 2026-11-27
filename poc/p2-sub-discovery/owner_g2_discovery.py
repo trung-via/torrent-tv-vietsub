@@ -14,6 +14,8 @@ from pathlib import Path
 import re
 import shutil
 import uuid
+import time
+from itertools import islice
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, ProxyHandler
 
@@ -26,6 +28,10 @@ class MovieQuery:
     title: str
     year: int
     resolution: str = "1080p"
+
+
+MAX_BATCH = 2
+BATCH_SECONDS = 90
 
 
 def _source(url):
@@ -97,7 +103,7 @@ def _prompt(query, source_url, request_id):
     return (
         "Torrent TV G2.1 authorized read-only metadata request. "
         "Use only ttv-browser MCP on the dedicated task tab for this approved HTTPS source. "
-        "List/select the task tab; use ordinary visible search controls and compact visible DOM reads. "
+        "Every turn list_pages, select the one matching source tab, and pass its numeric pageId explicitly to evaluate_script or take_snapshot. Use ordinary visible search controls and compact DOM reads. "
         "Read current page evidence each turn; prior conversation is not evidence. "
         "Stop on access restrictions; no login, bypass, download, magnet, add, playback, shell, "
         "private tabs, or other sources. Return immediately with compact JSON, no prose. "
@@ -114,13 +120,15 @@ def _prompt(query, source_url, request_id):
 
 def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized_source,
                          model="gemini-4-hydrogen-low", thinking_level="low",
-                         session_factory=OwnerAgyWarmSession):
+                         session_factory=OwnerAgyWarmSession, should_yield=lambda: False):
     """Call under NativeBrowserProducer._browser_lock; no runtime startup effect."""
     from agy_v13_native_producer import _verify_browser, _session_settings, _write
     if authorized_source is not True:
         raise ValueError("G2_SOURCE_AUTHORITY_REQUIRED")
     source_host = _source(source_url)
-    queries = tuple(_query(q) for q in queries)
+    queries = tuple(_query(q) for q in islice(queries, MAX_BATCH + 1))
+    if len(queries) > MAX_BATCH:
+        raise ValueError("G2_BATCH_LIMIT")
     if not queries:
         return []
     if os.name != "nt" or any(os.environ.get(k, "").lower() == "true" for k in ("CI", "GITHUB_ACTIONS")):
@@ -147,6 +155,8 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
     session = None
     effects_started = False
     restored = False
+    finished = False
+    deadline = time.monotonic() + BATCH_SECONDS
     opener = build_opener(ProxyHandler({}))
 
     def cdp(path, method="GET"):
@@ -189,8 +199,21 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
         session = session_factory(ps=ps, env=env, root=run)
         with session:
             for q in queries:
+                if rows and should_yield():
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                session.timeout = remaining
+                current = [p for p in pages() if p.get("id") == target]
+                if len(current) != 1 or urlsplit(current[0].get("url", "")).hostname != source_host:
+                    raise WarmSessionError("G2_TASK_SOURCE_CHANGED")
                 request_id = uuid.uuid4().hex
-                result = session.turn(_prompt(q, source_url, request_id), run / request_id)
+                result = session.turn(_prompt(q, source_url, request_id), run / request_id,
+                                      source_host=source_host)
+                current = [p for p in pages() if p.get("id") == target]
+                if len(current) != 1 or urlsplit(current[0].get("url", "")).hostname != source_host:
+                    raise WarmSessionError("G2_TASK_SOURCE_CHANGED")
                 row = _metadata(result.response, q, request_id)
                 row["timing"] = {"first_mcp_ms": result.first_mcp_ms,
                                  "final_ms": result.final_ms,
@@ -200,8 +223,7 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
                 rows.append(row)
                 if row["status"] in ("ACCESS_BLOCKED", "UNKNOWN"):
                     break
-        _write(run / "completed.json", {"results": rows, "clean_exit": session.clean_exit})
-        return rows
+        finished = True
     finally:
         # Only close this job's temporary tab after the owned CLI is known exited.
         if target is not None and (session is None or not session.started or session.clean_exit):
@@ -214,8 +236,12 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
                     _verify_browser(ps, profile)
             except Exception:
                 restored = False
+        if finished and restored:
+            _write(run / "completed.json", {"results": rows, "clean_exit": session.clean_exit,
+                  "status": "COMPLETE" if len(rows) == len(queries) else "PARTIAL"})
         if (not effects_started or restored) and pending.is_file() and not pending.is_symlink():
             if pending.read_text("utf-8") == run.name:
                 pending.unlink()
         if effects_started and not restored:
             raise WarmSessionError("G2_BROWSER_EFFECT_REVIEW_REQUIRED")
+    return rows
