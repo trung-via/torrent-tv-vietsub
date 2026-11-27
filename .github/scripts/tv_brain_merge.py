@@ -31,6 +31,7 @@ POLICY_FILES = frozenset({
     ".github/scripts/tv_brain_merge.py",
     ".github/scripts/test_tv_brain_merge.py",
 })
+HOSTOPS_WORKFLOW = ".github/workflows/torrent-tv-hostops.yml"
 POLICY_TEST = "TV Brain Policy Tests"
 CODE_TEST = "TV Verified Code CI"
 SELF_CHECK = "TV Brain Trusted Merge"
@@ -78,6 +79,8 @@ def classify_files(files: list[dict]) -> str:
         return "docs"
     if all(is_document(p) or p in POLICY_FILES for p in changed):
         return "policy"
+    if all(is_document(p) or p == HOSTOPS_WORKFLOW for p in changed):
+        return "hostops"
     return "code"
 
 
@@ -151,7 +154,7 @@ def check_ci(check_runs: list[dict], statuses: list[dict], scope: str) -> None:
         )
         if c.get("conclusion") == "success" and c.get("app", {}).get("slug") == "github-actions":
             winners.add(name)
-    if scope == "policy":
+    if scope in {"policy", "hostops"}:
         ensure(POLICY_TEST in winners, "MISSING_TRUSTED_POLICY_TEST")
     elif scope == "code":
         ensure(CODE_TEST in winners, "MISSING_TRUSTED_CODE_CI")
