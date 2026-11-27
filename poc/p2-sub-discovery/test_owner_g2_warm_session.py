@@ -10,7 +10,8 @@ from unittest.mock import patch, Mock
 from agy_owner_warm_session import OwnerAgyWarmSession, WarmSessionError
 from owner_g2_discovery import MovieQuery, _metadata, discover_movie_batch
 from agy_v13_native_producer import NativeBrowserProducer
-from owner_session_bridge import poll_private_g2
+from owner_session_bridge import poll_private_g2, enqueue_g2_metadata
+from owner_g2_submit import submit_private_file
 
 
 class FakePipe:
@@ -188,6 +189,52 @@ class WarmTests(unittest.TestCase):
             self.assertEqual(discover.call_count, 1)
             self.assertEqual(json.loads((inbox/("g2-"+rid+".receipt.json")).read_text("utf-8"))["status"],
                              "REVIEW_REQUIRED")
+
+    def test_private_writer_reuses_identity_and_consumer_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            rid = "c"*32
+            payload = {"schema": "TTV-OWNER-G2-METADATA-V1", "request_id": rid,
+                       "authorized_source": True, "source_url": "https://example.org/",
+                       "queries": [{"title": "Example", "year": 2026}]}
+            input_file = root/"request.json"
+            input_file.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertEqual(submit_private_file(root, input_file), rid)
+            inbox = root/"inbox"
+            event = inbox/("g2-"+rid+".json")
+            original = event.read_bytes()
+            self.assertEqual(submit_private_file(root, input_file), rid)
+            self.assertEqual(event.read_bytes(), original)
+            discover = Mock(return_value=[{"status": "NO_MATCH", "candidates": []}])
+            args = dict(owner_root=root, cache_root=root/"cache", discover=discover,
+                        submit=lambda work: work(), emit=lambda _: None)
+            self.assertEqual(poll_private_g2(**args), 1)
+            self.assertEqual(submit_private_file(root, input_file), rid)
+            self.assertEqual(poll_private_g2(**args), 0)
+            self.assertEqual(discover.call_count, 1)
+            changed = dict(payload, queries=[{"title": "Other", "year": 2026}])
+            with self.assertRaisesRegex(ValueError, "ID_CONFLICT"):
+                enqueue_g2_metadata(owner_root=root, request=changed)
+            self.assertEqual(event.read_bytes(), original)
+            self.assertFalse(list(inbox.glob("*.tmp")))
+
+    def test_private_writer_refuses_unapproved_and_orphan_claim(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            rid = "d"*32
+            payload = {"schema": "TTV-OWNER-G2-METADATA-V1", "request_id": rid,
+                       "authorized_source": False, "source_url": "https://example.org/",
+                       "queries": [{"title": "Example", "year": 2026}]}
+            with self.assertRaisesRegex(ValueError, "REQUEST_INVALID"):
+                enqueue_g2_metadata(owner_root=root, request=payload)
+            self.assertFalse((root/"inbox").exists())
+            payload["authorized_source"] = True
+            inbox = root/"inbox"
+            inbox.mkdir()
+            (inbox/("g2-"+rid+".claim")).write_text("CLAIMED", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "PRIOR_EFFECT_REVIEW"):
+                enqueue_g2_metadata(owner_root=root, request=payload)
+            self.assertFalse((inbox/("g2-"+rid+".json")).exists())
 
 
 if __name__ == "__main__":
