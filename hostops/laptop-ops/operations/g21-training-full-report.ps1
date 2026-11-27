@@ -8,7 +8,7 @@ $run=Join-Path $root ('g21-full-report-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import pathlib,sys,json,re
-root,spool,run=map(pathlib.Path,sys.argv[1:])
+root,spool,run=map(pathlib.Path,sys.argv[1:4])
 source="2487de73a7f4d65e5fbb7e7d1f5f73acf7a838c9"
 def read(p,limit=16777216):
     if not p.is_file() or p.is_symlink() or p.stat().st_size>limit:return ""
