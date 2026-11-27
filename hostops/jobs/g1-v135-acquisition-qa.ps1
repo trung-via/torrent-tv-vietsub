@@ -4,10 +4,9 @@ $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REPOSITORY -cne 'trung-via/torrent-tv-vietsub' -or $env:RUNNER_NAME -cne 'torrent-tv-vietsub-win' -or $env:RUNNER_OS -cne 'Windows'){throw 'TRUSTED_RUNNER_REQUIRED'}
 $root=$env:GITHUB_WORKSPACE
 $expected='7927eee0b5b26bacc27c1973aaeef9d3f116a62b'
-$parent=(& git -C $root rev-parse HEAD^).Trim()
-if($LASTEXITCODE -ne 0 -or $parent -cne $expected){throw 'QA_SOURCE_DRIFT'}
-$changes=@(& git -C $root diff --name-only $expected HEAD)
-if($LASTEXITCODE -ne 0 -or $changes.Count -ne 1 -or $changes[0] -cne 'hostops/jobs/g1-v135-acquisition-qa.ps1'){throw 'QA_DIFF_DRIFT'}
+# HostOps uses a depth-one checkout. Verify the complete candidate source subtree directly.
+$actual=(& git -C $root rev-parse HEAD:poc).Trim()
+if($LASTEXITCODE -ne 0 -or $actual -cne '42a28031cc7fcb1caffbefbe1ba9232b4498412a'){throw 'QA_SOURCE_TREE_DRIFT'}
 $env:PYTHONDONTWRITEBYTECODE='1'
 $env:PYTHONPATH=@((Join-Path $root 'poc\p2-sub-discovery'),(Join-Path $root 'poc\p2-aisub'),(Join-Path $root 'poc\p3-vietsub-trigger')) -join ';'
 Push-Location (Join-Path $root 'poc\p2-sub-discovery')
