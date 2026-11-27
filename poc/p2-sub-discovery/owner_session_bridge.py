@@ -828,7 +828,8 @@ def _publish_g2_selection(inbox, request_id, query, rows):
     return True
 
 
-def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emit=print) -> int:
+def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emit=print,
+                    handoff=None) -> int:
     """One bounded, explicitly authorized Owner-local metadata request.
     
     The existing private inbox is the handoff; the runner wake is inert.
@@ -869,6 +870,12 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
                 if queries[0].select_release:
                     published = _publish_g2_selection(inbox, request_id, queries[0], rows)
                     detail["selection_published"] = published
+                    if published and handoff is not None:
+                        try:
+                            detail["library_status"] = handoff(inbox, request_id)
+                        except Exception as exc:
+                            owner_full_trace("OWNER_G2_LIBRARY_REVIEW_REQUIRED", error=exc)
+                            detail["library_status"] = "LIBRARY_REVIEW_REQUIRED"
                 _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
                                  "request_id": request_id, "status": status, "results": rows, **detail})
                 emit("OWNER_G2_" + status)
@@ -989,9 +996,11 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     # G2 batch while any film work (or prior G2) is active.
                     discover = getattr(trusted_v3_factory, "g2_discover", None)
                     if not active and callable(discover):
+                        from owner_movie_handoff import publish_library_receipt
                         poll_private_g2(
                             owner_root=private_root, cache_root=cache_root,
                             discover=discover, emit=emit,
+                            handoff=publish_library_receipt,
                             submit=lambda work: active.add(pool.submit(work)))
                     time.sleep(interval_seconds)
         finally:

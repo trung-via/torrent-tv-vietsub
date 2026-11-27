@@ -156,14 +156,21 @@ class WarmTests(unittest.TestCase):
                        "release_matched":True,"file_id":None}
             discover=Mock(return_value=[{"status":"SELECTION_READY","owner_request_id":rid,
                                         "query":asdict(q),"selection":selection}])
+            def handoff(inbox, request_id):
+                self.assertEqual(request_id, rid)
+                self.assertEqual(json.loads((inbox/("g2-"+rid+".selected.json")).read_text())["selection"], selection)
+                return "LIBRARY_READY"
+            consume=Mock(side_effect=handoff)
             args=dict(owner_root=root,cache_root=root/"cache",discover=discover,
-                      submit=lambda work:work(),emit=lambda _:None)
+                      submit=lambda work:work(),emit=lambda _:None,handoff=consume)
             self.assertEqual(poll_private_g2(**args),1)
             output=root/"inbox"/("g2-"+rid+".selected.json")
             self.assertEqual(json.loads(output.read_text()),{"schema":"TTV-G2-SELECTED-RELEASE-V1",
                              "request_id":rid,"selection":selection,"play":True})
             self.assertEqual(poll_private_g2(**args),0)
             discover.assert_called_once()
+            consume.assert_called_once_with(root/"inbox",rid)
+            self.assertEqual(json.loads((root/"inbox"/("g2-"+rid+".receipt.json")).read_text())["library_status"],"LIBRARY_READY")
 
     def test_selection_authority_required_before_provider(self):
         with patch("owner_g2_discovery.preflight_antigravity") as provider:
