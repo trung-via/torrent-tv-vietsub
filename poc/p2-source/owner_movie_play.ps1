@@ -1,5 +1,5 @@
 # G2.3: reuse #191 paired remote protocol; input is private G2.2 receipt.
-param([Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{32}$')][string]$RequestId)
+param([Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{32}$')][string]$RequestId,[switch]$EnableVietsub)
 $LibraryReceipt=Join-Path $env:ProgramData ('TorrentTVVietsub\LaptopHostOps\Receipts\g2-'+$RequestId+'.library.json')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -120,6 +120,15 @@ try{
   $stream.Write($bytes,0,$bytes.Length)
   $stream.Flush($true)
  }finally{$stream.Dispose()}
+ if($EnableVietsub){
+  if($idx -gt 65535){throw 'G2_VIETSUB_FILE_INDEX'}
+  $expiry=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()+90
+  $markerText=$hash+'|'+$idx+'|'+$expiry
+  $command="run-as $pkg sh -c 'umask 077; printf %s `"$markerText`" > files/g2-vietsub-launch-v1.tmp && mv files/g2-vietsub-launch-v1.tmp files/g2-vietsub-launch-v1.txt'"
+  & $adb -s $serial shell $command 2>$null|Out-Null
+  if($LASTEXITCODE -ne 0){throw 'G2_VIETSUB_OPTIN_STAGE_FAILED'}
+  Write-Host 'G2_VIETSUB_OPTIN=STAGED'
+ }
  $body=@{params=@{torrent=$hash;file=$idx;t=$start;from='Torrent TV Windows Runner'}}|ConvertTo-Json -Depth 4 -Compress
  $r=Invoke-RestMethod -Uri ($base+'/omp/launch') -Method POST -Headers @{Authorization=('Bearer '+$token)} -ContentType 'application/json' -Body $body -TimeoutSec 8 -NoProxy -MaximumRedirection 0
  if($r.ok -ne $true){throw 'LAUNCH_NOT_ACKNOWLEDGED'}

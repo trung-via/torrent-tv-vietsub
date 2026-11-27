@@ -96,6 +96,16 @@ class P3TvSourceContractTests(unittest.TestCase):
         cls.kt = (HERE / "P3SelectedMediaPublisher.kt").read_text("utf-8")
         cls.patched = cls.p.patch_activity(fake_p4_activity())
 
+    def test_g2_launch_reuses_one_shot_exact_viewer_request(self):
+        text = self.patched
+        self.assertEqual(text.count("consumeG2VietsubLaunch()"), 2)
+        self.assertIn('g2-vietsub-launch-v1.txt', text)
+        self.assertIn("finally { file.delete() }", text)
+        self.assertIn("item.hash?.lowercase() != parts[0] || item.fileIndex != expectedIndex", text)
+        self.assertIn("expires > now + 120L", text)
+        self.assertEqual(text.count("P3SelectedMediaPublisher.requestViewer("), 1)
+        self.assertIn("requestCurrentVietsub()", text)
+
     def test_only_actual_accepted_load_and_successful_next_emit(self):
         self.assertIn('session.load(production.request, next)\n        P3SelectedMediaPublisher.accepted(', self.patched)
         self.assertIn('if (!switcher.goTo(i, itemTransition?.picks)) return\n        P3SelectedMediaPublisher.accepted(', self.patched)

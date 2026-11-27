@@ -94,7 +94,7 @@ internal object P3SelectedMediaPublisher {
     }
 
     /** A P3 global metadata toggle is NOT a per-film request.
-     * Only a direct "Bật Vietsub AI" tap may authorize current film search.
+     * Only an explicit on-TV request or an authorized exact G2 launch may authorize search.
      * An existing active session is used; after enabling P3 mid-video a new
      * session is created WITHOUT inventing a signed Play event.
      */
@@ -111,7 +111,7 @@ internal object P3SelectedMediaPublisher {
             selected.requestedByViewer
     }
 
-    /** Called ONLY by the direct on-TV Vietsub AI button. */
+    /** Shared explicit viewer request; also used by the one-shot exact G2 launch opt-in. */
     internal fun requestViewer(
         ctx: Context, request: PlayRequest?, selectedIndex: Int,
         nativeVlc: Boolean, onDelivery: (Boolean) -> Unit,
