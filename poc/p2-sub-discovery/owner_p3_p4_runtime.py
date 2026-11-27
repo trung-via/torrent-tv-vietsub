@@ -124,6 +124,8 @@ def _native_owner_factory(wiring):
     def factory(flow):
         flow.source_acquirer = make_v13_acquirer(runner)
         return wiring.trusted_v3_factory(flow)
+    if os.environ.get("TTV_G2_WARM") == "1":
+        factory.g2_discover = runner.discover_movies
     return factory
 
 
