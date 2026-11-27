@@ -9,5 +9,5 @@ while(-not (Test-Path -LiteralPath $receipt -PathType Leaf)){
  if([DateTimeOffset]::UtcNow -ge $deadline){Write-Host 'G2_LIBRARY=NOT_READY_NO_REPLAY';exit 1}
  Start-Sleep -Seconds 2
 }
-& pwsh -NoLogo -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'owner_movie_play.ps1') -RequestId $RequestId -EnableVietsub
+& pwsh -NoLogo -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'owner_movie_play.ps1') -RequestId $RequestId
 exit $LASTEXITCODE

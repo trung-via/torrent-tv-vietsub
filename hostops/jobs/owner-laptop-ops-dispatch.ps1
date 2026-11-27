@@ -333,7 +333,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
-    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
+    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
         $file = Join-Path $outbox ('odyssey-stage-' + $nonce + '.json')
         if (Test-Path -LiteralPath $file -PathType Leaf) {
             $item = Get-Item -LiteralPath $file -Force
@@ -484,7 +484,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         if($v.schema -cne 'TTV-G2-HOSTOPS-SUBMIT-V1' -or $v.nonce -cne $nonce -or $v.request_id -cnotmatch '^[a-f0-9]{32}$'){throw 'G2_SUBMIT_RECEIPT_INVALID'}
         $flow=Join-Path $env:GITHUB_WORKSPACE 'poc\p2-source\owner_movie_flow.ps1'
         $play=Join-Path $env:GITHUB_WORKSPACE 'poc\p2-source\owner_movie_play.ps1'
-        if ((& git hash-object -- $flow).Trim() -cne '35a4ca63134db865dfcc734a8c21a987ea99fae7' -or (& git hash-object -- $play).Trim() -cne 'cacc0195818ed8032c55415c374422dd1788c7f6'){throw 'G2_FLOW_SOURCE_DRIFT'}
+        if ((& git hash-object -- $flow).Trim() -cne 'cd5551d6d3d0d0b590e44cee9a97b4fbab7a5b09' -or (& git hash-object -- $play).Trim() -cne '3863ed82c0d81aa9c08feeca6318eac3b36c577e'){throw 'G2_FLOW_SOURCE_DRIFT'}
         & pwsh -NoLogo -NoProfile -NonInteractive -File $flow -RequestId $v.request_id
         if($LASTEXITCODE -ne 0){throw 'G2_FLOW_HOLD_NO_REPLAY'}
         return

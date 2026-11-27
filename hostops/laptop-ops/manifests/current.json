@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g2-sintel-library-once",
+  "operation": "owner-g2-speed-first-bunny",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g2-sintel-flat-resume.ps1",
-  "script_sha256": "8d874d038769fe8b34ff2b0878f41e3a42a4e441f49c2491f36453f54ec9a10f",
+  "script_path": "hostops/laptop-ops/operations/g2-speed-first-bunny.ps1",
+  "script_sha256": "91a60c40e58f41b77ac1aca7f121e6c472eb68fc22a8595f067d69b716847cf6",
   "arguments": []
 }
