@@ -11,7 +11,7 @@ $env:PYTHONDONTWRITEBYTECODE='1'
 $env:PYTHONPATH=@((Join-Path $root 'poc\p2-sub-discovery'),(Join-Path $root 'poc\p2-aisub'),(Join-Path $root 'poc\p3-vietsub-trigger')) -join ';'
 Push-Location (Join-Path $root 'poc\p2-sub-discovery')
 try {
-  & python -B -m unittest -v test_agy_v13_browser_evidence test_agy_v13_native_producer
+  & 'C:\Program Files\Python314\python.exe' -B -m unittest -v test_agy_v13_browser_evidence test_agy_v13_native_producer
   if($LASTEXITCODE -ne 0){throw 'G1_V135_QA_FAIL'}
 }finally{Pop-Location}
 Write-Output ('G1_V135_EXACT_SOURCE_OFFLINE_QA_PASS='+$expected)
