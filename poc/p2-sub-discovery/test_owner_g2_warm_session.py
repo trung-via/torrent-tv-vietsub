@@ -132,6 +132,9 @@ class WarmTests(unittest.TestCase):
             self.assertEqual(result["release_name"],"Lower")
             self.assertTrue(result["quality_fallback"])
             self.assertEqual(decide([unknown])["release_name"],"Unknown")
+            tied=row("Tied.preferred",100,h="1")
+            self.assertEqual(decide([large,tied])["release_name"],"Tied.preferred")
+            self.assertEqual(decide([exact],status="NO_MATCH")["release_name"],"Exact")
             self.assertEqual(decide([large,exact],observed=[exact])["release_name"],"Exact")
             self.assertEqual(decide([large,lower],observed=[lower])["release_name"],"Lower")
             self.assertEqual(decide([wrong])["status"],"NO_EXACT_MATCH_REPORTED")
@@ -177,7 +180,7 @@ class WarmTests(unittest.TestCase):
             row(title="Other", seeds=9999), row(year=2025, seeds=9999),
             row(size=2000, seeds=90), row(size=7000, seeds=2),
             row(size=9000, seeds=7), row(resolution="2160p", seeds=999)]}, q, "x")
-        self.assertEqual([r["seeds"] for r in result["candidates"]], [7,2,90,999])
+        self.assertEqual([r["seeds"] for r in result["candidates"]], [90,7,2,999])
         self.assertEqual(result["evidence"], "MODEL_REPORTED_METADATA")
         with self.assertRaisesRegex(WarmSessionError, "REQUEST_MISMATCH"):
             _metadata({"request_id":"old"}, q, "x")
