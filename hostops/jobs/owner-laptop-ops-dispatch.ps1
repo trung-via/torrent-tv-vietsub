@@ -345,6 +345,21 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
+    if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/g21-resume-help-readout.ps1' -and $receipt.result -ceq 'SUCCESS') {
+        $file = Join-Path $outbox ('g21-agy-help-' + $nonce + '.json')
+        if (Test-Path -LiteralPath $file -PathType Leaf) {
+            $item = Get-Item -LiteralPath $file -Force
+            if ($item.Length -gt 0 -and $item.Length -le 8192 -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $v = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+                if ($v.schema -ceq 'G21_AGY_HELP_V1' -and $v.nonce -ceq $nonce -and @($v.lines).Count -le 24) {
+                    foreach ($line in @($v.lines)) {
+                        if ($line -isnot [string] -or $line.Length -gt 240 -or $line -match '[\x00-\x1F\x7F]') { throw 'G21_HELP_LINE_INVALID' }
+                    }
+                    foreach ($line in @($v.lines)) { Write-Output ('G21_AGY_HELP=' + $line) }
+                }
+            }
+        }
+    }
     if ($manifest.script_path -cin @('hostops/laptop-ops/operations/g21-training-full-report.ps1','hostops/laptop-ops/operations/g21-student-v2-readout.ps1') -and $receipt.result -ceq 'SUCCESS') {
         $file = Join-Path $outbox ('g21-full-report-' + $nonce + '.json')
         if (Test-Path -LiteralPath $file -PathType Leaf) {
