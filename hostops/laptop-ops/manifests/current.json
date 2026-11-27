@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g2-flow-submit",
+  "operation": "owner-g2-sintel-library-once",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g2-flow-submit.ps1",
-  "script_sha256": "b4acc75be80045637ac3d18135b22c4192c6538f583088559143c09ac7375410",
+  "script_path": "hostops/laptop-ops/operations/g2-sintel-library-once.ps1",
+  "script_sha256": "5c5c706e018598dce8dd41f6e9f3368825023fb1ddd999528d38df16f67c2e28",
   "arguments": []
 }
