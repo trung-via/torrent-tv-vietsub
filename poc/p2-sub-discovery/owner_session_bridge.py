@@ -812,7 +812,7 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
         def run_claimed():
             try:
                 rows = discover(queries, cache_root, source_url=request["source_url"],
-                                authorized_source=True)
+                                authorized_source=True, owner_request_id=request_id)
                 status = "COMPLETE" if len(rows) == len(queries) else "PARTIAL"
                 _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
                                  "request_id": request_id, "status": status, "results": rows})
@@ -824,7 +824,8 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
                 detail = {"reason": warm_reason(exc), "results": []}
                 if isinstance(exc, G2BatchReview):
                     detail.update(reason=exc.reason, results=list(exc.rows),
-                                  browser_restored=exc.browser_restored)
+                                  browser_restored=exc.browser_restored,
+                                  cleanup_reason=exc.cleanup_reason)
                 _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
                                  "request_id": request_id, "status": "REVIEW_REQUIRED",
                                  **detail})

@@ -158,7 +158,7 @@ class WarmTests(unittest.TestCase):
 
     def test_blank_baseline_preserved_and_changed_baseline_holds(self):
         # Full native batch lifecycle with a fake CDP transport and no provider.
-        for changed, timeout in ((False, False), (True, False), (False, True)):
+        for changed, timeout in ((False, False), (True, False), (False, True), (True, True)):
             with self.subTest(changed=changed, timeout=timeout), tempfile.TemporaryDirectory() as d:
                 root = Path(d)
                 baseline_id, target_id = "a"*32, "b"*32
@@ -190,8 +190,10 @@ class WarmTests(unittest.TestCase):
                     run.mkdir()
                     budgets.append(session.timeout)
                     if timeout and len(budgets) == 2:
+                        if changed:
+                            tabs[baseline_id] = "https://other.example/"
                         raise WarmSessionError("AGY_STREAM_TURN_TIMEOUT")
-                    if changed:
+                    if changed and not timeout:
                         tabs[baseline_id] = "https://other.example/"
                     return SimpleNamespace(response={}, first_mcp_ms=1, final_ms=2,
                                            mcp_outcomes=1, mcp_errors=0)
@@ -206,9 +208,10 @@ class WarmTests(unittest.TestCase):
                      patch("owner_g2_discovery._metadata", return_value={"status":"NO_MATCH","candidates":[]}):
                     queries = [MovieQuery("Example", 2026)] * (2 if timeout else 1)
                     args = (root, queries, root/"cache")
-                    kwargs = dict(source_url=source, authorized_source=True,
+                    rid = "f"*32
+                    kwargs = dict(source_url=source, authorized_source=True, owner_request_id=rid,
                                   session_factory=Mock(return_value=session))
-                    if changed:
+                    if changed and not timeout:
                         with self.assertRaisesRegex(WarmSessionError, "BROWSER_EFFECT_REVIEW_REQUIRED"):
                             discover_movie_batch(*args, **kwargs)
                     elif timeout:
@@ -216,15 +219,24 @@ class WarmTests(unittest.TestCase):
                             discover_movie_batch(*args, **kwargs)
                         self.assertEqual(ctx.exception.reason, "AGY_STREAM_TURN_TIMEOUT")
                         self.assertEqual(len(ctx.exception.rows), 1)
-                        self.assertTrue(ctx.exception.browser_restored)
+                        self.assertEqual(ctx.exception.browser_restored, not changed)
+                        self.assertEqual(ctx.exception.cleanup_reason,
+                                         "G2_BROWSER_EFFECT_REVIEW_REQUIRED" if changed else None)
                         self.assertEqual(budgets, [TURN_SECONDS, TURN_SECONDS])
-                        saved = next((root/"cache"/".native-v13").glob("g2-*/checkpoint.json"))
+                        saved = root/"cache"/".native-v13"/("g2-"+rid)/"checkpoint.json"
+                        self.assertEqual(json.loads(saved.read_text())["owner_request_id"], rid)
+                        self.assertEqual(json.loads((saved.parent/"request.json").read_text())["owner_request_id"], rid)
                         self.assertEqual(len(json.loads(saved.read_text())["results"]), 1)
                         self.assertEqual(json.loads((saved.parent/"terminal.json").read_text())["reason"],
                                          "AGY_STREAM_TURN_TIMEOUT")
+                        self.assertEqual(json.loads((saved.parent/"terminal.json").read_text())["cleanup_reason"],
+                                         "G2_BROWSER_EFFECT_REVIEW_REQUIRED" if changed else None)
                     else:
                         rows = discover_movie_batch(*args, **kwargs)
                         self.assertEqual(len(rows), 1)
+                    with self.assertRaisesRegex(WarmSessionError, "PRIOR_BATCH_REVIEW_REQUIRED"):
+                        discover_movie_batch(*args, **kwargs)
+                    self.assertEqual(session.turn.call_count, 2 if timeout else 1)
                 pending = root/"cache"/".native-v13"/"browser.pending"
                 self.assertEqual(pending.exists(), changed)
                 self.assertEqual("/json/close/"+target_id in commands, not changed)
@@ -256,7 +268,7 @@ class WarmTests(unittest.TestCase):
             self.assertEqual(poll_private_g2(**args), 1)
             self.assertEqual(poll_private_g2(**args), 0)
             discover.assert_called_once_with((MovieQuery("Example", 2026),), root/"cache",
-                                              source_url="https://example.org/", authorized_source=True)
+                                              source_url="https://example.org/", authorized_source=True, owner_request_id=rid)
             receipt = json.loads((inbox/("g2-"+rid+".receipt.json")).read_text("utf-8"))
             self.assertEqual(receipt["status"], "COMPLETE")
             self.assertTrue((inbox/("g2-"+rid+".claim")).is_file())
@@ -290,7 +302,8 @@ class WarmTests(unittest.TestCase):
                 "queries": [{"title": "Example", "year": 2026}]*2})
             row = {"status": "NO_MATCH", "candidates": [], "turn_index": 0}
             discover = Mock(side_effect=G2BatchReview(
-                "AGY_STREAM_TURN_TIMEOUT", [row], browser_restored=True))
+                "AGY_STREAM_TURN_TIMEOUT", [row], browser_restored=False,
+                cleanup_reason="G2_BROWSER_EFFECT_REVIEW_REQUIRED"))
             args = dict(owner_root=root, cache_root=root/"cache", discover=discover,
                         submit=lambda work: work(), emit=lambda _: None)
             self.assertEqual(poll_private_g2(**args), 1)
@@ -300,7 +313,8 @@ class WarmTests(unittest.TestCase):
             self.assertEqual(receipt["status"], "REVIEW_REQUIRED")
             self.assertEqual(receipt["reason"], "AGY_STREAM_TURN_TIMEOUT")
             self.assertEqual(receipt["results"], [row])
-            self.assertTrue(receipt["browser_restored"])
+            self.assertFalse(receipt["browser_restored"])
+            self.assertEqual(receipt["cleanup_reason"], "G2_BROWSER_EFFECT_REVIEW_REQUIRED")
 
     def test_private_writer_reuses_identity_and_consumer_receipt(self):
         with tempfile.TemporaryDirectory() as d:

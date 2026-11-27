@@ -38,11 +38,12 @@ TURN_SECONDS = 120
 class G2BatchReview(WarmSessionError):
     """A failed batch retains verified completed rows, not a success verdict."""
 
-    def __init__(self, reason, rows, *, browser_restored):
+    def __init__(self, reason, rows, *, browser_restored, cleanup_reason=None):
         super().__init__(reason)
         self.reason = reason
         self.rows = tuple(rows)
         self.browser_restored = browser_restored
+        self.cleanup_reason = cleanup_reason
 
 
 def _source(url):
@@ -131,7 +132,8 @@ def _prompt(query, source_url, request_id):
 
 def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized_source,
                          model="gemini-4-hydrogen-low", thinking_level="low",
-                         session_factory=OwnerAgyWarmSession, should_yield=lambda: False):
+                         session_factory=OwnerAgyWarmSession, should_yield=lambda: False,
+                         owner_request_id=None):
     """Call under NativeBrowserProducer._browser_lock; no runtime startup effect."""
     from agy_v13_native_producer import _ensure_browser_listener, _session_settings, _write
     if authorized_source is not True:
@@ -152,7 +154,15 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
     parent.mkdir(parents=True, exist_ok=True)
     if parent.is_symlink():
         raise WarmSessionError("G2_PRIVATE_ROOT_INVALID")
-    run = parent / ("g2-" + uuid.uuid4().hex)
+    # The inbox request determines the durable directory even if the process
+    # crashes before the consumer receipt. Direct callers get a fresh identity.
+    if owner_request_id is None:
+        owner_request_id = uuid.uuid4().hex
+    if not isinstance(owner_request_id, str) or not re.fullmatch(r"[a-f0-9]{32}", owner_request_id):
+        raise WarmSessionError("G2_OWNER_REQUEST_ID_INVALID")
+    run = parent / ("g2-" + owner_request_id)
+    if run.exists() or run.is_symlink():
+        raise WarmSessionError("G2_PRIOR_BATCH_REVIEW_REQUIRED")
     pending = parent / "browser.pending"
     try:
         with pending.open("x", encoding="utf-8") as f:
@@ -171,6 +181,7 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
     finished = False
     rows = []
     failure = None
+    cleanup_reason = None
     started_at = time.monotonic()
     opener = build_opener(ProxyHandler({}))
 
@@ -210,6 +221,8 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
 
     try:
         run.mkdir()
+        _write(run / "request.json", {"owner_request_id": owner_request_id,
+               "queries": [asdict(q) for q in queries], "source_url": source_url})
         cli = preflight_antigravity()
         # Reuse the enrolled Chrome, not G1's page-specific precondition.
         # An idle blank/new-tab or existing OpenSubtitles tab is sufficient;
@@ -265,12 +278,13 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
                                  "final_ms": result.final_ms,
                                  "mcp_outcomes": result.mcp_outcomes,
                                  "mcp_errors": result.mcp_errors}
+                row["owner_request_id"] = owner_request_id
                 row["turn_index"] = index
                 row["turn_request_id"] = request_id
                 row["query"] = asdict(q)
                 _write(run / request_id / "result.json", row)
                 rows.append(row)
-                _write(run / "checkpoint.json", {"status": "IN_PROGRESS",
+                _write(run / "checkpoint.json", {"status": "IN_PROGRESS", "owner_request_id": owner_request_id,
                        "results": rows, "requested_count": len(queries)})
                 if row["status"] in ("ACCESS_BLOCKED", "UNKNOWN"):
                     break
@@ -290,13 +304,15 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
             except Exception:
                 restored = False
         if effects_started and not restored:
-            failure = "G2_BROWSER_EFFECT_REVIEW_REQUIRED"
+            cleanup_reason = "G2_BROWSER_EFFECT_REVIEW_REQUIRED"
+            failure = failure or cleanup_reason
         try:
             if finished and restored and failure is None:
-                _write(run / "completed.json", {"results": rows, "clean_exit": session.clean_exit,
+                _write(run / "completed.json", {"owner_request_id": owner_request_id, "results": rows, "clean_exit": session.clean_exit,
                       "status": "COMPLETE" if len(rows) == len(queries) else "PARTIAL"})
             elif failure is not None and run.is_dir():
                 _write(run / "terminal.json", {"status": "REVIEW_REQUIRED", "reason": failure,
+                       "cleanup_reason": cleanup_reason, "owner_request_id": owner_request_id,
                        "results": rows, "requested_count": len(queries), "browser_restored": restored,
                        "elapsed_ms": round((time.monotonic() - started_at) * 1000)})
             if (not effects_started or restored) and pending.is_file() and not pending.is_symlink():
@@ -305,5 +321,6 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
         except Exception as exc:
             failure = failure or warm_reason(exc)
     if failure is not None:
-        raise G2BatchReview(failure, rows, browser_restored=restored)
+        raise G2BatchReview(failure, rows, browser_restored=restored,
+                            cleanup_reason=cleanup_reason)
     return rows
