@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g21-r4-acceptance",
-  "category": "owner-maintenance",
+  "operation": "owner-g21-r4-readout",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-r4-acceptance.ps1",
-  "script_sha256": "527870a07f48db25072f7ec570b8ce8eb998f57507b4b8a619d10d0cf9841994",
+  "script_path": "hostops/laptop-ops/operations/g21-r4-readout.ps1",
+  "script_sha256": "a6b05cd7dec8d818f19c114436314f02edbaf30b5ed01a78465bcf9c947a8c47",
   "arguments": []
 }
