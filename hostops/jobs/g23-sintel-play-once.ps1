@@ -14,7 +14,7 @@ function ReadDoc([string]$path){
  return Get-Content -LiteralPath $path -Raw|ConvertFrom-Json -Depth 12
 }
 function BoundReceipt([string]$source,[string]$reasonPattern){
- $matches=@()
+ $boundNonces=@()
  $paths=@(Get-ChildItem -LiteralPath $history -Filter 'receipt-*.json' -File|ForEach-Object FullName)
  $paths+=Join-Path $outbox 'receipt.json'
  foreach($path in $paths){
@@ -23,9 +23,9 @@ function BoundReceipt([string]$source,[string]$reasonPattern){
   $q=ReadDoc (Join-Path $history ('request-'+$r.nonce+'.json'))
   if(-not $q){$q=ReadDoc (Join-Path $spool 'Requests\request.json')}
   $st=ReadDoc (Join-Path $outbox ('odyssey-stage-'+$r.nonce+'.json'))
-  if($q -and $st -and $q.nonce -ceq $r.nonce -and $q.source_commit -ceq $source -and $st.nonce -ceq $r.nonce -and $st.reason -cmatch $reasonPattern){$matches+= $r.nonce}
+  if($q -and $st -and $q.nonce -ceq $r.nonce -and $q.source_commit -ceq $source -and $st.nonce -ceq $r.nonce -and $st.reason -cmatch $reasonPattern){$boundNonces+= $r.nonce}
  }
- $unique=@($matches|Sort-Object -Unique)
+ $unique=@($boundNonces|Sort-Object -Unique)
  if($unique.Count -ne 1){throw 'G23_PRIOR_RECEIPT_BINDING'}
  return [string]$unique[0]
 }
@@ -62,8 +62,8 @@ try{
  }
 
  $rows=Ts @{action='list'}
- $matches=@($rows|Where-Object{$_ -and $_.PSObject.Properties['hash'] -and [string]$_.hash -ieq $hash})
- if($matches.Count -ne 1){throw 'LIBRARY_HASH_NOT_UNIQUE'}
+ $boundNonces=@($rows|Where-Object{$_ -and $_.PSObject.Properties['hash'] -and [string]$_.hash -ieq $hash})
+ if($boundNonces.Count -ne 1){throw 'LIBRARY_HASH_NOT_UNIQUE'}
  $m=Ts @{action='get';hash=$hash}
  if($null -eq $m -or -not $m.PSObject.Properties['hash'] -or [string]$m.hash -ine $hash){throw 'METADATA_HASH_MISMATCH'}
  $files=@()
