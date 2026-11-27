@@ -10,13 +10,29 @@
 | P0c | TorrServer Windows/NAS LAN + Redmi TV: media legal, D-pad, play/seek/resume, Vietsub | P0b, device/server permission | G-SERVER + G-TV + G-VI độc lập |
 | P1a | External SRT/VTT capability: G0 debug fixture → G1 ngoài APK → G2 hot-add (nếu khả thi) → G3 sync → G4 release isolation | P0c/player proof | G1 E2E và từng gate riêng; không false PASS |
 | P1b | Chọn transport: Android picker/USB, SMB read-only, phone transfer hoặc khác | P1a G1 | Decision matrix + Human ADR; không tự mở SMB/firewall |
-| P2-SOURCE | Lawful source search intelligence, metadata/filter/rank (resolution/size/seeds/codec/vi) | P0 + source/ToS proof | Search smoke + candidate confidence + explicit confirmation |
+| P2-SOURCE | Lawful source search intelligence, metadata/filter/rank (resolution/size/seeds/codec/vi) | P0 + source/ToS proof | Search smoke + candidate confidence + scoped Human authorization (C1.5/C5) |
 | P2-AISUB | Human-decided on-demand Vietsub goal in Draft PR #9; translate timed SRT/VTT first, ASR→translation/QA if source text unavailable; offline local-first CLI | Licensed fixtures; no Gateway dependency, TV E2E requires P1a G1 | SRT/VTT UTF-8 cue QA, resource/cost/privacy and user opt-in |
-| P3 | Torrent TV local gateway + TV pairing/control + optional ChatGPT interface | P2-SOURCE, real TV API proof, security review | Real E2E search→confirm→TorrServer→TV + negative tests |
+| P3 | Torrent TV local gateway + TV pairing/control + optional ChatGPT interface | P2-SOURCE, real TV API proof, security review | Real E2E search→scoped approval→TorrServer→TV + negative tests |
 | P4 | Integrate P2-AISUB Vietsub outputs into OMP TV UX (not a duplicate CLI PoC) | P1a-G1 real external subtitle import and rights/consent | Real Redmi selected track/reopen/seek/cue sync with generated SRT/VTT |
 | P5 | Opt-in AI voice-over: TTS/align/mix/mux; real-time feasibility separate | P4 + player/audio proof | Sync/seek/quality/latency/cost measured; no real-time claim without proof |
 
-## Research-aligned incremental backlog (not dispatched)
+## Giai đoạn 2 — Brain Movie Concierge (quyết định 2026-11-27)
+
+Authority: [Issue #191](https://github.com/trung-via/torrent-tv-vietsub/issues/191), [PR #192](https://github.com/trung-via/torrent-tv-vietsub/pull/192), Project Contract C1.5/C5. Đây là định nghĩa G2 hiện hành, thay phần yêu cầu xác nhận thao tác lặp lại trong backlog cũ và Draft #181; không tuyên bố các phần G1/G3 của #181 đã merge.
+
+**Luồng phẳng:** Human yêu cầu phim → Brain tìm bản phù hợp qua nguồn được phép (EXT.TO là giao diện tra cứu ưu tiên) → Windows Owner/runner gọi TorrServer loopback → OMP Redmi phát khi Human yêu cầu. Prefetch EN→VI là thao tác riêng; giữ opt-in Vietsub/P4 và không tự bật phim nếu chỉ yêu cầu thêm thư viện hoặc prefetch. Không xây player/gateway thứ hai, không mở WAN. Phê duyệt thao tác theo phạm vi đã cấp một lần; quyền nội dung và điều kiện truy cập nguồn theo C1.5/C5.
+
+| Mã | Việc triển khai | Acceptance |
+| --- | --- | --- |
+| G2.1 | Brain chọn đúng phim/năm/tập và yêu cầu phiên bản; ưu tiên 5–12 GB (mềm), seed reported cao, codec/audio tương thích; yêu cầu cụ thể thắng mặc định. Không hard-code ngưỡng seed hoặc băng thông. | Đúng metadata/release trong phạm vi được phép; báo thiếu dữ liệu hoặc không có bản phù hợp, không tự hạ hard constraints. Seed không bảo đảm tốc độ. |
+| G2.2 | Owner/runner thêm bản được phép vào TorrServer localhost theo lệnh Human hoặc phê duyệt thường trực; dedupe hash; không lặp tác dụng chưa rõ. | Readback thư viện, đúng hash/file ID, không trùng; đo thời gian đến Library (≤30 giây là mục tiêu, chưa PASS). |
+| G2.3-PREFETCH | Giữ G2.3 prefetch của Draft #181: đọc đúng metadata/hash/fileIndex, phát một TTV-OWNER-VIDEO-EVENT-V4 idempotent nếu prefetch được yêu cầu; checkpoint EN/VI. | Một event hợp lệ, không giả tín hiệu nút TV, không đưa P4 vào session khác. Phụ thuộc G1 real-TV. |
+| G2.3-PLAY | Lát remote-play riêng tại #191: tái sử dụng OMP native /omp/info, pairing đã xác minh và /omp/launch; xác định file ID từ metadata; chỉ launch một lần khi được yêu cầu. | ACK không phải playback PASS; đúng video/session và timecode tiến triển trên Redmi thật. Không phá phiên hiện hành; chỉ wake khi trạng thái thực cho phép. |
+| G2.4 | Đo throughput/buffer, thời gian vào Library, first frame và prefetch riêng; không đánh đồng các cổng. | Quan sát thực tế, báo từng trạng thái độc lập. |
+
+**Bằng chứng tại 27/11:** wake/OMP API PASS (run 45926363520); pairing runner PASS (45928387586); persisted pairing và library 19 hash PASS (45928931370); remote playback chưa thử vì phim được yêu cầu chưa có trong library (45929619469). Không lặp pairing chỉ vì thay phim. G2.1/G2.2 acquisition/add, G2.3-PREFETCH và G2.3-PLAY end-to-end chưa PASS. Không chờ G1 để kiểm chứng remote-play độc lập, nhưng prefetch/P4 và G3 vẫn cần G1 evidence đúng phạm vi.
+
+## Research-aligned incremental backlog (historical, not dispatched)
 
 1. **R0 — Evidence pin:** OMP and 2160 vendor SHA, license/credential audit, clean APK build; exact Redmi A Pro 55 China firmware/ABI/codecs/Cast; deployed TorrServer version/API/auth. No source or firmware proof by product name.
 2. **R1 — Direct playback:** legal torrent/video fixture, TorrServer Windows LAN -> OMP TV, start/seek/resume/audio/UTF-8 subtitle; measure real buffer/rebuffer. Remux/HLS -gst optional only after version/build checks.
@@ -47,7 +63,7 @@
 
 - GitHub Actions riêng của Torrent TV, self-hosted runner/workspace riêng. Mẫu mã từ AIOS chỉ reuse theo PR, provenance/license/secret audit; không dùng AIOS runtime/Brain/TASK/dispatch.
 - Manual-only hiện là lựa chọn an toàn cho job có quyền host; mở rộng PR CI cần threat review, không chạy untrusted PR trên self-hosted runner có secrets.
-- Không auto merge, publish, ký APK, thay đổi Windows/network hoặc điều khiển TV từ chat chỉ vì roadmap được duyệt.
+- Auto-merge PR theo #42 và chính sách trên main; không publish, ký APK, thay đổi Windows/network hoặc điều khiển TV chỉ vì roadmap được duyệt.
 
 ## Legacy và trạng thái
 
