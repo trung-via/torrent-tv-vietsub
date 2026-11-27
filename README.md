@@ -24,11 +24,11 @@ Windows PC chạy TorrServer mặc định; NAS tùy chọn. TV là client, khô
 
 ## Phát triển hoàn toàn độc lập AIOS
 
-Repo `trung-via/torrent-tv-vietsub` (**PUBLIC theo GitHub ngày 2026-11-14**; PRIVATE/PUBLIC đều được Human cho phép, cần kiểm tra live trước các thao tác) có GitHub Issues/PR/ADR, GitHub Actions, self-hosted runner, workspace, credentials, artifacts và release **riêng**. Không dùng AIOS Brain Sync, TASK/admission, dispatch, executor, review, runtime hoặc runner. Có thể **tái sử dụng chọn lọc** mã nguồn/mẫu GitHub Actions, runner guard, script từ AIOS sau kiểm tra provenance, license, secrets và PR review; không tạo phụ thuộc vận hành.
+Repo `trung-via/torrent-tv-vietsub` (**PUBLIC; xác minh metadata GitHub khi thao tác**) có GitHub Issues/PR/ADR, GitHub Actions, self-hosted runner, workspace, credentials, artifacts và release **riêng**. Không dùng AIOS Brain Sync, TASK/admission, dispatch, executor, review, runtime hoặc runner. Có thể **tái sử dụng chọn lọc** mã nguồn/mẫu GitHub Actions, runner guard, script từ AIOS sau kiểm tra provenance, license, secrets và PR review; không tạo phụ thuộc vận hành.
 
 ## PUBLIC repository không làm dừng dự án
 
-Human đã chọn cho phép chuyển repo sang PUBLIC và **tiếp tục trên chính repo/branches/Issues/PR/CI/roadmap hiện có**. Không cần tạo repo khác, reset lịch sử hoặc quay về PRIVATE. Trước khi đổi visibility, phải audit Git history, secrets, personal media, issue/artifact, giấy phép OMP/GPL và dependencies. Không cho code từ fork/PR lạ chạy trên self-hosted Windows runner có quyền host; public source không đồng nghĩa công khai TorrServer/gateway hay tự động phát hành APK. Trạng thái PRIVATE/PUBLIC thực tế do GitHub quyết định; xem [Contract](docs/PROJECT_CONTRACT.md) và [Security](docs/SECURITY.md).
+Repo hiện PUBLIC và **tiếp tục trên chính repo/branches/Issues/PR/CI/roadmap hiện có**; không tạo repo khác hay reset lịch sử. Tài liệu và workflow không được đặt điều kiện repo phải có visibility nhất định. Giữ credential, media riêng tư và artifact không dành cho công chúng ở máy Owner; chỉ cho trusted source chạy trên Windows runner, không mở TorrServer/gateway ra WAN. Xem [Contract](docs/PROJECT_CONTRACT.md) và [Security](docs/SECURITY.md).
 
 ## Tài liệu
 
@@ -39,7 +39,7 @@ Human đã chọn cho phép chuyển repo sang PUBLIC và **tiếp tục trên c
 
 **Trạng thái:** `main` và nhiều Draft PR/PoC có lịch sử riêng; tài liệu mới ở PR review chưa đồng nghĩa code/build/TV/server/agent đã PASS. Kiểm tra commit, runner, real TV/server evidence trước kết luận. Chỉ merge PR sau **Brain review độc lập PASS + kiểm tra HEAD/base, CI, security và acceptance** theo [Issue #42](https://github.com/trung-via/torrent-tv-vietsub/issues/42); không tự trigger workflow, thay Windows/TV/network hay publish APK.
 
-**License:** audit OMP GPL-3.0-only, submodule và third-party licenses trước import/phân phối; repo PRIVATE không tự miễn nghĩa vụ GPL.
+**License:** audit OMP GPL-3.0-only, submodule và third-party licenses trước import/phân phối; nghĩa vụ GPL không phụ thuộc visibility của repository.
 
 ## AI Entertainment Agent research direction (not shipped)
 

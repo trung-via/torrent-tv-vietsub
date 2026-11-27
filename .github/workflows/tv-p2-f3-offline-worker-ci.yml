@@ -1,0 +1,26 @@
+name: Torrent TV P2-F3 offline worker source
+
+on:
+  pull_request:
+    paths:
+      - 'hostops/setup/p2-offline-worker-upgrade.ps1'
+      - 'poc/p2-aisub/automatic_lean120_worker.py'
+      - 'poc/p2-aisub/test_p2_offline_worker_upgrade_contract.py'
+      - '.github/workflows/tv-p2-f3-offline-worker-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Parse PowerShell and verify offline source contract
+        shell: pwsh
+        run: |
+          python -m unittest discover -s poc/p2-aisub -p test_p2_offline_worker_upgrade_contract.py -v

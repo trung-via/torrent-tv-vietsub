@@ -1,0 +1,98 @@
+# FLAT integration source verification. It deliberately has no PR-number/feature-branch pin:
+# a reviewed personal-owner integration candidate targets main, even after branch changes.
+# Hosted Windows only; no self-hosted runner, ADB, Owner service, API or network listener.
+name: Torrent TV - FLAT Integrated Source CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/tv-flat-integration-source-ci.yml'
+      - 'poc/**'
+      - 'hostops/**'
+      - 'src/**'
+      - 'scripts/**'
+permissions:
+  contents: read
+concurrency:
+  group: torrent-tv-flat-source-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  windows-source:
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact integration HEAD
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Verify checked-out candidate and clean diff
+        shell: pwsh
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -cne $env:EXPECTED_HEAD) { throw 'FLAT_EXACT_HEAD_MISMATCH' }
+          git diff --check HEAD^ HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'FLAT_SOURCE_DIFF_CHECK_FAIL' }
+
+      - name: Cross-lane Python source regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONPATH = @(
+            (Join-Path $env:GITHUB_WORKSPACE 'poc\p3-p4-compose'),
+            (Join-Path $env:GITHUB_WORKSPACE 'poc\p3-vietsub-trigger'),
+            (Join-Path $env:GITHUB_WORKSPACE 'poc\p2-sub-discovery'),
+            (Join-Path $env:GITHUB_WORKSPACE 'poc\p2-aisub')
+          ) -join [IO.Path]::PathSeparator
+          $suites = @(
+            @('poc/p3-p4-compose', 'test_*.py'),
+            @('poc/p4-auto-sub', 'test_*.py'),
+            @('poc/g1-prod', 'test_helper_blob_pin.py'),
+            @('poc/p2-sub-discovery', 'test_*.py'),
+            @('poc/p2-aisub', 'test_p4_overlay.py'),
+            @('poc/p2-aisub', 'test_p4_tls_source.py'),
+            @('poc/p2-aisub', 'test_paired_activation.py'),
+            @('poc/p2-aisub', 'test_lean120_api.py')
+          )
+          foreach ($suite in $suites) {
+            python -m unittest discover -s $suite[0] -p $suite[1] -q
+            if ($LASTEXITCODE -ne 0) { throw "FLAT_SOURCE_TEST_FAIL:$($suite[0]):$($suite[1])" }
+          }
+
+      - name: Parse Windows Owner staging and activation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($relative in @(
+            'hostops/setup/stage-owner-p3p4-v2.ps1',
+            'hostops/setup/owner-p3p4-v2-offline-activation.ps1',
+            'hostops/setup/owner-r0-personal-policy-offline-upgrade.ps1',
+            'poc/p2-sub-discovery/test_owner_v2_atomic_replace_windows.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $env:GITHUB_WORKSPACE $relative), [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -ne 0) { throw "FLAT_OWNER_POWERSHELL_PARSE_FAIL:$relative" }
+          }
+
+      - name: Windows synthetic atomic replacement and rollback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./poc/p2-sub-discovery/test_owner_v2_atomic_replace_windows.ps1
+          if (-not $?) { throw 'FLAT_OWNER_ROLLBACK_FIXTURE_FAIL' }
+          Write-Host 'FLAT_WINDOWS_SOURCE_ONLY_PASS_NO_APK_NO_TV_NO_OWNER_RESTART_NO_PROVIDER'
