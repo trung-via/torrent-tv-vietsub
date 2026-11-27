@@ -101,45 +101,42 @@ try{
   if($settings.PSObject.Properties['TrackTimecode'] -and $settings.TrackTimecode -is [bool]){$track=[string]$settings.TrackTimecode}
   Write-Host ('G23_AUDIT_TRACK_TIMECODE='+$track)
  }catch{Write-Host 'G23_AUDIT_TRACK_TIMECODE=UNKNOWN'}
+ # Inspect the existing native session, not the server's optional history.
  function Observe([int]$n){
-  $m=Ts @{action='get';hash=$hash}
-  if([string]$m.hash -ine $hash){throw 'HASH_DRIFT'}
-  $stats=@{}
-  foreach($key in @('stat','loaded_size','preloaded_bytes','download_speed','active_peers','connected_seeders')){$stats[$key]=SafeNum $m $key}
-  $v=PostRead 'viewed' @{action='list'}
-  $entry=@($v|Where-Object{$_ -and $_.PSObject.Properties['hash'] -and [string]$_.hash -ieq $hash -and $_.PSObject.Properties['file_index'] -and [int]$_.file_index -eq $idx})
-  $pos='ABSENT'
-  if($entry.Count -eq 1){$pos=SafeNum $entry[0] 'timecode'}
-  if($entry.Count -gt 1){$pos='AMBIGUOUS'}
   $ac=((& $adb -s $serial shell dumpsys activity activities 2>$null)|Out-String)
   $fg=[bool](@($ac -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match [regex]::Escape($pkg+'/') -and $_ -match 'PlayerActivity'}).Count)
-  $pidText=((& $adb -s $serial shell pidof $pkg 2>$null)|Out-String).Trim()
-  $uiTitle=$false;$uiTime='UNKNOWN';$uiBuffer='UNKNOWN';$uiError='UNKNOWN'
-  if($fg){
-   try{
-    $xmlText=((& $adb -s $serial shell uiautomator dump /dev/tty 2>$null)|Out-String)
-    $xmlMatch=[regex]::Match($xmlText,'(?s)<hierarchy\b.*?</hierarchy>')
-    if($xmlMatch.Success){
-     [xml]$doc=$xmlMatch.Value
-     $nodes=@($doc.SelectNodes('//node'))
-     $title=@($nodes|Where-Object{$_.'resource-id' -eq ($pkg+':id/player_title')})
-     $uiTitle=[bool](@($title|Where-Object{$_.text -match '(?i)\bSintel\b'}).Count)
-     $time=@($nodes|Where-Object{$_.'resource-id' -eq ($pkg+':id/player_time')})
-     if($time.Count -eq 1 -and $time[0].text -match '^\d{1,3}:\d{2}(?::\d{2})?\s*/\s*\d{1,3}:\d{2}(?::\d{2})?$'){$uiTime=$time[0].text}
-     $uiBuffer=[string][bool](@($nodes|Where-Object{$_.'resource-id' -eq ($pkg+':id/player_buffering_text') -and $_.text}).Count)
-     $uiError=[string][bool](@($nodes|Where-Object{$_.'resource-id' -eq ($pkg+':id/player_error_text') -and $_.text}).Count)
-    }
-   }catch{}
+  $raw=((& $adb -s $serial shell dumpsys media_session 2>$null)|Out-String)
+  $blocks=[regex]::Matches($raw,'(?ms)^\s{4,}[^\r\n]+?\(userId=\d+\)\s*\r?\n.*?(?=^\s{4,}[^\r\n]+?\(userId=\d+\)\s*\r?\n|\z)')
+  $scoped=@($blocks|Where-Object{$_.Value -match ('(?m)^\s*package\s*=\s*'+[regex]::Escape($pkg)+'\s*$')})
+  # Android variants format session headers differently. Fall back to
+  # the package line's own block, ending before any other package line.
+  if($scoped.Count -eq 0){
+   $scoped=@([regex]::Matches($raw,'(?ms)^\s*package\s*=\s*'+[regex]::Escape($pkg)+'[ \t]*\r?\n.*?(?=^\s*package\s*=|\z)'))
   }
-  $session=((& $adb -s $serial shell dumpsys media_session 2>$null)|Out-String)
-  $pkgSession=[bool]($session -match [regex]::Escape($pkg))
-  Write-Host ('G23_AUDIT_SAMPLE='+$n+' FG='+$fg+' TITLE='+$uiTitle+' UI_TIME='+$uiTime+' BUFFER='+$uiBuffer+' ERROR='+$uiError+' VIEWED='+$pos+' MEDIASESSION='+$pkgSession)
-  Write-Host ('G23_AUDIT_TS='+$n+' STAT='+$stats.stat+' LOADED='+$stats.loaded_size+' PRELOAD='+$stats.preloaded_bytes+' SPEED='+$stats.download_speed+' PEERS='+$stats.active_peers+' SEEDS='+$stats.connected_seeders)
+  $state='UNKNOWN';$pos='UNKNOWN';$rate='UNKNOWN';$updated='UNKNOWN';$title=$false;$active=$false
+  if($scoped.Count -eq 1){
+   $block=$scoped[0].Value
+   $active=$block -match '(?m)^\s*active=true\s*$'
+   $title=$block -match '(?im)^\s*(?:metadata|description|title)[^\r\n]*\bSintel\b'
+   $st=[regex]::Match($block,'(?m)\bstate=PlaybackState\s*\{state=(\d+),\s*position=(-?\d+),[^\r\n]*?speed=([-\d.]+)[^\r\n]*?updated=(\d+)')
+   if($st.Success){$state=$st.Groups[1].Value;$pos=$st.Groups[2].Value;$rate=$st.Groups[3].Value;$updated=$st.Groups[4].Value}
+   else{
+    $st=[regex]::Match($block,'(?m)\bstate=PlaybackState\s*\{state=(\d+),\s*position=(-?\d+),[^\r\n]*?speed=([-\d.]+)')
+    if($st.Success){$state=$st.Groups[1].Value;$pos=$st.Groups[2].Value;$rate=$st.Groups[3].Value}
+   }
+  }
+  # No raw activity, metadata, tokens or media identifiers leave runner.
+  Write-Host ('G23_NATIVE_SAMPLE='+$n+' FG='+$fg+' SESSIONS='+$scoped.Count+' ACTIVE='+$active+' TITLE='+$title+' STATE='+$state+' POSITION_MS='+$pos+' SPEED='+$rate+' UPDATED='+$updated)
+  return [pscustomobject]@{fg=$fg;count=$scoped.Count;active=$active;title=$title;state=$state;pos=$pos;updated=$updated}
  }
- Observe 1
+ $a=Observe 1
  Start-Sleep -Seconds 8
- Observe 2
+ $b=Observe 2
+ if($a.fg -and $b.fg -and $a.count -eq 1 -and $b.count -eq 1 -and $a.title -and $b.title -and $a.state -eq '3' -and $b.state -eq '3' -and $a.pos -match '^\d+$' -and $b.pos -match '^\d+$' -and [long]$b.pos -gt [long]$a.pos){
+  Write-Host 'G23_NATIVE=TITLE_BOUND_PROGRESS_PASS'
+ }else{Write-Host 'G23_NATIVE=PROGRESS_UNVERIFIED'}
  Write-Host 'G23_AUDIT=READ_ONLY_COMPLETE'
+
 }catch{
  Write-Host ('G23_AUDIT_HOLD_STAGE='+$stage)
  Write-Host ('G23_AUDIT_ERROR_TYPE='+$_.Exception.GetType().Name)
