@@ -34,6 +34,9 @@ class MovieQuery:
     play: bool = False
     codec: str | None = None
     release_contains: str | None = None
+    # Optional independently verified release identity from the trusted caller.
+    # Never taken from AGY output; only used if the source omits the year.
+    verified_release_hash: str | None = None
 
 
 MAX_BATCH = 2
@@ -73,6 +76,9 @@ def _query(q):
             or any(type(v) is not bool for v in (q.select_release, q.media_authorized, q.play))
             or (q.select_release and not q.media_authorized)
             or (not q.select_release and (q.media_authorized or q.play or q.codec is not None or q.release_contains is not None))
+            or (q.verified_release_hash is not None and (not q.select_release
+                or not isinstance(q.verified_release_hash, str)
+                or not re.fullmatch(r"[a-f0-9]{40}", q.verified_release_hash)))
             or (q.codec is not None and q.codec not in ("H264", "H265", "AV1", "VP9"))
             or (q.release_contains is not None and (not isinstance(q.release_contains, str)
                 or not q.release_contains.strip() or len(q.release_contains) > 160))):
@@ -82,6 +88,22 @@ def _query(q):
 
 def _normalized(s):
     return " ".join(s.casefold().split())
+
+
+def _identity_matches(row, query, picked=None):
+    title, year = row.get("title"), row.get("year")
+    if not isinstance(title, str) or _normalized(title) != _normalized(query.title):
+        return False
+    if type(year) is int and year == query.year:
+        return True
+    # Null year is missing metadata, not evidence of another film. Allow
+    # independently bound exact release only; never override a conflicting year.
+    if year is not None or not query.select_release or not query.verified_release_hash:
+        return False
+    link = row.get("link")
+    if link is None and isinstance(picked, dict) and picked.get("release_name") == row.get("release_name"):
+        link = picked.get("link")
+    return _link_hash(link) == query.verified_release_hash
 
 
 def _metadata(payload, query, request_id):
@@ -97,10 +119,7 @@ def _metadata(payload, query, request_id):
     for row in candidates:
         if not isinstance(row, dict):
             raise WarmSessionError("G2_RESULT_ROW_INVALID")
-        title = row.get("title")
-        if not isinstance(title, str) or _normalized(title) != _normalized(query.title):
-            continue
-        if type(row.get("year")) is not int or row["year"] != query.year:
+        if not _identity_matches(row, query, payload.get("selected")):
             continue
         def number(key):
             value = row.get(key)
@@ -232,9 +251,8 @@ def _selected_metadata(payload, query, request_id, source_host, trace):
     picked = payload.get("selected")
     ranked = []
     for row in payload["candidates"]:
-        title, name = row.get("title"), row.get("release_name")
-        if (not isinstance(title, str) or _normalized(title) != _normalized(query.title)
-                or type(row.get("year")) is not int or row["year"] != query.year
+        name = row.get("release_name")
+        if (not _identity_matches(row, query, picked)
                 or not isinstance(name, str) or not name.strip() or len(name) > 300):
             continue
         # Explicit release marker identifies the requested release, if supplied.
@@ -258,6 +276,8 @@ def _selected_metadata(payload, query, request_id, source_host, trace):
             resolution = None
         return {**meta, "status": "SELECTION_READY", "release_name": name,
                 "evidence": "MODEL_REPORTED_METADATA_BOUND_LOCATOR",
+                "identity_evidence": ("TRUSTED_RELEASE_HASH" if row.get("year") is None
+                                      else "REPORTED_TITLE_YEAR"),
                 "selected_resolution": resolution,
                 "quality_fallback": resolution != query.resolution,
                 "selection": {"link": link, "expected_hash": target,
@@ -280,9 +300,11 @@ def _prompt(query, source_url, request_id):
             "Do not use a different source, bypass restrictions, log in, download media, "
             "add to TorrServer, play, or run shell. Stop if access or distribution rights "
             "are unclear; never infer rights from the mere presence of a link. "
-            "Query: " + json.dumps(asdict(query), ensure_ascii=False) + ". Source: " +
+            "Query: " + json.dumps({k: v for k, v in asdict(query).items() if k != "verified_release_hash"}, ensure_ascii=False) + ". Source: " +
             json.dumps(source_url) + ". Request ID: " + request_id + ". "
-            "Exact film title/year are mandatory; match an explicit release_contains if supplied. "
+            "Exact film title/year: use the actual year when present; if absent return null, never invent it. "
+            "Still return the matching title and observed locator for independent identity verification. "
+            "Match an explicit release_contains if supplied. "
             "Select one best available exact-film release whenever an authorized observed locator exists. "
             "Rank first by requested quality (exact resolution, otherwise nearest known resolution, "
             "unknown quality last; prefer requested codec at equivalent resolution), then higher "
