@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+from contextlib import closing
 import subprocess
 from threading import Lock
 import time
@@ -487,7 +488,7 @@ def _download_observation(profile, dest):
         history = profile / "Default/History"
         if history.is_symlink() or not history.is_file():
             return None
-        with sqlite3.connect(history.resolve().as_uri() + "?mode=ro", uri=True, timeout=3) as con:
+        with closing(sqlite3.connect(history.resolve().as_uri() + "?mode=ro", uri=True, timeout=3)) as con:
             rows = con.execute("select id,state,start_time,received_bytes,total_bytes,target_path,current_path from downloads order by id limit 10001").fetchall()
         if len(rows)>10000 or any(row[1] not in (1,2,3) for row in rows):
             return None
@@ -546,7 +547,7 @@ def _fresh_downloads(profile, dest, before, wall):
     history = profile / "Default/History"
     if history.is_file():
         try:
-            with sqlite3.connect(history.resolve().as_uri() + "?mode=ro", uri=True, timeout=3) as con:
+            with closing(sqlite3.connect(history.resolve().as_uri() + "?mode=ro", uri=True, timeout=3)) as con:
                 cutoff = int((wall + 11644473600) * 1000000)
                 for row in con.execute("select id,target_path,state,received_bytes from downloads where start_time>=?", (cutoff,)):
                     if row[2] != 1 or row[3] <= 0:
