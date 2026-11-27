@@ -98,40 +98,46 @@ class WarmTests(unittest.TestCase):
     def test_authorized_selection_is_exact_top_release_and_observed_locator(self):
         with tempfile.TemporaryDirectory() as d:
             trace = Path(d)/"agy-stdout.jsonl"
-            link = "magnet:?xt=urn:btih:" + "a"*40
             q = MovieQuery("Licensed fixture", 2026, select_release=True, media_authorized=True, play=True)
             def event(params=None, output=None):
                 info = {"parameters": params} if params else {"output": output}
                 return {"step_update": {"tool_name": "call_mcp_tool", "tool_info": info}}
-            events = [
-                event({"ToolName":"list_pages","ServerName":"ttv-browser"}),
-                event(output="1: https://example.org/releases"),
-                event({"ToolName":"evaluate_script","ServerName":"ttv-browser","Arguments":{"pageId":1}}),
-                event(output=json.dumps({"release_name":"Fixture.Release.A","link":link})),
-            ]
-            trace.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
-            def row(name, seeds, resolution="1080p", size=8000):
-                return {"title":"Licensed fixture","year":2026,"resolution":resolution,
-                        "size_mb":size,"seeds":seeds,"release_name":name}
-            payload = {"request_id":"turn", "status":"MATCH_FOUND",
-                       "candidates":[row("Fixture.Release.A",9),row("Fixture.Release.B",3),
-                                     row("Wrong.resolution",999,"2160p"),row("Large",100,size=20000)],
-                       "selected":{"release_name":"Fixture.Release.A","link":link}}
-            got = _selected_metadata(payload,q,"turn","example.org",trace)
-            self.assertEqual(got["status"],"SELECTION_READY")
-            self.assertEqual(got["selection"]["expected_hash"],"a"*40)
-            payload["selected"]["release_name"]="Fixture.Release.B"
-            self.assertEqual(_selected_metadata(payload,q,"turn","example.org",trace)["status"],
-                             "SELECTED_RELEASE_NOT_TOP_MATCH")
-            payload["selected"]={"release_name":"Fixture.Release.A","link":"magnet:?xt=urn:btih:"+"b"*40}
-            self.assertEqual(_selected_metadata(payload,q,"turn","example.org",trace)["status"],
-                             "SELECTED_LOCATOR_UNVERIFIED")
-            payload["selected"]={"release_name":"Fixture.Release.A","link":link}
-            events[-1]=event(output=json.dumps([{"release_name":"Fixture.Release.A","link":"magnet:?xt=urn:btih:"+"b"*40},{"release_name":"Fixture.Release.B","link":link}]))
-            trace.write_text("\n".join(json.dumps(e) for e in events),encoding="utf-8")
-            self.assertEqual(_selected_metadata(payload,q,"turn","example.org",trace)["status"],
-                             "SELECTED_LOCATOR_UNVERIFIED")
-            self.assertIn("one job", _prompt(q,"https://example.org","turn"))
+            def row(name, seeds, resolution="1080p", size=8000, h="a", title="Licensed fixture"):
+                return {"title":title,"year":2026,"resolution":resolution,
+                        "size_mb":size,"seeds":seeds,"release_name":name,
+                        "link":"magnet:?xt=urn:btih:"+h*40}
+            exact=row("Exact",9,h="a")
+            large=row("Large",100,size=20000,h="b")
+            lower=row("Lower",900,"720p",h="c")
+            higher=row("Higher",999,"2160p",h="d")
+            wrong=row("Wrong",9999,h="e",title="Other film")
+            unknown=row("Unknown",None,None,None,h="f")
+            def decide(rows, observed=None, status="MATCH_FOUND"):
+                observed=rows if observed is None else observed
+                events=[
+                    event({"ToolName":"list_pages","ServerName":"ttv-browser"}),
+                    event(output="1: https://example.org/releases"),
+                    event({"ToolName":"evaluate_script","ServerName":"ttv-browser","Arguments":{"pageId":1}}),
+                    event(output=json.dumps([{"release_name":x["release_name"],"link":x["link"]} for x in observed])),
+                ]
+                trace.write_text("\n".join(json.dumps(e) for e in events),encoding="utf-8")
+                payload={"request_id":"turn","status":status,"candidates":rows,
+                         "selected":{"release_name":"Exact","link":exact["link"]}}
+                return _selected_metadata(payload,q,"turn","example.org",trace)
+            result=decide([exact,large,lower,higher,wrong])
+            self.assertEqual(result["status"],"SELECTION_READY")
+            self.assertEqual(result["release_name"],"Large")
+            self.assertFalse(result["quality_fallback"])
+            result=decide([lower,higher,unknown,wrong])
+            self.assertEqual(result["release_name"],"Lower")
+            self.assertTrue(result["quality_fallback"])
+            self.assertEqual(decide([unknown])["release_name"],"Unknown")
+            self.assertEqual(decide([large,exact],observed=[exact])["release_name"],"Exact")
+            self.assertEqual(decide([large,lower],observed=[lower])["release_name"],"Lower")
+            self.assertEqual(decide([wrong])["status"],"NO_EXACT_MATCH_REPORTED")
+            self.assertEqual(decide([exact],observed=[])["status"],"SELECTED_LOCATOR_UNVERIFIED")
+            self.assertEqual(decide([exact],status="ACCESS_BLOCKED")["status"],"ACCESS_BLOCKED")
+            self.assertIn("Never reject an exact-film release solely", _prompt(q,"https://example.org","turn"))
 
     def test_selection_private_consumer_publishes_exact_g22_input_once(self):
         from dataclasses import asdict

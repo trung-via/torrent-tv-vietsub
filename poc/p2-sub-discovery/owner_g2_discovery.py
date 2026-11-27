@@ -114,8 +114,7 @@ def _metadata(payload, query, request_id):
                      "size_mb": size, "seeds": seeds, "codec": codec,
                      "requested_resolution": resolution == query.resolution,
                      "preferred_size": size is not None and 5000 <= size <= 12000})
-    rows.sort(key=lambda r: (r["requested_resolution"], r["preferred_size"],
-                            r["seeds"] if r["seeds"] is not None else -1), reverse=True)
+    rows.sort(key=lambda r: _release_rank(r, query), reverse=True)
     if status != "MATCH_FOUND":
         rows = []
     if status == "MATCH_FOUND" and not rows:
@@ -201,50 +200,74 @@ def _observed_locator(trace, source_host, release_name, link):
     return False
 
 
+def _release_rank(row, query):
+    # Lexicographic priority: quality, then reported seeds, then soft size.
+    # Exact resolution wins; otherwise nearest known height, then unknown.
+    # At an equal distance prefer the lower height for easier playback.
+    heights = {"720p": 720, "1080p": 1080, "2160p": 2160}
+    requested = heights[query.resolution]
+    height = heights.get(row.get("resolution")) if isinstance(row.get("resolution"), str) else None
+    quality = (height is not None, -abs(height-requested) if height is not None else -9999,
+               height is not None and height <= requested,
+               query.codec is None or row.get("codec") == query.codec)
+    seeds = row.get("seeds")
+    seeds = seeds if type(seeds) is int and seeds >= 0 else -1
+    size = row.get("size_mb")
+    preferred = type(size) is int and 5000 <= size <= 12000
+    return (quality, seeds, preferred)
+
+
 def _selected_metadata(payload, query, request_id, source_host, trace):
-    """One AGY task finds, compares and selects; deterministic check of its pick."""
+    """Choose the best available, authorized, source-observed exact-film release.
+
+    Quality and size are preferences, never elimination conditions.
+    If AGY's nominated winner is unusable, select the next observed release
+    from this same turn rather than discard a viable exact-film candidate.
+    """
     meta = _metadata(payload, query, request_id)
-    if meta["status"] != "MATCH_FOUND":
-        return meta
-    ranked = []
-    for row in payload["candidates"]:
-        title = row.get("title")
-        name = row.get("release_name")
-        if (not isinstance(title, str) or _normalized(title) != _normalized(query.title)
-                or type(row.get("year")) is not int or row["year"] != query.year
-                or row.get("resolution") != query.resolution
-                or not isinstance(name, str) or not name.strip() or len(name) > 300
-                or (query.codec is not None and row.get("codec") != query.codec)
-                or (query.release_contains is not None and
-                    _normalized(query.release_contains) not in _normalized(name))):
-            continue
-        size, seeds = row.get("size_mb"), row.get("seeds")
-        preferred = type(size) is int and 5000 <= size <= 12000
-        rank = (preferred, seeds if type(seeds) is int and seeds >= 0 else -1)
-        ranked.append((rank, name))
-    if not ranked:
-        return {**meta, "status": "NO_ELIGIBLE_RELEASE"}
-    picked = payload.get("selected")
-    if not isinstance(picked, dict) or set(picked) != {"release_name", "link"}:
-        return {**meta, "status": "SELECTED_RELEASE_MISSING"}
-    name, link = picked["release_name"], picked["link"]
-    if not isinstance(name, str) or not isinstance(link, str):
-        return {**meta, "status": "SELECTED_RELEASE_MISSING"}
-    matching = [rank for rank, n in ranked if n == name]
-    if len(matching) != 1 or matching[0] != max(rank for rank, _ in ranked):
-        return {**meta, "status": "SELECTED_RELEASE_NOT_TOP_MATCH"}
-    target = _link_hash(link)
-    if not target or not _observed_locator(trace, source_host, name, link):
-        return {**meta, "status": "SELECTED_LOCATOR_UNVERIFIED"}
-    # Authority is supplied by the trusted request, never copied from the model.
     if not query.select_release or query.media_authorized is not True:
         raise WarmSessionError("G2_MEDIA_AUTHORITY_REQUIRED")
-    return {**meta, "status": "SELECTION_READY", "release_name": name,
-            "evidence": "MODEL_REPORTED_METADATA_BOUND_LOCATOR",
-            "selection": {"link": link, "expected_hash": target,
-                          "title": query.title, "source_authorized": True,
-                          "media_authorized": True, "release_matched": True,
-                          "file_id": None}}
+    if meta["status"] in ("ACCESS_BLOCKED", "UNKNOWN"):
+        return meta
+    picked = payload.get("selected")
+    ranked = []
+    for row in payload["candidates"]:
+        title, name = row.get("title"), row.get("release_name")
+        if (not isinstance(title, str) or _normalized(title) != _normalized(query.title)
+                or type(row.get("year")) is not int or row["year"] != query.year
+                or not isinstance(name, str) or not name.strip() or len(name) > 300):
+            continue
+        # Explicit release marker identifies the requested release, if supplied.
+        if (query.release_contains is not None and
+                _normalized(query.release_contains) not in _normalized(name)):
+            continue
+        link = row.get("link")
+        if link is None and isinstance(picked, dict) and picked.get("release_name") == name:
+            link = picked.get("link")
+        target = _link_hash(link)
+        if target is not None:
+            ranked.append((_release_rank(row, query), name, link, target, row))
+    # Stable source-independent tie break; no extra provider request.
+    ranked.sort(key=lambda x: (x[1].casefold(), x[3]))
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    for _, name, link, target, row in ranked:
+        if not _observed_locator(trace, source_host, name, link):
+            continue
+        resolution = row.get("resolution")
+        if resolution not in ("720p", "1080p", "2160p"):
+            resolution = None
+        return {**meta, "status": "SELECTION_READY", "release_name": name,
+                "evidence": "MODEL_REPORTED_METADATA_BOUND_LOCATOR",
+                "selected_resolution": resolution,
+                "quality_fallback": resolution != query.resolution,
+                "selection": {"link": link, "expected_hash": target,
+                              "title": query.title, "source_authorized": True,
+                              "media_authorized": True, "release_matched": True,
+                              "file_id": None}}
+    # No usable locator is fundamentally different from a quality compromise.
+    if meta["status"] == "MATCH_FOUND" or ranked:
+        return {**meta, "status": "SELECTED_LOCATOR_UNVERIFIED"}
+    return meta
 
 
 def _prompt(query, source_url, request_id):
@@ -259,9 +282,13 @@ def _prompt(query, source_url, request_id):
             "are unclear; never infer rights from the mere presence of a link. "
             "Query: " + json.dumps(asdict(query), ensure_ascii=False) + ". Source: " +
             json.dumps(source_url) + ". Request ID: " + request_id + ". "
-            "Exact film title/year and requested resolution are mandatory; match codec "
-            "and release_contains if supplied. Prefer 5000-12000 MB, then higher reported "
-            "seeds. Size is a soft preference; seeds do not prove throughput. "
+            "Exact film title/year are mandatory; match an explicit release_contains if supplied. "
+            "Select one best available exact-film release whenever an authorized observed locator exists. "
+            "Rank first by requested quality (exact resolution, otherwise nearest known resolution, "
+            "unknown quality last; prefer requested codec at equivalent resolution), then higher "
+            "reported seeds, then soft size preference 5000-12000 MB. "
+            "Never reject an exact-film release solely for quality, seed or size; "
+            "unknown seed/size are allowed. Seeds do not prove throughput. "
             "Compare only observed eligible releases. Use current source read evidence, "
             "not previous turns. For a permitted release, read its exact release label "
             "and direct magnet link from the same visible release row in a fresh page-bound browser result. "
@@ -269,8 +296,10 @@ def _prompt(query, source_url, request_id):
             "not copied from your own final answer. "
             "Return compact JSON with request_id, status (MATCH_FOUND, NO_MATCH, "
             "ACCESS_BLOCKED, UNKNOWN), candidates (title, year, resolution, codec, "
-            "size_mb, seeds, release_name; unknown numeric data null), and selected "
-            "(release_name, link) for the best eligible release only, otherwise null. "
+            "size_mb, seeds, release_name, link; unknown numeric data null). Include observed "
+            "links for usable alternatives so Owner can choose the best verified release even if "
+            "your first choice is unusable. Return selected (release_name, link) for your best "
+            "available release; use NO_MATCH only if no correct permitted film is available. "
             "Do not fabricate candidates or locators. The locator stays local to Owner."
         )
     return (
@@ -286,7 +315,7 @@ def _prompt(query, source_url, request_id):
         'Each candidate has canonical title, year, resolution (720p/1080p/2160p or null), '
         'size_mb and seeds (nonnegative integer or null), codec (H264/H265/AV1/VP9 or null). '
         'Only include observed data; unknown is null. No URLs or identifiers in candidates. '
-        'Prefer exact requested resolution, soft 5000-12000 MB and highest reported seeds. '
+        'Prefer exact requested resolution, then highest reported seeds, then soft 5000-12000 MB. '
         'Do not imply seed count guarantees speed.'
     )
 
