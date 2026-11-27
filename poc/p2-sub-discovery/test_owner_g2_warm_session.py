@@ -212,8 +212,10 @@ class WarmTests(unittest.TestCase):
                     kwargs = dict(source_url=source, authorized_source=True, owner_request_id=rid,
                                   session_factory=Mock(return_value=session))
                     if changed and not timeout:
-                        with self.assertRaisesRegex(WarmSessionError, "BROWSER_EFFECT_REVIEW_REQUIRED"):
+                        with self.assertRaises(G2BatchReview) as ctx:
                             discover_movie_batch(*args, **kwargs)
+                        self.assertEqual(ctx.exception.reason, "G2_TASK_SOURCE_CHANGED")
+                        self.assertEqual(ctx.exception.cleanup_reason, "G2_BROWSER_EFFECT_REVIEW_REQUIRED")
                     elif timeout:
                         with self.assertRaises(G2BatchReview) as ctx:
                             discover_movie_batch(*args, **kwargs)
