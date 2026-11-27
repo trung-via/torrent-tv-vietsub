@@ -711,6 +711,66 @@ def _owner_process_lock(private_root: Path):
             handle.close()
 
 
+def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emit=print) -> int:
+    """One bounded, explicitly authorized Owner-local metadata request.
+    
+    The existing private inbox is the handoff; the runner wake is inert.
+    A durable claim prevents automatic replay after an uncertain effect.
+    """
+    from owner_g2_discovery import MovieQuery, MAX_BATCH, _source, _query
+    from agy_v13_native_producer import _write
+    inbox = _private_dir(owner_root)
+    for path in sorted(inbox.glob("g2-*.json")):
+        match = re.fullmatch(r"g2-([a-f0-9]{32})\.json", path.name)
+        if match is None or path.is_symlink() or not path.is_file():
+            continue
+        request_id = match[1]
+        claim = inbox / ("g2-" + request_id + ".claim")
+        receipt = inbox / ("g2-" + request_id + ".receipt.json")
+        if claim.exists() or claim.is_symlink() or receipt.exists() or receipt.is_symlink():
+            continue
+        try:
+            if not 0 < path.stat().st_size <= 8192:
+                raise ValueError("G2_REQUEST_SIZE")
+            request = json.loads(path.read_text(encoding="utf-8"))
+            if (not isinstance(request, dict)
+                    or set(request) != {"schema", "request_id", "source_url", "authorized_source", "queries"}
+                    or request["schema"] != "TTV-OWNER-G2-METADATA-V1"
+                    or request["request_id"] != request_id
+                    or request["authorized_source"] is not True
+                    or not isinstance(request["queries"], list)
+                    or not 1 <= len(request["queries"]) <= MAX_BATCH):
+                raise ValueError("G2_REQUEST_INVALID")
+            _source(request["source_url"])
+            queries = tuple(_query(MovieQuery(**q)) for q in request["queries"])
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            emit("OWNER_G2_REQUEST_REJECTED")
+            continue
+        try:
+            with claim.open("x", encoding="utf-8") as stream:
+                stream.write("CLAIMED_DO_NOT_AUTO_REPLAY\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FileExistsError:
+            continue
+        def run_claimed():
+            try:
+                rows = discover(queries, cache_root, source_url=request["source_url"],
+                                authorized_source=True)
+                status = "COMPLETE" if len(rows) == len(queries) else "PARTIAL"
+                _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
+                                 "request_id": request_id, "status": status, "results": rows})
+                emit("OWNER_G2_" + status)
+            except Exception as exc:
+                owner_full_trace("OWNER_G2_REVIEW_REQUIRED", error=exc)
+                _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
+                                 "request_id": request_id, "status": "REVIEW_REQUIRED"})
+                emit("OWNER_G2_REVIEW_REQUIRED")
+        submit(run_claimed)
+        return 1
+    return 0
+
+
 def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     interval_seconds: float = 2.0,
                     emit: Callable[[str], object] = print,
@@ -805,6 +865,14 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                         poll_private_events(
                             owner_root=private_root, processor=processor,
                             emit=emit, max_events=available,
+                            submit=lambda work: active.add(pool.submit(work)))
+                    # G1 gets first refusal on every tick. Never schedule a new
+                    # G2 batch while any film work (or prior G2) is active.
+                    discover = getattr(trusted_v3_factory, "g2_discover", None)
+                    if not active and callable(discover):
+                        poll_private_g2(
+                            owner_root=private_root, cache_root=cache_root,
+                            discover=discover, emit=emit,
                             submit=lambda work: active.add(pool.submit(work)))
                     time.sleep(interval_seconds)
         finally:
