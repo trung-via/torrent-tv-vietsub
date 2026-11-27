@@ -1,6 +1,7 @@
 """Offline pure-policy regression tests; no GitHub, Windows, ADB or network."""
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 import tv_brain_merge as tv
 
@@ -59,6 +60,8 @@ def check(name, status="completed", conclusion="success", app="github-actions"):
     return {
         "name": name, "status": status, "conclusion": conclusion,
         "app": {"slug": app},
+        "details_url": "https://github.com/trung-via/torrent-tv-vietsub/actions/runs/1/job/2",
+        "id": 1,
     }
 
 
@@ -172,6 +175,33 @@ class BrainMergePolicyTests(unittest.TestCase):
 
     def test_own_in_progress_check_not_self_blocking(self):
         tv.check_ci([check(tv.SELF_CHECK, status="in_progress", conclusion=None)], [], "docs")
+
+    def test_unstable_only_with_trusted_merge_self_check(self):
+        p = sample_pr()
+        p["mergeable_state"] = "unstable"
+        self.assertEqual(tv.verify_review(sample_event(), p, BASE), PASS)
+        with self.assertRaises(tv.Hold):
+            tv.verify_mergeability(p, [])
+        self_check = check(tv.SELF_CHECK, status="in_progress", conclusion=None)
+        tv.verify_mergeability(p, [self_check])
+        tv.check_ci([self_check], [], "docs")
+        with self.assertRaises(tv.Hold):
+            tv.check_ci([self_check, check("other", conclusion="failure")], [], "docs")
+        with self.assertRaises(tv.Hold):
+            tv.check_ci([check(tv.SELF_CHECK, app="third-party", conclusion="failure")], [], "docs")
+        p["mergeable_state"] = "blocked"
+        with self.assertRaises(tv.Hold):
+            tv.verify_mergeability(p, [self_check])
+
+    def test_check_runs_api_envelope(self):
+        with patch.object(tv, "api", return_value={"total_count": 1, "check_runs": [check("ok")]}):
+            self.assertEqual(len(tv.read_check_runs("/checks", "test")), 1)
+        with patch.object(tv, "api", return_value={"total_count": 2, "check_runs": [check("ok")]}):
+            with self.assertRaises(tv.Hold):
+                tv.read_check_runs("/checks", "test")
+        with patch.object(tv, "api", return_value=[]):
+            with self.assertRaises(tv.Hold):
+                tv.read_check_runs("/checks", "test")
 
 
 if __name__ == "__main__":
