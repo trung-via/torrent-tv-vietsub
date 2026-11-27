@@ -476,6 +476,19 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     }
     Write-Output 'HOSTOPS_OWNER_OPS=SUCCESS_OWNER_PRIVATE_LOG'
     Write-Output ('HOSTOPS_OWNER_OPS_OPERATION=' + $receipt.operation)
+    if ($receipt.operation -ceq 'owner-g2-199-tos-single') {
+        $stagePath=Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')
+        $v=Get-Content -LiteralPath $stagePath -Raw|ConvertFrom-Json
+        if($v.schema -cne 'TTV-ODYSSEY-STAGE-V1' -or $v.nonce -cne $nonce -or $v.reason -cnotmatch '^G2_FIXTURE_[A-Z0-9_]{1,75}$'){throw 'G2_FIXTURE_RECEIPT_INVALID'}
+        Write-Output ('G2_OWNER_STAGE='+$v.reason)
+        if($v.reason -ceq 'G2_FIXTURE_LIBRARY_READY'){
+            $play=Join-Path $env:GITHUB_WORKSPACE 'poc\p2-source\owner_movie_play.ps1'
+            if ((& git hash-object -- $play).Trim() -cne 'dccec4013ce7a9b126d47f938b141d7dac2d8943'){throw 'G2_PLAY_SOURCE_DRIFT'}
+            & pwsh -NoLogo -NoProfile -NonInteractive -File $play -RequestId $nonce
+            if($LASTEXITCODE -ne 0){throw 'G2_PLAY_HOLD_NO_RETRY'}
+        }
+        return
+    }
     if ($receipt.operation -cin @('owner-vieneu-benchmark','owner-vieneu-int8-benchmark')) {
         $expectedPrecision = if ($receipt.operation -ceq 'owner-vieneu-int8-benchmark') {'INT8'} else {'FP32'}
         $file = Join-Path $outbox ('vieneu-benchmark-' + $nonce + '.json')

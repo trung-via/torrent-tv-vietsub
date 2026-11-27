@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g21-r5-acceptance",
+  "operation": "owner-g2-199-tos-single",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-r5-acceptance.ps1",
-  "script_sha256": "3a5c063445923cce982f8b0a3612e531e971f94ea79b9bf8942a91bbf2596a45",
+  "script_path": "hostops/laptop-ops/operations/g2-199-tos-single.ps1",
+  "script_sha256": "78e52439979b074496e69d93eed82193898cb39b4985bd48a50c3c6b62eb5efd",
   "arguments": []
 }
