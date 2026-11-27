@@ -3,7 +3,7 @@
   "operation": "agy-native-browser-readout-1124",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-v33-r3-live-window.ps1",
-  "script_sha256": "e812af0598aecf67e0caad38e2e155edef07a2b11fe58af992d50e1239fdd2cf",
+  "script_path": "hostops/laptop-ops/operations/g21-v33-r3-live-window-r1.ps1",
+  "script_sha256": "24116c0d36b0b14577d60f1840d0ed594811c169bc409a0c67258eda0e01da9a",
   "arguments": []
 }
