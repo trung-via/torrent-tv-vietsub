@@ -52,9 +52,26 @@ def _page_argument(params):
 
 
 def _source_page(output, host):
-    # chrome-devtools-mcp list_pages prints numeric page IDs and URLs.
-    rows = re.findall(r"(?m)^\s*(\d+):\s*(https://[^\s\]\)]+)", str(output))
-    matches = [int(i) for i, url in rows if urlsplit(url).hostname == host]
+    """Native list_pages has optional label/title text before the URL."""
+    if not isinstance(output, str):
+        return None
+    matches = []
+    for line in output.splitlines():
+        row = re.match(r"^\s*(\d+):\s*(.*)$", line)
+        if not row:
+            continue
+        # Require exactly one HTTP(S) URL in the numbered row; a title
+        # containing a second URL is ambiguous, not additional evidence.
+        urls = re.findall(r"https?://[^\s\]\)<>\"']+", row[2], re.I)
+        if len(urls) != 1:
+            continue
+        try:
+            u = urlsplit(urls[0])
+            if (u.scheme == "https" and u.hostname == host
+                    and not u.username and not u.password and u.port in (None, 443)):
+                matches.append(int(row[1]))
+        except ValueError:
+            continue
     return matches[0] if len(matches) == 1 else None
 
 
