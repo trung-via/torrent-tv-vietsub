@@ -1,4 +1,4 @@
-"""Owner-local G2 metadata handoff for the existing HostOps interactive task.
+"""Owner-local G2 metadata or authorized release selection handoff for the existing HostOps interactive task.
 
 Input is an owner-private JSON file; no film name, URL, or payload is printed.
 This command only writes the existing inbox, never launches AGY or changes TV.
@@ -22,7 +22,7 @@ def submit_private_file(owner_root: Path, request_file: Path) -> str:
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Owner-local G2 metadata submission only")
+    parser = argparse.ArgumentParser(description="Owner-local G2 private request submission only")
     parser.add_argument("--owner-root", required=True)
     parser.add_argument("--request-file", required=True)
     args = parser.parse_args(argv)

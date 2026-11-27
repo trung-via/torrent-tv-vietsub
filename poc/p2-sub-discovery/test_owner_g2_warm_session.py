@@ -107,7 +107,7 @@ class WarmTests(unittest.TestCase):
                 event({"ToolName":"list_pages","ServerName":"ttv-browser"}),
                 event(output="1: https://example.org/releases"),
                 event({"ToolName":"evaluate_script","ServerName":"ttv-browser","Arguments":{"pageId":1}}),
-                event(output="Fixture.Release.A " + link),
+                event(output=json.dumps({"release_name":"Fixture.Release.A","link":link})),
             ]
             trace.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
             def row(name, seeds, resolution="1080p", size=8000):
@@ -124,6 +124,11 @@ class WarmTests(unittest.TestCase):
             self.assertEqual(_selected_metadata(payload,q,"turn","example.org",trace)["status"],
                              "SELECTED_RELEASE_NOT_TOP_MATCH")
             payload["selected"]={"release_name":"Fixture.Release.A","link":"magnet:?xt=urn:btih:"+"b"*40}
+            self.assertEqual(_selected_metadata(payload,q,"turn","example.org",trace)["status"],
+                             "SELECTED_LOCATOR_UNVERIFIED")
+            payload["selected"]={"release_name":"Fixture.Release.A","link":link}
+            events[-1]=event(output=json.dumps([{"release_name":"Fixture.Release.A","link":"magnet:?xt=urn:btih:"+"b"*40},{"release_name":"Fixture.Release.B","link":link}]))
+            trace.write_text("\n".join(json.dumps(e) for e in events),encoding="utf-8")
             self.assertEqual(_selected_metadata(payload,q,"turn","example.org",trace)["status"],
                              "SELECTED_LOCATOR_UNVERIFIED")
             self.assertIn("one job", _prompt(q,"https://example.org","turn"))

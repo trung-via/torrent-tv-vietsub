@@ -182,12 +182,21 @@ def _observed_locator(trace, source_host, release_name, link):
                     page = _source_page(output, source_host)
                 elif (pending[0] in ("evaluate_script", "take_snapshot") and page is not None
                       and pending[2] == page and isinstance(output, str)):
-                    visible = unescape(output)
-                    # Match a whole observed link rather than an arbitrary hash substring.
-                    links = re.findall(r"magnet:\?[^\s\"'<>]+", visible, re.I)
-                    if (_normalized(release_name) in _normalized(visible)
-                            and any(x.rstrip("),]}") == link for x in links)):
-                        return True
+                    # Require a single observed release object containing both
+                    # fields, not a page containing unrelated labels and links.
+                    # MCP tools may wrap JSON in a text/code-fence envelope.
+                    decoder = json.JSONDecoder()
+                    for start in re.finditer(r"\{", output):
+                        try:
+                            observed, _ = decoder.raw_decode(output, start.start())
+                        except ValueError:
+                            continue
+                        if (isinstance(observed, dict)
+                                and isinstance(observed.get("release_name"), str)
+                                and isinstance(observed.get("link"), str)
+                                and _normalized(observed["release_name"]) == _normalized(release_name)
+                                and unescape(observed["link"]) == link):
+                            return True
             pending = None
     return False
 
@@ -255,7 +264,9 @@ def _prompt(query, source_url, request_id):
             "seeds. Size is a soft preference; seeds do not prove throughput. "
             "Compare only observed eligible releases. Use current source read evidence, "
             "not previous turns. For a permitted release, read its exact release label "
-            "and direct magnet link together in a fresh page-bound browser result. "
+            "and direct magnet link from the same visible release row in a fresh page-bound browser result. "
+            "For that read, emit a JSON object with release_name and link taken from the source row, "
+            "not copied from your own final answer. "
             "Return compact JSON with request_id, status (MATCH_FOUND, NO_MATCH, "
             "ACCESS_BLOCKED, UNKNOWN), candidates (title, year, resolution, codec, "
             "size_mb, seeds, release_name; unknown numeric data null), and selected "
