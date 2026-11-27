@@ -654,12 +654,23 @@ class NativeBrowserProducer:
         self.probe = probe
         self.execute = execute
         self._browser_lock = Lock()
+        self._priority_lock = Lock()
+        self._g1_waiting = 0
 
     def __call__(self, request, cache_root):
-        # Existing Owner film workers can wait here for the one browser;
-        # translation happens after this lock is released.
-        with self._browser_lock:
-            return self._acquire(request, cache_root)
+        # Announce G1 before waiting for the single browser.
+        with self._priority_lock:
+            self._g1_waiting += 1
+        try:
+            with self._browser_lock:
+                return self._acquire(request, cache_root)
+        finally:
+            with self._priority_lock:
+                self._g1_waiting -= 1
+
+    def _g1_pending(self):
+        with self._priority_lock:
+            return self._g1_waiting > 0
 
     def discover_movies(self, queries, cache_root, *, source_url, authorized_source,
                         model="gemini-4-hydrogen-low", thinking_level="low"):
@@ -669,7 +680,7 @@ class NativeBrowserProducer:
             return discover_movie_batch(
                 self.profile, queries, cache_root, source_url=source_url,
                 authorized_source=authorized_source, model=model,
-                thinking_level=thinking_level)
+                thinking_level=thinking_level, should_yield=self._g1_pending)
 
     def _acquire(self, request, cache_root):
         run = _job(cache_root, request.media)
