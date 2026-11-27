@@ -1,10 +1,11 @@
 """Synthetic only. No provider, real torrent, network or TV."""
-from dataclasses import replace
+from dataclasses import replace, asdict
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock
-from owner_movie_handoff import SelectedRelease, HandoffHold, add_selected_release
+from owner_movie_handoff import SelectedRelease, HandoffHold, add_selected_release, handoff_private_request
 
 H = "a" * 40
 S = SelectedRelease("magnet:?xt=urn:btih:" + H, H, "Licensed fixture",
@@ -59,6 +60,37 @@ class HandoffTests(unittest.TestCase):
             p = Mock(side_effect=[[{"hash": H}], {"hash": "b"*40}])
             with self.assertRaisesRegex(HandoffHold, "TS_METADATA_HASH_MISMATCH"):
                 add_selected_release(S, Path(d), post=p)
+
+    def test_private_receipt_binds_exact_file_and_request(self):
+        with TemporaryDirectory() as d:
+            root = Path(d)
+            rid = "c"*32
+            request = root/("g2-"+rid+".selected.json")
+            payload = {"schema": "TTV-G2-SELECTED-RELEASE-V1", "request_id": rid,
+                       "selection": asdict(S), "play": True}
+            request.write_text(json.dumps(payload), encoding="utf-8")
+            p = Mock(side_effect=[[{"hash": H}], META])
+            self.assertEqual(handoff_private_request(root, rid, post=p), "LIBRARY_READY")
+            receipt = json.loads((root/("g2-"+rid+".library.json")).read_text())
+            self.assertEqual((receipt["request_id"], receipt["torrent_hash"], receipt["file_id"], receipt["play"]),
+                             (rid, H, 7, True))
+            self.assertNotIn("link", receipt)
+            self.assertEqual(handoff_private_request(root, rid, post=p), "LIBRARY_READY")
+            self.assertEqual(p.call_count, 2)
+            payload["play"] = False
+            request.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(HandoffHold, "RECEIPT_CONFLICT"):
+                handoff_private_request(root, rid, post=p)
+
+    def test_omp_consumer_uses_receipt_before_device_and_one_launch(self):
+        script = (Path(__file__).resolve().parent/"owner_movie_play.ps1").read_text()
+        self.assertNotIn("primetime", script.lower())
+        self.assertLess(script.index("TTV-G2-LIBRARY-RECEIPT-V1"), script.index("$devices="))
+        self.assertIn("$hash=[string]$selected.torrent_hash", script)
+        self.assertIn("$idx=[int]$selected.file_id", script)
+        self.assertIn("[IO.FileMode]::CreateNew", script)
+        self.assertEqual(script.count("'/omp/launch'"), 1)
+        self.assertIn("G23_PLAY=ACK_ONLY_NATIVE_PROGRESS_UNVERIFIED", script)
 
 if __name__ == "__main__":
     unittest.main()

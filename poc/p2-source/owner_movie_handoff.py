@@ -178,3 +178,61 @@ def add_selected_release(selection: SelectedRelease, private_root: Path, *, post
     file_id = _file(meta, target, selection.file_id)
     return LibraryResult("LIBRARY_READY" if file_id is not None else "FILE_SELECTION_PENDING",
                          target, file_id, added)
+
+
+def handoff_private_request(private_root: Path, request_id: str, *, post=_post):
+    """Trusted local caller supplies authorization, never AGY/web text."""
+    import hashlib
+    if not isinstance(request_id, str) or not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        raise HandoffHold("G2_REQUEST_ID_INVALID")
+    root = Path(private_root)
+    if not root.is_absolute() or not root.is_dir() or root.is_symlink():
+        raise HandoffHold("G2_PRIVATE_ROOT_REQUIRED")
+    source = root / ("g2-" + request_id + ".selected.json")
+    receipt = root / ("g2-" + request_id + ".library.json")
+    if source.is_symlink() or not source.is_file() or not 0 < source.stat().st_size <= 32768:
+        raise HandoffHold("G2_SELECTED_REQUEST_MISSING")
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        if (payload["schema"] != "TTV-G2-SELECTED-RELEASE-V1" or
+                payload["request_id"] != request_id or type(payload["play"]) is not bool):
+            raise ValueError
+        selection = SelectedRelease(**payload["selection"])
+    except (OSError, ValueError, TypeError, KeyError):
+        raise HandoffHold("G2_SELECTED_REQUEST_INVALID") from None
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True,
+                                      separators=(",", ":")).encode("utf-8")).hexdigest()
+    if receipt.is_symlink():
+        raise HandoffHold("G2_LIBRARY_RECEIPT_INVALID")
+    if receipt.exists():
+        try:
+            prior = json.loads(receipt.read_text(encoding="utf-8"))
+            if prior.get("selection_digest") != digest:
+                raise ValueError
+            if prior.get("status") == "LIBRARY_READY":
+                return prior["status"]
+        except (OSError, ValueError, TypeError, AttributeError):
+            raise HandoffHold("G2_LIBRARY_RECEIPT_CONFLICT") from None
+    result = add_selected_release(selection, root, post=post)
+    row = {"schema": "TTV-G2-LIBRARY-RECEIPT-V1", "request_id": request_id,
+           "selection_digest": digest, "status": result.status,
+           "torrent_hash": result.torrent_hash, "file_id": result.file_id,
+           "play": payload["play"]}
+    tmp = receipt.with_suffix(".json.tmp")
+    with tmp.open("x", encoding="utf-8") as stream:
+        json.dump(row, stream, separators=(",", ":"))
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(tmp, receipt)
+    return result.status
+
+
+if __name__ == "__main__":
+    import sys
+    try:
+        if len(sys.argv) != 3:
+            raise HandoffHold("G2_ARGUMENTS_INVALID")
+        print(handoff_private_request(Path(sys.argv[1]), sys.argv[2]))
+    except Exception:
+        print("G2_LIBRARY_HANDOFF_REVIEW_REQUIRED")
+        sys.exit(1)
