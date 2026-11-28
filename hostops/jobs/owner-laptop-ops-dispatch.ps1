@@ -218,6 +218,44 @@ if ($manifest.script_path -ceq 'hostops/laptop-ops/operations/owner-control-reco
     [IO.File]::WriteAllText($record,(@{schema='TTV-HOSTOPS-UNKNOWN-EFFECT-V1';nonce=$old.nonce;source_commit=$old.source_commit;state='ARCHIVED_NO_REPLAY';reconciliation_source=$commit}|ConvertTo-Json -Compress))
     Write-Output 'HOSTOPS_OWNER_CONTROL_TIMEOUT_ARCHIVED_NO_REPLAY'
 }
+# Verify both exact prior receipts before sending the Owner request.
+function Flow3DualTvRead([string]$requiredHash) {
+    $devices=@(& $adb devices 2>$null)
+    $auth=@($devices|Where-Object{$_ -match '^\S+\s+device(\s|$)'})
+    if($LASTEXITCODE -ne 0 -or $auth.Count -ne 1 -or @($devices|Where-Object{$_ -match '^\S+\s+(offline|unauthorized)(\s|$)'}).Count){throw 'DUAL_TV_ADB'}
+    $device=($auth[0] -split '\s+')[0]
+    if(((& $adb -s $device shell getprop ro.product.model 2>$null)|Out-String).Trim() -cne 'MiTV-ASTR0'){throw 'DUAL_TV_MODEL'}
+    $activity=((& $adb -s $device shell dumpsys activity activities 2>$null)|Out-String)
+    if($LASTEXITCODE -ne 0){throw 'DUAL_TV_ACTIVITY'}
+    if(@($activity -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match 'com\.spacesarmat\.omp\.test/' -and $_ -match 'PlayerActivity'}).Count){throw 'DUAL_TV_ACTIVE_PLAYBACK'}
+    $paths=@(& $adb -s $device shell pm path com.spacesarmat.omp.test 2>$null|ForEach-Object{([string]$_).Trim()})
+    if($LASTEXITCODE -ne 0 -or $paths.Count -ne 1 -or $paths[0] -notmatch '^package:(/data/app/[^ \r\n]+/base\.apk)$'){throw 'DUAL_TV_PACKAGE'}
+    $remote=$Matches[1]
+    $hash=((& $adb -s $device shell sha256sum $remote 2>$null)|Out-String).Trim()
+    if($LASTEXITCODE -ne 0 -or $hash -notmatch '^([a-fA-F0-9]{64})\s' -or $Matches[1].ToLowerInvariant() -cne $requiredHash){throw 'DUAL_TV_INSTALLED_HASH'}
+    return $device
+}
+if($manifest.operation -ceq 'owner-flow3-dual-apply'){
+    $oldReceipt=Get-Content -LiteralPath $receiptFile -Raw|ConvertFrom-Json
+    $oldRequest=Get-Content -LiteralPath $requestFile -Raw|ConvertFrom-Json
+    if($oldReceipt.source_commit -cne '5b7a6f98025474a679e0947c9400f8745efe8216' -or $oldReceipt.operation -cne 'owner-flow3-dual-preflight' -or $oldReceipt.result -cne 'SUCCESS' -or $oldReceipt.nonce -cnotmatch '^[a-f0-9]{32}$' -or $oldReceipt.nonce -cne $oldRequest.nonce){throw 'DUAL_PREFLIGHT_RECEIPT'}
+    $preNonce=$oldReceipt.nonce
+    $cache=Join-Path $env:RUNNER_WORKSPACE '_omp-fast-cache'
+    $rollback=Join-Path $cache ('flow3-dual-rollback\'+$preNonce)
+    $proof=Get-Content -LiteralPath (Join-Path $rollback 'preflight.json') -Raw|ConvertFrom-Json
+    $candidate='d93ca6bfaa25279402ee13a2bc8960d61992c6a4'
+    $newsha='9d8ff2c9b34c105b1f74e2419790ff6b02520f92d6aae9fbaf7bea57170858fa'
+    $oldsha='5e89c35f730fa9ab4bd18fdfa898b02fbca0240fdaf828ed441d605ab2f082d8'
+    if($proof.schema -cne 'TTV-FLOW3-DUAL-TV-PREFLIGHT-V1' -or $proof.nonce -cne $preNonce -or $proof.candidate -cne $candidate -or $proof.new_sha256 -cne $newsha -or $proof.old_sha256 -cne $oldsha -or $proof.signer_match -ne $true -or $proof.player_foreground -ne $false -or $proof.new_version -lt $proof.old_version){throw 'DUAL_TV_PREFLIGHT_PROOF'}
+    $apk=Join-Path $cache ('flow3-dual-staged\'+$candidate+'\app-armeabi-v7a-debug.apk')
+    $old=Join-Path $rollback 'previous-base.apk'
+    if((Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newsha -or (Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldsha){throw 'DUAL_APK_STAGE_DRIFT'}
+    if(Test-Path -LiteralPath (Join-Path $rollback 'install-intent.json')){throw 'DUAL_PRIOR_INSTALL_RECONCILE'}
+    $adb='C:\TOOL\Android-SDK\platform-tools\adb.exe'
+    $dualDevice=Flow3DualTvRead $oldsha
+    Write-Output 'FLOW3_DUAL_TV_RECHECK_PASS'
+}
+
 if (Test-Path -LiteralPath $requestFile) {
     if (-not (Test-Path -LiteralPath $receiptFile -PathType Leaf)) {
         throw 'HOSTOPS_OWNER_OPS_UNRESOLVED_PREVIOUS_REQUEST'
@@ -350,7 +388,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
-    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g2-deploy-readout','owner-g2-deploy-delta','owner-g2-start-applied','owner-g2-production-once','owner-g2-production-readout','owner-g2-production-resume','owner-g2-finalize','owner-g2-finalize-reconcile','owner-g2-finalize-chain','owner-flow3-overlay-readout','owner-flow3-overlay-apply','owner-flow3-overlay-resume','owner-flow3-dual-preflight','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
+    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g2-deploy-readout','owner-g2-deploy-delta','owner-g2-start-applied','owner-g2-production-once','owner-g2-production-readout','owner-g2-production-resume','owner-g2-finalize','owner-g2-finalize-reconcile','owner-g2-finalize-chain','owner-flow3-overlay-readout','owner-flow3-overlay-apply','owner-flow3-overlay-resume','owner-flow3-dual-preflight','owner-flow3-dual-apply','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
         $file = Join-Path $outbox ('odyssey-stage-' + $nonce + '.json')
         if (Test-Path -LiteralPath $file -PathType Leaf) {
             $item = Get-Item -LiteralPath $file -Force
@@ -361,6 +399,31 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 }
             }
         }
+    }
+
+    if ($receipt.operation -ceq 'owner-flow3-dual-apply') {
+        $f=Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')
+        $v=Get-Content -LiteralPath $f -Raw|ConvertFrom-Json
+        if($receipt.result -cne 'SUCCESS' -or $v.nonce -cne $nonce -or $v.reason -cne 'FLOW3_DUAL_OWNER_APPLY_PASS_U5_HASH10_FRESH_OWNER'){Write-Output 'FLOW3_DUAL_TV_INSTALL_NOT_RUN_OWNER_HOLD';return}
+        # Existing manual playback remains compatible during the short rollout.
+        # If a new Human play arrives, do not interrupt it.
+        $currentDevice=Flow3DualTvRead $oldsha
+        if($currentDevice -cne $dualDevice){throw 'DUAL_TV_DEVICE_DRIFT'}
+        if((Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newsha){throw 'DUAL_APK_DRIFT'}
+        $intent=Join-Path $rollback 'install-intent.json'
+        $bytes=[Text.Encoding]::UTF8.GetBytes((@{schema='TTV-FLOW3-DUAL-INSTALL-INTENT-V1';owner_nonce=$nonce;preflight_nonce=$preNonce;old_sha256=$oldsha;new_sha256=$newsha;utc=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()}|ConvertTo-Json -Compress))
+        $fs=[IO.File]::Open($intent,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try{$fs.Write($bytes,0,$bytes.Length);$fs.Flush($true)}finally{$fs.Dispose()}
+        # One in-place package replacement. No uninstall, clear data, launch or wake.
+        $result=@(& $adb -s $dualDevice install -r $apk 2>&1)
+        $exitCode=$LASTEXITCODE
+        if($exitCode -ne 0 -or ($result|Out-String) -notmatch '(?m)^\s*Success\s*$'){Write-Output 'FLOW3_DUAL_INSTALL_UNCERTAIN_NO_REPLAY';return}
+        $verifyDevice=Flow3DualTvRead $newsha
+        if($verifyDevice -cne $dualDevice){throw 'DUAL_TV_READBACK_DEVICE'}
+        [IO.File]::WriteAllText((Join-Path $rollback 'installed.json'),(@{schema='TTV-FLOW3-DUAL-INSTALLED-V1';owner_nonce=$nonce;preflight_nonce=$preNonce;new_sha256=$newsha;data_clear=$false;utc=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+        Write-Output 'FLOW3_DUAL_TV_INSTALL_PASS_HASH_DATA_PRESERVED'
+        Write-Output 'FLOW3_DUAL_SYNC_PASS'
+        return
     }
 
     if ($receipt.operation -ceq 'owner-flow3-dual-preflight') {
