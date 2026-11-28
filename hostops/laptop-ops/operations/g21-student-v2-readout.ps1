@@ -4,10 +4,10 @@ if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw|ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
-$run=Join-Path $root ('NativeBrowserTest\g21-settings-study-'+$rq.nonce)
+$run=Join-Path $root ('NativeBrowserTest\g21-output-study-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
-import os,sys,pathlib,json,re,time,queue,threading,subprocess,shutil,hashlib,copy
+import os,sys,pathlib,json,re,time,queue,threading,subprocess,shutil,hashlib
 root,spool,run=map(pathlib.Path,sys.argv[1:4])
 nonce=sys.argv[4]
 source="99ff9d03ff90bae805ae6235108b1894ff1a002f"
@@ -64,7 +64,7 @@ def main():
         lines.append(f"G21_FULL_R1_A{i}=MCP_EVENT:{k},MS:{t}")
     write(run/"prior-event-index.json",private)
     write(run/"prior-mcp-timeline.json",mcp)
-    # ABBA neutral context-settings comparison, no browsing or tool use. No production edits.
+    # Neutral output-format comparison, no browsing or requested tool use.
     sys.path.insert(0,str(root/"OwnerBridge/app/poc/p2-aisub"))
     from translator_gateway import preflight_antigravity,_validated_antigravity_alias
     cli=preflight_antigravity()
@@ -76,43 +76,36 @@ def main():
     env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
     original=prior/"session-settings.json"
     settings=obj(original)
-    if not isinstance(settings,dict):return "G21_SETTINGS_SCHEMA_UNKNOWN"
-    minimal=copy.deepcopy(settings)
-    # Only restrict optional context loading, never remove rules, permissions,
-    # auth, sandbox, tools, MCP or unrecognized settings. No assumed schema changes.
-    changed=[]
-    ctx=minimal.get("context")
-    if isinstance(ctx,dict):
-        if isinstance(ctx.get("includeDirectories"),list) and ctx["includeDirectories"]:
-            ctx["includeDirectories"]=[];changed.append("INCLUDE_DIRS")
-        if ctx.get("loadMemoryFromIncludeDirectories") is True:
-            ctx["loadMemoryFromIncludeDirectories"]=False;changed.append("INCLUDE_MEMORY")
-    restored=copy.deepcopy(minimal)
-    if changed:restored["context"]=copy.deepcopy(settings["context"])
-    assert restored==settings
-    known=("context","permissions","extensions","mcpServers","tools","security","model","general","advanced","agentMode","memory")
-    present=[k.upper() for k in known if k in settings]
-    write(run/"settings-audit.json",{"present_known_sections":present,"top_level_count":len(settings),"changed":changed,"context_keys":list(settings["context"]) if isinstance(settings.get("context"),dict) else [],"original_bytes":original.stat().st_size})
-    lines.append("G21_FULL_R2_SUMMARY=SETTINGS_KEYS:"+str(len(settings))+",KNOWN:"+("+".join(present) or "NONE")+",CHANGED:"+("+".join(changed) or "NONE"))
-    lines.append("G21_FULL_R2_TIMING=ORIGINAL_BYTES:"+str(original.stat().st_size))
     global_paths=[pathlib.Path.home()/".gemini"/p for p in ("antigravity-cli/settings.json","config/config.json","config/mcp_config.json")]
     def hashes():return [hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else "MISSING" for p in global_paths]
     before=hashes()
-    variants=("ORIGINAL","MINIMAL","MINIMAL","ORIGINAL") if changed else ()
-    for idx,label in enumerate(variants,1):
+    helpcmd="& $env:TTV_AGY_CLI --help; exit $LASTEXITCODE"
+    q=subprocess.run([ps,"-NoProfile","-NonInteractive","-Command",helpcmd],env=env,cwd=run,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=20)
+    helptext=q.stdout+"\n"+q.stderr
+    (run/"cli-help.txt").write_text(helptext,encoding="utf-8")
+    if q.returncode!=0:return "G21_OUTPUT_HELP_FAILED"
+    match=re.search(r"(?mi)^[^\n]*--output-format[^\n]*(?:\n[ \t]+(?![-\s])[^\n]*){0,8}",helptext)
+    scope=match.group(0) if match else ""
+    supported=[x for x in ("text","json","stream-json") if re.search(r"(?<![\w-])"+re.escape(x)+r"(?![\w-])",scope,re.I)]
+    labels={"text":"TEXT","json":"JSON","stream-json":"STREAM_JSON"}
+    lines.append("G21_FULL_R2_SUMMARY=SUPPORTED:"+("+".join(labels[x] for x in supported) or "NONE"))
+    if "stream-json" not in supported:return "G21_OUTPUT_FORMAT_UNVERIFIED"
+    formats=["stream-json"]+[x for x in ("text","json") if x in supported]+["stream-json"]
+    if len(formats)==2:formats=[]
+    for idx,mode in enumerate(formats,1):
         local_mcp=False
+        env["TTV_OUTPUT_MODE"]=mode
         d=run/("sample-"+str(idx));d.mkdir()
         # Same saved settings, separate task directory; no existing config writes.
-        if label=="ORIGINAL":shutil.copyfile(original,d/"session-settings.json")
-        else:write(d/"session-settings.json",minimal)
+        shutil.copyfile(original,d/"session-settings.json")
         if local_mcp:
             (d/".agents").mkdir()
             shutil.copyfile(prior/".agents/mcp_config.json",d/".agents/mcp_config.json")
         env["TTV_SESSION_SETTINGS"]=str(d/"session-settings.json")
         (d/"prompt.txt").write_text("Return exactly READY. Do not use any tool, browse, read files, or run commands.",encoding="utf-8")
         env["TTV_AGY_PROMPT"]=str(d/"prompt.txt")
-        cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format stream-json -p $p; exit $LASTEXITCODE"
-        start=time.monotonic();events=queue.Queue();firstms=-1;final=-1;tool=0;count=0;answer=False;state="TIMEOUT";eof=False
+        cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format $env:TTV_OUTPUT_MODE -p $p; exit $LASTEXITCODE"
+        start=time.monotonic();events=queue.Queue();firstms=-1;final=-1;tool=0;count=0;answer=False;state="TIMEOUT";eof=False;rawlines=[];lastms=-1
         def reader(pipe):
             try:
                 for line in pipe:events.put((time.monotonic(),line))
@@ -125,7 +118,7 @@ def main():
                     t,line=events.get(timeout=.2)
                     if line is None:eof=True
                     else:
-                        count+=1;v=ms(t,start)
+                        count+=1;v=ms(t,start);rawlines.append(line);lastms=v
                         if firstms<0:firstms=v
                         rf.write(line);rf.flush();tf.write(json.dumps({"ordinal":count,"elapsed_ms":v})+"\n");tf.flush()
                         try:e=json.loads(line)
@@ -145,15 +138,25 @@ def main():
                 subprocess.run(["taskkill.exe","/PID",str(p.pid),"/T","/F"],capture_output=True,timeout=10,check=False)
                 try:p.wait(timeout=10)
                 except subprocess.TimeoutExpired:state="CLEANUP_UNVERIFIED"
+        if mode=="text":
+            answer="".join(rawlines).strip()=="READY"
+            if answer:final=lastms
+        elif mode=="json":
+            try:
+                doc=json.loads("".join(rawlines))
+                r=doc.get("result",doc)
+                answer=isinstance(r,dict) and isinstance(r.get("response"),str) and r["response"].strip()=="READY"
+                if answer:final=lastms
+            except (ValueError,AttributeError):answer=False
         elapsed=ms(time.monotonic(),start)
-        sample={"settings_variant":label,"local_mcp":local_mcp,"first_event_ms":firstms,"final_ms":final,"elapsed_ms":elapsed,"state":state,"tool_events":tool,"ready":answer,"event_count":count,"global_unchanged":hashes()==before}
+        sample={"format":mode,"local_mcp":local_mcp,"first_event_ms":firstms,"final_ms":final,"elapsed_ms":elapsed,"state":state,"tool_events":tool,"ready":answer,"event_count":count,"global_unchanged":hashes()==before}
         write(d/"metrics.json",sample)
         def pos(x):return str(x) if x>=0 else "UNKNOWN"
-        lines.append(f"G21_FULL_R2_A{idx}=SETTINGS:{label},LOCAL_MCP:{int(local_mcp)},STATE:{state},FIRST_MS:{pos(firstms)},FINAL_MS:{pos(final)},TOTAL_MS:{elapsed},READY:{int(answer)},TOOLS:{tool},EVENTS:{count},GLOBAL_UNCHANGED:{int(hashes()==before)}")
+        lines.append(f"G21_FULL_R2_A{idx}=FORMAT:{labels[mode]},STATE:{state},FIRST_MS:{pos(firstms)},FINAL_MS:{pos(final)},TOTAL_MS:{elapsed},READY:{int(answer)},TOOLS:{tool if mode=='stream-json' else 'UNOBSERVED'},LINES:{count},GLOBAL_UNCHANGED:{int(hashes()==before)}")
         if state!="EXITED" or not answer or tool or hashes()!=before:break
     assert re.fullmatch("[a-f0-9]{32}",nonce)
     write(spool/"Receipts"/("g21-full-report-"+nonce+".json"),{"schema":"G21_TRAINING_FULL_REPORT_V1","nonce":nonce,"lines":lines})
-    return "G21_SETTINGS_STUDY_READY" if changed else "G21_SETTINGS_NO_ELIGIBLE_DIFF"
+    return "G21_OUTPUT_STUDY_READY" if formats else "G21_OUTPUT_NO_ALTERNATIVE"
 try:print(main())
 except Exception:
     import traceback
