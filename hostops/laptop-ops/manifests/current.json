@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g2-start-applied",
+  "operation": "owner-g2-production-once",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g2-start-applied.ps1",
-  "script_sha256": "e23bf25147ffde9543e28ea6f38cecbea9a4fe6e6ca2e57f06696e1107ce1c02",
+  "script_path": "hostops/laptop-ops/operations/g2-production-once.ps1",
+  "script_sha256": "5a1cd5eb7dd3289bb5e08d3cba1280b2b82e4da9208ebfab9050729c587e88eb",
   "arguments": []
 }
