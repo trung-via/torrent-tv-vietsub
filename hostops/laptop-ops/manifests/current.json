@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/g21-student-v2-readout.ps1",
-  "script_sha256": "b4c4cb74b1ffcf3550c97efe8d892547b324d7c63c5cab28a947cb6d8730ad4b",
+  "script_sha256": "0c76eb719d3f23cff829c0d3a2f620219209b017ac21a1f697b41ecf11f860c0",
   "arguments": []
 }
