@@ -53,12 +53,12 @@ function Cert([string]$file,[string]$role){
     $lines=@(& $signer verify --verbose --print-certs $file 2>$null)
     if($LASTEXITCODE -ne 0){throw 'FLOW3_DUAL_APK_SIGNATURE'}
     $out=($lines -join "`n")
-    $matchesCert=[regex]::Matches($out,'(?im)^\s*(?:Signer\s+#?\d+\s+)?certificate\s+SHA-256\s+digest\s*:\s*([0-9a-f:]{64,95})[ \t\r]*$')
-    $digests=@($matchesCert|ForEach-Object{$_.Groups[1].Value.Replace(':','').ToLowerInvariant()})
+    $matchesCert=[regex]::Matches($out,'(?im)^\s*(?:(?:V[1-4](?:\.\d+)?\s+Signer(?:\s+#?\d+)?\s*:\s*)|(?:Signer\s+#?\d+\s+))?certificate\s+SHA-256\s+digest\s*:\s*([0-9a-f:]{64,95})[ \t\r]*$')
+    $digests=@($matchesCert|ForEach-Object{$_.Groups[1].Value.Replace(':','').ToLowerInvariant()}|Sort-Object -Unique)
     $number=[regex]::Match($out,'(?im)^\s*Number of signers:\s*(\d+)\s*$')
     Write-Host ('FLOW3_DUAL_CERT_'+$role+'_DIGEST_COUNT='+$digests.Count)
     if($number.Success){Write-Host ('FLOW3_DUAL_CERT_'+$role+'_SIGNER_COUNT='+$number.Groups[1].Value)}
-    if($digests.Count -ne 1 -or $digests[0] -cnotmatch '^[a-f0-9]{64}$' -or ($number.Success -and $number.Groups[1].Value -ne '1')){
+    if($digests.Count -ne 1 -or $digests[0] -cnotmatch '^[a-f0-9]{64}$' -or (-not $number.Success -or $number.Groups[1].Value -ne '1')){
         # Report field names only; never print certificate DN or device data.
         foreach($line in $lines){if($line -match '(?i)sha-?256|number of signers'){Write-Host ('FLOW3_DUAL_CERT_FORMAT='+(([string]$line -replace ':.*$',': [redacted]') -replace '[0-9a-fA-F]{32,}','[redacted]'))}}
         throw 'FLOW3_DUAL_APK_SIGNER_FORMAT'
