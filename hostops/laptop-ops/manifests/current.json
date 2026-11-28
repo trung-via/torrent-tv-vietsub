@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-overlay-resume",
-  "category": "owner-maintenance",
+  "operation": "owner-flow3-dual-preflight",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-overlay-resume.ps1",
-  "script_sha256": "b28f02986d3c4873be9ae1042b7ce07f648459f8b96b0544ea4a2a31db15bc05",
+  "script_path": "hostops/laptop-ops/operations/flow3-dual-preflight.ps1",
+  "script_sha256": "85bf18c934d23a8fe9ce2a737dff3cfd5e92fb118b2c5281c695c440b2e4d12a",
   "arguments": []
 }
