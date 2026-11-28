@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-movie-ingress-helper-repair",
+  "operation": "owner-flow3-g2-marker-repair",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/movie-ingress-helper-repair.ps1",
-  "script_sha256": "73f860dfc1777584054fe31a848258e0f11d512aa742e7a09b61f741bddf7e29",
+  "script_path": "hostops/laptop-ops/operations/flow3-g2-marker-repair.ps1",
+  "script_sha256": "5c9bef9995deff9ca6e537111e7ddcd0a2fe6ca12ee4f39a0cf31bc7bd6f618f",
   "arguments": []
 }
