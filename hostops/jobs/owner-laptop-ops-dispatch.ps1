@@ -328,6 +328,22 @@ if ($manifest.operation -ceq 'owner-g2-production-once') {
 }
 
 $nonce = [Guid]::NewGuid().ToString('N')
+if($manifest.operation -ceq 'owner-production-movie'){
+    $command=$env:HOSTOPS_REQUEST.Trim()
+    if($command -cnotmatch '^/tv-hostops movie ([a-f0-9]{40}) (search|play) ([0-9]{4}) ([\p{L}\p{N}][\p{L}\p{N} .,:!?&()''_-]{0,159})$' -or $Matches[1] -cne $commit){throw 'PRODUCTION_MOVIE_COMMAND'}
+    $mode=$Matches[2];$year=[int]$Matches[3];$title=$Matches[4].Trim()
+    if($year -lt 1900 -or $year -gt 2100 -or $title.Length -eq 0){throw 'PRODUCTION_MOVIE_INPUT'}
+    if($mode -ceq 'play' -and -not (($title -ceq 'Big Buck Bunny' -and $year -eq 2008) -or ($title -ceq 'Cosmos Laundromat' -and $year -eq 2015))){throw 'PRODUCTION_MOVIE_MEDIA_AUTHORITY_UNVERIFIED'}
+    $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
+    if([string]$event.comment.id -cnotmatch '^[0-9]+$'){throw 'PRODUCTION_MOVIE_COMMENT_ID'}
+    $nonce=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes('ttv-production-movie-v1:'+ $event.comment.id))).ToLowerInvariant().Substring(0,32)
+    $inputFile=Join-Path $inbox ('movie-'+$nonce+'.json')
+    if(Test-Path -LiteralPath $inputFile){throw 'PRODUCTION_MOVIE_PRIOR_DISPATCH_RECONCILE'}
+    $inputBytes=[Text.UTF8Encoding]::new($false).GetBytes((@{schema='TTV-PRODUCTION-MOVIE-V1';request_id=$nonce;mode=$mode;year=$year;title=$title}|ConvertTo-Json -Compress))
+    $fs=[IO.File]::Open($inputFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try{$fs.Write($inputBytes,0,$inputBytes.Length);$fs.Flush($true)}finally{$fs.Dispose()}
+    Write-Output 'PRODUCTION_MOVIE_INPUT_ACCEPTED'
+}
 $request = [ordered]@{
     schema = 'TTV-LAPTOP-HOSTOPS-REQUEST-V1'
     nonce = $nonce
@@ -388,7 +404,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
-    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g2-deploy-readout','owner-g2-deploy-delta','owner-g2-start-applied','owner-g2-production-once','owner-g2-production-readout','owner-g2-production-resume','owner-g2-finalize','owner-g2-finalize-reconcile','owner-g2-finalize-chain','owner-flow3-overlay-readout','owner-flow3-overlay-apply','owner-flow3-overlay-resume','owner-flow3-dual-preflight','owner-flow3-dual-apply','owner-flow3-agy-metadata-once','owner-flow3-agy-denial-readout','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
+    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g2-deploy-readout','owner-g2-deploy-delta','owner-g2-start-applied','owner-g2-production-once','owner-g2-production-readout','owner-g2-production-resume','owner-g2-finalize','owner-g2-finalize-reconcile','owner-g2-finalize-chain','owner-flow3-overlay-readout','owner-flow3-overlay-apply','owner-flow3-overlay-resume','owner-flow3-dual-preflight','owner-flow3-dual-apply','owner-flow3-agy-metadata-once','owner-flow3-agy-denial-readout','owner-production-movie','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
         $file = Join-Path $outbox ('odyssey-stage-' + $nonce + '.json')
         if (Test-Path -LiteralPath $file -PathType Leaf) {
             $item = Get-Item -LiteralPath $file -Force
@@ -399,6 +415,17 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 }
             }
         }
+    }
+
+    if ($receipt.operation -ceq 'owner-production-movie') {
+        $stage=Get-Content -LiteralPath (Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')) -Raw|ConvertFrom-Json
+        if($receipt.result -cne 'SUCCESS' -or $stage.nonce -cne $nonce -or $stage.schema -cne 'TTV-ODYSSEY-STAGE-V1'){throw 'PRODUCTION_MOVIE_OWNER_RECEIPT'}
+        if($stage.reason -ceq 'PRODUCTION_MOVIE_LIBRARY_READY'){
+            if($mode -cne 'play'){throw 'PRODUCTION_MOVIE_MODE_DRIFT'}
+            & pwsh.exe -NoLogo -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'production-movie-play.ps1') -RequestId $nonce
+            if($LASTEXITCODE -ne 0){throw 'PRODUCTION_MOVIE_PLAY_FAILED_NO_REPLAY'}
+        }
+        return
     }
 
     if ($receipt.operation -ceq 'owner-flow3-dual-apply') {
