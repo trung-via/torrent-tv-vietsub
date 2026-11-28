@@ -398,6 +398,13 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
     if ($receipt.schema -cne 'TTV-LAPTOP-HOSTOPS-RECEIPT-V1' -or
         $receipt.nonce -cne $nonce -or
         $receipt.source_commit -cne $commit) { continue }
+    if ($receipt.operation -ceq 'owner-movie-ingress-helper-repair') {
+        $file=Join-Path $outbox ('movie-helper-'+$nonce+'.json')
+        if(Test-Path -LiteralPath $file -PathType Leaf){
+            $v=Get-Content -LiteralPath $file -Raw|ConvertFrom-Json
+            if($v.schema -ceq 'TTV-MOVIE-HELPER-REPAIR-V1' -and $v.nonce -ceq $nonce -and $v.reason -cmatch '^MOVIE_[A-Z0-9_]{3,70}$'){Write-Output ('MOVIE_HELPER_RESULT='+$v.reason)}
+        }
+    }
     if ($receipt.operation -ceq 'owner-current-film-retest-reset') {
         $f=Join-Path $outbox ('retest-result-'+$nonce+'.json')
         if(Test-Path -LiteralPath $f -PathType Leaf){
