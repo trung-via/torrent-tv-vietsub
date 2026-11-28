@@ -21,6 +21,47 @@ from owner_g2_submit import submit_private_file
 
 class OwnerIntegrationTests(unittest.TestCase):
 
+    def test_warm_session_denial_evidence_and_no_replay(self):
+        import time
+        from agy_owner_warm_session import warm_reason
+        cases = (
+            ("Title: Just a moment...", 3, "AGY_STREAM_ACCESS_BLOCKED"),
+            ("Title: Just a moment…", 3, "AGY_STREAM_ACCESS_BLOCKED"),
+            ("Title: Access denied", 3, "AGY_STREAM_ACCESS_BLOCKED"),
+            ("Title: Access denied", 4, "AGY_STREAM_ACCESS_UNCONFIRMED"),
+            ("Article mentions captcha and access denied", 3, "AGY_STREAM_ACCESS_UNCONFIRMED"),
+            ("Ordinary page content", 3, None),
+        )
+        for output, page, expected in cases:
+            with self.subTest(output=output, page=page), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                session = OwnerAgyWarmSession(ps="unused", env={}, root=root)
+                session.process = SimpleNamespace(poll=lambda: None, stdin=io.StringIO())
+                def tool(name, output, page=None):
+                    params = {"ToolName": name, "ServerName": "ttv-browser"}
+                    if page is not None:
+                        params["pageId"] = page
+                    return {"step_update": {"tool_name": "call_mcp_tool",
+                            "tool_info": {"parameters": params, "output": output}}}
+                for event in (
+                    tool("list_pages", "3: https://example.org/"),
+                    tool("take_snapshot", output, page),
+                    {"event": "result", "result": {
+                        "conversation_id": "fixture", "response": "{}"}},
+                ):
+                    session._queue.put((time.monotonic(), json.dumps(event) + "\n"))
+                if expected:
+                    with self.assertRaises(WarmSessionError) as failure:
+                        session.turn("fixture", root/"turn", source_host="example.org")
+                    self.assertEqual(warm_reason(failure.exception), expected)
+                    with self.assertRaisesRegex(WarmSessionError, "AGY_STREAM_NOT_READY"):
+                        session.turn("fixture", root/"retry", source_host="example.org")
+                    self.assertEqual(len(session.process.stdin.getvalue().splitlines()), 1)
+                else:
+                    self.assertEqual(session.turn("fixture", root/"turn",
+                                                  source_host="example.org").response, {})
+
+
     def test_selection_private_consumer_publishes_exact_g22_input_once(self):
         from dataclasses import asdict
         with tempfile.TemporaryDirectory() as d:
