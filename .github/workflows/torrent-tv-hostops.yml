@@ -92,14 +92,15 @@ jobs:
             $sha = $Matches[1]
             if ($command.StartsWith('/tv-hostops movie ', [StringComparison]::Ordinal)) {
               $jobId = 'production-movie'
-              if ($sha -cne '9e7f9b46af3863cfecf5c3786a58dede721bd12c') {
+              if ($sha -cne '7ec2eccfba633625d845b37264d44083173fb576') {
                 throw 'BLOCKED: production movie source is not the approved pin'
               }
             } else {
               $jobId = $Matches[2]
-              if ($jobId -ceq 'production-movie') { throw 'BLOCKED: use typed movie command' }
+              if ($jobId -cin @('production-movie','production-movie-v2')) { throw 'BLOCKED: use typed movie command' }
             }
             $branch = "hostops/$jobId"
+            if ($jobId -ceq 'production-movie') { $branch = 'hostops/production-movie-v2' }
             $refUri = "https://api.github.com/repos/trung-via/torrent-tv-vietsub/git/ref/heads/$branch"
             $headers = @{
               Authorization = "Bearer $env:HOSTOPS_GITHUB_TOKEN"
