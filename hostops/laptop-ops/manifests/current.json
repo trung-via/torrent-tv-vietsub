@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/production-movie.ps1",
-  "script_sha256": "a42ed39206e71c30c36a5484d230e9631aaf0599ecad0055262adc6608e9d67b",
+  "script_sha256": "da3f21e9465c69120e9959021144c3f13dc1f6eb51980727e8fa61465c62aba3",
   "arguments": []
 }
