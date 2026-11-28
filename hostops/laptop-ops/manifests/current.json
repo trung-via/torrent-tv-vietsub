@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-dual-apply",
+  "operation": "owner-flow3-agy-metadata-once",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-dual-apply.ps1",
-  "script_sha256": "e562cb4265a6a30199ddf0bd575f5930c72588961769df2079153153ec4f7833",
+  "script_path": "hostops/laptop-ops/operations/flow3-agy-metadata-once.ps1",
+  "script_sha256": "ec8dee6c97f2131c5f730b6701a978a309e27d57f4bf2467711bd9c0d6065ef7",
   "arguments": []
 }
