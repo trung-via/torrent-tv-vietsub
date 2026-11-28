@@ -135,6 +135,7 @@ try{
  $r=Invoke-RestMethod -Uri ($base+'/omp/launch') -Method POST -Headers @{Authorization=('Bearer '+$token)} -ContentType 'application/json' -Body $body -TimeoutSec 8 -NoProxy -MaximumRedirection 0
  if($r.ok -ne $true){throw 'LAUNCH_NOT_ACKNOWLEDGED'}
  Write-Host 'G23_LAUNCH=ACK'
+ if($autoVietsub){Write-Host 'G23_AUTO_VIETSUB=REQUESTED_NOT_CONFIRMED'}
  $stage='OBSERVE_PLAYER'
  # Dispatch success is not proof of rendering. TrackTimecode can be disabled;
  # do not wait for history writes or require them for normal dispatch.
