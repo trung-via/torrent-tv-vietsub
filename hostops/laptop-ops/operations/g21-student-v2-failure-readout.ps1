@@ -9,7 +9,7 @@ try {
  $found=@(foreach($folder in @('History','Receipts')){
   Get-ChildItem -LiteralPath (Join-Path $spool $folder) -Filter 'receipt*.json' -File -ErrorAction SilentlyContinue|ForEach-Object {
    try{$r=Get-Content -LiteralPath $_.FullName -Raw|ConvertFrom-Json
-    if($r.source_commit -ceq '68238a82488e7c3c6034ceedba7e7f217159233a' -and $r.result -ceq 'FAILED_NO_RETRY' -and $r.nonce -cmatch '^[a-f0-9]{32}$'){$r.nonce}
+    if($r.source_commit -ceq 'e0119ff787a58523dcc1619044714842b7856f15' -and $r.result -ceq 'FAILED_NO_RETRY' -and $r.nonce -cmatch '^[a-f0-9]{32}$'){$r.nonce}
    }catch{}
   }
  })
