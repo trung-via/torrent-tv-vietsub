@@ -205,6 +205,50 @@ class WarmTests(unittest.TestCase):
             consume.assert_called_once_with(root/"inbox",rid)
             self.assertEqual(json.loads((root/"inbox"/("g2-"+rid+".receipt.json")).read_text())["library_status"],"LIBRARY_READY")
 
+    def test_complete_selection_survives_cleanup_hold_without_provider_replay(self):
+        from dataclasses import asdict
+        for reason, valid in (("G2_BROWSER_EFFECT_REVIEW_REQUIRED", True),
+                              ("AGY_STREAM_TURN_TIMEOUT", False)):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                rid = "f"*32
+                q = MovieQuery("Licensed fixture", 2026, select_release=True,
+                               media_authorized=True, play=True)
+                request = {"schema":"TTV-OWNER-G2-SELECTION-V1","request_id":rid,
+                           "authorized_source":True,"source_url":"https://example.org/releases",
+                           "queries":[asdict(q)]}
+                enqueue_g2_metadata(owner_root=root, request=request)
+                selection = {"link":"magnet:?xt=urn:btih:"+"a"*40,"expected_hash":"a"*40,
+                             "title":q.title,"source_authorized":True,"media_authorized":True,
+                             "release_matched":True,"file_id":None}
+                row = {"status":"SELECTION_READY","owner_request_id":rid,
+                       "query":asdict(q),"selection":selection}
+                marker = root/"cache"/".native-v13"/"browser.pending"
+                marker.parent.mkdir(parents=True)
+                marker.write_text("g2-"+rid)
+                discover = Mock(side_effect=G2BatchReview(
+                    reason, [row], browser_restored=False,
+                    cleanup_reason="G2_BROWSER_EFFECT_REVIEW_REQUIRED"))
+                consume = Mock(return_value="LIBRARY_READY")
+                args = dict(owner_root=root,cache_root=root/"cache",discover=discover,
+                            submit=lambda work:work(),emit=lambda _:None,handoff=consume)
+                self.assertEqual(poll_private_g2(**args), 1)
+                self.assertEqual(poll_private_g2(**args), 0)
+                discover.assert_called_once()
+                receipt = json.loads((root/"inbox"/("g2-"+rid+".receipt.json")).read_text())
+                self.assertFalse(receipt["browser_restored"])
+                self.assertEqual(receipt["cleanup_reason"], "G2_BROWSER_EFFECT_REVIEW_REQUIRED")
+                self.assertEqual(marker.read_text(), "g2-"+rid)
+                if valid:
+                    consume.assert_called_once_with(root/"inbox", rid)
+                    self.assertEqual(receipt["status"], "COMPLETE")
+                    self.assertEqual(receipt["library_status"], "LIBRARY_READY")
+                    self.assertTrue(receipt["selection_published"])
+                else:
+                    consume.assert_not_called()
+                    self.assertEqual(receipt["status"], "REVIEW_REQUIRED")
+                    self.assertFalse((root/"inbox"/("g2-"+rid+".selected.json")).exists())
+
     def test_selection_authority_required_before_provider(self):
         with patch("owner_g2_discovery.preflight_antigravity") as provider:
             with self.assertRaisesRegex(ValueError,"G2_QUERY_INVALID"):
