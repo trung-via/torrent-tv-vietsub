@@ -1,0 +1,50 @@
+{
+  "schema": "TTV-FLOW3-SOURCE-PACKAGE-V1",
+  "runtime_base": "a6bd7882054b2d942809502c34c25c5b9c682cd1",
+  "merged_g2_source": "3ba642310c2191468a6aadfa1e73e1dc478b5e8d",
+  "files": [
+    {
+      "path": "app/poc/p2-sub-discovery/owner_session_bridge.py",
+      "blob": "94c08faad40554f451271b0c7f5267256a4fe2ab",
+      "base_blob": "0db3455941370dc327da5bcc025ec39153c74ba0"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_p3_p4_runtime.py",
+      "blob": "325df0cddbbc8f9bd86ecf4c64ffdaf52c5b8d9b",
+      "base_blob": "33277f5ea67cabf95cb096ba87a6c2c659bfb6e1"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/agy_owner_warm_session.py",
+      "blob": "9cbc45c643d99cc9655fe9a7357eafd07cd227d0"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_g2_discovery.py",
+      "blob": "4b4a0ccd9b7657bd687e390b287cc41ba3c2cde2"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_g2_support.py",
+      "blob": "11ed35c47a1562863abae0f56b550f8c74bf29d0"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_g2_inbox.py",
+      "blob": "6ae25b5d222752019c7999ac8945626f1a2ceb89"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_g2_submit.py",
+      "blob": "0eafd74eeb08dac8d461a353dbe96447e5a783c1"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_movie_handoff.py",
+      "blob": "0e5d351af58d089bd53d3fd78b4a6f46509ecbbb"
+    },
+    {
+      "path": "runner/owner_movie_flow.ps1",
+      "blob": "cd5551d6d3d0d0b590e44cee9a97b4fbab7a5b09"
+    },
+    {
+      "path": "runner/owner_movie_play.ps1",
+      "blob": "3863ed82c0d81aa9c08feeca6318eac3b36c577e"
+    }
+  ],
+  "scope": "SOURCE_ONLY; existing enrolled Owner and runner; never apply blindly to installed runtime"
+}
