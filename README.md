@@ -1,3 +1,5 @@
-# Flow 3 source overlay
+# Flow 3 dual-lane Owner source candidate
 
-Source-only package; not a complete installer. Requires existing enrolled Owner runtime with the exact #195 source baseline for the two replaced modules, plus unchanged G1/P3/P4 dependencies. The deployed Owner may differ; compare current bytes and apply contextual delta only under explicit HostOps authorization. Keep existing launcher, profile, task, caches, pairing, secrets, and environment. No provider or TV calls in packaging. app/ maps to existing OwnerBridge/app; runner/ scripts run on existing paired runner only. Manifest contains Git blob IDs, not private data. Do not merge this package-only branch into main. Do not launch any script merely to verify packaging.
+Candidate #203 at d93ca6bfaa25279402ee13a2bc8960d61992c6a4, prior deployed source package b1ee5e177b9768d4a5e96a79ca4b22602236855f.
+
+Six changed payloads: Owner session bridge contextual patch, G2 discovery, support, inbox, movie handoff and runner movie play. Four unchanged package payloads. manifest.json binds old and new Git blob IDs. This branch is distribution-only, never a merge candidate. Do not install this draft. Confirm exact final #203 HEAD and Brain acceptance plus matching staged OMP APK; verify actual installed hashes and contextual drift first. Preserve native producer, launcher, task configuration, existing G1/G2 caches and journals. No AGY/browser/TV effect. HostOps deployment must use a single authorized staged transaction with backup and fresh PID heartbeat; no restart of active G1/G2 jobs.
