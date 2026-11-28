@@ -46,7 +46,7 @@ class OwnerIntegrationTests(unittest.TestCase):
             ("evaluate_script", json.dumps([dict(data[0], challenge=True)]), 3, False, unknown),
             ("evaluate_script", json.dumps([dict(data[0], title="Access denied")]), 3, False, unknown),
             ("evaluate_script", json.dumps([dict(data[0], year="unknown")]), 3, False, unknown),
-            ("evaluate_script", json.dumps(data) + "\nVerify you are human", 3, False, unknown),
+            ("evaluate_script", json.dumps(data) + "\nVerify you are human", 3, False, blocked),
         )
         for tool_name, output, page, error, expected in cases:
             with self.subTest(tool=tool_name, output=output, page=page, error=error), tempfile.TemporaryDirectory() as d:
