@@ -69,20 +69,23 @@ def main():
     need(not any((p/"submitted.json").exists() or (p/"submit-intent.json").exists() for p in (owner/"backups").glob("g2-production-*") if p!=run),"PRIOR_REQUEST_NO_REPLAY")
     need(not any(inbox.glob("event-*.json")) and not any(state.rglob("*.inflight")) and not any(cache.rglob("browser.pending")),"OWNER_BUSY")
     need(not any(re.fullmatch(r"g2-[a-f0-9]{32}\.json",p.name) and not p.with_suffix(".claim").exists() and not p.with_suffix(".receipt.json").exists() for p in inbox.glob("g2-*.json")),"OTHER_G2_PENDING")
-    expected="209c8226b299b308beaf2b9cd3fb49212dbd13ec"
     # Verify this fixture is not already in Library (one read within this request).
     req=urllib.request.Request("http://127.0.0.1:8090/torrents",data=b'{"action":"list"}',headers={"Content-Type":"application/json"},method="POST")
     with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req,timeout=5) as f:rows=json.load(f)
     need(rows is None or isinstance(rows,list),"LIBRARY_SCHEMA")
-    need(not any(isinstance(x,dict) and str(x.get("hash","")).lower()==expected for x in (rows or [])),"FIXTURE_ALREADY_IN_LIBRARY")
-    payload={"schema":"TTV-OWNER-G2-SELECTION-V1","request_id":nonce,"authorized_source":True,"source_url":"https://webtorrent.io/free-torrents","queries":[{"title":"Tears of Steel","year":2012,"resolution":"1080p","select_release":True,"media_authorized":True,"play":True,"verified_release_hash":expected}]}
+    existing={str(x.get("hash","")).lower() for x in (rows or []) if isinstance(x,dict)}
+    fixtures=[("Cosmos Laundromat",2015,"c9e15763f722f23e98a29decdfae341b98d53056","COSMOS"),("Big Buck Bunny",2008,"dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c","BUNNY")]
+    candidates=[f for f in fixtures if f[2] not in existing]
+    need(bool(candidates),"ALL_AUTHORIZED_FIXTURES_ALREADY_IN_LIBRARY")
+    title,year,expected,fixture=candidates[0]
+    payload={"schema":"TTV-OWNER-G2-SELECTION-V1","request_id":nonce,"authorized_source":True,"source_url":"https://webtorrent.io/free-torrents","queries":[{"title":title,"year":year,"resolution":"1080p","select_release":True,"media_authorized":True,"play":True,"verified_release_hash":expected}]}
     reqfile=run/"private-request.json";reqfile.write_text(json.dumps(payload),encoding="utf-8")
     # Submit through the installed official ingress. Running Owner alone consumes.
     write_doc("submit-intent.json",{"request_id":nonce,"pid":pid,"head":head})
     began=time.monotonic()
     p=subprocess.run([sys.executable,"-B",str(d2/"owner_g2_submit.py"),"--owner-root",str(owner),"--request-file",str(reqfile)],capture_output=True,timeout=20)
     need(p.returncode==0 and b"OWNER_G2_SUBMIT_ACCEPTED_NOT_RESULT" in p.stdout,"SUBMIT_UNVERIFIED_NO_REPLAY")
-    write_doc("submitted.json",{"request_id":nonce})
+    write_doc("submitted.json",{"request_id":nonce,"fixture":fixture})
     receipt=inbox/("g2-"+nonce+".receipt.json")
     library=spool/"Receipts"/("g2-"+nonce+".library.json")
     for _ in range(230):
@@ -106,7 +109,7 @@ def main():
             ms=row.get("timing",{}).get("final_ms",0)
             need(type(ms) is int and ms>0,"TIMING_UNVERIFIED")
             total=round((time.monotonic()-began)*1000)
-            write_doc("accepted.json",{"request_id":nonce,"pid":pid,"agy_ms":ms,"submit_to_library_ms":total})
+            write_doc("accepted.json",{"request_id":nonce,"pid":pid,"fixture":fixture,"agy_ms":ms,"submit_to_library_ms":total})
             return f"G2_PROD_LIBRARY_READY_AGY{ms}_TOTAL{total}"
         time.sleep(1)
     return "G2_PROD_PENDING_NO_REPLAY"
