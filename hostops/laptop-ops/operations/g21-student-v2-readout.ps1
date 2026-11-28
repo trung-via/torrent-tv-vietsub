@@ -4,7 +4,7 @@ if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw|ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
-$run=Join-Path $root ('NativeBrowserTest\g21-init-study-'+$rq.nonce)
+$run=Join-Path $root ('NativeBrowserTest\g21-model-study-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import os,sys,pathlib,json,re,time,queue,threading,subprocess,shutil,hashlib
@@ -64,7 +64,7 @@ def main():
         lines.append(f"G21_FULL_R1_A{i}=MCP_EVENT:{k},MS:{t}")
     write(run/"prior-event-index.json",private)
     write(run/"prior-mcp-timeline.json",mcp)
-    # Two neutral prompts, no browsing and no tool use. No production edits.
+    # ABBA neutral model/effort comparison, no browsing or tool use. No production edits.
     sys.path.insert(0,str(root/"OwnerBridge/app/poc/p2-aisub"))
     from translator_gateway import preflight_antigravity,_validated_antigravity_alias
     cli=preflight_antigravity()
@@ -73,13 +73,16 @@ def main():
     env=dict(os.environ)
     for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GEMINI_BASE_URL","AGY_ADC_AUTH","GOOGLE_CLOUD_PROJECT","GOOGLE_CLOUD_QUOTA_PROJECT"):env.pop(k,None)
     env["TTV_AGY_CLI"]=str(cli)
-    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
+    models=(("HYDROGEN_LOW","gemini-4-hydrogen-low","low"),("NEON_HIGH","gemini-4-neon-high","high"))
+    aliases={label:_validated_antigravity_alias(alias,effort) for label,alias,effort in models}
     original=prior/"session-settings.json"
     settings=obj(original)
     global_paths=[pathlib.Path.home()/".gemini"/p for p in ("antigravity-cli/settings.json","config/config.json","config/mcp_config.json")]
     def hashes():return [hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else "MISSING" for p in global_paths]
     before=hashes()
-    for idx,local_mcp in enumerate((False,True),1):
+    for idx,(label,alias,effort) in enumerate((models[0],models[1],models[1],models[0]),1):
+        local_mcp=False
+        env["TTV_AGY_MODEL"]=aliases[label]
         d=run/("sample-"+str(idx));d.mkdir()
         # Same saved settings, separate task directory; no existing config writes.
         shutil.copyfile(original,d/"session-settings.json")
@@ -124,14 +127,14 @@ def main():
                 try:p.wait(timeout=10)
                 except subprocess.TimeoutExpired:state="CLEANUP_UNVERIFIED"
         elapsed=ms(time.monotonic(),start)
-        sample={"local_mcp":local_mcp,"first_event_ms":firstms,"final_ms":final,"elapsed_ms":elapsed,"state":state,"tool_events":tool,"ready":answer,"event_count":count,"global_unchanged":hashes()==before}
+        sample={"model":label,"local_mcp":local_mcp,"first_event_ms":firstms,"final_ms":final,"elapsed_ms":elapsed,"state":state,"tool_events":tool,"ready":answer,"event_count":count,"global_unchanged":hashes()==before}
         write(d/"metrics.json",sample)
         def pos(x):return str(x) if x>=0 else "UNKNOWN"
-        lines.append(f"G21_FULL_R2_A{idx}=LOCAL_MCP:{int(local_mcp)},STATE:{state},FIRST_MS:{pos(firstms)},FINAL_MS:{pos(final)},TOTAL_MS:{elapsed},READY:{int(answer)},TOOLS:{tool},EVENTS:{count},GLOBAL_UNCHANGED:{int(hashes()==before)}")
+        lines.append(f"G21_FULL_R2_A{idx}=MODEL:{label},LOCAL_MCP:{int(local_mcp)},STATE:{state},FIRST_MS:{pos(firstms)},FINAL_MS:{pos(final)},TOTAL_MS:{elapsed},READY:{int(answer)},TOOLS:{tool},EVENTS:{count},GLOBAL_UNCHANGED:{int(hashes()==before)}")
         if state!="EXITED" or not answer or tool or hashes()!=before:break
     assert re.fullmatch("[a-f0-9]{32}",nonce)
     write(spool/"Receipts"/("g21-full-report-"+nonce+".json"),{"schema":"G21_TRAINING_FULL_REPORT_V1","nonce":nonce,"lines":lines})
-    return "G21_INIT_STUDY_READY"
+    return "G21_MODEL_STUDY_READY"
 try:print(main())
 except Exception:
     import traceback
