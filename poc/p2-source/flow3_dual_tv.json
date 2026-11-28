@@ -1,0 +1,131 @@
+{
+  "schema": "TTV-FLOW3-DUAL-TV-V1",
+  "omp_pin": "52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f",
+  "p3_source_pin": "a6bd7882054b2d942809502c34c25c5b9c682cd1",
+  "upstream_blobs": {
+    "src/launchActions.ts": "b79d57ed2de95121cc587f1d3cd32814af4c27dc",
+    "src/platform/androidRemote.ts": "154a4547bce5a16aab2dc2d19f749211a01e7fc9",
+    "src/ui/nav.ts": "49a7b62ab9f74d896fcc7e1a4cd11ad7584fbbed",
+    "src/app.tsx": "cc5dec038a87500c909c8785f5cd7124f32fe62c",
+    "src/screens/NativePlayer.tsx": "b97bd31a268499917e67789f679c44ccfe945234",
+    "src/player/nativePlayer.ts": "3e5a69c47e68298135d88d902d2121292dee4bbd",
+    "android/app/src/main/java/com/spacesarmat/omp/player/NativePlayer.kt": "2b3a6ddb3a573849e860a734e4ec9c6505a20740",
+    "android/app/src/main/java/com/spacesarmat/omp/player/PlayerActivity.kt": "8cb9598156b396ef49723275a7a847e75b7a36dd",
+    "tests/launchActions.test.ts": "7bb93e2d59510a13f624ca265dc496f6f74edb6d",
+    "tests/ui/nativePlayer.test.tsx": "c4761d293f055951474dde5acf57107766d39680",
+    "android/app/src/test/java/com/spacesarmat/omp/player/EngineChooserTest.kt": "d115a94cbd261d4c168a3cc096ef866c73fb0ae8"
+  },
+  "p3_patcher_blob": "557b2f22b6146aac38de747331aaf9776657769c",
+  "rules": {
+    "src/launchActions.ts": [
+      [
+        "import { navigate, openPlayer, resetTo } from './ui/nav';",
+        "import { navigate, openPlayer, resetTo, currentRoute, routeStack } from './ui/nav';"
+      ],
+      [
+        "export function runLaunchParams(raw: unknown): void {",
+        "let launchSequence = 0;\n\nexport function runLaunchParams(raw: unknown, pairedRemote = false): void {"
+      ],
+      [
+        "  if (!a) return;",
+        "  if (!a) return;\n  const sequence = ++launchSequence;"
+      ],
+      [
+        "    const from = a.from;",
+        "    const from = a.from;\n    // Only the authenticated Android remote ingress grants this intent.\n    const token = pairedRemote === true && raw && typeof raw === 'object' && !Array.isArray(raw)\n      ? (raw as Record<string, unknown>).flow3Vietsub : undefined;\n    const flow3Vietsub = typeof token === 'string' && /^[a-f0-9]{32}$/.test(token) ? token : undefined;\n    const originRoute = currentRoute.value;\n    const originStack = routeStack.value;"
+      ],
+      [
+        "          openPlayer(from ? { name: 'player', queue, index, startAt, from } : { name: 'player', queue, index, startAt });",
+        "          // A later local navigation wins; do not apply a delayed intent to another play.\n          if (flow3Vietsub && (currentRoute.value !== originRoute || routeStack.value !== originStack ||\n              sequence !== launchSequence || client.value !== c)) { resumeOnboarding(); return; }\n          if (flow3Vietsub && queue[index].hash?.toLowerCase() !== hash) { resumeOnboarding(); return; }\n          openPlayer({ name: 'player', queue, index, startAt,\n            ...(from ? { from } : {}), ...(flow3Vietsub ? { flow3Vietsub } : {}) });"
+      ]
+    ],
+    "src/platform/androidRemote.ts": [
+      [
+        "runLaunchParams(d.params);",
+        "runLaunchParams(d.params, true);"
+      ]
+    ],
+    "src/ui/nav.ts": [
+      [
+        "startAt?: number; from?: string }",
+        "startAt?: number; from?: string; flow3Vietsub?: string }"
+      ]
+    ],
+    "src/app.tsx": [
+      [
+        "<NativePlayerScreen queue={r.queue} index={r.index} startAt={r.startAt} from={r.from} />",
+        "<NativePlayerScreen queue={r.queue} index={r.index} startAt={r.startAt} from={r.from} flow3Vietsub={r.flow3Vietsub} />"
+      ]
+    ],
+    "src/screens/NativePlayer.tsx": [
+      [
+        "  from?: string;\n}",
+        "  from?: string;\n  flow3Vietsub?: string;\n}"
+      ],
+      [
+        "export function NativePlayerScreen({ queue, index, startAt, from }: Props)",
+        "export function NativePlayerScreen({ queue, index, startAt, from, flow3Vietsub }: Props)"
+      ],
+      [
+        "        engine: engineFor(s.playerEngine, queue[index].hash ? getTrackPref(queue[index].hash!) : null),",
+        "        engine: flow3Vietsub ? 'vlc' : engineFor(s.playerEngine, queue[index].hash ? getTrackPref(queue[index].hash!) : null),\n        flow3Vietsub,"
+      ],
+      [
+        "      if (s.videoPlayer === 'p2160') {",
+        "      if (!flow3Vietsub && s.videoPlayer === 'p2160') {"
+      ]
+    ],
+    "src/player/nativePlayer.ts": [
+      [
+        "export interface NativeStartOptions {",
+        "export interface NativeStartOptions {\n  flow3Vietsub?: string;"
+      ],
+      [
+        "          ...(o.engine ? { engine: o.engine } : {}),",
+        "          ...(o.engine ? { engine: o.engine } : {}),\n          ...(o.flow3Vietsub ? { flow3Vietsub: o.flow3Vietsub } : {}),"
+      ]
+    ],
+    "android/app/src/main/java/com/spacesarmat/omp/player/NativePlayer.kt": [
+      [
+        "    val serverProfileId: String? = null,",
+        "    val serverProfileId: String? = null,\n    val flow3Vietsub: String? = null,"
+      ],
+      [
+        "                serverProfileId = o.optString(\"serverProfileId\").ifEmpty { null },",
+        "                serverProfileId = o.optString(\"serverProfileId\").ifEmpty { null },\n                flow3Vietsub = (o.opt(\"flow3Vietsub\") as? String)?.takeIf { Regex(\"[a-f0-9]{32}\").matches(it) },"
+      ]
+    ],
+    "android/app/src/main/java/com/spacesarmat/omp/player/PlayerActivity.kt": [
+      [
+        "                // Import ONLY a previously authorized private ADB bootstrap;\n                // this does not trust a new PC, open a listener or bypass TLS.\n                P4OwnerBootstrap.consume(applicationContext)\n                val enabled = P3SelectedMediaPublisher.enabled(applicationContext) ||\n                    P3SelectedMediaPublisher.setEnabled(applicationContext, true)\n                val selectedIndex = index()\n                val allowed = enabled && P3SelectedMediaPublisher.requestViewer(\n                    applicationContext, current, selectedIndex, engine is VlcEngine\n                ) { acknowledged ->\n                    showP3Delivery(current, selectedIndex, acknowledged)\n                }\n                if (allowed) {\n                    p3ActivationAttempts = 0\n                    p3LastDelivery = null\n                    handler.removeCallbacks(p3ActivationTick)\n                    p3ActivationTick.run()\n                    showMessage(\"Đang gửi yêu cầu tìm Vietsub cho phim này đến PC...\", false)\n                } else {\n                    showMessage(\"Không thể gửi: kiểm tra ghép PC an toàn và phim VLC.\", true)\n                }",
+        "                requestVietsubForCurrent(current)"
+      ],
+      [
+        "    private val p3ActivationTick = object : Runnable {",
+        "    /** Existing one-tap request shared by local button and explicit paired concierge launch. */\n    private fun requestVietsubForCurrent(current: PlayRequest?) {\n        // Import ONLY a previously authorized private ADB bootstrap;\n        // this does not trust a new PC, open a listener or bypass TLS.\n        P4OwnerBootstrap.consume(applicationContext)\n        val enabled = P3SelectedMediaPublisher.enabled(applicationContext) ||\n            P3SelectedMediaPublisher.setEnabled(applicationContext, true)\n        val selectedIndex = index()\n        val allowed = enabled && P3SelectedMediaPublisher.requestViewer(\n            applicationContext, current, selectedIndex, engine is VlcEngine\n        ) { acknowledged ->\n            showP3Delivery(current, selectedIndex, acknowledged)\n        }\n        if (allowed) {\n            p3ActivationAttempts = 0\n            p3LastDelivery = null\n            handler.removeCallbacks(p3ActivationTick)\n            p3ActivationTick.run()\n            showMessage(\"Đang gửi yêu cầu tìm Vietsub cho phim này đến PC...\", false)\n        } else {\n            showMessage(\"Không thể gửi: kiểm tra ghép PC an toàn và phim VLC.\", true)\n        }\n    }\n\n    /** One request ID, one initial native selection. Never called from goTo/seek/resume. */\n    private fun requestFlow3Vietsub() {\n        val current = session.request ?: return\n        val id = current.flow3Vietsub ?: return\n        if (index() != current.index || engine !is VlcEngine ||\n            P1ProductionSubtitles.mediaKey(current, index()) == null) return\n        val consumed = getSharedPreferences(\"ttv-flow3-vietsub-v1\", MODE_PRIVATE)\n        if (consumed.contains(id)) return\n        if (!consumed.edit().putBoolean(id, true).commit()) return\n        requestVietsubForCurrent(current)\n    }\n\n    private val p3ActivationTick = object : Runnable {"
+      ],
+      [
+        "        applySkips()\n        showControls()\n    }\n\n    private fun index(): Int = session.index",
+        "        applySkips()\n        showControls()\n        requestFlow3Vietsub()\n    }\n\n    private fun index(): Int = session.index"
+      ]
+    ],
+    "tests/launchActions.test.ts": [
+      [
+        "describe('runLaunchParams', () => {\n",
+        "describe('runLaunchParams', () => {\n  it('Flow 3: only a paired launch grants the exact selected file intent', async () => {\n    setActiveServer(addServer({ url: 'h:1' }).id);\n    routeStack.value = [{ name: 'library' }];\n    mockFetch(() => ({ body: JSON.stringify({ hash: HASH, title: 'T', stat: 3, file_stats: [{ id: 3, path: 'a.mkv', length: 10 }] }) }));\n    const id = 'a'.repeat(32);\n    const raw = { torrent: HASH, file: 3, t: 0, flow3Vietsub: id };\n    for (const paired of [false, true]) {\n      runLaunchParams(raw, paired);\n      await new Promise((r) => setTimeout(r, 0));\n      await new Promise((r) => setTimeout(r, 0));\n      const route = top() as any;\n      expect(route.name).toBe('player');\n      expect(route.queue[route.index].fileIndex).toBe(3);\n      expect(route.flow3Vietsub).toBe(paired ? id : undefined);\n    }\n    runLaunchParams({ ...raw, flow3Vietsub: 'bad' }, true);\n    await new Promise((r) => setTimeout(r, 0));\n    await new Promise((r) => setTimeout(r, 0));\n    expect((top() as any).flow3Vietsub).toBeUndefined();\n  });\n  it('Flow 3: later navigation cancels a pending concierge intent', async () => {\n    setActiveServer(addServer({ url: 'h:1' }).id);\n    const library = { name: 'library' as const };\n    routeStack.value = [library];\n    mockFetch(() => ({ body: JSON.stringify({ hash: HASH, title: 'T', stat: 3, file_stats: [{ id: 3, path: 'a.mkv', length: 10 }] }) }));\n    runLaunchParams({ torrent: HASH, file: 3, flow3Vietsub: 'b'.repeat(32) }, true);\n    // Even navigating away and back to the same route object invalidates it.\n    routeStack.value = [library, { name: 'settings' }];\n    routeStack.value = [library];\n    await new Promise((r) => setTimeout(r, 0));\n    await new Promise((r) => setTimeout(r, 0));\n    expect(top()).toBe(library);\n  });\n"
+      ]
+    ],
+    "tests/ui/nativePlayer.test.tsx": [
+      [
+        "describe('NativePlayerScreen (Android TV)', () => {\n",
+        "describe('NativePlayerScreen (Android TV)', () => {\n  it('Flow 3: uses native VLC and forwards the one-shot ID without changing ordinary settings', async () => {\n    resetSettings();\n    updateSettings({ videoPlayer: 'p2160' });\n    const f = fakeCapacitor();\n    const id = 'c'.repeat(32);\n    const host = mount(h(NativePlayerScreen, { queue, index: 0, startAt: 0, flow3Vietsub: id }));\n    await until(() => f.plugin.playNative.mock.calls.length === 1);\n    expect(f.plugin.playNative.mock.calls[0][0]).toMatchObject({ engine: 'vlc', flow3Vietsub: id });\n    expect(f.plugin.open2160).not.toHaveBeenCalled();\n    resetSettings();\n    await unmount(host);\n  });\n"
+      ]
+    ],
+    "android/app/src/test/java/com/spacesarmat/omp/player/EngineChooserTest.kt": [
+      [
+        "    @Test\n    fun playNativeCarriesTheEngineAndTheAssFlag() {",
+        "    @Test\n    fun flow3IntentIsOptionalAndExact() {\n        val q = JSONArray().put(JSONObject().put(\"url\", \"http://h/0\"))\n        val id = \"d\".repeat(32)\n        fun request(value: Any?): PlayRequest {\n            val body = JSONObject().put(\"queue\", q)\n            if (value != null) body.put(\"flow3Vietsub\", value)\n            return PlayRequest.parse(body)!!\n        }\n        assertEquals(id, request(id).flow3Vietsub)\n        assertEquals(null, request(null).flow3Vietsub)\n        assertEquals(null, request(true).flow3Vietsub)\n        assertEquals(null, request(\"bad\").flow3Vietsub)\n    }\n\n    @Test\n    fun playNativeCarriesTheEngineAndTheAssFlag() {"
+      ]
+    ]
+  }
+}

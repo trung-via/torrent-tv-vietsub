@@ -307,7 +307,7 @@ class OwnerIntegrationTests(unittest.TestCase):
             h="a"*40
             q=MovieQuery("Licensed fixture",2026,select_release=True,media_authorized=True,play=True)
             enqueue_g2_metadata(owner_root=root,request={
-                "schema":"TTV-OWNER-G2-SELECTION-V1","request_id":rid,
+                "schema":"TTV-OWNER-G2-CONCIERGE-V1","request_id":rid,
                 "authorized_source":True,"source_url":"https://example.org","queries":[asdict(q)]})
             row={"status":"SELECTION_READY","owner_request_id":rid,"query":asdict(q),
                  "selection":{"link":"magnet:?xt=urn:btih:"+h,"expected_hash":h,"title":q.title,
@@ -315,8 +315,11 @@ class OwnerIntegrationTests(unittest.TestCase):
             runner=SimpleNamespace(profile=root,_browser_lock=Lock(),_g1_pending=lambda:False)
             factory=lambda flow:flow
             def discover(*args,**kwargs):
-                self.assertTrue(runner._browser_lock.locked())
-                self.assertIs(kwargs["should_yield"],runner._g1_pending)
+                self.assertFalse(runner._browser_lock.locked())
+                self.assertEqual(args[0],root.parent/"CDP9556MovieProfile")
+                self.assertEqual(args[1],(q,))
+                self.assertEqual(args[2],root/"cache"/"movie-discovery")
+                self.assertEqual(kwargs["browser_port"],9556)
                 self.assertEqual(kwargs["owner_request_id"],rid)
                 return [row]
             post=Mock(side_effect=[[],[],{"hash":h},[{"hash":h}],
@@ -336,6 +339,18 @@ class OwnerIntegrationTests(unittest.TestCase):
             receipt=json.loads((outbox/("g2-"+rid+".library.json")).read_text())
             self.assertEqual((receipt["request_id"],receipt["torrent_hash"],receipt["file_id"],receipt["play"]),(rid,h,7,True))
             self.assertEqual(sum(c.args[0]["action"]=="add" for c in post.call_args_list),1)
+            self.assertIs(receipt["auto_vietsub"],True)
+
+    def test_concierge_cannot_be_search_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            with self.assertRaisesRegex(ValueError,"MODE_MISMATCH"):
+                enqueue_g2_metadata(owner_root=root, request={
+                    "schema":"TTV-OWNER-G2-CONCIERGE-V1","request_id":"2"*32,
+                    "authorized_source":True,"source_url":"https://example.org",
+                    "queries":[{"title":"Fixture","year":2026,"select_release":True,
+                                "media_authorized":True,"play":False}]})
+            self.assertFalse((root/"inbox").exists())
 
 if __name__ == "__main__":
     unittest.main()

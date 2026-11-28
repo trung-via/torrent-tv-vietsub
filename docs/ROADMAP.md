@@ -52,3 +52,9 @@
 ## Legacy và trạng thái
 
 `OMP-EVAL-001` vẫn là **planning alias nội bộ**; `TVAPP-001` Kotlin/Compose shell đã bị ADR-0002 supersede. Các nhánh P1/G0/G1 và Draft PR đang mở là công việc có lịch sử riêng, phải review/reconcile trước merge. Trạng thái runner/build/Redmi/TorrServer cần fresh evidence theo commit/run cụ thể; không suy PASS từ tên PR/workflow. Tham chiếu `PROJECT_CONTRACT.md`, `ARCHITECTURE.md` và ADR-0007.
+
+## 2026-11-28 — Luồng 3 nối Vietsub AI (Human DECIDED)
+
+- Yêu cầu Brain/Human tìm và phát phim: full search → TorrServer → Redmi → Vietsub AI một lần theo request/phiên phát. Library thông thường: chỉ nút Vietsub AI hiện có kích hoạt tìm/dịch; không gọi luồng tìm phim.
+- Owner giữ 3 slot G1 + 1 slot G2 trong cùng executor, tách browser/profile và marker của G2 khỏi G1; không chờ toàn bộ lane kia hoặc tạo thêm Owner. Không giả mạo TV event, không auto-on toàn cục; OFF/OTHER và đổi phim vẫn do P3/P4 điều phối.
+- Source candidate: `poc/p2-source/FLOW3_VIETSUB_INDEPENDENT.md`, explicit concierge schema + two source overlays. Chưa merge/cài/chạy provider hoặc thiết bị; cần CI và Brain Review theo #42, sau đó build OMP và đồng bộ delta có thẩm quyền.

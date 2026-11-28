@@ -28,7 +28,8 @@ def _g2_request(payload, request_id):
     from owner_g2_discovery import MovieQuery, MAX_BATCH, _source, _query
     if (not isinstance(payload, dict)
             or set(payload) != {"schema", "request_id", "source_url", "authorized_source", "queries"}
-            or payload["schema"] not in ("TTV-OWNER-G2-METADATA-V1", "TTV-OWNER-G2-SELECTION-V1")
+            or payload["schema"] not in ("TTV-OWNER-G2-METADATA-V1", "TTV-OWNER-G2-SELECTION-V1",
+                                         "TTV-OWNER-G2-CONCIERGE-V1")
             or not isinstance(request_id, str) or not _ID.fullmatch(request_id)
             or payload["request_id"] != request_id
             or payload["authorized_source"] is not True
@@ -38,8 +39,10 @@ def _g2_request(payload, request_id):
         raise ValueError("G2_REQUEST_INVALID")
     _source(payload["source_url"])
     queries = tuple(_query(MovieQuery(**q)) for q in payload["queries"])
-    selected = payload["schema"] == "TTV-OWNER-G2-SELECTION-V1"
+    concierge = payload["schema"] == "TTV-OWNER-G2-CONCIERGE-V1"
+    selected = concierge or payload["schema"] == "TTV-OWNER-G2-SELECTION-V1"
     if (selected and (len(queries) != 1 or not queries[0].select_release)
+            or concierge and not queries[0].play
             or not selected and any(q.select_release for q in queries)):
         raise ValueError("G2_REQUEST_MODE_MISMATCH")
     return queries
@@ -94,7 +97,7 @@ def enqueue_g2_metadata(*, owner_root: Path, request: dict) -> str:
         tmp.unlink(missing_ok=True)
 
 
-def _publish_g2_selection(inbox, request_id, query, rows):
+def _publish_g2_selection(inbox, request_id, query, rows, *, auto_vietsub=False):
     """Publish the actual G2.2 request only after the complete selection returns.
 
     No provider, torrent add or launch in this function. Existing claims and
@@ -122,6 +125,10 @@ def _publish_g2_selection(inbox, request_id, query, rows):
     path = inbox / ("g2-" + request_id + ".selected.json")
     body = {"schema": "TTV-G2-SELECTED-RELEASE-V1", "request_id": request_id,
             "selection": selection, "play": query.play}
+    if auto_vietsub:
+        if not query.play:
+            raise ValueError("G2_CONCIERGE_PLAY_REQUIRED")
+        body["auto_vietsub"] = True
     data = json.dumps(body, ensure_ascii=True, separators=(",", ":"),
                       sort_keys=True).encode("utf-8")
     tmp = inbox / (".g2-selected-" + request_id + "-" + secrets.token_hex(8) + ".tmp")
@@ -195,7 +202,9 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
                     detail.update(browser_restored=False, cleanup_reason=exc.cleanup_reason)
                 status = "COMPLETE" if len(rows) == len(queries) else "PARTIAL"
                 if queries[0].select_release:
-                    published = _publish_g2_selection(inbox, request_id, queries[0], rows)
+                    published = _publish_g2_selection(
+                        inbox, request_id, queries[0], rows,
+                        auto_vietsub=request["schema"] == "TTV-OWNER-G2-CONCIERGE-V1")
                     detail["selection_published"] = published
                     if published and handoff is not None:
                         try:
@@ -232,16 +241,22 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
 
 
 def bind_owner_g2(factory, runner):
-    """Bind the existing runner, profile, shared lock and G1 priority; no worker."""
+    """Same Owner, separate movie-search browser resource and checkpoint lane."""
+    from threading import Lock
     from owner_g2_discovery import discover_movie_batch
+
+    movie_profile = runner.profile.parent / "CDP9556MovieProfile"
+    movie_lock = Lock()
 
     def discover(queries, cache_root, *, source_url, authorized_source,
                  model="gemini-4-hydrogen-low", thinking_level="low", owner_request_id=None):
-        with runner._browser_lock:
+        # G1's browser, lock, priority counters and pending marker are not
+        # dependencies of G2. Missing G2 profile blocks only this request.
+        with movie_lock:
             return discover_movie_batch(
-                runner.profile, queries, cache_root, source_url=source_url,
-                authorized_source=authorized_source, model=model,
-                thinking_level=thinking_level, should_yield=runner._g1_pending,
+                movie_profile, queries, cache_root / "movie-discovery",
+                source_url=source_url, authorized_source=authorized_source,
+                model=model, thinking_level=thinking_level, browser_port=9556,
                 owner_request_id=owner_request_id)
     factory.g2_discover = discover
     return factory
@@ -249,7 +264,7 @@ def bind_owner_g2(factory, runner):
 
 def poll_owner_g2_idle(*, active, factory, owner_root, cache_root, submit, handoff,
                        emit=print, trace=_no_trace):
-    """Call from the existing Owner tick AFTER G1 scheduling; reuse its pool.
+    """Call from existing Owner tick with ONLY the G2 active set, not G1.
 
     Handoff must be the canonical p2-source publish_library_receipt function,
     resolved by the Owner composition. No extra queue or scheduler is created.

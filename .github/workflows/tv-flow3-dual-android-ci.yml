@@ -1,0 +1,55 @@
+# Exact owner-controlled #203 build-only route; no ADB, provider or APK publishing.
+name: Torrent TV - Flow3 Dual OMP Build
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'poc/p2-source/flow3_dual*'
+      - 'poc/p2-source/build_flow3_dual*'
+      - '.github/workflows/tv-flow3-dual-android-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: torrent-tv-flow3-dual-pr203
+  cancel-in-progress: true
+jobs:
+  android:
+    name: Flow3 OMP composed build
+    if: >-
+      github.repository == 'trung-via/torrent-tv-vietsub' &&
+      github.event.pull_request.number == 203 &&
+      github.event.pull_request.user.login == 'trung-via' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feat/flow3-vietsub-independent-20261128' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.base.sha == '472d8c367601116a6c66297a7e0e74821124126e'
+    runs-on: [self-hosted, Windows, X64, torrent-tv-vietsub]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Checkout exact prior G1 G2 P4 P3 source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: a6bd7882054b2d942809502c34c25c5b9c682cd1
+          path: baseline
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Compose, test changed boundaries, build and stage private APK
+        shell: pwsh
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $builder = Join-Path $env:GITHUB_WORKSPACE 'candidate/poc/p2-source/build_flow3_dual_omp.ps1'
+          $tokens = $null
+          $errors = $null
+          [Management.Automation.Language.Parser]::ParseFile($builder,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'FLOW3_BUILD_PARSE_FAILED' }
+          & $builder -CandidateRoot (Join-Path $env:GITHUB_WORKSPACE 'candidate') -AppRepoRoot (Join-Path $env:GITHUB_WORKSPACE 'baseline') -SourceCommit $env:PR_HEAD
+          if ($LASTEXITCODE -ne 0 -or -not $?) { throw 'FLOW3_BUILD_FAILED' }
