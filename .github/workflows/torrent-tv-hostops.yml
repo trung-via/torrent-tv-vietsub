@@ -87,9 +87,18 @@ jobs:
             }
             finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
           }
-          elseif ($command -cmatch '^/tv-hostops run ([0-9a-f]{40}) ([a-z][a-z0-9-]{0,39})$') {
+          elseif ($command -cmatch '^/tv-hostops run ([0-9a-f]{40}) ([a-z][a-z0-9-]{0,39})$' -or
+                  $command -cmatch '^/tv-hostops movie ([a-f0-9]{40}) (search|play) ([0-9]{4}) ([\p{L}\p{N}][\p{L}\p{N} .,:!?&()''_-]{0,159})$') {
             $sha = $Matches[1]
-            $jobId = $Matches[2]
+            if ($command.StartsWith('/tv-hostops movie ', [StringComparison]::Ordinal)) {
+              $jobId = 'production-movie'
+              if ($sha -cne '9e7f9b46af3863cfecf5c3786a58dede721bd12c') {
+                throw 'BLOCKED: production movie source is not the approved pin'
+              }
+            } else {
+              $jobId = $Matches[2]
+              if ($jobId -ceq 'production-movie') { throw 'BLOCKED: use typed movie command' }
+            }
             $branch = "hostops/$jobId"
             $refUri = "https://api.github.com/repos/trung-via/torrent-tv-vietsub/git/ref/heads/$branch"
             $headers = @{
