@@ -1,4 +1,4 @@
-# Explicit title request; one metadata-only AGY job, no Library precheck or playback.
+# Explicit title request; one existing G2 job, no Library precheck. Play searches the existing open-license catalog.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
@@ -80,13 +80,15 @@ def main():
     mode,title,year=request["mode"],request["title"],request["year"]
     need(mode in ("search","play") and isinstance(title,str) and 1<=len(title)<=160 and type(year) is int and 1900<=year<=2100,"INPUT")
     query={"title":title,"year":year,"resolution":"1080p"}
-    permitted={("Big Buck Bunny",2008):"dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",("Cosmos Laundromat",2015):"c9e15763f722f23e98a29decdfae341b98d53056"}
+    known_open_release_hashes={("Big Buck Bunny",2008):"dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",("Cosmos Laundromat",2015):"c9e15763f722f23e98a29decdfae341b98d53056"}
     if mode=="play":
-        expected=permitted.get((title,year))
-        need(expected is not None,"MEDIA_AUTHORITY_UNVERIFIED")
-        # Known licensed fixtures only; no arbitrary rights claims.
+        expected=known_open_release_hashes.get((title,year))
+        # No fixture-title admission gate. Only search the existing curated
+        # open-license catalog. The native producer must observe a matching
+        # release in that source; no authority is inferred for other sites.
         source_url="https://webtorrent.io/free-torrents"
-        query.update(select_release=True,media_authorized=True,play=True,verified_release_hash=expected)
+        query.update(select_release=True,media_authorized=True,play=True)
+        if expected is not None:query["verified_release_hash"]=expected
         schema="TTV-OWNER-G2-CONCIERGE-V1"
     else:
         source_url="https://ext.to/"
@@ -114,7 +116,11 @@ def main():
             if status!="SELECTION_READY":return "PRODUCTION_MOVIE_SELECTION_"+status
             need(v.get("selection_published") is True and v.get("library_status")=="LIBRARY_READY","LIBRARY_NOT_READY_NO_REPLAY")
             library=read_doc(spool/"Receipts"/("g2-"+nonce+".library.json"))
-            need(library.get("schema")=="TTV-G2-LIBRARY-RECEIPT-V1" and library.get("request_id")==nonce and library.get("status")=="LIBRARY_READY" and library.get("play") is True and library.get("auto_vietsub") is True and library.get("torrent_hash")==expected and type(library.get("file_id")) is int,"LIBRARY_BIND")
+            selected=rows[0].get("selection")
+            need(isinstance(selected,dict) and selected.get("title")==title and selected.get("source_authorized") is True and selected.get("media_authorized") is True and selected.get("release_matched") is True,"SELECTION_BIND")
+            chosen=selected.get("expected_hash")
+            need(isinstance(chosen,str) and re.fullmatch(r"[a-f0-9]{40}",chosen) and (expected is None or chosen==expected),"SELECTION_HASH_BIND")
+            need(library.get("schema")=="TTV-G2-LIBRARY-RECEIPT-V1" and library.get("request_id")==nonce and library.get("status")=="LIBRARY_READY" and library.get("play") is True and library.get("auto_vietsub") is True and library.get("torrent_hash")==chosen and type(library.get("file_id")) is int,"LIBRARY_BIND")
             return "PRODUCTION_MOVIE_LIBRARY_READY"
         time.sleep(1)
     return "PRODUCTION_MOVIE_SUBMITTED_PENDING_NO_REPLAY"
