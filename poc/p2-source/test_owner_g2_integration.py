@@ -323,10 +323,10 @@ class OwnerIntegrationTests(unittest.TestCase):
                                   {"hash":h,"file_stats":[{"id":7,"path":"fixture.mp4"}]}])
             def handoff(inbox,request_id):
                 return publish_library_receipt(inbox,request_id,post=post,outbox=outbox)
-            bind_owner_g2(factory,runner)
             args=dict(factory=factory,owner_root=root,cache_root=root/"cache",
                       submit=lambda work:work(),handoff=handoff,emit=lambda _:None)
             with patch("owner_g2_discovery.discover_movie_batch",side_effect=discover) as call:
+                bind_owner_g2(factory,runner)
                 self.assertEqual(poll_owner_g2_idle(active={object()},**args),0)
                 call.assert_not_called()
                 self.assertEqual(poll_owner_g2_idle(active=set(),**args),1)
