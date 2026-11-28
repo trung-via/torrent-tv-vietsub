@@ -101,7 +101,9 @@ try{
   $ac=((& $adb -s $serial shell dumpsys activity activities 2>$null)|Out-String)
   return [bool](@($ac -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match [regex]::Escape($pkg+'/') -and $_ -match 'PlayerActivity'}).Count)
  }
- if(PlayerForeground){Write-Host 'G23_PLAY=HOLD_EXISTING_PLAYER_FOREGROUND';exit 0}
+ # A concierge request is an explicit instruction to play the selected new
+ # movie. A legacy remote play keeps its existing no-interrupt behavior.
+ if(-not $autoVietsub -and (PlayerForeground)){Write-Host 'G23_PLAY=HOLD_EXISTING_PLAYER_FOREGROUND';exit 0}
  function ReadViewed{
   try{
    $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8090/viewed' -Method POST -ContentType 'application/json' -Body '{"action":"list"}' -TimeoutSec 5 -NoProxy -MaximumRedirection 0
