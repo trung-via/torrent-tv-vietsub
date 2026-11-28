@@ -25,11 +25,11 @@
       ],
       [
         "    const from = a.from;",
-        "    const from = a.from;\n    // Only the authenticated Android remote ingress grants this intent.\n    const token = pairedRemote && raw && typeof raw === 'object' && !Array.isArray(raw)\n      ? (raw as Record<string, unknown>).flow3Vietsub : undefined;\n    const flow3Vietsub = typeof token === 'string' && /^[a-f0-9]{32}$/.test(token) ? token : undefined;\n    const originRoute = currentRoute.value;"
+        "    const from = a.from;\n    // Only the authenticated Android remote ingress grants this intent.\n    const token = pairedRemote === true && raw && typeof raw === 'object' && !Array.isArray(raw)\n      ? (raw as Record<string, unknown>).flow3Vietsub : undefined;\n    const flow3Vietsub = typeof token === 'string' && /^[a-f0-9]{32}$/.test(token) ? token : undefined;\n    const originRoute = currentRoute.value;"
       ],
       [
         "          openPlayer(from ? { name: 'player', queue, index, startAt, from } : { name: 'player', queue, index, startAt });",
-        "          // A later local navigation wins; do not apply a delayed intent to another play.\n          if (flow3Vietsub && currentRoute.value !== originRoute) { resumeOnboarding(); return; }\n          openPlayer({ name: 'player', queue, index, startAt,\n            ...(from ? { from } : {}), ...(flow3Vietsub ? { flow3Vietsub } : {}) });"
+        "          // A later local navigation wins; do not apply a delayed intent to another play.\n          if (flow3Vietsub && currentRoute.value !== originRoute) { resumeOnboarding(); return; }\n          if (flow3Vietsub && queue[index].hash?.toLowerCase() !== hash) { resumeOnboarding(); return; }\n          openPlayer({ name: 'player', queue, index, startAt,\n            ...(from ? { from } : {}), ...(flow3Vietsub ? { flow3Vietsub } : {}) });"
       ]
     ],
     "src/platform/androidRemote.ts": [
