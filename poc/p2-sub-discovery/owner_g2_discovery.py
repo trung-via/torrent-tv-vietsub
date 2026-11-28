@@ -3,7 +3,7 @@
 The trusted Owner caller establishes C1.5/C5 source and content authority.
 Selection mode returns an Owner-private locator for permitted media only.
 No download, torrent add, play, network ingress or scheduler here.
-The G1 producer's in-process lock and existing browser.pending claim are shared.
+Production G2 uses its own browser profile/port and cache; legacy direct calls are unchanged.
 """
 from __future__ import annotations
 
@@ -348,8 +348,10 @@ def _prompt(query, source_url, request_id):
 def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized_source,
                          model="gemini-4-hydrogen-low", thinking_level="low",
                          session_factory=OwnerAgyWarmSession, should_yield=lambda: False,
-                         owner_request_id=None):
-    """Call under NativeBrowserProducer._browser_lock; no runtime startup effect."""
+                         owner_request_id=None, browser_port=9555):
+    """Call under the lane-local browser lock; no runtime startup effect."""
+    if browser_port not in (9555, 9556):
+        raise ValueError("G2_BROWSER_PORT")
     if authorized_source is not True:
         raise ValueError("G2_SOURCE_AUTHORITY_REQUIRED")
     source_host = _source(source_url)
@@ -409,7 +411,7 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
     opener = build_opener(ProxyHandler({}))
 
     def cdp(path, method="GET"):
-        with opener.open(Request("http://127.0.0.1:9555" + path, method=method), timeout=5) as f:
+        with opener.open(Request(f"http://127.0.0.1:{browser_port}" + path, method=method), timeout=5) as f:
             return f.read(262144)
 
     def pages():
@@ -420,7 +422,7 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
         identity = version.get("webSocketDebuggerUrl", "")
         if (not str(version.get("Browser", "")).startswith("Chrome/")
                 or not isinstance(identity, str)
-                or not identity.startswith("ws://127.0.0.1:9555/devtools/browser/")):
+                or not identity.startswith(f"ws://127.0.0.1:{browser_port}/devtools/browser/")):
             raise WarmSessionError("G2_BROWSER_IDENTITY")
         return identity
 
@@ -450,7 +452,10 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
         # Reuse the enrolled Chrome, not G1's page-specific precondition.
         # An idle blank/new-tab or existing OpenSubtitles tab is sufficient;
         # do not navigate it, read its content or change G1's rules.
-        _ensure_browser_listener(ps, profile)
+        if browser_port == 9555:
+            _ensure_browser_listener(ps, profile)
+        else:
+            _ensure_browser_listener(ps, profile, browser_port)
         browser_identity = browser_id()
         baseline = snapshot()
         initial_ids = set(baseline)
@@ -464,7 +469,8 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
             raise WarmSessionError("G2_BASE_TAB_UNRELATED")
         if base.hostname == source_host:
             raise WarmSessionError("G2_BASE_SOURCE_AMBIGUOUS")
-        override = _session_settings(run, Path.home())
+        override = (_session_settings(run, Path.home()) if browser_port == 9555
+                    else _session_settings(run, Path.home(), browser_port))
         env = dict(os.environ)
         for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL",
                   "AGY_ADC_AUTH", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_QUOTA_PROJECT"):
