@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-dual-preflight",
-  "category": "diagnostics",
+  "operation": "owner-flow3-dual-apply",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-dual-preflight.ps1",
-  "script_sha256": "85bf18c934d23a8fe9ce2a737dff3cfd5e92fb118b2c5281c695c440b2e4d12a",
+  "script_path": "hostops/laptop-ops/operations/flow3-dual-apply.ps1",
+  "script_sha256": "e562cb4265a6a30199ddf0bd575f5930c72588961769df2079153153ec4f7833",
   "arguments": []
 }
