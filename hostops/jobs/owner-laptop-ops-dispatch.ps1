@@ -350,7 +350,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
-    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g2-deploy-readout','owner-g2-deploy-delta','owner-g2-start-applied','owner-g2-production-once','owner-g2-production-readout','owner-g2-production-resume','owner-g2-finalize','owner-g2-finalize-reconcile','owner-g2-finalize-chain','owner-flow3-overlay-readout','owner-flow3-overlay-apply','owner-flow3-overlay-resume','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
+    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g2-deploy-readout','owner-g2-deploy-delta','owner-g2-start-applied','owner-g2-production-once','owner-g2-production-readout','owner-g2-production-resume','owner-g2-finalize','owner-g2-finalize-reconcile','owner-g2-finalize-chain','owner-flow3-overlay-readout','owner-flow3-overlay-apply','owner-flow3-overlay-resume','owner-flow3-dual-preflight','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
         $file = Join-Path $outbox ('odyssey-stage-' + $nonce + '.json')
         if (Test-Path -LiteralPath $file -PathType Leaf) {
             $item = Get-Item -LiteralPath $file -Force
@@ -361,6 +361,81 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
                 }
             }
         }
+    }
+
+    if ($receipt.operation -ceq 'owner-flow3-dual-preflight') {
+        # Runner can see the private APK cache and existing paired ADB; Owner
+        # can see its installed source. Neither side mutates the active app.
+        $f=Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')
+        $v=Get-Content -LiteralPath $f -Raw|ConvertFrom-Json
+        if($receipt.result -cne 'SUCCESS' -or $v.nonce -cne $nonce -or $v.reason -cne 'FLOW3_DUAL_PREFLIGHT_READY_HASH10_U5_R1_HB1'){
+            Write-Output 'FLOW3_DUAL_TV_PREFLIGHT_NOT_RUN_OWNER_HOLD'
+            return
+        }
+        $candidate='d93ca6bfaa25279402ee13a2bc8960d61992c6a4'
+        $sha='9d8ff2c9b34c105b1f74e2419790ff6b02520f92d6aae9fbaf7bea57170858fa'
+        $cache=Join-Path $env:RUNNER_WORKSPACE '_omp-fast-cache'
+        $stage=Join-Path $cache ('flow3-dual-staged\'+$candidate)
+        $apk=Join-Path $stage 'app-armeabi-v7a-debug.apk'
+        $meta=Get-Content -LiteralPath (Join-Path $stage 'stage-receipt.txt')
+        foreach($line in @('schema=TTV-FLOW3-DUAL-APK-STAGE-V1',('app_commit='+$candidate),'baseline_commit=a6bd7882054b2d942809502c34c25c5b9c682cd1','omp_commit=52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f','variant=app-armeabi-v7a-debug.apk',('sha256='+$sha),'device_installed=no')){
+            if($meta -cnotcontains $line){throw 'FLOW3_DUAL_STAGE_RECEIPT_DRIFT'}
+        }
+        if((Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha){throw 'FLOW3_DUAL_APK_DRIFT'}
+        Write-Output 'FLOW3_DUAL_STAGED_APK_SHA256_PASS'
+        $adb='C:\TOOL\Android-SDK\platform-tools\adb.exe'
+        $devices=@(& $adb devices 2>$null)
+        $auth=@($devices|Where-Object{$_ -match '^\S+\s+device(\s|$)'})
+        if($LASTEXITCODE -ne 0 -or $auth.Count -ne 1 -or @($devices|Where-Object{$_ -match '^\S+\s+(offline|unauthorized)(\s|$)'}).Count){Write-Output 'FLOW3_DUAL_TV_HOLD_ADB_UNAVAILABLE';return}
+        $serial=($auth[0] -split '\s+')[0]
+        if(((& $adb -s $serial shell getprop ro.product.model 2>$null)|Out-String).Trim() -cne 'MiTV-ASTR0'){throw 'FLOW3_DUAL_TV_MODEL'}
+        $abi=((& $adb -s $serial shell getprop ro.product.cpu.abilist 2>$null)|Out-String).Trim()
+        if($LASTEXITCODE -ne 0 -or ($abi -split ',') -cnotcontains 'armeabi-v7a'){throw 'FLOW3_DUAL_TV_ABI'}
+        $pkg='com.spacesarmat.omp.test'
+        $act=((& $adb -s $serial shell dumpsys activity activities 2>$null)|Out-String)
+        if($LASTEXITCODE -ne 0){throw 'FLOW3_DUAL_TV_ACTIVITY'}
+        $playing=@($act -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match 'com\.spacesarmat\.omp\.test/' -and $_ -match 'PlayerActivity'}).Count -gt 0
+        $paths=@(& $adb -s $serial shell pm path $pkg 2>$null|ForEach-Object{([string]$_).Trim()})
+        if($LASTEXITCODE -ne 0 -or $paths.Count -ne 1 -or $paths[0] -notmatch '^package:(/data/app/[^ \r\n]+/base\.apk)$'){Write-Output 'FLOW3_DUAL_TV_HOLD_OLD_APK_LAYOUT';return}
+        $remote=$Matches[1]
+        # Retain actual old base APK privately for rollback, no device writes.
+        $rollback=Join-Path $cache ('flow3-dual-rollback\'+$nonce)
+        New-Item -ItemType Directory -Path $rollback -ErrorAction Stop|Out-Null
+        $old=Join-Path $rollback 'previous-base.apk'
+        & $adb -s $serial pull $remote $old 2>$null|Out-Null
+        if($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $old -PathType Leaf)){throw 'FLOW3_DUAL_TV_OLD_APK_READ'}
+        $oldsha=(Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant()
+        $tool=@(Get-ChildItem -LiteralPath 'C:\TOOL\Android-SDK\build-tools' -Directory|Where-Object{(Test-Path -LiteralPath (Join-Path $_.FullName 'apksigner.bat')) -and (Test-Path -LiteralPath (Join-Path $_.FullName 'aapt2.exe'))}|Sort-Object Name -Descending|Select-Object -First 1)
+        if($tool.Count -ne 1){throw 'FLOW3_DUAL_SDK_TOOLS'}
+        $signer=Join-Path $tool[0].FullName 'apksigner.bat'
+        $aapt=Join-Path $tool[0].FullName 'aapt2.exe'
+        $jdk=@(Get-ChildItem -LiteralPath 'C:\Program Files\Eclipse Adoptium' -Directory|Where-Object{$_.Name -like 'jdk-21*' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\java.exe'))}|Sort-Object Name -Descending|Select-Object -First 1)
+        if($jdk.Count -ne 1){throw 'FLOW3_DUAL_JAVA'}
+        $env:JAVA_HOME=$jdk[0].FullName
+        function Cert([string]$file){
+            $lines=@(& $signer verify --print-certs $file 2>$null)
+            if($LASTEXITCODE -ne 0){throw 'FLOW3_DUAL_APK_SIGNATURE'}
+            $digests=@($lines|ForEach-Object{if($_ -match '^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]{64})$'){$Matches[1].ToLowerInvariant()}})
+            if($digests.Count -ne 1){throw 'FLOW3_DUAL_APK_SIGNER_COUNT'}
+            return $digests[0]
+        }
+        function Version([string]$file){
+            $lines=@(& $aapt dump badging $file 2>$null)
+            if($LASTEXITCODE -ne 0){throw 'FLOW3_DUAL_APK_BADGING'}
+            $p=@($lines|Where-Object{$_ -match "^package: name='com\.spacesarmat\.omp\.test' versionCode='\d+'"})
+            if($p.Count -ne 1 -or $p[0] -notmatch "versionCode='(\d+)'"){throw 'FLOW3_DUAL_APK_PACKAGE'}
+            return [long]$Matches[1]
+        }
+        $oldcert=Cert $old;$newcert=Cert $apk
+        $oldver=Version $old;$newver=Version $apk
+        $proof=@{schema='TTV-FLOW3-DUAL-TV-PREFLIGHT-V1';nonce=$nonce;candidate=$candidate;new_sha256=$sha;old_sha256=$oldsha;old_version=$oldver;new_version=$newver;signer_match=($oldcert -ceq $newcert);player_foreground=$playing;observed_utc=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()}
+        [IO.File]::WriteAllText((Join-Path $rollback 'preflight.json'),($proof|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+        if($oldcert -cne $newcert){Write-Output 'FLOW3_DUAL_TV_HOLD_SIGNER_MISMATCH';return}
+        if($newver -lt $oldver){Write-Output 'FLOW3_DUAL_TV_HOLD_VERSION_DOWNGRADE';return}
+        if($playing){Write-Output 'FLOW3_DUAL_TV_HOLD_ACTIVE_PLAYBACK';return}
+        Write-Output 'FLOW3_DUAL_TV_PREFLIGHT_PASS_ARM32_SIGNER_VERSION_ROLLBACK'
+        Write-Output ('FLOW3_DUAL_OLD_APK_SHA256='+$oldsha)
+        return
     }
 
     if ($receipt.operation -ceq 'owner-g2-production-once') {
