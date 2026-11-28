@@ -380,6 +380,11 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             $hash=(& git hash-object --no-filters -- $dest|Out-String).Trim()
             if($LASTEXITCODE -ne 0 -or $hash -cne $files[$n]){throw 'G2_PROD_PLAY_SOURCE_DRIFT'}
         }
+        $lr=Get-Content -LiteralPath (Join-Path $outbox ('g2-'+$nonce+'.library.json')) -Raw|ConvertFrom-Json
+        if($lr.request_id -cne $nonce -or $lr.status -cne 'LIBRARY_READY' -or $lr.play -ne $true){throw 'G2_PROD_RECEIPT_BINDING'}
+        if($lr.torrent_hash -ceq 'c9e15763f722f23e98a29decdfae341b98d53056'){Write-Output 'G2_PROD_FIXTURE=COSMOS_LAUNDROMAT'}
+        elseif($lr.torrent_hash -ceq 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c'){Write-Output 'G2_PROD_FIXTURE=BIG_BUCK_BUNNY'}
+        else{throw 'G2_PROD_FIXTURE_UNVERIFIED'}
         Write-Output 'G2_PROD_PLAY_SOURCE_PINNED'
         & pwsh -NoLogo -NoProfile -NonInteractive -File (Join-Path $dir 'owner_movie_flow.ps1') -RequestId $nonce
         if($LASTEXITCODE -ne 0){throw 'G2_PROD_PLAY_HOLD_NO_REPLAY'}
