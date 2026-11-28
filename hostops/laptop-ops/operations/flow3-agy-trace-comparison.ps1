@@ -1,4 +1,4 @@
-# Explicit title request; one metadata-only AGY job, no Library precheck or playback.
+# Read-only comparison of two completed G2 traces. No provider, CDP, playback, or browser changes.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw 'OWNER_CONTEXT_REQUIRED'}
@@ -6,7 +6,7 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw|ConvertFrom-Json
 if($rq.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or $rq.nonce -cnotmatch '^[a-f0-9]{32}$'){throw 'REQUEST_INVALID'}
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
-$run=Join-Path $root ('OwnerBridge\backups\flow3-agy-denial-readout-'+$rq.nonce)
+$run=Join-Path $root ('OwnerBridge\backups\flow3-agy-trace-comparison-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $code='FLOW3_TRACE_LOCAL_ERROR'
 try {
@@ -153,7 +153,7 @@ except Hold as e: print("FLOW3_TRACE_HOLD_"+str(e))
 except Exception:
     import traceback
     (run/"private-error.txt").write_text(traceback.format_exc(),encoding="utf-8")
-    print("FLOW3_DENIAL_LOCAL_ERROR")
+    print("FLOW3_TRACE_LOCAL_ERROR")
 '@
 $f=Join-Path $run 'deploy.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
