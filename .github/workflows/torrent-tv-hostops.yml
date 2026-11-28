@@ -39,6 +39,7 @@ jobs:
         shell: pwsh
         env:
           HOSTOPS_REQUEST: ${{ github.event.comment.body }}
+          HOSTOPS_COMMENT_ID: ${{ github.event.comment.id }}
           HOSTOPS_GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -86,6 +87,12 @@ jobs:
               $result = 'HOSTOPS_WRITE_PROBE_PASS'
             }
             finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+          }
+          elseif ($command.StartsWith('/tv-hostops movie ', [StringComparison]::Ordinal)) {
+            $job = Join-Path $env:GITHUB_WORKSPACE 'hostops\jobs\flow3-dispatch.ps1'
+            & pwsh.exe -NoLogo -NoProfile -NonInteractive -File $job
+            if ($LASTEXITCODE -ne 0) { throw 'FLOW3_DISPATCH_FAILED_NO_REPLAY' }
+            $result = 'HOSTOPS_FLOW3_COMMAND_COMPLETED'
           }
           elseif ($command -cmatch '^/tv-hostops run ([0-9a-f]{40}) ([a-z][a-z0-9-]{0,39})$') {
             $sha = $Matches[1]
