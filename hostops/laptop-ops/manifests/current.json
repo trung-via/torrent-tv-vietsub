@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g2-finalize-chain",
-  "category": "owner-maintenance",
+  "operation": "owner-flow3-overlay-readout",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g2-finalize-chain.ps1",
-  "script_sha256": "dfddf0e9a735623c36321541b0c41a43fe2fc434d84f182e8a4c03f53dd9a9b3",
+  "script_path": "hostops/laptop-ops/operations/flow3-overlay-readout.ps1",
+  "script_sha256": "a9cf1c0ad77d7a7938a75d8e2d4d7a89dc2a0675803c4d2aef321f0784476a7f",
   "arguments": []
 }
