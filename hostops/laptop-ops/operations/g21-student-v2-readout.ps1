@@ -9,7 +9,7 @@ New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import pathlib,sys,json,re
 root,spool,run=map(pathlib.Path,sys.argv[1:4])
-source="08cb7c2a7494280ccaa050891708a579cf338417"
+source="99ff9d03ff90bae805ae6235108b1894ff1a002f"
 def read(p,limit=16777216):
     if not p.is_file() or p.is_symlink() or p.stat().st_size>limit:return ""
     return p.read_text(encoding="utf-8-sig",errors="replace")
@@ -30,8 +30,8 @@ lines=[]
 known={"list_pages":"LIST_PAGES","select_page":"SELECT_PAGE","navigate_page":"NAVIGATE_PAGE","take_snapshot":"TAKE_SNAPSHOT","click":"CLICK","fill":"FILL","press_key":"PRESS_KEY","wait_for":"WAIT_FOR","evaluate_script":"EVALUATE_SCRIPT"}
 def flags(s,patterns):
     return "+".join(k for k,p in patterns if re.search(p,s,re.I)) or "NONE"
-actions=[("QUERY",r"big[ +%20._-]+buck[ +%20._-]+bunny"),("FORM",r"\bform\b|searchinput|search_input|input\[|input\.|input#"),("SUBMIT",r"\.submit\(|requestSubmit|dispatchEvent|\.click\(|press_key"),("NAVIGATION",r"location\.href|location\.assign|location\.replace|window\.open|navigate_page"),("DOM_SELECT",r"querySelector|getElementById|getElementsBy|querySelectorAll"),("TEXT_READ",r"innerText|textContent|document\.title"),("LINK_READ",r"\.href|a\[href|\.links"),("ROW_READ",r"\brows\b|tbody|querySelectorAll\(.{0,30}tr|table|torrent"),("SEED_READ",r"seeders?|seeds"),("SIZE_READ",r"\bsize\b|filesize|[0-9]\s*[GM]i?B"),("RESOLUTION",r"1080p|720p|2160p|resolution"),("SORT",r"\.sort\(|sortBy|orderBy|sort=")]
-signals=[("BLOCK",r"captcha|access denied|403 forbidden|just a moment|verify (?:you are|that you are) human|checking your browser|cloudflare"),("QUERY",actions[0][1]),("SEED",r"seeders?|seeds"),("SIZE",r"\bsize\b|[0-9.]+\s*[GM]i?B"),("RESULT",r"\bresults?\b|no torrents|no matches|nothing found"),("1080P",r"1080p"),("720P",r"720p"),("2160P",r"2160p"),("EXT_TO",r"(?:www\.)?ext\.to")]
+actions=[("QUERY",r"wicker"),("FORM",r"\bform\b|searchinput|search_input|input\[|input\.|input#"),("SUBMIT",r"\.submit\(|requestSubmit|dispatchEvent|\.click\(|press_key"),("NAVIGATION",r"location\.href|location\.assign|location\.replace|window\.open|navigate_page"),("DOM_SELECT",r"querySelector|getElementById|getElementsBy|querySelectorAll"),("TEXT_READ",r"innerText|textContent|document\.title")]
+signals=[("BLOCK",r"captcha|access denied|403 forbidden|just a moment|verify (?:you are|that you are) human|checking your browser"),("QUERY",r"wicker"),("YEAR",r"\b2026\b"),("RESULT",r"\bresults?\b|no matches|nothing found"),("EXT_TO",r"(?:www\.)?ext\.to")]
 def safe_status(x):
     return x if isinstance(x,str) and x in ("MATCH_FOUND","NO_MATCH","ACCESS_BLOCKED","TOOL_UNAVAILABLE","UNKNOWN","TIMEOUT","CLI_FAILED","MCP_UNVERIFIED","CONFIG_CHANGED") else "UNKNOWN"
 def num(value):
@@ -107,22 +107,11 @@ for ri,(_,n) in enumerate(sorted(prior),1):
             lines.append(f"G21_FULL_R{ri}_C{ci}=NON_OBJECT");continue
         title=get(c,("title","name","release","release_name","filename","torrent_name"))
         title=title if isinstance(title,str) else ""
-        combined=json.dumps(c,ensure_ascii=True)
-        res=next((r.upper() for r in ("2160p","1080p","720p","480p","576p","360p") if re.search(r"\b"+r+r"\b",combined,re.I)),"UNKNOWN")
-        match=bool(re.search(r"big[ ._-]+buck[ ._-]+bunny",title,re.I))
-        year=get(c,("year","release_year"))
-        if year is None:
-            m=re.search(r"\b(19\d{2}|20\d{2})\b",title);year=m[1] if m else None
-        year=num(year)
+        match=bool(re.fullmatch(r"wicker(?:\s*\(2026\))?",title,re.I))
+        year=num(get(c,("year","release_year")))
+        if year is None and re.search(r"\b2026\b",title):year=2026
         year=str(int(year)) if year is not None and 1900<=year<=2100 else "UNKNOWN"
-        seed=num(get(c,("seeds","seeders","seed","seed_count","reported_seeds","reported_seeders")))
-        seed=str(int(seed)) if seed is not None and 0<=seed<=100000000 else "UNKNOWN"
-        mb=size_mb(get(c,("size","reported_size","file_size","total_size","size_text")))
-        if mb is None:
-            b=num(get(c,("size_bytes","total_bytes","bytes")))
-            if b is not None:mb=round(b/1000000)
-        fmt=flags(combined,[("H264",r"h[ ._-]?264|x264|avc"),("H265",r"h[ ._-]?265|x265|hevc"),("AV1",r"\bav1\b"),("VP9",r"\bvp9\b"),("MKV",r"\bmkv\b"),("MP4",r"\bmp4\b"),("WEB_DL",r"web[ ._-]?dl"),("BLURAY",r"blu[ ._-]?ray|bdrip")])
-        lines.append(f"G21_FULL_R{ri}_C{ci}=TITLE_MATCH:{int(match)},YEAR:{year},RES:{res},SIZE_MB:{mb if mb is not None else 'UNKNOWN'},SEEDS:{seed},FORMAT:{fmt}")
+        lines.append(f"G21_FULL_R{ri}_C{ci}=TITLE_MATCH:{int(match)},YEAR:{year}")
     reports.append({"run":ri,"status":safe_status(report.get("status")),"final_status":safe_status(final.get("status")),"recipe":rec,"actions":eventrows})
 (run/"BRAIN_FULL_REPORT.json").write_text(json.dumps(reports,indent=2),encoding="utf-8")
 nonce=sys.argv[4]
