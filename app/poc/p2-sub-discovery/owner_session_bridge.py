@@ -800,35 +800,40 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
         try:
             # Three simultaneous film jobs, one Owner process, no duplicate
             # translator stack. A TV close only removes its active P4 feed.
-            with ThreadPoolExecutor(max_workers=3,
+            # Keep the three G1 slots and one independent G2 slot.
+            with ThreadPoolExecutor(max_workers=4,
                                     thread_name_prefix="ttv-film") as pool:
                 active: set[Future] = set()
+                movie_active: set[Future] = set()
                 while True:
                     consume_inert_runner_wakes()
-                    finished = {future for future in active if future.done()}
+                    finished = {future for future in active | movie_active if future.done()}
                     for future in finished:
                         try:
                             future.result()
                         except Exception as exc:
-                            # A claim already exists: never blindly rerun an
-                            # unexpected provider-effect or callback failure.
                             owner_full_trace("P2_BACKGROUND_WORKER_FAILED", error=exc)
                     active.difference_update(finished)
+                    movie_active.difference_update(finished)
                     available = 3 - len(active)
                     if available:
-                        poll_private_events(
-                            owner_root=private_root, processor=processor,
-                            emit=emit, max_events=available,
-                            submit=lambda work: active.add(pool.submit(work)))
-                    # G1 gets first refusal on every tick. Never schedule a new
-                    # G2 batch while any film work (or prior G2) is active.
-                    if not active and callable(getattr(trusted_v3_factory, "g2_discover", None)):
-                        from owner_movie_handoff import publish_library_receipt
-                        poll_owner_g2_idle(
-                            active=active, factory=trusted_v3_factory,
-                            owner_root=private_root, cache_root=cache_root,
-                            handoff=publish_library_receipt, emit=emit, trace=owner_full_trace,
-                            submit=lambda work: active.add(pool.submit(work)))
+                        try:
+                            poll_private_events(
+                                owner_root=private_root, processor=processor,
+                                emit=emit, max_events=available,
+                                submit=lambda work: active.add(pool.submit(work)))
+                        except Exception as exc:
+                            owner_full_trace("OWNER_G1_POLL_FAILED", error=exc)
+                    if not movie_active and callable(getattr(trusted_v3_factory, "g2_discover", None)):
+                        try:
+                            from owner_movie_handoff import publish_library_receipt
+                            poll_owner_g2_idle(
+                                active=movie_active, factory=trusted_v3_factory,
+                                owner_root=private_root, cache_root=cache_root,
+                                handoff=publish_library_receipt, emit=emit, trace=owner_full_trace,
+                                submit=lambda work: movie_active.add(pool.submit(work)))
+                        except Exception as exc:
+                            owner_full_trace("OWNER_G2_POLL_FAILED", error=exc)
                     time.sleep(interval_seconds)
         finally:
             ticker_stop.set()
