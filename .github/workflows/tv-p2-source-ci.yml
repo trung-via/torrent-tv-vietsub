@@ -27,3 +27,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s poc/p2-source -p 'test_*.py' -v
+
+      - name: Parse Flow3 PowerShell entrypoints without executing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($file in @('hostops/jobs/flow3-dispatch.ps1','hostops/laptop-ops/operations/flow3-dispatch.ps1')){
+            $tokens=$null;$errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $file),[ref]$tokens,[ref]$errors)|Out-Null
+            if($errors.Count -ne 0){$errors|ForEach-Object{Write-Host $_.Message};throw 'FLOW3_PARSE_FAILED'}
+          }
+          Write-Host 'FLOW3_POWERSHELL_PARSE_PASS'
