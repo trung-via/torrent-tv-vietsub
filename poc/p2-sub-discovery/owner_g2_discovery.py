@@ -369,8 +369,8 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
     # The main-targeted source slice has no live Owner runtime of its own.
     # Resolve the existing Owner dependencies only at the native call boundary.
     try:
-        from agy_v13_native_producer import _ensure_browser_listener, _session_settings, _write
-        from translator_gateway import preflight_antigravity, _validated_antigravity_alias
+        from owner_g2_support import (_ensure_browser_listener, _session_settings, _write,
+                                      preflight_antigravity, _validated_antigravity_alias)
     except ImportError as exc:
         raise WarmSessionError("G2_OWNER_RUNTIME_DEPENDENCY_MISSING") from exc
     parent = Path(cache_root) / ".native-v13"
