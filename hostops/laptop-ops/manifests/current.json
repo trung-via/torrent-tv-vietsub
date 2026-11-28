@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-post-human-verification",
-  "category": "diagnostics",
+  "operation": "owner-movie-ingress-helper-repair",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-post-human-verification.ps1",
-  "script_sha256": "c725502f58e0c1d872b76a2b098537d10b833b97233e291d226e73f2031aa08f",
+  "script_path": "hostops/laptop-ops/operations/movie-ingress-helper-repair.ps1",
+  "script_sha256": "73f860dfc1777584054fe31a848258e0f11d512aa742e7a09b61f741bddf7e29",
   "arguments": []
 }
