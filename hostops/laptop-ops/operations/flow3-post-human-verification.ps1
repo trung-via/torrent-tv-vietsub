@@ -6,9 +6,9 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw|ConvertFrom-Json
 if($rq.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or $rq.nonce -cnotmatch '^[a-f0-9]{32}$'){throw 'REQUEST_INVALID'}
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
-$run=Join-Path $root ('OwnerBridge\backups\flow3-post-human-verification-'+$rq.nonce)
+$run=Join-Path $root ('OwnerBridge\backups\flow3-retest-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
-$code='FLOW3_POST_HUMAN_LOCAL_ERROR'
+$code='FLOW3_RETEST_LOCAL_ERROR'
 try {
 $py=@'
 import ast,hashlib,json,os,pathlib,re,shutil,subprocess,sys,time,urllib.request,difflib
@@ -75,10 +75,7 @@ def replace(p,b):
     os.replace(tmp,p)
 def main():
     from urllib.parse import urlsplit
-    n=matching("7fcc7d666a6fac8076f7916fffc471c7bd0230a9","FLOW3_AGY_HOLD_AGY_STREAM_ACCESS_BLOCKED")
-    readout=matching("c6de6e3b0cabe7d5bc45fbcfd7df110f13980638","FLOW3_DENIAL_CHALLENGE_STRONG0_RESTORE0_MARKER1_SELECT0_LIB0")
-    evidence=read_doc(owner/"backups"/("flow3-agy-denial-readout-"+readout)/"diagnosis.json")
-    need(evidence["request_id"]==n and evidence["marker"] is True and not evidence["selected"] and not evidence["library"],"PRIOR_DIAGNOSIS")
+    n=matching("10e3c1e43e0133313292eb61c864661d0a87e5ab","FLOW3_POST_HUMAN_HOLD_AGY_STREAM_ACCESS_BLOCKED")
     parent=cache/"movie-discovery"/".native-v13";batch=parent/("g2-"+n);mark=parent/"browser.pending"
     terminal=read_doc(batch/"terminal.json");receipt=read_doc(inbox/("g2-"+n+".receipt.json"))
     need(terminal.get("owner_request_id")==n and terminal.get("reason")=="AGY_STREAM_ACCESS_BLOCKED" and terminal.get("results")==[] and receipt.get("request_id")==n and receipt.get("reason")=="AGY_STREAM_ACCESS_BLOCKED" and receipt.get("results")==[],"TERMINAL_BIND")
@@ -108,21 +105,21 @@ def main():
         if len(pages)!=1 or pages[0].get("url") not in ("about:blank","chrome://newtab/","chrome://new-tab-page/"):
             raise Hold("BROWSER_NOT_IDLE_C"+str(int(challenge))+"_P"+str(len(pages))+"_S"+str(source))
         return {"state":"IDLE","browser":ident,"tab":pages[0].get("id"),"url":pages[0].get("url")}
-    first=quiet();need(quiet()==first and safe_file(mark)==marker,"RECONCILE_DRIFT")
+    first=quiet();need(first["state"]=="IDLE","BROWSER_NOT_IDLE");need(quiet()==first and safe_file(mark)==marker,"RECONCILE_DRIFT")
+    # Only after a terminal original request and a reconciled idle browser,
+    # repeat the same metadata-only lookup once in the unchanged profile.
+    h=read_doc(owner/"agent-health.json")
+    need(task()=="RUNNING" and h.get("state")=="READY" and 0<=time.time()-h.get("observed_utc_epoch",0)<=30,"OWNER_HEARTBEAT")
+    payload=read_doc(owner/"backups"/("flow3-post-human-verification-"+n)/"private-request.json")
+    need(payload.get("request_id")==n and payload.get("schema")=="TTV-OWNER-G2-METADATA-V1" and len(payload.get("queries",[]))==1,"ORIGINAL_QUERY")
+    query=payload["queries"][0]
+    need(query.get("select_release") is False and query.get("media_authorized") is False and query.get("play") is False,"METADATA_ONLY")
     # Only a terminal metadata-only request, no library/selection, no active
     # G2 job, and no outstanding browser effect. Preserve marker bytes.
     archive=run/"browser.pending.archived"
     os.rename(mark,archive)
     need(safe_file(archive)==marker and not mark.exists(),"ARCHIVE_VERIFY")
     write_doc("marker-archived.json",{"request_id":n,"blob":blob(marker),"browser":first["state"]})
-    # Only after a terminal original request and a reconciled idle browser,
-    # repeat the same metadata-only lookup once in the unchanged profile.
-    h=read_doc(owner/"agent-health.json")
-    need(task()=="RUNNING" and h.get("state")=="READY" and 0<=time.time()-h.get("observed_utc_epoch",0)<=30,"OWNER_HEARTBEAT")
-    payload=read_doc(owner/"backups"/("flow3-agy-metadata-"+n)/"private-request.json")
-    need(payload.get("request_id")==n and payload.get("schema")=="TTV-OWNER-G2-METADATA-V1" and len(payload.get("queries",[]))==1,"ORIGINAL_QUERY")
-    query=payload["queries"][0]
-    need(query.get("select_release") is False and query.get("media_authorized") is False and query.get("play") is False,"METADATA_ONLY")
     payload["request_id"]=nonce
     req=run/"private-request.json";req.write_text(json.dumps(payload),encoding="utf-8")
     write_doc("submit-intent.json",{"request_id":nonce,"prior":n})
@@ -136,20 +133,20 @@ def main():
             need(v.get("schema")=="TTV-OWNER-G2-RECEIPT-V1" and v.get("request_id")==nonce,"RECEIPT_BIND")
             if v.get("status")!="COMPLETE":
                 reason=v.get("reason","UNKNOWN")
-                return "FLOW3_POST_HUMAN_HOLD_"+(reason if isinstance(reason,str) and re.fullmatch(r"[A-Z0-9_]{1,60}",reason) else "UNKNOWN")
+                return "FLOW3_RETEST_HOLD_"+(reason if isinstance(reason,str) and re.fullmatch(r"[A-Z0-9_]{1,60}",reason) else "UNKNOWN")
             rows=v.get("results",[])
             need(len(rows)==1 and rows[0].get("owner_request_id")==nonce,"RESULT_BIND")
             status=rows[0].get("status","UNKNOWN")
             need(isinstance(status,str) and re.fullmatch(r"[A-Z0-9_]{1,50}",status),"RESULT_STATUS")
-            return "FLOW3_POST_HUMAN_METADATA_"+status
+            return "FLOW3_RETEST_METADATA_"+status
         time.sleep(1)
-    return "FLOW3_POST_HUMAN_PENDING_NO_REPLAY"
+    return "FLOW3_RETEST_PENDING_NO_REPLAY"
 try: print(main())
-except Hold as e: print("FLOW3_POST_HUMAN_HOLD_"+str(e))
+except Hold as e: print("FLOW3_RETEST_HOLD_"+str(e))
 except Exception:
     import traceback
     (run/"private-error.txt").write_text(traceback.format_exc(),encoding="utf-8")
-    print("FLOW3_POST_HUMAN_LOCAL_ERROR")
+    print("FLOW3_RETEST_LOCAL_ERROR")
 '@
 $f=Join-Path $run 'deploy.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
