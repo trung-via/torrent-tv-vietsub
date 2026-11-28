@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-g2-marker-repair",
-  "category": "owner-maintenance",
+  "operation": "owner-flow3-training-audit",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-g2-marker-repair.ps1",
-  "script_sha256": "5c9bef9995deff9ca6e537111e7ddcd0a2fe6ca12ee4f39a0cf31bc7bd6f618f",
+  "script_path": "hostops/laptop-ops/operations/flow3-training-audit.ps1",
+  "script_sha256": "2a0dd410ee283a2e905ab258cddd20c3bdfc3a85ad33ce928506ad88b5c7a0cf",
   "arguments": []
 }
