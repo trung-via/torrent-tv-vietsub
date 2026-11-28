@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-training-audit",
-  "category": "diagnostics",
+  "operation": "agy-native-browser-readout-1124",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g21-student-v2-failure-readout.ps1",
-  "script_sha256": "653c2a6f86739c3bd38b6d021b6ae53cfe7bcd0f37b59c299edc464a3db88300",
+  "script_path": "hostops/laptop-ops/operations/g21-student-v2-metadata-9555.ps1",
+  "script_sha256": "9c376d9a0cc643a3a284abc8c521585d1827be80143d16c7ce3d2860f1393448",
   "arguments": []
 }
