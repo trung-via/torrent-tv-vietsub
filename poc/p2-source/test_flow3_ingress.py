@@ -45,5 +45,25 @@ class Flow3IngressTests(unittest.TestCase):
                 build_request(c,"123")
 
 
+    def test_workflow_routes_and_manifest_matches_operation(self):
+        from pathlib import Path
+        import hashlib
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root/".github/workflows/torrent-tv-hostops.yml").read_text()
+        self.assertIn("HOSTOPS_COMMENT_ID: " + "$" + "{{ github.event.comment.id }}", workflow)
+        self.assertIn("StartsWith('/tv-hostops movie '", workflow)
+        self.assertIn("hostops\\jobs\\flow3-dispatch.ps1", workflow)
+        manifest = json.loads((root/"hostops/laptop-ops/manifests/current.json").read_text())
+        self.assertEqual(manifest["operation"],"owner-flow3-dispatch")
+        self.assertEqual(hashlib.sha256((root/manifest["script_path"]).read_bytes()).hexdigest(),manifest["script_sha256"])
+        runner = (root/"hostops/jobs/flow3-dispatch.ps1").read_text()
+        owner = (root/manifest["script_path"]).read_text()
+        self.assertIn("owner_movie_flow.ps1",runner)
+        self.assertIn("owner_g2_submit.py",owner)
+        self.assertIn("FLOW3_PRIOR_REQUEST_NO_REPLAY",runner)
+        self.assertNotIn("Get-NetTCPConnection",runner)
+        self.assertNotIn("browser.pending",runner)
+
+
 if __name__ == "__main__":
     unittest.main()
