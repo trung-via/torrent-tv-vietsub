@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g2-deploy-delta",
+  "operation": "owner-g2-start-applied",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g2-deploy-delta.ps1",
-  "script_sha256": "ce081d1a7eb74298b8e1491795845c943b478034d2512c3258ea79eb792f1404",
+  "script_path": "hostops/laptop-ops/operations/g2-start-applied.ps1",
+  "script_sha256": "e23bf25147ffde9543e28ea6f38cecbea9a4fe6e6ca2e57f06696e1107ce1c02",
   "arguments": []
 }
