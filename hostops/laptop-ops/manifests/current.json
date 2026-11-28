@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-overlay-apply",
+  "operation": "owner-flow3-overlay-resume",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-overlay-apply.ps1",
-  "script_sha256": "1e2f9089fd63353f629388cc2c189a84d181711e75cb7091bec76bfb37b91c50",
+  "script_path": "hostops/laptop-ops/operations/flow3-overlay-resume.ps1",
+  "script_sha256": "b28f02986d3c4873be9ae1042b7ce07f648459f8b96b0544ea4a2a31db15bc05",
   "arguments": []
 }
