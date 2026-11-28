@@ -1,0 +1,72 @@
+{
+  "schema": "TTV-FLOW3-SOURCE-OVERLAY-V1",
+  "runtime_base": "a6bd7882054b2d942809502c34c25c5b9c682cd1",
+  "merged_g2_source": "3ba642310c2191468a6aadfa1e73e1dc478b5e8d",
+  "patches": [
+    {
+      "path": "app/poc/p2-sub-discovery/owner_session_bridge.py",
+      "source": "poc/p2-sub-discovery/owner_session_bridge.py",
+      "base_blob": "0db3455941370dc327da5bcc025ec39153c74ba0",
+      "blob": "94c08faad40554f451271b0c7f5267256a4fe2ab",
+      "kind": "bridge",
+      "begin": "def _g2_request(payload, request_id):\n",
+      "end": "def run_owner_agent(",
+      "replace_block": "# G2 source is maintained on main; retain the old private recovery imports.\nfrom owner_g2_inbox import (\n    _g2_request, _publish_g2_selection, enqueue_g2_metadata,\n    poll_private_g2 as _poll_private_g2, poll_owner_g2_idle,\n)\n\n\ndef poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emit=print,\n                    handoff=None):\n    return _poll_private_g2(owner_root=owner_root, cache_root=cache_root,\n                            discover=discover, submit=submit, emit=emit,\n                            handoff=handoff, trace=owner_full_trace)\n\n\n",
+      "old": "                    discover = getattr(trusted_v3_factory, \"g2_discover\", None)\n                    if not active and callable(discover):\n                        from owner_movie_handoff import publish_library_receipt\n                        poll_private_g2(\n                            owner_root=private_root, cache_root=cache_root,\n                            discover=discover, emit=emit,\n                            handoff=publish_library_receipt,\n                            submit=lambda work: active.add(pool.submit(work)))",
+      "new": "                    if not active and callable(getattr(trusted_v3_factory, \"g2_discover\", None)):\n                        from owner_movie_handoff import publish_library_receipt\n                        poll_owner_g2_idle(\n                            active=active, factory=trusted_v3_factory,\n                            owner_root=private_root, cache_root=cache_root,\n                            handoff=publish_library_receipt, emit=emit, trace=owner_full_trace,\n                            submit=lambda work: active.add(pool.submit(work)))"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_p3_p4_runtime.py",
+      "source": "poc/p2-sub-discovery/owner_p3_p4_runtime.py",
+      "base_blob": "33277f5ea67cabf95cb096ba87a6c2c659bfb6e1",
+      "blob": "325df0cddbbc8f9bd86ecf4c64ffdaf52c5b8d9b",
+      "kind": "literal",
+      "old": "    if os.environ.get(\"TTV_G2_WARM\") == \"1\":\n        factory.g2_discover = runner.discover_movies",
+      "new": "    if os.environ.get(\"TTV_G2_WARM\") == \"1\":\n        from owner_g2_inbox import bind_owner_g2\n        bind_owner_g2(factory, runner)"
+    }
+  ],
+  "copies": [
+    {
+      "source": "poc/p2-sub-discovery/agy_owner_warm_session.py",
+      "path": "app/poc/p2-sub-discovery/agy_owner_warm_session.py",
+      "blob": "9cbc45c643d99cc9655fe9a7357eafd07cd227d0"
+    },
+    {
+      "source": "poc/p2-sub-discovery/owner_g2_discovery.py",
+      "path": "app/poc/p2-sub-discovery/owner_g2_discovery.py",
+      "blob": "4b4a0ccd9b7657bd687e390b287cc41ba3c2cde2"
+    },
+    {
+      "source": "poc/p2-sub-discovery/owner_g2_support.py",
+      "path": "app/poc/p2-sub-discovery/owner_g2_support.py",
+      "blob": "11ed35c47a1562863abae0f56b550f8c74bf29d0"
+    },
+    {
+      "source": "poc/p2-sub-discovery/owner_g2_inbox.py",
+      "path": "app/poc/p2-sub-discovery/owner_g2_inbox.py",
+      "blob": "6ae25b5d222752019c7999ac8945626f1a2ceb89"
+    },
+    {
+      "source": "poc/p2-sub-discovery/owner_g2_submit.py",
+      "path": "app/poc/p2-sub-discovery/owner_g2_submit.py",
+      "blob": "0eafd74eeb08dac8d461a353dbe96447e5a783c1"
+    },
+    {
+      "source": "poc/p2-source/owner_movie_handoff.py",
+      "path": "app/poc/p2-sub-discovery/owner_movie_handoff.py",
+      "blob": "0e5d351af58d089bd53d3fd78b4a6f46509ecbbb"
+    },
+    {
+      "source": "poc/p2-source/owner_movie_flow.ps1",
+      "path": "runner/owner_movie_flow.ps1",
+      "blob": "cd5551d6d3d0d0b590e44cee9a97b4fbab7a5b09"
+    },
+    {
+      "source": "poc/p2-source/owner_movie_play.ps1",
+      "path": "runner/owner_movie_play.ps1",
+      "blob": "3863ed82c0d81aa9c08feeca6318eac3b36c577e"
+    }
+  ],
+  "package_commit": "b1ee5e177b9768d4a5e96a79ca4b22602236855f",
+  "package_tree": "f602ddc3284c552875a541a8cb8f636a30506ddb"
+}
