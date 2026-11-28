@@ -14,7 +14,7 @@ function Ready {
  if($r.Count -ne 1 -or $r[0].ProcessId -ne $ids[0] -or $r[0].CommandLine -notmatch '--remote-debugging-port=9555(?:\s|"|$)'){throw 'G21_CDP_PROFILE_CONFLICT'}
  try{$v=Invoke-RestMethod -Uri 'http://127.0.0.1:9555/json/version' -NoProxy -TimeoutSec 3; return ($v.Browser -match '^Chrome/' -and $v.webSocketDebuggerUrl -match '^ws://127\.0\.0\.1:9555/')}catch{return $false}
 }
-$active=@(Get-CimInstance Win32_Process | Where-Object {$_.ProcessId -ne $PID -and $_.CommandLine -and ($_.Name -match '^agy(?:\.exe)?$' -or ($_.Name -match '^(node|python|pythonw)\.exe$' -and $_.CommandLine -match 'chrome-devtools-mcp|--browser-url=http://127\.0\.0\.1:9555'))})
+$active=@(Get-CimInstance Win32_Process | Where-Object {$_.ProcessId -ne $PID -and $_.CommandLine -and $_.Name -match '^(node|python|pythonw|agy)(?:\.exe)?$' -and $_.CommandLine -match 'http://127\.0\.0\.1:9555(?:\s|"|$)'})
 if($active.Count){throw 'G21_ACTIVE_BROWSER_CONSUMER'}
 $pending=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub\subtitle-trials\.native-v13\browser.pending'
 if(Test-Path -LiteralPath $pending){throw 'G21_EXISTING_G1_BROWSER_CLAIM'}
