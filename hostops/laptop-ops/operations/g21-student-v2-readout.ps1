@@ -4,7 +4,7 @@ if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw|ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
-$run=Join-Path $root ('NativeBrowserTest\g21-output-study-'+$rq.nonce)
+$run=Join-Path $root ('NativeBrowserTest\g21-session-study-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
 import os,sys,pathlib,json,re,time,queue,threading,subprocess,shutil,hashlib
@@ -84,79 +84,82 @@ def main():
     helptext=q.stdout+"\n"+q.stderr
     (run/"cli-help.txt").write_text(helptext,encoding="utf-8")
     if q.returncode!=0:return "G21_OUTPUT_HELP_FAILED"
-    match=re.search(r"(?mi)^[^\n]*--output-format[^\n]*(?:\n[ \t]+(?![-\s])[^\n]*){0,8}",helptext)
-    scope=match.group(0) if match else ""
-    supported=[x for x in ("text","json","stream-json") if re.search(r"(?<![\w-])"+re.escape(x)+r"(?![\w-])",scope,re.I)]
-    labels={"text":"TEXT","json":"JSON","stream-json":"STREAM_JSON"}
-    lines.append("G21_FULL_R2_SUMMARY=SUPPORTED:"+("+".join(labels[x] for x in supported) or "NONE"))
-    if "stream-json" not in supported:return "G21_OUTPUT_FORMAT_UNVERIFIED"
-    formats=["stream-json"]+[x for x in ("text","json") if x in supported]+["stream-json"]
-    if len(formats)==2:formats=[]
-    for idx,mode in enumerate(formats,1):
-        local_mcp=False
-        env["TTV_OUTPUT_MODE"]=mode
-        d=run/("sample-"+str(idx));d.mkdir()
-        # Same saved settings, separate task directory; no existing config writes.
-        shutil.copyfile(original,d/"session-settings.json")
-        if local_mcp:
-            (d/".agents").mkdir()
-            shutil.copyfile(prior/".agents/mcp_config.json",d/".agents/mcp_config.json")
-        env["TTV_SESSION_SETTINGS"]=str(d/"session-settings.json")
-        (d/"prompt.txt").write_text("Return exactly READY. Do not use any tool, browse, read files, or run commands.",encoding="utf-8")
-        env["TTV_AGY_PROMPT"]=str(d/"prompt.txt")
-        cmd="$ErrorActionPreference='Stop'; $p=Get-Content -LiteralPath $env:TTV_AGY_PROMPT -Raw; & $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --output-format $env:TTV_OUTPUT_MODE -p $p; exit $LASTEXITCODE"
-        start=time.monotonic();events=queue.Queue();firstms=-1;final=-1;tool=0;count=0;answer=False;state="TIMEOUT";eof=False;rawlines=[];lastms=-1
-        def reader(pipe):
-            try:
-                for line in pipe:events.put((time.monotonic(),line))
-            finally:events.put((time.monotonic(),None))
-        with (d/"stderr.txt").open("w",encoding="utf-8") as ef,(d/"stdout.jsonl").open("w",encoding="utf-8") as rf,(d/"arrivals.jsonl").open("w",encoding="utf-8") as tf:
-            p=subprocess.Popen([ps,"-NoProfile","-NonInteractive","-Command",cmd],env=env,cwd=d,stdout=subprocess.PIPE,stderr=ef,text=True,encoding="utf-8",errors="replace",bufsize=1)
-            threading.Thread(target=reader,args=(p.stdout,),daemon=True).start()
-            while True:
-                try:
-                    t,line=events.get(timeout=.2)
-                    if line is None:eof=True
-                    else:
-                        count+=1;v=ms(t,start);rawlines.append(line);lastms=v
-                        if firstms<0:firstms=v
-                        rf.write(line);rf.flush();tf.write(json.dumps({"ordinal":count,"elapsed_ms":v})+"\n");tf.flush()
-                        try:e=json.loads(line)
-                        except ValueError:e={}
-                        if isinstance(e,dict):
-                            st=e.get("step_update")
-                            if isinstance(st,dict) and st.get("tool_name"):
-                                tool+=1;state="UNEXPECTED_TOOL";break
-                            r=e.get("result")
-                            if e.get("event")=="result" and isinstance(r,dict) and isinstance(r.get("response"),str):
-                                final=v;answer=r["response"].strip()=="READY"
-                except queue.Empty:pass
-                if p.poll() is not None and eof:
-                    state="EXITED" if p.returncode==0 else "CLI_FAILED";break
-                if time.monotonic()-start>=85:break
+    # Use only the documented streaming protocol already observed on the
+    # historical V3.1 neutral/public-metadata test. No website or tool request.
+    def has(flag):
+        return bool(re.search(r"(?<![\w-])"+re.escape(flag)+r"(?![\w-])",helptext))
+    stream=has("--input-format") and has("--output-format") and "stream-json" in helptext and has("--print")
+    resume=has("--resume")
+    cont=has("--continue")
+    lines.append(f"G21_FULL_R2_SUMMARY=STREAM_INPUT:{int(stream)},RESUME_FLAG:{int(resume)},CONTINUE_FLAG:{int(cont)}")
+    def publish():
+        assert re.fullmatch("[a-f0-9]{32}",nonce)
+        write(spool/"Receipts"/("g21-full-report-"+nonce+".json"),{"schema":"G21_TRAINING_FULL_REPORT_V1","nonce":nonce,"lines":lines})
+    if not stream:
+        publish()
+        return "G21_SESSION_STREAM_UNVERIFIED"
+    shutil.copyfile(original,run/"session-settings.json")
+    env["TTV_SESSION_SETTINGS"]=str(run/"session-settings.json")
+    cmd="& $env:TTV_AGY_CLI --model $env:TTV_AGY_MODEL --sandbox --settings $env:TTV_SESSION_SETTINGS --print= --input-format stream-json --output-format stream-json; exit $LASTEXITCODE"
+    events=queue.Queue()
+    def reader(pipe):
+        try:
+            for line in pipe:events.put((time.monotonic(),line))
+        finally:events.put((time.monotonic(),None))
+    reports=[];ids=[];state="UNKNOWN";start=time.monotonic()
+    with (run/"persistent-stderr.txt").open("w",encoding="utf-8") as ef,(run/"persistent-stdout.jsonl").open("w",encoding="utf-8") as rf,(run/"persistent-arrivals.jsonl").open("w",encoding="utf-8") as tf:
+        p=subprocess.Popen([ps,"-NoProfile","-NonInteractive","-Command",cmd],env=env,cwd=run,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=ef,text=True,encoding="utf-8",errors="replace",bufsize=1)
+        threading.Thread(target=reader,args=(p.stdout,),daemon=True).start()
+        try:
+            for i,expected in enumerate(("READY_A","READY_B","READY_C"),1):
+                sent=time.monotonic();first=-1;init=-1;final=-1;count=0;tools=0;answer=False;sid=None;turn_state="TIMEOUT"
+                if p.poll() is not None:break
+                question="Return exactly "+expected+". Do not use any tool, browse, read files, or run commands."
+                message={"event":"user","message":{"content":[{"type":"text","text":question}]}}
+                p.stdin.write(json.dumps(message)+"\n");p.stdin.flush()
+                while time.monotonic()-sent<85:
+                    try:at,line=events.get(timeout=.2)
+                    except queue.Empty:
+                        if p.poll() is not None:turn_state="PROCESS_EXIT";break
+                        continue
+                    if line is None:turn_state="EOF";break
+                    v=max(0,ms(at,sent));count+=1
+                    if first<0:first=v
+                    rf.write(line);rf.flush()
+                    tf.write(json.dumps({"turn":i,"ordinal":count,"elapsed_ms":v})+"\n");tf.flush()
+                    try:e=json.loads(line)
+                    except ValueError:continue
+                    if not isinstance(e,dict):continue
+                    if e.get("event")=="init" and init<0:init=v
+                    st=e.get("step_update")
+                    if isinstance(st,dict) and st.get("tool_name"):
+                        tools+=1;turn_state="UNEXPECTED_TOOL";break
+                    r=e.get("result")
+                    if e.get("event")=="result" and isinstance(r,dict):
+                        final=v;sid=r.get("conversation_id")
+                        answer=isinstance(r.get("response"),str) and r["response"].strip()==expected
+                        turn_state="READY" if answer else "RESULT_MISMATCH";break
+                alive=p.poll() is None
+                row={"turn":i,"first_ms":first,"init_ms":init,"final_ms":final,"state":turn_state,"ready":answer,"tools":tools,"events":count,"alive":alive,"pid":p.pid}
+                reports.append(row);ids.append(sid if isinstance(sid,str) and sid else None)
+                write(run/"turns.json",reports)
+                def pos(x):return str(x) if x>=0 else "UNKNOWN"
+                lines.append(f"G21_FULL_R2_A{i}=TURN:{i},STATE:{turn_state},FIRST_MS:{pos(first)},INIT_MS:{pos(init)},FINAL_MS:{pos(final)},READY:{int(answer)},TOOLS:{tools},EVENTS:{count},ALIVE:{int(alive)}")
+                if not answer or tools or not alive or hashes()!=before:break
+            try:p.stdin.close()
+            except OSError:pass
+            try:state="EXITED" if p.wait(timeout=10)==0 else "CLI_FAILED"
+            except subprocess.TimeoutExpired:state="EXIT_TIMEOUT"
+        finally:
             if p.poll() is None:
                 subprocess.run(["taskkill.exe","/PID",str(p.pid),"/T","/F"],capture_output=True,timeout=10,check=False)
                 try:p.wait(timeout=10)
                 except subprocess.TimeoutExpired:state="CLEANUP_UNVERIFIED"
-        if mode=="text":
-            answer="".join(rawlines).strip()=="READY"
-            if answer:final=lastms
-        elif mode=="json":
-            try:
-                doc=json.loads("".join(rawlines))
-                r=doc.get("result",doc)
-                answer=isinstance(r,dict) and isinstance(r.get("response"),str) and r["response"].strip()=="READY"
-                if answer:final=lastms
-            except (ValueError,AttributeError):answer=False
-        elapsed=ms(time.monotonic(),start)
-        sample={"format":mode,"local_mcp":local_mcp,"first_event_ms":firstms,"final_ms":final,"elapsed_ms":elapsed,"state":state,"tool_events":tool,"ready":answer,"event_count":count,"global_unchanged":hashes()==before}
-        write(d/"metrics.json",sample)
-        def pos(x):return str(x) if x>=0 else "UNKNOWN"
-        lines.append(f"G21_FULL_R2_A{idx}=FORMAT:{labels[mode]},STATE:{state},FIRST_MS:{pos(firstms)},FINAL_MS:{pos(final)},TOTAL_MS:{elapsed},READY:{int(answer)},TOOLS:{tool if mode=='stream-json' else 'UNOBSERVED'},LINES:{count},GLOBAL_UNCHANGED:{int(hashes()==before)}")
-        if state!="EXITED" or not answer or tool or hashes()!=before:break
-    assert re.fullmatch("[a-f0-9]{32}",nonce)
-    write(spool/"Receipts"/("g21-full-report-"+nonce+".json"),{"schema":"G21_TRAINING_FULL_REPORT_V1","nonce":nonce,"lines":lines})
-    return "G21_OUTPUT_STUDY_READY" if formats else "G21_OUTPUT_NO_ALTERNATIVE"
+    same=len(ids)==3 and all(ids) and len(set(ids))==1
+    unchanged=hashes()==before
+    lines.append(f"G21_FULL_R2_TIMING=PROCESS:{state},TOTAL_MS:{ms(time.monotonic(),start)},TURNS:{len(reports)},SAME_CONVERSATION:{int(bool(same))},GLOBAL_UNCHANGED:{int(unchanged)}")
+    publish()
+    return "G21_SESSION_STUDY_READY" if len(reports)==3 and all(r["ready"] and not r["tools"] for r in reports) and state=="EXITED" and unchanged else "G21_SESSION_STUDY_HOLD"
 try:print(main())
 except Exception:
     import traceback
