@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-overlay-readout",
-  "category": "diagnostics",
+  "operation": "owner-flow3-overlay-apply",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-overlay-readout.ps1",
-  "script_sha256": "a9cf1c0ad77d7a7938a75d8e2d4d7a89dc2a0675803c4d2aef321f0784476a7f",
+  "script_path": "hostops/laptop-ops/operations/flow3-overlay-apply.ps1",
+  "script_sha256": "1e2f9089fd63353f629388cc2c189a84d181711e75cb7091bec76bfb37b91c50",
   "arguments": []
 }
