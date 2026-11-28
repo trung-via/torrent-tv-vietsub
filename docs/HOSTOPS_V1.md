@@ -41,3 +41,17 @@ A safe trial script is prepared on branch `hostops/smoke`, path `hostops/jobs/sm
 ## Rollback
 
 Delete/disable the workflow on `main` to stop accepting commands. Remove the dedicated job branches if no longer needed. Disable the dedicated runner separately only when owner authorizes the Windows action; changing workflow code does not stop an already running runner service.
+
+## Flow3 production command (source candidate, activation after merge)
+
+The existing owner issue #196 accepts one typed movie command for every title; no per-film branch, workflow or new worker:
+
+```text
+/tv-hostops movie {"title":"Authorized fixture","year":2026,"source_url":"https://example.org/","mode":"play","media_authorized":true}
+```
+
+Use `mode:"search"` (default) for metadata only; omit media_authorized or set false. Use play only with an authorized public source and media the owner is permitted to acquire/play. Resolution defaults to 1080p. The caller supplies the permitted public HTTPS origin; do not include credentials, private locators, or tokens in public comments. The example is a synthetic command shape, not a real playable source. The film title is visible in the public issue.
+
+Existing authenticated owner guard and run-link/final-result receipts apply. The command identity derives from the source comment ID: repeating the same Actions event cannot resubmit the Owner request. The existing enrolled interactive task reads the data-only sidecar and submits the original G2 request contract, then the runner calls the existing owner_movie_flow.ps1 on a matching Library-ready receipt. No browser preflight, source review, per-film branch or second orchestrator in routine dispatch. Existing Owner and player own runtime errors, media identity and dedupe. Unknown effects are not retried. Workflow success is not evidence of rendered video or subtitles.
+
+The installed helper must be verified to accept the main-pinned manifest and read the sidecar; no live provider or TV acceptance claimed from source CI. An ingress regression can be rolled back by reverting the one workflow route; other HostOps commands remain available.
