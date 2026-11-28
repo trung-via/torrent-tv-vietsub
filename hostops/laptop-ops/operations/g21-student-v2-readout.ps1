@@ -4,10 +4,10 @@ if($env:GITHUB_ACTIONS -eq 'true' -or -not [Environment]::UserInteractive){throw
 $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw|ConvertFrom-Json
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
-$run=Join-Path $root ('NativeBrowserTest\g21-model-study-'+$rq.nonce)
+$run=Join-Path $root ('NativeBrowserTest\g21-settings-study-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
 $py=@'
-import os,sys,pathlib,json,re,time,queue,threading,subprocess,shutil,hashlib
+import os,sys,pathlib,json,re,time,queue,threading,subprocess,shutil,hashlib,copy
 root,spool,run=map(pathlib.Path,sys.argv[1:4])
 nonce=sys.argv[4]
 source="99ff9d03ff90bae805ae6235108b1894ff1a002f"
@@ -64,7 +64,7 @@ def main():
         lines.append(f"G21_FULL_R1_A{i}=MCP_EVENT:{k},MS:{t}")
     write(run/"prior-event-index.json",private)
     write(run/"prior-mcp-timeline.json",mcp)
-    # ABBA neutral model/effort comparison, no browsing or tool use. No production edits.
+    # ABBA neutral context-settings comparison, no browsing or tool use. No production edits.
     sys.path.insert(0,str(root/"OwnerBridge/app/poc/p2-aisub"))
     from translator_gateway import preflight_antigravity,_validated_antigravity_alias
     cli=preflight_antigravity()
@@ -73,19 +73,38 @@ def main():
     env=dict(os.environ)
     for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GEMINI_BASE_URL","AGY_ADC_AUTH","GOOGLE_CLOUD_PROJECT","GOOGLE_CLOUD_QUOTA_PROJECT"):env.pop(k,None)
     env["TTV_AGY_CLI"]=str(cli)
-    models=(("HYDROGEN_LOW","gemini-4-hydrogen-low","low"),("NEON_HIGH","gemini-4-neon-high","high"))
-    aliases={label:_validated_antigravity_alias(alias,effort) for label,alias,effort in models}
+    env["TTV_AGY_MODEL"]=_validated_antigravity_alias("gemini-4-hydrogen-low","low")
     original=prior/"session-settings.json"
     settings=obj(original)
+    if not isinstance(settings,dict):return "G21_SETTINGS_SCHEMA_UNKNOWN"
+    minimal=copy.deepcopy(settings)
+    # Only restrict optional context loading, never remove rules, permissions,
+    # auth, sandbox, tools, MCP or unrecognized settings. No assumed schema changes.
+    changed=[]
+    ctx=minimal.get("context")
+    if isinstance(ctx,dict):
+        if isinstance(ctx.get("includeDirectories"),list) and ctx["includeDirectories"]:
+            ctx["includeDirectories"]=[];changed.append("INCLUDE_DIRS")
+        if ctx.get("loadMemoryFromIncludeDirectories") is True:
+            ctx["loadMemoryFromIncludeDirectories"]=False;changed.append("INCLUDE_MEMORY")
+    restored=copy.deepcopy(minimal)
+    if changed:restored["context"]=copy.deepcopy(settings["context"])
+    assert restored==settings
+    known=("context","permissions","extensions","mcpServers","tools","security","model","general","advanced","agentMode","memory")
+    present=[k.upper() for k in known if k in settings]
+    write(run/"settings-audit.json",{"present_known_sections":present,"top_level_count":len(settings),"changed":changed,"context_keys":list(settings["context"]) if isinstance(settings.get("context"),dict) else [],"original_bytes":original.stat().st_size})
+    lines.append("G21_FULL_R2_SUMMARY=SETTINGS_KEYS:"+str(len(settings))+",KNOWN:"+("+".join(present) or "NONE")+",CHANGED:"+("+".join(changed) or "NONE"))
+    lines.append("G21_FULL_R2_TIMING=ORIGINAL_BYTES:"+str(original.stat().st_size))
     global_paths=[pathlib.Path.home()/".gemini"/p for p in ("antigravity-cli/settings.json","config/config.json","config/mcp_config.json")]
     def hashes():return [hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else "MISSING" for p in global_paths]
     before=hashes()
-    for idx,(label,alias,effort) in enumerate((models[0],models[1],models[1],models[0]),1):
+    variants=("ORIGINAL","MINIMAL","MINIMAL","ORIGINAL") if changed else ()
+    for idx,label in enumerate(variants,1):
         local_mcp=False
-        env["TTV_AGY_MODEL"]=aliases[label]
         d=run/("sample-"+str(idx));d.mkdir()
         # Same saved settings, separate task directory; no existing config writes.
-        shutil.copyfile(original,d/"session-settings.json")
+        if label=="ORIGINAL":shutil.copyfile(original,d/"session-settings.json")
+        else:write(d/"session-settings.json",minimal)
         if local_mcp:
             (d/".agents").mkdir()
             shutil.copyfile(prior/".agents/mcp_config.json",d/".agents/mcp_config.json")
@@ -127,14 +146,14 @@ def main():
                 try:p.wait(timeout=10)
                 except subprocess.TimeoutExpired:state="CLEANUP_UNVERIFIED"
         elapsed=ms(time.monotonic(),start)
-        sample={"model":label,"local_mcp":local_mcp,"first_event_ms":firstms,"final_ms":final,"elapsed_ms":elapsed,"state":state,"tool_events":tool,"ready":answer,"event_count":count,"global_unchanged":hashes()==before}
+        sample={"settings_variant":label,"local_mcp":local_mcp,"first_event_ms":firstms,"final_ms":final,"elapsed_ms":elapsed,"state":state,"tool_events":tool,"ready":answer,"event_count":count,"global_unchanged":hashes()==before}
         write(d/"metrics.json",sample)
         def pos(x):return str(x) if x>=0 else "UNKNOWN"
-        lines.append(f"G21_FULL_R2_A{idx}=MODEL:{label},LOCAL_MCP:{int(local_mcp)},STATE:{state},FIRST_MS:{pos(firstms)},FINAL_MS:{pos(final)},TOTAL_MS:{elapsed},READY:{int(answer)},TOOLS:{tool},EVENTS:{count},GLOBAL_UNCHANGED:{int(hashes()==before)}")
+        lines.append(f"G21_FULL_R2_A{idx}=SETTINGS:{label},LOCAL_MCP:{int(local_mcp)},STATE:{state},FIRST_MS:{pos(firstms)},FINAL_MS:{pos(final)},TOTAL_MS:{elapsed},READY:{int(answer)},TOOLS:{tool},EVENTS:{count},GLOBAL_UNCHANGED:{int(hashes()==before)}")
         if state!="EXITED" or not answer or tool or hashes()!=before:break
     assert re.fullmatch("[a-f0-9]{32}",nonce)
     write(spool/"Receipts"/("g21-full-report-"+nonce+".json"),{"schema":"G21_TRAINING_FULL_REPORT_V1","nonce":nonce,"lines":lines})
-    return "G21_MODEL_STUDY_READY"
+    return "G21_SETTINGS_STUDY_READY" if changed else "G21_SETTINGS_NO_ELIGIBLE_DIFF"
 try:print(main())
 except Exception:
     import traceback
