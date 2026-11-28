@@ -4,6 +4,6 @@
   "category": "diagnostics",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/flow3-agy-context.ps1",
-  "script_sha256": "c5e8d03cb2b5616b5e330eb5a1469717a85c6fa085c7b995ed61c7121449b45c",
+  "script_sha256": "5ba6ce57deca9544f61688a0e574a608c4e3a532088cf6d92b3da8127f8f68d1",
   "arguments": []
 }
