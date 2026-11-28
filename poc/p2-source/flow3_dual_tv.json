@@ -1,0 +1,106 @@
+{
+  "schema": "TTV-FLOW3-DUAL-TV-V1",
+  "omp_pin": "52ab2df11bc54749ad7ad3d8771e2f0ce1f9550f",
+  "p3_source_pin": "a6bd7882054b2d942809502c34c25c5b9c682cd1",
+  "upstream_blobs": {
+    "src/launchActions.ts": "b79d57ed2de95121cc587f1d3cd32814af4c27dc",
+    "src/platform/androidRemote.ts": "154a4547bce5a16aab2dc2d19f749211a01e7fc9",
+    "src/ui/nav.ts": "49a7b62ab9f74d896fcc7e1a4cd11ad7584fbbed",
+    "src/app.tsx": "cc5dec038a87500c909c8785f5cd7124f32fe62c",
+    "src/screens/NativePlayer.tsx": "b97bd31a268499917e67789f679c44ccfe945234",
+    "src/player/nativePlayer.ts": "3e5a69c47e68298135d88d902d2121292dee4bbd",
+    "android/app/src/main/java/com/spacesarmat/omp/player/NativePlayer.kt": "2b3a6ddb3a573849e860a734e4ec9c6505a20740",
+    "android/app/src/main/java/com/spacesarmat/omp/player/PlayerActivity.kt": "8cb9598156b396ef49723275a7a847e75b7a36dd"
+  },
+  "p3_patcher_blob": "557b2f22b6146aac38de747331aaf9776657769c",
+  "rules": {
+    "src/launchActions.ts": [
+      [
+        "import { navigate, openPlayer, resetTo } from './ui/nav';",
+        "import { navigate, openPlayer, resetTo, currentRoute } from './ui/nav';"
+      ],
+      [
+        "export function runLaunchParams(raw: unknown): void {",
+        "export function runLaunchParams(raw: unknown, pairedRemote = false): void {"
+      ],
+      [
+        "    const from = a.from;",
+        "    const from = a.from;\n    // Only the authenticated Android remote ingress grants this intent.\n    const token = pairedRemote && raw && typeof raw === 'object' && !Array.isArray(raw)\n      ? (raw as Record<string, unknown>).flow3Vietsub : undefined;\n    const flow3Vietsub = typeof token === 'string' && /^[a-f0-9]{32}$/.test(token) ? token : undefined;\n    const originRoute = currentRoute.value;"
+      ],
+      [
+        "          openPlayer(from ? { name: 'player', queue, index, startAt, from } : { name: 'player', queue, index, startAt });",
+        "          // A later local navigation wins; do not apply a delayed intent to another play.\n          if (flow3Vietsub && currentRoute.value !== originRoute) { resumeOnboarding(); return; }\n          openPlayer({ name: 'player', queue, index, startAt,\n            ...(from ? { from } : {}), ...(flow3Vietsub ? { flow3Vietsub } : {}) });"
+      ]
+    ],
+    "src/platform/androidRemote.ts": [
+      [
+        "runLaunchParams(d.params);",
+        "runLaunchParams(d.params, true);"
+      ]
+    ],
+    "src/ui/nav.ts": [
+      [
+        "startAt?: number; from?: string }",
+        "startAt?: number; from?: string; flow3Vietsub?: string }"
+      ]
+    ],
+    "src/app.tsx": [
+      [
+        "<NativePlayerScreen queue={r.queue} index={r.index} startAt={r.startAt} from={r.from} />",
+        "<NativePlayerScreen queue={r.queue} index={r.index} startAt={r.startAt} from={r.from} flow3Vietsub={r.flow3Vietsub} />"
+      ]
+    ],
+    "src/screens/NativePlayer.tsx": [
+      [
+        "  from?: string;\n}",
+        "  from?: string;\n  flow3Vietsub?: string;\n}"
+      ],
+      [
+        "export function NativePlayerScreen({ queue, index, startAt, from }: Props)",
+        "export function NativePlayerScreen({ queue, index, startAt, from, flow3Vietsub }: Props)"
+      ],
+      [
+        "        engine: engineFor(s.playerEngine, queue[index].hash ? getTrackPref(queue[index].hash!) : null),",
+        "        engine: flow3Vietsub ? 'vlc' : engineFor(s.playerEngine, queue[index].hash ? getTrackPref(queue[index].hash!) : null),\n        flow3Vietsub,"
+      ],
+      [
+        "      if (s.videoPlayer === 'p2160') {",
+        "      if (!flow3Vietsub && s.videoPlayer === 'p2160') {"
+      ]
+    ],
+    "src/player/nativePlayer.ts": [
+      [
+        "export interface NativeStartOptions {",
+        "export interface NativeStartOptions {\n  flow3Vietsub?: string;"
+      ],
+      [
+        "          ...(o.engine ? { engine: o.engine } : {}),",
+        "          ...(o.engine ? { engine: o.engine } : {}),\n          ...(o.flow3Vietsub ? { flow3Vietsub: o.flow3Vietsub } : {}),"
+      ]
+    ],
+    "android/app/src/main/java/com/spacesarmat/omp/player/NativePlayer.kt": [
+      [
+        "    val serverProfileId: String? = null,",
+        "    val serverProfileId: String? = null,\n    val flow3Vietsub: String? = null,"
+      ],
+      [
+        "                serverProfileId = o.optString(\"serverProfileId\").ifEmpty { null },",
+        "                serverProfileId = o.optString(\"serverProfileId\").ifEmpty { null },\n                flow3Vietsub = (o.opt(\"flow3Vietsub\") as? String)?.takeIf { Regex(\"[a-f0-9]{32}\").matches(it) },"
+      ]
+    ],
+    "android/app/src/main/java/com/spacesarmat/omp/player/PlayerActivity.kt": [
+      [
+        "                // Import ONLY a previously authorized private ADB bootstrap;\n                // this does not trust a new PC, open a listener or bypass TLS.\n                P4OwnerBootstrap.consume(applicationContext)\n                val enabled = P3SelectedMediaPublisher.enabled(applicationContext) ||\n                    P3SelectedMediaPublisher.setEnabled(applicationContext, true)\n                val selectedIndex = index()\n                val allowed = enabled && P3SelectedMediaPublisher.requestViewer(\n                    applicationContext, current, selectedIndex, engine is VlcEngine\n                ) { acknowledged ->\n                    showP3Delivery(current, selectedIndex, acknowledged)\n                }\n                if (allowed) {\n                    p3ActivationAttempts = 0\n                    p3LastDelivery = null\n                    handler.removeCallbacks(p3ActivationTick)\n                    p3ActivationTick.run()\n                    showMessage(\"Đang gửi yêu cầu tìm Vietsub cho phim này đến PC...\", false)\n                } else {\n                    showMessage(\"Không thể gửi: kiểm tra ghép PC an toàn và phim VLC.\", true)\n                }",
+        "                requestVietsubForCurrent(current)"
+      ],
+      [
+        "    private val p3ActivationTick = object : Runnable {",
+        "    /** Existing one-tap request shared by local button and explicit paired concierge launch. */\n    private fun requestVietsubForCurrent(current: PlayRequest?) {\n        // Import ONLY a previously authorized private ADB bootstrap;\n        // this does not trust a new PC, open a listener or bypass TLS.\n        P4OwnerBootstrap.consume(applicationContext)\n        val enabled = P3SelectedMediaPublisher.enabled(applicationContext) ||\n            P3SelectedMediaPublisher.setEnabled(applicationContext, true)\n        val selectedIndex = index()\n        val allowed = enabled && P3SelectedMediaPublisher.requestViewer(\n            applicationContext, current, selectedIndex, engine is VlcEngine\n        ) { acknowledged ->\n            showP3Delivery(current, selectedIndex, acknowledged)\n        }\n        if (allowed) {\n            p3ActivationAttempts = 0\n            p3LastDelivery = null\n            handler.removeCallbacks(p3ActivationTick)\n            p3ActivationTick.run()\n            showMessage(\"Đang gửi yêu cầu tìm Vietsub cho phim này đến PC...\", false)\n        } else {\n            showMessage(\"Không thể gửi: kiểm tra ghép PC an toàn và phim VLC.\", true)\n        }\n    }\n\n    /** One request ID, one initial native selection. Never called from goTo/seek/resume. */\n    private fun requestFlow3Vietsub() {\n        val current = session.request ?: return\n        val id = current.flow3Vietsub ?: return\n        if (index() != current.index || engine !is VlcEngine ||\n            P1ProductionSubtitles.mediaKey(current, index()) == null) return\n        val consumed = getSharedPreferences(\"ttv-flow3-vietsub-v1\", MODE_PRIVATE)\n        if (consumed.contains(id)) return\n        if (!consumed.edit().putBoolean(id, true).commit()) return\n        requestVietsubForCurrent(current)\n    }\n\n    private val p3ActivationTick = object : Runnable {"
+      ],
+      [
+        "        applySkips()\n        showControls()\n    }\n\n    private fun index(): Int = session.index",
+        "        applySkips()\n        showControls()\n        requestFlow3Vietsub()\n    }\n\n    private fun index(): Int = session.index"
+      ]
+    ]
+  }
+}
