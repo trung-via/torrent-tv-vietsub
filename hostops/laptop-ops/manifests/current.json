@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-g2-finalize",
+  "operation": "owner-g2-finalize-reconcile",
   "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/g2-finalize.ps1",
-  "script_sha256": "6e8bc772d869810a4239744752e4257a3daf30800aceb0e1ea0cecd89d725e73",
+  "script_path": "hostops/laptop-ops/operations/g2-finalize-reconcile.ps1",
+  "script_sha256": "f862af2c3818508a79225509280ab697e8126ae2e81b073fb89423a107ea8e1e",
   "arguments": []
 }
