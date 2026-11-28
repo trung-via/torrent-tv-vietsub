@@ -4,6 +4,6 @@
   "category": "device-lan",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/flow3-dispatch.ps1",
-  "script_sha256": "97440a409b4d15c87fe6da2a9e74741aa48a77a256dfb284725ec6d3dbd8b669",
+  "script_sha256": "978d0482739ac2807e0999e1d109b6f105befc977060bf5fea91f62b46c84be8",
   "arguments": []
 }
