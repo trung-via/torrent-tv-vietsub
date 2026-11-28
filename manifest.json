@@ -1,50 +1,114 @@
 {
-  "schema": "TTV-FLOW3-SOURCE-PACKAGE-V1",
-  "runtime_base": "a6bd7882054b2d942809502c34c25c5b9c682cd1",
-  "merged_g2_source": "3ba642310c2191468a6aadfa1e73e1dc478b5e8d",
+  "schema": "TTV-FLOW3-DUAL-OWNER-CANDIDATE-V1",
+  "candidate_pr": 203,
+  "candidate_head": "d93ca6bfaa25279402ee13a2bc8960d61992c6a4",
+  "prior_package": "b1ee5e177b9768d4a5e96a79ca4b22602236855f",
+  "owner_recipe_blob": "e2268e244fbbc88d37295ee8e07828eecaf2c92b",
   "files": [
     {
       "path": "app/poc/p2-sub-discovery/owner_session_bridge.py",
-      "blob": "94c08faad40554f451271b0c7f5267256a4fe2ab",
-      "base_blob": "0db3455941370dc327da5bcc025ec39153c74ba0"
+      "blob": "5edaad035b22fa6e32b23369ad84c8c1dd31b48b",
+      "previous_blob": "94c08faad40554f451271b0c7f5267256a4fe2ab",
+      "changed": true
     },
     {
       "path": "app/poc/p2-sub-discovery/owner_p3_p4_runtime.py",
       "blob": "325df0cddbbc8f9bd86ecf4c64ffdaf52c5b8d9b",
-      "base_blob": "33277f5ea67cabf95cb096ba87a6c2c659bfb6e1"
+      "previous_blob": "325df0cddbbc8f9bd86ecf4c64ffdaf52c5b8d9b",
+      "changed": false
     },
     {
       "path": "app/poc/p2-sub-discovery/agy_owner_warm_session.py",
-      "blob": "9cbc45c643d99cc9655fe9a7357eafd07cd227d0"
+      "blob": "9cbc45c643d99cc9655fe9a7357eafd07cd227d0",
+      "previous_blob": "9cbc45c643d99cc9655fe9a7357eafd07cd227d0",
+      "changed": false
     },
     {
       "path": "app/poc/p2-sub-discovery/owner_g2_discovery.py",
-      "blob": "4b4a0ccd9b7657bd687e390b287cc41ba3c2cde2"
+      "blob": "dedc863037161ec68df98f6db237f5e83518ddef",
+      "previous_blob": "4b4a0ccd9b7657bd687e390b287cc41ba3c2cde2",
+      "changed": true
     },
     {
       "path": "app/poc/p2-sub-discovery/owner_g2_support.py",
-      "blob": "11ed35c47a1562863abae0f56b550f8c74bf29d0"
+      "blob": "96ff243df052f814268519d92f406db6be8d1899",
+      "previous_blob": "11ed35c47a1562863abae0f56b550f8c74bf29d0",
+      "changed": true
     },
     {
       "path": "app/poc/p2-sub-discovery/owner_g2_inbox.py",
-      "blob": "6ae25b5d222752019c7999ac8945626f1a2ceb89"
+      "blob": "de6830921b648d292c679aa4957b4cee5e69e5f0",
+      "previous_blob": "6ae25b5d222752019c7999ac8945626f1a2ceb89",
+      "changed": true
     },
     {
       "path": "app/poc/p2-sub-discovery/owner_g2_submit.py",
-      "blob": "0eafd74eeb08dac8d461a353dbe96447e5a783c1"
+      "blob": "0eafd74eeb08dac8d461a353dbe96447e5a783c1",
+      "previous_blob": "0eafd74eeb08dac8d461a353dbe96447e5a783c1",
+      "changed": false
     },
     {
       "path": "app/poc/p2-sub-discovery/owner_movie_handoff.py",
-      "blob": "0e5d351af58d089bd53d3fd78b4a6f46509ecbbb"
+      "blob": "497931f0077b4271a54a0d2f189a986b6c5764dd",
+      "previous_blob": "0e5d351af58d089bd53d3fd78b4a6f46509ecbbb",
+      "changed": true
     },
     {
       "path": "runner/owner_movie_flow.ps1",
-      "blob": "cd5551d6d3d0d0b590e44cee9a97b4fbab7a5b09"
+      "blob": "cd5551d6d3d0d0b590e44cee9a97b4fbab7a5b09",
+      "previous_blob": "cd5551d6d3d0d0b590e44cee9a97b4fbab7a5b09",
+      "changed": false
     },
     {
       "path": "runner/owner_movie_play.ps1",
-      "blob": "3863ed82c0d81aa9c08feeca6318eac3b36c577e"
+      "blob": "cae0b30662d03bc58bd09b6b34b65228a7a279d9",
+      "previous_blob": "3863ed82c0d81aa9c08feeca6318eac3b36c577e",
+      "changed": true
     }
   ],
-  "scope": "SOURCE_ONLY; existing enrolled Owner and runner; never apply blindly to installed runtime"
+  "delta": [
+    {
+      "path": "app/poc/p2-sub-discovery/owner_session_bridge.py",
+      "source": "app/poc/p2-sub-discovery/owner_session_bridge.py",
+      "old_blob": "94c08faad40554f451271b0c7f5267256a4fe2ab",
+      "new_blob": "5edaad035b22fa6e32b23369ad84c8c1dd31b48b",
+      "kind": "context_patch"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_g2_discovery.py",
+      "source": "poc/p2-sub-discovery/owner_g2_discovery.py",
+      "old_blob": "4b4a0ccd9b7657bd687e390b287cc41ba3c2cde2",
+      "new_blob": "dedc863037161ec68df98f6db237f5e83518ddef",
+      "kind": "copy"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_g2_support.py",
+      "source": "poc/p2-sub-discovery/owner_g2_support.py",
+      "old_blob": "11ed35c47a1562863abae0f56b550f8c74bf29d0",
+      "new_blob": "96ff243df052f814268519d92f406db6be8d1899",
+      "kind": "copy"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_g2_inbox.py",
+      "source": "poc/p2-sub-discovery/owner_g2_inbox.py",
+      "old_blob": "6ae25b5d222752019c7999ac8945626f1a2ceb89",
+      "new_blob": "de6830921b648d292c679aa4957b4cee5e69e5f0",
+      "kind": "copy"
+    },
+    {
+      "path": "app/poc/p2-sub-discovery/owner_movie_handoff.py",
+      "source": "poc/p2-source/owner_movie_handoff.py",
+      "old_blob": "0e5d351af58d089bd53d3fd78b4a6f46509ecbbb",
+      "new_blob": "497931f0077b4271a54a0d2f189a986b6c5764dd",
+      "kind": "copy"
+    },
+    {
+      "path": "runner/owner_movie_play.ps1",
+      "source": "poc/p2-source/owner_movie_play.ps1",
+      "old_blob": "3863ed82c0d81aa9c08feeca6318eac3b36c577e",
+      "new_blob": "cae0b30662d03bc58bd09b6b34b65228a7a279d9",
+      "kind": "copy"
+    }
+  ],
+  "scope": "Source staging only; not accepted or installed. Apply only after exact-head Brain PASS, matching APK stage and separately authorized HostOps preflight."
 }
