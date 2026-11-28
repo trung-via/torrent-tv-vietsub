@@ -115,7 +115,10 @@ class HandoffTests(unittest.TestCase):
         self.assertIn("$idx=[int]$selected.file_id", script)
         self.assertIn("[IO.FileMode]::CreateNew", script)
         self.assertEqual(script.count("'/omp/launch'"), 1)
-        self.assertIn("G23_PLAY=ACK_ONLY_NATIVE_PROGRESS_UNVERIFIED", script)
+        self.assertIn("G23_PLAY=LAUNCH_ACK_PLAYER_FOREGROUND", script)
+        self.assertIn("G23_PLAY=LAUNCH_ACK_FOREGROUND_UNVERIFIED", script)
+        self.assertNotIn("G23_PLAY=PLAYBACK_VERIFIED", script)
+        self.assertLess(script.index("[IO.FileMode]::CreateNew"), script.index("'/omp/launch'"))
 
 if __name__ == "__main__":
     unittest.main()
