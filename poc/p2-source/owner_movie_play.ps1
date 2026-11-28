@@ -125,18 +125,16 @@ try{
  if($r.ok -ne $true){throw 'LAUNCH_NOT_ACKNOWLEDGED'}
  Write-Host 'G23_LAUNCH=ACK'
  $stage='OBSERVE_PLAYER'
- $last=$null;$advanced=$false;$seen=$false
- for($n=0;$n -lt 9;$n++){
-  Start-Sleep -Seconds 5
-  $fg=PlayerForeground
-  if($fg){$seen=$true}
-  $pos=ReadViewed
-  if($fg -and $null -ne $pos -and $null -ne $last -and $pos -gt $last -and $pos -gt $start){$advanced=$true;break}
-  if($fg -and $null -ne $pos){$last=$pos}
+ # Dispatch success is not proof of rendering. TrackTimecode can be disabled;
+ # do not wait for history writes or require them for normal dispatch.
+ $seen=$false
+ for($n=0;$n -lt 10;$n++){
+  if(PlayerForeground){$seen=$true;break}
+  Start-Sleep -Seconds 1
  }
  Write-Host ('G23_NATIVE_PLAYER_FOREGROUND='+$seen)
- Write-Host ('G23_EXACT_FILE_PROGRESS_ADVANCED='+$advanced)
- if($seen -and $advanced){Write-Host 'G23_PLAY=EXACT_PROGRESS_PASS'}else{Write-Host 'G23_PLAY=ACK_ONLY_NATIVE_PROGRESS_UNVERIFIED'}
+ if($seen){Write-Host 'G23_PLAY=LAUNCH_ACK_PLAYER_FOREGROUND'}else{Write-Host 'G23_PLAY=LAUNCH_ACK_FOREGROUND_UNVERIFIED'}
+
 }catch{
  Write-Host ('G23_HOLD_STAGE='+$stage)
  Write-Host ('G23_ERROR_TYPE='+$_.Exception.GetType().Name)
