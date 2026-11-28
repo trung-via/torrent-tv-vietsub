@@ -863,10 +863,26 @@ def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emi
             continue
         def run_claimed():
             try:
-                rows = discover(queries, cache_root, source_url=request["source_url"],
-                                authorized_source=True, owner_request_id=request_id)
-                status = "COMPLETE" if len(rows) == len(queries) else "PARTIAL"
                 detail = {}
+                try:
+                    rows = discover(queries, cache_root, source_url=request["source_url"],
+                                    authorized_source=True, owner_request_id=request_id)
+                except Exception as exc:
+                    from owner_g2_discovery import G2BatchReview
+                    # A completed, verified single-film selection must not be lost
+                    # solely because the independent browser cleanup failed.
+                    # Keep the producer's terminal journal and browser.pending;
+                    # do not retry AGY or claim browser readiness.
+                    if not (isinstance(exc, G2BatchReview)
+                            and exc.reason == exc.cleanup_reason == "G2_BROWSER_EFFECT_REVIEW_REQUIRED"
+                            and exc.browser_restored is False
+                            and len(queries) == len(exc.rows) == 1
+                            and queries[0].select_release
+                            and exc.rows[0].get("status") == "SELECTION_READY"):
+                        raise
+                    rows = list(exc.rows)
+                    detail.update(browser_restored=False, cleanup_reason=exc.cleanup_reason)
+                status = "COMPLETE" if len(rows) == len(queries) else "PARTIAL"
                 if queries[0].select_release:
                     published = _publish_g2_selection(inbox, request_id, queries[0], rows)
                     detail["selection_published"] = published
