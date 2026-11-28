@@ -89,6 +89,87 @@ _DENIAL = re.compile(r"access denied|403 forbidden|verify (?:you are|that you ar
                      r"making sure you.re not a bot|anti.bot challenge|just a moment|captcha", re.I)
 
 
+# Only explicit, source-bound page evidence confirms an access denial.
+# A weak keyword or an unbound tool outcome is inconclusive: HOLD, never
+# continue through a possible challenge or silently replay the turn.
+_DENIAL_PAGE_HEADER = re.compile(
+    r"(?im)^\s*(?:title\s*[:=]\s*|(?:\d+\s+)?heading\s+)?[\"']?"
+    r"(?:access denied|403 forbidden|verify (?:you are|that you are) human|"
+    r"making sure you.re not a bot|just a moment)(?:[.!…]|\.\.\.)?[\"']?\s*$"
+)
+
+
+def _typed_metadata_content(output):
+    """Recognize only the existing metadata row schema, not page state.
+
+    A weak word in a film title is content, not an access-control signal.
+    Anything outside this narrow shape, including mixed challenge evidence,
+    remains inconclusive. No page navigation or challenge handling here.
+    """
+    if not isinstance(output, str):
+        return False
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate key")
+            result[key] = value
+        return result
+
+    try:
+        rows = json.loads(output, object_pairs_hook=unique_object)
+    except (ValueError, RecursionError):
+        return False
+    fields = {"title", "year", "resolution", "size_mb", "seeds", "codec"}
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 100:
+        return False
+    weak_seen = False
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != fields:
+            return False
+        title = row["title"]
+        if not isinstance(title, str) or not title.strip() or len(title) > 512:
+            return False
+        if any(ord(ch) < 32 for ch in title):
+            return False
+        hits = list(_DENIAL.finditer(title))
+        if hits:
+            # Only a standalone weak word inside a longer content title.
+            # Explicit denial/verification phrases never qualify.
+            if (any(hit.group(0).casefold() != "captcha" for hit in hits)
+                    or not re.search(r"\bcaptcha\b", title, re.I)
+                    or title.strip().casefold() == "captcha"
+                    or _DENIAL_PAGE_HEADER.search(title)):
+                return False
+            weak_seen = True
+        year = row["year"]
+        if type(year) is not int or not 1900 <= year <= 2100:
+            return False
+        if row["resolution"] not in ("720p", "1080p", "2160p", None):
+            return False
+        if row["codec"] not in ("H264", "H265", "AV1", "VP9", None):
+            return False
+        for key in ("size_mb", "seeds"):
+            value = row[key]
+            if value is not None and (type(value) is not int or value < 0):
+                return False
+        if all(row[key] is None for key in ("resolution", "codec", "size_mb", "seeds")):
+            return False
+    return weak_seen
+
+
+def _denial_reason(output, *, source_bound=False, tool_name=None):
+    text = str(output)
+    if not _DENIAL.search(text):
+        return None
+    if source_bound and isinstance(output, str) and _DENIAL_PAGE_HEADER.search(text):
+        return "AGY_STREAM_ACCESS_BLOCKED"
+    if source_bound and tool_name == "evaluate_script" and _typed_metadata_content(output):
+        return None
+    return "AGY_STREAM_ACCESS_UNCONFIRMED"
+
+
 class OwnerAgyWarmSession:
     def __init__(self, *, ps, env, root, timeout=120, popen=subprocess.Popen):
         self.root = Path(root)
@@ -191,8 +272,14 @@ class OwnerAgyWarmSession:
                                 errors += int(err)
                                 if pending and pending[1] == "ttv-browser":
                                     output = info.get("output", "")
-                                    if source_host is not None and _DENIAL.search(str(output)):
-                                        raise WarmSessionError("AGY_STREAM_ACCESS_BLOCKED")
+                                    if source_host is not None:
+                                        reason = _denial_reason(
+                                            output, tool_name=pending[0],
+                                            source_bound=(not err and selected_page is not None
+                                                          and pending[0] in ("evaluate_script", "take_snapshot")
+                                                          and pending[2] == selected_page))
+                                        if reason is not None:
+                                            raise WarmSessionError(reason)
                                     if not err:
                                         observed.add(pending[0])
                                         if source_host is not None:
