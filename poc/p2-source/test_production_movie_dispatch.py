@@ -6,6 +6,7 @@ import sys
 import json
 import hashlib
 import tempfile
+import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
 import unittest
@@ -38,9 +39,13 @@ class ProductionMovieCandidateTests(unittest.TestCase):
             raise unittest.SkipTest("Exact candidate checkout supplied by hosted CI")
         cls.source = Path(source)
         cls.operation = cls.source / "hostops/laptop-ops/operations/production-movie.ps1"
-        cls.raw = cls.operation.read_bytes()
-        cls.python = cls.raw.decode("utf-8").split("$py=@'\\n", 1)[1].split("\\n'@", 1)[0]
-        cls.definitions = cls.python.rsplit("\\ntry: print(main())", 1)[0]
+        cls.raw = subprocess.check_output(["git", "-C", str(cls.source), "show",
+                                           "HEAD:hostops/laptop-ops/operations/production-movie.ps1"])
+        source_lines = cls.raw.decode("utf-8").splitlines()
+        start = source_lines.index("$py=@\x27") + 1
+        end = source_lines.index("\x27@", start)
+        cls.python = "\n".join(source_lines[start:end])
+        cls.definitions = "\n".join(source_lines[start:source_lines.index("try: print(main())", start)])
 
     def test_pinned_operation_and_dispatcher_contract(self):
         manifest = json.loads((self.source / "hostops/laptop-ops/manifests/current.json").read_text())
