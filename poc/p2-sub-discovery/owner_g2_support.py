@@ -74,6 +74,8 @@ if($p.Name -ne 'chrome.exe' -or !$p.CommandLine -or $p.CommandLine.IndexOf($prof
 exit 0
 """
     cmd = cmd.replace("9555", str(browser_port))
+    if browser_port == 9556:
+        cmd = cmd.replace("https://www.opensubtitles.org/", "about:blank")
     try:
         code = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", cmd],
                               env=env, capture_output=True, timeout=40).returncode
