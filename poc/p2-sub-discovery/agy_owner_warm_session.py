@@ -89,6 +89,25 @@ _DENIAL = re.compile(r"access denied|403 forbidden|verify (?:you are|that you ar
                      r"making sure you.re not a bot|anti.bot challenge|just a moment|captcha", re.I)
 
 
+# Only explicit, source-bound page evidence confirms an access denial.
+# A weak keyword or an unbound tool outcome is inconclusive: HOLD, never
+# continue through a possible challenge or silently replay the turn.
+_DENIAL_PAGE_HEADER = re.compile(
+    r"(?im)^\s*(?:title\s*[:=]\s*|(?:\d+\s+)?heading\s+)?[\"']?"
+    r"(?:access denied|403 forbidden|verify (?:you are|that you are) human|"
+    r"making sure you.re not a bot|just a moment)[.!…]?[\"']?\s*$"
+)
+
+
+def _denial_reason(output, *, source_bound=False):
+    text = str(output)
+    if not _DENIAL.search(text):
+        return None
+    if source_bound and isinstance(output, str) and _DENIAL_PAGE_HEADER.search(text):
+        return "AGY_STREAM_ACCESS_BLOCKED"
+    return "AGY_STREAM_ACCESS_UNCONFIRMED"
+
+
 class OwnerAgyWarmSession:
     def __init__(self, *, ps, env, root, timeout=120, popen=subprocess.Popen):
         self.root = Path(root)
@@ -191,8 +210,14 @@ class OwnerAgyWarmSession:
                                 errors += int(err)
                                 if pending and pending[1] == "ttv-browser":
                                     output = info.get("output", "")
-                                    if source_host is not None and _DENIAL.search(str(output)):
-                                        raise WarmSessionError("AGY_STREAM_ACCESS_BLOCKED")
+                                    if source_host is not None:
+                                        reason = _denial_reason(
+                                            output,
+                                            source_bound=(not err and selected_page is not None
+                                                          and pending[0] in ("evaluate_script", "take_snapshot")
+                                                          and pending[2] == selected_page))
+                                        if reason is not None:
+                                            raise WarmSessionError(reason)
                                     if not err:
                                         observed.add(pending[0])
                                         if source_host is not None:
