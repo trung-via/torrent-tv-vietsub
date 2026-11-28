@@ -366,6 +366,11 @@ def discover_movie_batch(profile, queries, cache_root, *, source_url, authorized
         raise WarmSessionError("G2_WINDOWS_OWNER_REQUIRED")
     ps = shutil.which("pwsh")
     profile = Path(profile)
+    # Lazy allocation only on an explicit movie-search job; never touch G1.
+    if (browser_port == 9556 and profile.name == "CDP9556MovieProfile"
+            and ps and profile.parent.is_dir() and not profile.parent.is_symlink()
+            and not profile.is_symlink()):
+        profile.mkdir(exist_ok=True)
     if not ps or not profile.is_dir() or profile.is_symlink():
         raise WarmSessionError("G2_BROWSER_PROFILE_REQUIRED")
     # The main-targeted source slice has no live Owner runtime of its own.
