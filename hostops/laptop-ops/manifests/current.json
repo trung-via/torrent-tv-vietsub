@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-agy-metadata-once",
-  "category": "owner-maintenance",
+  "operation": "owner-flow3-agy-denial-readout",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-agy-metadata-once.ps1",
-  "script_sha256": "ec8dee6c97f2131c5f730b6701a978a309e27d57f4bf2467711bd9c0d6065ef7",
+  "script_path": "hostops/laptop-ops/operations/flow3-agy-denial-readout.ps1",
+  "script_sha256": "511c89c982cd61985c78cbf308b1ca64d7e8c372c2a2dc4f993f3c779e4cc12d",
   "arguments": []
 }
