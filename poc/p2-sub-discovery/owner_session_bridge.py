@@ -711,6 +711,215 @@ def _owner_process_lock(private_root: Path):
             handle.close()
 
 
+def _g2_request(payload, request_id):
+    """Same request contract at producer and consumer; owner-local authority only."""
+    from owner_g2_discovery import MovieQuery, MAX_BATCH, _source, _query
+    if (not isinstance(payload, dict)
+            or set(payload) != {"schema", "request_id", "source_url", "authorized_source", "queries"}
+            or payload["schema"] not in ("TTV-OWNER-G2-METADATA-V1", "TTV-OWNER-G2-SELECTION-V1")
+            or not isinstance(request_id, str) or not _ID.fullmatch(request_id)
+            or payload["request_id"] != request_id
+            or payload["authorized_source"] is not True
+            or not isinstance(payload["source_url"], str)
+            or not isinstance(payload["queries"], list)
+            or not 1 <= len(payload["queries"]) <= MAX_BATCH):
+        raise ValueError("G2_REQUEST_INVALID")
+    _source(payload["source_url"])
+    queries = tuple(_query(MovieQuery(**q)) for q in payload["queries"])
+    selected = payload["schema"] == "TTV-OWNER-G2-SELECTION-V1"
+    if (selected and (len(queries) != 1 or not queries[0].select_release)
+            or not selected and any(q.select_release for q in queries)):
+        raise ValueError("G2_REQUEST_MODE_MISMATCH")
+    return queries
+
+
+def enqueue_g2_metadata(*, owner_root: Path, request: dict) -> str:
+    """Trusted local writer; publish a complete file once, never overwrite.
+
+    A repeated identical request ID returns its existing receipt/claim identity,
+    not another provider call. Input stays owner-private; no public GitHub payload.
+    """
+    request_id = request.get("request_id") if isinstance(request, dict) else None
+    _g2_request(request, request_id)
+    body = json.dumps(request, ensure_ascii=False, separators=(",", ":"),
+                      sort_keys=True, allow_nan=False).encode("utf-8")
+    if len(body) > 8192:
+        raise ValueError("G2_REQUEST_SIZE")
+    inbox = _private_dir(owner_root)
+    path = inbox / ("g2-" + request_id + ".json")
+    claim = inbox / ("g2-" + request_id + ".claim")
+    receipt = inbox / ("g2-" + request_id + ".receipt.json")
+
+    def existing():
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 8192:
+            raise ValueError("G2_REQUEST_ID_CONFLICT")
+        try:
+            prior = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            raise ValueError("G2_REQUEST_ID_CONFLICT") from None
+        if prior != request:
+            raise ValueError("G2_REQUEST_ID_CONFLICT")
+        return request_id
+
+    if path.exists() or path.is_symlink():
+        return existing()
+    if claim.exists() or claim.is_symlink() or receipt.exists() or receipt.is_symlink():
+        raise ValueError("G2_REQUEST_PRIOR_EFFECT_REVIEW")
+    tmp = inbox / (".g2-" + request_id + "-" + secrets.token_hex(8) + ".tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(body)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # NTFS/local filesystem atomic exclusive publication; no replace fallback.
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            return existing()
+        return request_id
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _publish_g2_selection(inbox, request_id, query, rows):
+    """Publish the actual G2.2 request only after the complete selection returns.
+
+    No provider, torrent add or launch in this function. Existing claims and
+    receipts prevent replay; never publish a partial/failed browser result.
+    """
+    if len(rows) != 1 or rows[0].get("status") != "SELECTION_READY":
+        return False
+    row = rows[0]
+    from dataclasses import asdict
+    if (row.get("owner_request_id") != request_id or row.get("query") != asdict(query)
+            or query.media_authorized is not True or not query.select_release):
+        raise ValueError("G2_SELECTION_BINDING_INVALID")
+    selection = row.get("selection")
+    if not isinstance(selection, dict) or set(selection) != {
+            "link", "expected_hash", "title", "source_authorized",
+            "media_authorized", "release_matched", "file_id"}:
+        raise ValueError("G2_SELECTION_BINDING_INVALID")
+    from owner_g2_discovery import _link_hash
+    if (_link_hash(selection["link"]) != selection["expected_hash"]
+            or not selection["expected_hash"] or selection["title"] != query.title
+            or any(selection[k] is not True for k in
+                   ("source_authorized", "media_authorized", "release_matched"))
+            or selection["file_id"] is not None):
+        raise ValueError("G2_SELECTION_BINDING_INVALID")
+    path = inbox / ("g2-" + request_id + ".selected.json")
+    body = {"schema": "TTV-G2-SELECTED-RELEASE-V1", "request_id": request_id,
+            "selection": selection, "play": query.play}
+    data = json.dumps(body, ensure_ascii=True, separators=(",", ":"),
+                      sort_keys=True).encode("utf-8")
+    tmp = inbox / (".g2-selected-" + request_id + "-" + secrets.token_hex(8) + ".tmp")
+    try:
+        with tmp.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            if path.is_symlink() or not path.is_file() or path.read_bytes() != data:
+                raise ValueError("G2_SELECTION_RECEIPT_CONFLICT") from None
+    finally:
+        tmp.unlink(missing_ok=True)
+    return True
+
+
+def poll_private_g2(*, owner_root: Path, cache_root: Path, discover, submit, emit=print,
+                    handoff=None) -> int:
+    """One bounded, explicitly authorized Owner-local metadata request.
+    
+    The existing private inbox is the handoff; the runner wake is inert.
+    A durable claim prevents automatic replay after an uncertain effect.
+    """
+    from agy_v13_native_producer import _write
+    inbox = _private_dir(owner_root)
+    for path in sorted(inbox.glob("g2-*.json")):
+        match = re.fullmatch(r"g2-([a-f0-9]{32})\.json", path.name)
+        if match is None or path.is_symlink() or not path.is_file():
+            continue
+        request_id = match[1]
+        claim = inbox / ("g2-" + request_id + ".claim")
+        receipt = inbox / ("g2-" + request_id + ".receipt.json")
+        if claim.exists() or claim.is_symlink() or receipt.exists() or receipt.is_symlink():
+            continue
+        try:
+            if not 0 < path.stat().st_size <= 8192:
+                raise ValueError("G2_REQUEST_SIZE")
+            request = json.loads(path.read_text(encoding="utf-8"))
+            queries = _g2_request(request, request_id)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            emit("OWNER_G2_REQUEST_REJECTED")
+            continue
+        try:
+            with claim.open("x", encoding="utf-8") as stream:
+                stream.write("CLAIMED_DO_NOT_AUTO_REPLAY\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FileExistsError:
+            continue
+        def run_claimed():
+            try:
+                detail = {}
+                try:
+                    rows = discover(queries, cache_root, source_url=request["source_url"],
+                                    authorized_source=True, owner_request_id=request_id)
+                except Exception as exc:
+                    from owner_g2_discovery import G2BatchReview
+                    # A completed, verified single-film selection must not be lost
+                    # solely because the independent browser cleanup failed.
+                    # Keep the producer's terminal journal and browser.pending;
+                    # do not retry AGY or claim browser readiness.
+                    if not (isinstance(exc, G2BatchReview)
+                            and exc.reason == exc.cleanup_reason == "G2_BROWSER_EFFECT_REVIEW_REQUIRED"
+                            and exc.browser_restored is False
+                            and len(queries) == len(exc.rows) == 1
+                            and queries[0].select_release
+                            and exc.rows[0].get("status") == "SELECTION_READY"):
+                        raise
+                    rows = list(exc.rows)
+                    detail.update(browser_restored=False, cleanup_reason=exc.cleanup_reason)
+                status = "COMPLETE" if len(rows) == len(queries) else "PARTIAL"
+                if queries[0].select_release:
+                    published = _publish_g2_selection(inbox, request_id, queries[0], rows)
+                    detail["selection_published"] = published
+                    if published and handoff is not None:
+                        try:
+                            detail["library_status"] = handoff(inbox, request_id)
+                            # Only a known pending file list is reconciled. The
+                            # existing hash claim prevents replay of an add.
+                            for _ in range(6):
+                                if detail["library_status"] != "FILE_SELECTION_PENDING":
+                                    break
+                                time.sleep(5)
+                                detail["library_status"] = handoff(inbox, request_id)
+                        except Exception as exc:
+                            owner_full_trace("OWNER_G2_LIBRARY_REVIEW_REQUIRED", error=exc)
+                            detail["library_status"] = "LIBRARY_REVIEW_REQUIRED"
+                _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
+                                 "request_id": request_id, "status": status, "results": rows, **detail})
+                emit("OWNER_G2_" + status)
+            except Exception as exc:
+                from agy_owner_warm_session import warm_reason
+                from owner_g2_discovery import G2BatchReview
+                owner_full_trace("OWNER_G2_REVIEW_REQUIRED", error=exc)
+                detail = {"reason": warm_reason(exc), "results": []}
+                if isinstance(exc, G2BatchReview):
+                    detail.update(reason=exc.reason, results=list(exc.rows),
+                                  browser_restored=exc.browser_restored,
+                                  cleanup_reason=exc.cleanup_reason)
+                _write(receipt, {"schema": "TTV-OWNER-G2-RECEIPT-V1",
+                                 "request_id": request_id, "status": "REVIEW_REQUIRED",
+                                 **detail})
+                emit("OWNER_G2_REVIEW_REQUIRED")
+        submit(run_claimed)
+        return 1
+    return 0
+
+
 def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                     interval_seconds: float = 2.0,
                     emit: Callable[[str], object] = print,
@@ -805,6 +1014,16 @@ def run_owner_agent(*, private_root: Path, cache_root: Path, state_root: Path,
                         poll_private_events(
                             owner_root=private_root, processor=processor,
                             emit=emit, max_events=available,
+                            submit=lambda work: active.add(pool.submit(work)))
+                    # G1 gets first refusal on every tick. Never schedule a new
+                    # G2 batch while any film work (or prior G2) is active.
+                    discover = getattr(trusted_v3_factory, "g2_discover", None)
+                    if not active and callable(discover):
+                        from owner_movie_handoff import publish_library_receipt
+                        poll_private_g2(
+                            owner_root=private_root, cache_root=cache_root,
+                            discover=discover, emit=emit,
+                            handoff=publish_library_receipt,
                             submit=lambda work: active.add(pool.submit(work)))
                     time.sleep(interval_seconds)
         finally:
