@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-agy-trace-comparison",
+  "operation": "owner-flow3-agy-r2-replay",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-agy-trace-comparison.ps1",
-  "script_sha256": "20bb074295f6c732cb5f0be2f916e4d65b69d45249eebf4a4b0d2e232c3806dd",
+  "script_path": "hostops/laptop-ops/operations/flow3-agy-r2-replay.ps1",
+  "script_sha256": "252cd8714e8e40ebd3cc2c4642d8c1d8e95528675a3bd451b23a991cef1273cf",
   "arguments": []
 }
