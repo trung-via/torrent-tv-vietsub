@@ -6,9 +6,9 @@ $spool=Join-Path $env:ProgramData 'TorrentTVVietsub\LaptopHostOps'
 $rq=Get-Content -LiteralPath (Join-Path $spool 'Requests\request.json') -Raw|ConvertFrom-Json
 if($rq.schema -cne 'TTV-LAPTOP-HOSTOPS-REQUEST-V1' -or $rq.nonce -cnotmatch '^[a-f0-9]{32}$'){throw 'REQUEST_INVALID'}
 $root=Join-Path $env:LOCALAPPDATA 'TorrentTVVietsub'
-$run=Join-Path $root ('OwnerBridge\backups\flow3-agy-context-'+$rq.nonce)
+$run=Join-Path $root ('OwnerBridge\backups\flow3-agy-context-detail-'+$rq.nonce)
 New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
-$code='F3_CTX_LOCAL_ERROR'
+$code='F3_DETAIL_LOCAL_ERROR'
 try {
 $py=@'
 import hashlib,json,pathlib,re,sys
@@ -40,35 +40,49 @@ def matching(source_commit,reason):
 
 # Diagnostic only: classify fixed vocabulary and structure, never emit raw page content.
 def context_flags(output):
-    if not isinstance(output,str):return "NON_TEXT","OTHER","NONE"
-    stripped=output.strip()
-    wrapper=re.fullmatch(r"(?is)(?:script ran on page and returned:|result:)\s*\x60{3}(?:json|text)?\s*\n(.*?)\n\x60{3}\s*",stripped)
-    payload=wrapper.group(1) if wrapper else stripped
-    try: parsed=json.loads(payload)
-    except (ValueError,RecursionError):parsed=None
-    shape=("WRAP_DICT" if wrapper else "DICT") if isinstance(parsed,dict) else ("WRAP_LIST" if wrapper else "LIST") if isinstance(parsed,list) else ("WRAP_TEXT" if wrapper else "TEXT")
-    # Only these fixed labels can leave Owner. No arbitrary titles, URLs or snippets.
-    hits=re.compile(r"access denied|403 forbidden|verify (?:you are|that you are) human|making sure you.re not a bot|anti.bot challenge|just a moment|captcha",re.I)
-    signal=set()
-    for m in hits.finditer(payload):
-        word=m.group(0).lower()
-        signal.add("CAP" if "captcha" in word else "DEN" if "denied" in word or "403" in word else "HUM")
-    field=set()
-    def walk(v,key=None):
+    need(isinstance(output,str),"OUTPUT_TYPE")
+    wrapper=re.fullmatch(r"(?is)(?:script ran on page and returned:|result:)\s*\x60{3}(?:json|text)?\s*\n(.*?)\n\x60{3}\s*",output.strip())
+    need(wrapper is not None,"WRAPPER_DRIFT")
+    obj=json.loads(wrapper.group(1))
+    need(isinstance(obj,dict),"DICT_DRIFT")
+    # Fixed semantic vocabulary only. Never emit unrecognized names or values.
+    groups={
+        "T":("title","pagetitle","documenttitle","heading","headings"),
+        "B":("body","bodytext","bodypreview","bodyexcerpt","bodysample","bodysnippet","bodytextsnippet","text","textpreview","textexcerpt","textsample","textsnippet","textcontent","innertext","visibletext","pagetext","pagecontent","content","snippet","preview","description"),
+        "U":("url","href","src","location","pathname","link","links","urls","origin"),
+        "H":("html","outerhtml","innerhtml","script","scripts","class","classname","id","attributes","markup"),
+        "M":("captcha","hascaptcha","captchavisible","captchatext","captchamarkers","challenge","challengevisible","challengepresent","challengemarkers","markers","signals","blocked","blockreason","accessblocked","isblocked","verification","status","error","reason","message","checks","flags","matches","indicators","detected","detection"),
+        "R":("results","rows","items","candidates","releases","name","releasename","text"),
+    }
+    def tag(k):
+        k=re.sub(r"[^a-z0-9]","",k.lower())
+        for label,keys in groups.items():
+            if k in keys:return label
+        if re.search(r"captcha|challenge|verif|block|marker|detect|signal",k):return "M"
+        if re.search(r"body|text|content|preview|snippet",k):return "B"
+        return "X"
+    present=set()
+    matched=set()
+    contexts=set()
+    def walk(v,anc=()):
         if isinstance(v,dict):
-            for k,x in v.items():walk(x,k.lower())
+            for k,x in v.items():
+                t=tag(k)
+                present.add(t)
+                walk(x,anc+(t,))
         elif isinstance(v,list):
-            for x in v:walk(x,key)
-        elif isinstance(v,str) and hits.search(v):
-            field.add("TITLE" if key in ("title","pagetitle","documenttitle") else "BODY" if key in ("text","body","bodytext","innertext","visibletext","content") else "HTML" if key in ("html","outerhtml","innerhtml","script","scripts") else "OTHER")
-    if isinstance(parsed,(dict,list)):walk(parsed)
-    else:field.add("RAW")
-    # Strong contextual signals, not a grant to access a page.
-    access=bool(re.search(r"(?i)(verify (?:you are|that you are) human|making sure you.re not a bot|complete (?:the|a) captcha|security verification|human verification|access denied|403 forbidden|just a moment|checking your browser|enable javascript and cookies)",payload))
-    page=bool(re.search(r"(?i)(cloudflare|turnstile|challenge-platform|cf-chl|captcha)",payload))
-    # Count only fixed categories in output, not content.
-    code=("A" if access else "N")+("C" if page else "N")
-    return shape, "_".join(sorted(signal)) or "NONE", "_".join(sorted(field))+"_"+code
+            for x in v:walk(x,anc)
+        elif isinstance(v,str) and re.search(r"captcha",v,re.I):
+            matched.add(anc[-1] if anc else "X")
+            if "M" in anc:matched.add("M")
+            if re.fullmatch(r"(?i)\s*captcha\s*",v):contexts.add("W")
+            elif re.fullmatch(r"(?is)\s*https?://\S+\s*",v):contexts.add("U")
+            elif re.search(r"(?i)<[^>]{0,250}captcha|captcha[^<]{0,100}>",v):contexts.add("H")
+            elif re.search(r"(?i)(verify|human|robot|challenge|security|complete|solve|check|click|enter|failed|required)",v):contexts.add("A")
+            else:contexts.add("P")
+    walk(obj)
+    need(bool(matched),"NO_MATCHED_VALUE")
+    return "".join(sorted(present)),"".join(sorted(matched)),"".join(sorted(contexts))
 
 def main():
     from urllib.parse import urlsplit
@@ -145,13 +159,13 @@ def main():
     need(all(x["tool"]=="E" and x["bound"] and not x["strong"] and not x["error"] for x in (a,b)),"TRACE_FLAGS_DRIFT")
     (run/"diagnosis.json").write_text(json.dumps({"before":a,"after":b,"installed_old_source":installed},indent=2),encoding="utf-8")
     def compact(x):return x["shape"]+"_"+x["signal"]+"_"+x["field"]
-    return "F3_CTX_B_"+compact(a)+"_A_"+compact(b)
+    return "F3_DETAIL_B_"+compact(a)+"_A_"+compact(b)
 try: print(main())
-except Hold as e: print("F3_CTX_HOLD_"+str(e))
+except Hold as e: print("F3_DETAIL_HOLD_"+str(e))
 except Exception:
     import traceback
     (run/"private-error.txt").write_text(traceback.format_exc(),encoding="utf-8")
-    print("F3_CTX_LOCAL_ERROR")
+    print("F3_DETAIL_LOCAL_ERROR")
 '@
 $f=Join-Path $run 'deploy.py'
 [IO.File]::WriteAllText($f,$py,[Text.UTF8Encoding]::new($false))
