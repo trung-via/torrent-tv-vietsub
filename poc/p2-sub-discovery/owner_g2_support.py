@@ -39,12 +39,14 @@ def _write(path, obj):
 def _load_settings(path):
     return _json(path, 4194304) if path.exists() else {}
 
-def _ensure_browser_listener(ps, profile):
+def _ensure_browser_listener(ps, profile, browser_port=9555):
     """BT26 recovery: start only the enrolled profile if it is absent.
 
     Never kill a process, reset a profile, change ports, or touch 9444. Run
     only inside the native acquisition request, not Owner startup.
     """
+    if browser_port not in (9555, 9556):
+        raise ValueError("G2_BROWSER_PORT")
     env = dict(os.environ, TTV_NATIVE_PROFILE=str(profile))
     cmd = r"""
 $ErrorActionPreference='Stop'
@@ -71,6 +73,7 @@ $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$pids[0])
 if($p.Name -ne 'chrome.exe' -or !$p.CommandLine -or $p.CommandLine.IndexOf($profile,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or $p.CommandLine -notmatch '(?:^|\s|")--remote-debugging-port=9555(?:\s|"|\z)'){exit 3}
 exit 0
 """
+    cmd = cmd.replace("9555", str(browser_port))
     try:
         code = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", cmd],
                               env=env, capture_output=True, timeout=40).returncode
@@ -80,8 +83,10 @@ exit 0
         _hold({4: "BROWSER_PROFILE_RUNNING_NO_LISTENER",
                5: "BROWSER_PROFILE_OR_EXECUTABLE_MISSING"}.get(code, "BROWSER_IDENTITY"))
 
-def _session_settings(run, home):
+def _session_settings(run, home, browser_port=9555):
     """BT26 session-local config, never edit global settings or permissions."""
+    if browser_port not in (9555, 9556):
+        raise ValueError("G2_BROWSER_PORT")
     primary = home / ".gemini/antigravity-cli/settings.json"
     shared = home / ".gemini/config/config.json"
     global_mcp = home / ".gemini/config/mcp_config.json"
@@ -125,7 +130,7 @@ def _session_settings(run, home):
     agents.mkdir()
     _write(agents / "mcp_config.json", {"mcpServers": {"ttv-browser": {
         "command": "cmd.exe", "args": ["/d", "/c", "npx", "-y",
-        "chrome-devtools-mcp@1.14.0", "--browser-url=http://127.0.0.1:9555",
+        "chrome-devtools-mcp@1.14.0", f"--browser-url=http://127.0.0.1:{browser_port}",
         "--no-usage-statistics"]}}})
     override = run / "session-settings.json"
     _write(override, config)
