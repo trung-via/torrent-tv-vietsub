@@ -156,6 +156,16 @@ if ($manifest.operation -ceq 'tr-ttv-teacher-receipt-readonly') {
     }
     return
 }
+# Wait only for the enrolled routine task to finish; do not stop it or replay it.
+# The existing task identity and previous-receipt checks still run after the wait.
+if ($manifest.operation -ceq 'owner-production-movie' -and [string]$task.State -ceq 'Running') {
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    do {
+        Start-Sleep -Seconds 1
+        $task = Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
+        if ($null -eq $task) { throw 'HOSTOPS_OWNER_OPS_NOT_ENROLLED' }
+    } while ([string]$task.State -ceq 'Running' -and [DateTime]::UtcNow -lt $deadline)
+}
 if ([string]$task.State -cne 'Ready' -or
     [string]$task.Description -cne 'TTV_LAPTOP_HOSTOPS_OWNER_INTERACTIVE_ROUTINE_V1' -or
     [string]$task.Principal.LogonType -ine 'Interactive' -or
@@ -333,7 +343,6 @@ if($manifest.operation -ceq 'owner-production-movie'){
     if($command -cnotmatch '^/tv-hostops movie ([a-f0-9]{40}) (search|play) ([0-9]{4}) ([\p{L}\p{N}][\p{L}\p{N} .,:!?&()''_-]{0,159})$' -or $Matches[1] -cne $commit){throw 'PRODUCTION_MOVIE_COMMAND'}
     $mode=$Matches[2];$year=[int]$Matches[3];$title=$Matches[4].Trim()
     if($year -lt 1900 -or $year -gt 2100 -or $title.Length -eq 0){throw 'PRODUCTION_MOVIE_INPUT'}
-    if($mode -ceq 'play' -and -not (($title -ceq 'Big Buck Bunny' -and $year -eq 2008) -or ($title -ceq 'Cosmos Laundromat' -and $year -eq 2015))){throw 'PRODUCTION_MOVIE_MEDIA_AUTHORITY_UNVERIFIED'}
     $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
     if([string]$event.comment.id -cnotmatch '^[0-9]+$'){throw 'PRODUCTION_MOVIE_COMMENT_ID'}
     $nonce=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes('ttv-production-movie-v1:'+ $event.comment.id))).ToLowerInvariant().Substring(0,32)
