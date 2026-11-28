@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-agy-denial-readout",
-  "category": "diagnostics",
+  "operation": "owner-flow3-denial-marker-reconcile",
+  "category": "owner-maintenance",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-agy-denial-readout.ps1",
-  "script_sha256": "511c89c982cd61985c78cbf308b1ca64d7e8c372c2a2dc4f993f3c779e4cc12d",
+  "script_path": "hostops/laptop-ops/operations/flow3-denial-marker-reconcile.ps1",
+  "script_sha256": "927018a46371e179609310b48a0227020464e3ac151b6393cb8d955e9f16fdaa",
   "arguments": []
 }
