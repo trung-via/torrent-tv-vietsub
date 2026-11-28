@@ -2,13 +2,13 @@
 
 **Ngày:** 2026-10-28  
 **Status:** `DRAFT_FOR_PR_REVIEW`. Human đã chốt độc lập AIOS và hướng North Star AI Entertainment Agent; triển khai, hiệu năng và khả năng tương thích chưa tự động được xác minh.  
-**Authority:** `PROJECT_CONTRACT.md` v2.0 (sau merge), ADR-0001/0002/0006/0007; ADR-0005 chỉ là lịch sử SMB-first.
+**Authority:** `PROJECT_CONTRACT.md` v2.1 (C1.5/C5 sửa tại #192), ADR-0001/0002/0006/0007; ADR-0005 chỉ là lịch sử SMB-first.
 
 ## 1. Sản phẩm và đối tượng
 
 Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google TV/Redmi tương thích, sử dụng TorrServer ngoài TV trên Windows PC/NAS, giữ trải nghiệm OMP và ưu tiên tiếng Việt. Nguồn nội dung phải có quyền sử dụng, kể cả khi truy vấn bằng website adapter/indexer. Dự án có repo, backlog, workflow và runner riêng, **không phải sản phẩm con hoặc agent của AIOS**.
 
-**North Star:** người dùng có thể yêu cầu “tìm video A chất lượng khoảng 2K, 8–12 GB, seeders báo >= 300, phát lên TV, ưu tiên audio/thuyết minh tiếng Việt”; hệ thống giải thích kết quả/độ tin cậy, xin xác nhận trước hành động, phát và báo trạng thái. Đây là **mục tiêu trải nghiệm**, không phải acceptance P0 hay lời khẳng định API/voice-over hiện đã hoạt động.
+**North Star:** người dùng có thể yêu cầu “tìm video A chất lượng khoảng 2K, 8–12 GB, seeders báo >= 300, phát lên TV, ưu tiên audio/thuyết minh tiếng Việt”; hệ thống tự chọn bản đúng yêu cầu, sử dụng phê duyệt Human theo phạm vi C1.5/C5, phát khi được yêu cầu và báo trạng thái. Đây là **mục tiêu trải nghiệm**, không phải acceptance P0 hay lời khẳng định API/voice-over hiện đã hoạt động.
 
 ## 2. Những gì đã quyết định
 
@@ -23,7 +23,7 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 
 **Hành trình nền P0/P1:** cài APK tương thích → cấu hình TorrServer LAN → nhập magnet/.torrent hợp pháp hoặc chọn nguồn tìm website có quyền → chọn file/series → phát/tua/resume bằng D-pad → chọn track Việt hoặc external SRT/VTT → nhận lỗi có hướng xử lý.
 
-**Hành trình North Star P2/P3 (PROPOSED):** mô tả nội dung bằng ngôn ngữ tự nhiên → search adapters trả candidates có nguồn và metadata → lọc dung lượng/độ phân giải/seeders/codec/audio → giải thích bất định (“2K”/seeds) → người dùng duyệt bản → gateway riêng Torrent TV yêu cầu TorrServer thêm torrent và điều khiển TV → báo kết quả/trạng thái hoặc rollback.
+**Hành trình North Star P2/P3 (PROPOSED):** mô tả nội dung bằng ngôn ngữ tự nhiên → search adapters trả candidates có nguồn và metadata → lọc dung lượng/độ phân giải/seeders/codec/audio → giải thích bất định (“2K”/seeds) → Brain chọn đúng bản trong phạm vi phê duyệt một lần → Owner/runner riêng yêu cầu TorrServer thêm torrent và điều khiển OMP khi có yêu cầu → báo kết quả/trạng thái hoặc rollback.
 
 **Hành trình AI P2-AISUB/P4/P5:** mục tiêu Human là tạo Vietsub theo yêu cầu, ưu tiên dịch timed SRT/VTT theo cue, rồi mới ASR→dịch/QA khi thiếu text. P2-AISUB PoC CLI có thể làm độc lập Gateway; P4 kết nối bản đã tạo với OMP sau G1, P5 mới là TTS/voice-over. Không bắt buộc real-time.
 
@@ -33,9 +33,9 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 | --- | --- | --- |
 | P0 Foundation | OMP provenance/build, runner riêng, Windows TorrServer, manual magnet, D-pad/player, Vietsub cơ bản | Build hash + legal fixture + real TV/server evidence độc lập |
 | P1 Daily use | SRT/VTT ngoài torrent, track binding, reopen, lỗi, UX transport | G0 render ≠ G1 external import ≠ G2 hot-add ≠ G3 sync ≠ G4 release |
-| P2-SOURCE Search intelligence | Legal source adapters, metadata, filter/rank, manual confirmation | Candidate source proof, no unauthorized crawling, negative tests |
+| P2-SOURCE Search intelligence | Authorized source adapters, metadata, filter/rank, scoped standing Human approval | Candidate source proof, no unauthorized crawling, negative tests |
 | P2-AISUB AI Vietsub (Human goal; PR #9 still Draft) | Offline timed SRT/VTT cue translation first; ASR→MT/QA if missing text, opt-in Windows/NAS CLI | Two lawful fixtures; cue timing/QA and resource proof; TV E2E depends on G1 |
-| P3 Agent control | Local gateway riêng, permission, TV pairing/play/status, ChatGPT integration optional | Real E2E source→confirmation→TorrServer→TV, auth/audit |
+| P3 Agent control | Local gateway riêng, permission, TV pairing/play/status, ChatGPT integration optional | Real E2E source→scoped approval→TorrServer→TV, auth/audit |
 | P4 AI Vietsub integration | Bind the P2-AISUB generated SRT/VTT to correct OMP TV media via verified P1a-G1 | Real Redmi import, selected track auto-render, persistence/seek and cue timing |
 | P5 AI voice-over | TTS/align/ducking/mix/mux, optional external audio | Audio sync, pause/seek, resource/latency/cost PoC; real-time riêng |
 
@@ -59,8 +59,12 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 ### P2/P3: search/agent
 
 - “2K” phải định nghĩa rõ (ví dụ 2560×1440 hoặc DCI 2048×1080); candidate seeders do indexer báo có timestamp, không bảo đảm peers thật. Size/codec/resolution cần kiểm tra metadata thực.
-- Không có hành động add torrent, mở stream hoặc điều khiển thiết bị có side effect nếu thiếu xác nhận/permission; error typed và audit không lộ secret.
+- Không có hành động add torrent, mở stream hoặc điều khiển thiết bị có side effect nếu thiếu yêu cầu hoặc phê duyệt theo phạm vi/permission; error typed và audit không lộ secret.
 - ChatGPT có thể là giao diện intent tùy chọn; gateway của Torrent TV là runtime độc lập. Không giả định ChatGPT có LAN access, không triển khai remote shell.
+
+### G2 Movie Concierge — quyết định #191, C1.5/C5 (#192)
+
+Brain giao AGY chọn bản đúng phim/năm/tập, phiên bản được yêu cầu qua Chrome DevTools MCP `ttv-browser`, Chrome CDP 9555; ưu tiên nguồn tra cứu EXT.TO trong phạm vi nội dung và truy cập được phép, dung lượng 5–12 GB mềm và seed reported cao. Yêu cầu cụ thể thắng mặc định; codec/audio phải phù hợp OMP, không coi seed là tốc độ bảo đảm. Không hỏi lại thao tác đã được Human phê duyệt trong phạm vi hợp lệ. AGY chuyển magnet được phép qua handoff cục bộ; Windows Owner/runner dùng TorrServer loopback, kiểm tra hash chống trùng, readback Library và file ID chính xác. Khi yêu cầu phát, tái sử dụng OMP native pairing/launch; chỉ PASS khi quan sát đúng phiên và tiến trình phát trên Redmi, không suy từ HTTP ACK. Prefetch G2.3 theo #181 giữ riêng và chỉ gắn P4 theo opt-in/session hiện hành. G2.3-PLAY độc lập G1; prefetch/P4/G3 phụ thuộc G1. Chưa nghiệm thu discovery/add/remote-play E2E; wake, OMP API, pairing và library read có bằng chứng riêng tại #191.
 
 ### P4/P5: media AI
 
@@ -74,7 +78,7 @@ Torrent TV Vietsub là ứng dụng xem video gia đình trên Android TV/Google
 | FR-INTENT | Structured PlaybackIntent với source, pixel-level resolution, size, seed metric, hard/preference, device, audio policy | 2K ambiguity được xử lý công khai; hard constraints không bị hạ |
 | FR-DISCOVERY | OMP website search giữ nguyên; Prowlarr/Torznab option, Jackett fallback | Lawful source allowlist và metadata provenance |
 | FR-VERIFY | Reported/scraped/connected seeder metrics, actual media file probe và observed buffer/rate | Không suy độ phân giải/codec từ release name; không gọi seed >=300 là guaranteed speed |
-| FR-SESSION | Gateway owned state machine, authorization, idempotency, confirmation, audit, typed errors | Test fail/retry/recover và stop/cleanup |
+| FR-SESSION | Owner/gateway state, authorization, idempotency, scoped approval, audit, typed errors | Test fail/retry/recover và stop/cleanup |
 | FR-READY | Direct-play first, readiness before play, remux/transcode only when needed | Legal fixture actual bitrate/rate/buffer/first frame measured |
 | FR-OMP-TV | OMP-based TV device pairing/token/session manifest and play/pause/seek/status | Real Redmi firmware and OMP native player evidence; ADB dev-only |
 | FR-AUDIO | Existing VI track first; external Vietsub; batch AI voice-over opt-in; rolling later | Licensed source, alignment/seek/quality/cost/privacy proof |
