@@ -20,6 +20,11 @@ try{
     $selected.play -isnot [bool] -or -not $selected.play -or [string]$selected.request_id -cne $RequestId -or
     [string]$selected.selection_digest -cnotmatch '^[a-f0-9]{64}$' -or [string]$selected.torrent_hash -cnotmatch '^[a-f0-9]{40}$' -or
     ($selected.file_id -isnot [int] -and $selected.file_id -isnot [long]) -or $selected.file_id -lt 0 -or $selected.file_id -gt [int]::MaxValue){throw 'RECEIPT_INVALID'}
+ $autoVietsub=$false
+ if($selected.PSObject.Properties['auto_vietsub']){
+  if($selected.auto_vietsub -isnot [bool]){throw 'RECEIPT_AUTO_VIETSUB_INVALID'}
+  $autoVietsub=$selected.auto_vietsub
+ }
  $hash=[string]$selected.torrent_hash
  $idx=[int]$selected.file_id
  function Ts([hashtable]$payload){
@@ -96,7 +101,9 @@ try{
   $ac=((& $adb -s $serial shell dumpsys activity activities 2>$null)|Out-String)
   return [bool](@($ac -split '\r?\n'|Where-Object{$_ -match 'mResumedActivity|topResumedActivity' -and $_ -match [regex]::Escape($pkg+'/') -and $_ -match 'PlayerActivity'}).Count)
  }
- if(PlayerForeground){Write-Host 'G23_PLAY=HOLD_EXISTING_PLAYER_FOREGROUND';exit 0}
+ # A concierge request is an explicit instruction to play the selected new
+ # movie. A legacy remote play keeps its existing no-interrupt behavior.
+ if(-not $autoVietsub -and (PlayerForeground)){Write-Host 'G23_PLAY=HOLD_EXISTING_PLAYER_FOREGROUND';exit 0}
  function ReadViewed{
   try{
    $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8090/viewed' -Method POST -ContentType 'application/json' -Body '{"action":"list"}' -TimeoutSec 5 -NoProxy -MaximumRedirection 0
@@ -120,10 +127,15 @@ try{
   $stream.Write($bytes,0,$bytes.Length)
   $stream.Flush($true)
  }finally{$stream.Dispose()}
- $body=@{params=@{torrent=$hash;file=$idx;t=$start;from='Torrent TV Windows Runner'}}|ConvertTo-Json -Depth 4 -Compress
+ $params=@{torrent=$hash;file=$idx;t=$start;from='Torrent TV Windows Runner'}
+ # Only an explicit concierge request, bound through the private receipt,
+ # carries the one-shot intent. Ordinary play uses the unchanged protocol.
+ if($autoVietsub){$params.flow3Vietsub=[string]$selected.request_id}
+ $body=@{params=$params}|ConvertTo-Json -Depth 4 -Compress
  $r=Invoke-RestMethod -Uri ($base+'/omp/launch') -Method POST -Headers @{Authorization=('Bearer '+$token)} -ContentType 'application/json' -Body $body -TimeoutSec 8 -NoProxy -MaximumRedirection 0
  if($r.ok -ne $true){throw 'LAUNCH_NOT_ACKNOWLEDGED'}
  Write-Host 'G23_LAUNCH=ACK'
+ if($autoVietsub){Write-Host 'G23_AUTO_VIETSUB=REQUESTED_NOT_CONFIRMED'}
  $stage='OBSERVE_PLAYER'
  # Dispatch success is not proof of rendering. TrackTimecode can be disabled;
  # do not wait for history writes or require them for normal dispatch.
