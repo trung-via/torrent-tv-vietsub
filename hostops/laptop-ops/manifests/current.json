@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-agy-context",
+  "operation": "owner-flow3-post-human-verification",
   "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-agy-context.ps1",
-  "script_sha256": "5ba6ce57deca9544f61688a0e574a608c4e3a532088cf6d92b3da8127f8f68d1",
+  "script_path": "hostops/laptop-ops/operations/flow3-post-human-verification.ps1",
+  "script_sha256": "c725502f58e0c1d872b76a2b098537d10b833b97233e291d226e73f2031aa08f",
   "arguments": []
 }
