@@ -195,7 +195,9 @@ def handoff_private_request(private_root: Path, request_id: str, *, post=_post):
     try:
         payload = json.loads(source.read_text(encoding="utf-8"))
         if (payload["schema"] != "TTV-G2-SELECTED-RELEASE-V1" or
-                payload["request_id"] != request_id or type(payload["play"]) is not bool):
+                payload["request_id"] != request_id or type(payload["play"]) is not bool
+                or type(payload.get("auto_vietsub", False)) is not bool
+                or payload.get("auto_vietsub", False) and not payload["play"]):
             raise ValueError
         selection = SelectedRelease(**payload["selection"])
     except (OSError, ValueError, TypeError, KeyError):
@@ -218,6 +220,8 @@ def handoff_private_request(private_root: Path, request_id: str, *, post=_post):
            "selection_digest": digest, "status": result.status,
            "torrent_hash": result.torrent_hash, "file_id": result.file_id,
            "play": payload["play"]}
+    if payload.get("auto_vietsub", False):
+        row["auto_vietsub"] = True
     tmp = receipt.with_suffix(".json.tmp")
     with tmp.open("x", encoding="utf-8") as stream:
         json.dump(row, stream, separators=(",", ":"))
