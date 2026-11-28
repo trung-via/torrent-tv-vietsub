@@ -22,7 +22,26 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
+      - name: Checkout exact proposed production movie source for offline checks
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 7ec2eccfba633625d845b37264d44083173fb576
+          path: .production-movie-source
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Parse candidate PowerShell without execution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($file in @('hostops/jobs/owner-laptop-ops-dispatch.ps1','hostops/laptop-ops/operations/production-movie.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Join-Path $env:GITHUB_WORKSPACE '.production-movie-source') $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if (@($errors).Count -ne 0) { throw "Candidate parse failed: $file" }
+          }
       - name: Run source policy regressions
+        env:
+          TTV_PRODUCTION_MOVIE_SOURCE: ${{ github.workspace }}/.production-movie-source
         shell: bash
         run: |
           set -euo pipefail
