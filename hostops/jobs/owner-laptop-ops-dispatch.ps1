@@ -350,7 +350,7 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
             }
         }
     }
-    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g2-deploy-readout','owner-g2-deploy-delta','owner-g2-start-applied','owner-g2-production-once','owner-g2-production-readout','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
+    if ($receipt.operation -cin @('owner-odyssey-en-stage-1124','owner-p3-gate-readonly-1124','agy-odyssey-trained-search-1124','agy-trained-search-readout-1124','agy-odyssey-direct-test-c-1124','agy-neon-indexed-search-1124','agy-neon-indexed-readout-1124','agy-spiderman-model-compare-1124','agy-spiderman-browser-readout-1124','agy-hydrogen-tooltrace-1124','opensubtitles-spiderman-http-control-1124','agy-browser-native-preflight-1124','agy-native-browser-interactive-1124','agy-native-browser-readout-1124','owner-g21-r4-reconcile','owner-g21-r4-acceptance','owner-g21-r5-acceptance','owner-g2-sintel-library-once','owner-g2-speed-first-bunny','owner-g2-deploy-readout','owner-g2-deploy-delta','owner-g2-start-applied','owner-g2-production-once','owner-g2-production-readout','owner-g2-production-resume','owner-g21-r4-readout','agy-native-browser-srt-qa-1124','agy-browser-headless-control-1124','agy-browser-headless-restore-1124')) {
         $file = Join-Path $outbox ('odyssey-stage-' + $nonce + '.json')
         if (Test-Path -LiteralPath $file -PathType Leaf) {
             $item = Get-Item -LiteralPath $file -Force
@@ -388,6 +388,34 @@ for ($i=0; $i -lt $waitSeconds; $i++) {
         Write-Output 'G2_PROD_PLAY_SOURCE_PINNED'
         & pwsh -NoLogo -NoProfile -NonInteractive -File (Join-Path $dir 'owner_movie_flow.ps1') -RequestId $nonce
         if($LASTEXITCODE -ne 0){throw 'G2_PROD_PLAY_HOLD_NO_REPLAY'}
+        return
+    }
+
+
+    if ($receipt.operation -ceq 'owner-g2-production-resume') {
+        $f=Join-Path $outbox ('odyssey-stage-'+$nonce+'.json')
+        if($receipt.result -cne 'SUCCESS' -or -not (Test-Path -LiteralPath $f -PathType Leaf)){throw 'G2_RESUME_RECEIPT_MISSING'}
+        $v=Get-Content -LiteralPath $f -Raw|ConvertFrom-Json
+        if($v.schema -cne 'TTV-ODYSSEY-STAGE-V1' -or $v.nonce -cne $nonce -or $v.reason -cnotmatch '^G2_RESUME_COSMOS_LIBRARY_READY_MS[0-9]+$'){Write-Output 'G2_RESUME_NO_LAUNCH';return}
+        $pointer=Join-Path $outbox ('g2-resume-'+$nonce+'.json')
+        $item=Get-Item -LiteralPath $pointer
+        if($item.Length -gt 1024 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'G2_RESUME_POINTER'}
+        $p=Get-Content -LiteralPath $pointer -Raw|ConvertFrom-Json
+        if($p.schema -cne 'TTV-G2-RESUME-V1' -or $p.nonce -cne $nonce -or $p.request_id -cnotmatch '^[a-f0-9]{32}$' -or $p.fixture -cne 'COSMOS'){throw 'G2_RESUME_POINTER'}
+        $lr=Get-Content -LiteralPath (Join-Path $outbox ('g2-'+$p.request_id+'.library.json')) -Raw|ConvertFrom-Json
+        if($lr.request_id -cne $p.request_id -or $lr.status -cne 'LIBRARY_READY' -or $lr.play -ne $true -or $lr.torrent_hash -cne 'c9e15763f722f23e98a29decdfae341b98d53056'){throw 'G2_RESUME_LIBRARY_BINDING'}
+        $dir=Join-Path $env:RUNNER_TEMP ('g2-resume-'+$nonce)
+        New-Item -ItemType Directory -Path $dir -ErrorAction Stop|Out-Null
+        $files=[ordered]@{'owner_movie_flow.ps1'='cd5551d6d3d0d0b590e44cee9a97b4fbab7a5b09';'owner_movie_play.ps1'='3863ed82c0d81aa9c08feeca6318eac3b36c577e'}
+        foreach($n in $files.Keys){
+            $dest=Join-Path $dir $n
+            Invoke-WebRequest -Uri ('https://raw.githubusercontent.com/trung-via/torrent-tv-vietsub/47c265fc908171ab18bb0707b2e26b014fb39d40/poc/p2-source/'+$n) -OutFile $dest -TimeoutSec 25
+            $hash=(& git hash-object --no-filters -- $dest|Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $hash -cne $files[$n]){throw 'G2_RESUME_PLAY_SOURCE_DRIFT'}
+        }
+        Write-Output 'G2_RESUME_ORIGINAL_REQUEST_PLAY_PINNED'
+        & pwsh -NoLogo -NoProfile -NonInteractive -File (Join-Path $dir 'owner_movie_flow.ps1') -RequestId $p.request_id
+        if($LASTEXITCODE -ne 0){throw 'G2_RESUME_PLAY_HOLD_NO_REPLAY'}
         return
     }
 
