@@ -95,7 +95,7 @@ _DENIAL = re.compile(r"access denied|403 forbidden|verify (?:you are|that you ar
 _DENIAL_PAGE_HEADER = re.compile(
     r"(?im)^\s*(?:title\s*[:=]\s*|(?:\d+\s+)?heading\s+)?[\"']?"
     r"(?:access denied|403 forbidden|verify (?:you are|that you are) human|"
-    r"making sure you.re not a bot|just a moment)[.!…]?[\"']?\s*$"
+    r"making sure you.re not a bot|just a moment)(?:[.!…]|\.\.\.)?[\"']?\s*$"
 )
 
 
