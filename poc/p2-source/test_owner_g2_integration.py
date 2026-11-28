@@ -24,28 +24,46 @@ class OwnerIntegrationTests(unittest.TestCase):
     def test_warm_session_denial_evidence_and_no_replay(self):
         import time
         from agy_owner_warm_session import warm_reason
+        blocked = "AGY_STREAM_ACCESS_BLOCKED"
+        unknown = "AGY_STREAM_ACCESS_UNCONFIRMED"
+        # Existing source-bound evaluate_script trace format: JSON data rows.
+        # Only an explicitly typed benign content field may contain a keyword.
+        data = [{"title": "A documentary about captcha", "year": 2026,
+                 "resolution": "1080p", "size_mb": 8000, "seeds": 9,
+                 "codec": "H264"}]
         cases = (
-            ("Title: Just a moment...", 3, "AGY_STREAM_ACCESS_BLOCKED"),
-            ("Title: Just a moment…", 3, "AGY_STREAM_ACCESS_BLOCKED"),
-            ("Title: Access denied", 3, "AGY_STREAM_ACCESS_BLOCKED"),
-            ("Title: Access denied", 4, "AGY_STREAM_ACCESS_UNCONFIRMED"),
-            ("Article mentions captcha and access denied", 3, "AGY_STREAM_ACCESS_UNCONFIRMED"),
-            ("Ordinary page content", 3, None),
+            ("take_snapshot", "Title: Just a moment...", 3, False, blocked),
+            ("take_snapshot", "Title: Just a moment…", 3, False, blocked),
+            ("take_snapshot", "Title: Access denied", 3, False, blocked),
+            ("take_snapshot", "Title: Access denied", 4, False, unknown),
+            ("evaluate_script", "Article mentions captcha and access denied", 3, False, unknown),
+            ("evaluate_script", "Ordinary page content", 3, False, None),
+            ("evaluate_script", json.dumps(data), 3, False, None),
+            ("evaluate_script", json.dumps(data), 4, False, unknown),
+            ("evaluate_script", json.dumps(data), 3, True, unknown),
+            ("take_snapshot", json.dumps(data), 3, False, unknown),
+            ("evaluate_script", json.dumps({"title": "Just a moment", "rows": data}), 3, False, unknown),
+            ("evaluate_script", json.dumps([dict(data[0], challenge=True)]), 3, False, unknown),
+            ("evaluate_script", json.dumps([dict(data[0], title="Access denied")]), 3, False, unknown),
+            ("evaluate_script", json.dumps([dict(data[0], year="unknown")]), 3, False, unknown),
+            ("evaluate_script", json.dumps(data) + "\nVerify you are human", 3, False, unknown),
         )
-        for output, page, expected in cases:
-            with self.subTest(output=output, page=page), tempfile.TemporaryDirectory() as d:
+        for tool_name, output, page, error, expected in cases:
+            with self.subTest(tool=tool_name, output=output, page=page, error=error), tempfile.TemporaryDirectory() as d:
                 root = Path(d)
                 session = OwnerAgyWarmSession(ps="unused", env={}, root=root)
                 session.process = SimpleNamespace(poll=lambda: None, stdin=io.StringIO())
-                def tool(name, output, page=None):
+                def tool(name, output, page=None, error=False):
                     params = {"ToolName": name, "ServerName": "ttv-browser"}
                     if page is not None:
                         params["pageId"] = page
-                    return {"step_update": {"tool_name": "call_mcp_tool",
-                            "tool_info": {"parameters": params, "output": output}}}
+                    info = {"parameters": params, "output": output}
+                    if error:
+                        info["error"] = True
+                    return {"step_update": {"tool_name": "call_mcp_tool", "tool_info": info}}
                 for event in (
                     tool("list_pages", "3: https://example.org/"),
-                    tool("take_snapshot", output, page),
+                    tool(tool_name, output, page, error),
                     {"event": "result", "result": {
                         "conversation_id": "fixture", "response": "{}"}},
                 ):
@@ -60,6 +78,7 @@ class OwnerIntegrationTests(unittest.TestCase):
                 else:
                     self.assertEqual(session.turn("fixture", root/"turn",
                                                   source_host="example.org").response, {})
+                    self.assertEqual(len(session.process.stdin.getvalue().splitlines()), 1)
 
 
     def test_selection_private_consumer_publishes_exact_g22_input_once(self):
