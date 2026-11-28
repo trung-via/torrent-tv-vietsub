@@ -1,26 +1,24 @@
-# Flow 3 - flat local handoff (candidate)
+# Flow 3 — standalone selected release to playback (main-targeted slice)
 
-Reuse existing AGY Owner, TorrServer, HostOps and paired OMP. No additional
-service, watcher, new browser, token transfer or public media payload.
+Reuse existing Owner, TorrServer, HostOps and paired OMP. No extra service,
+browser, worker, Android change, Vietsub activation or token transfer.
 
-1. A trusted Owner-local caller supplies an already authorized, matched
-   selection as `g2-<request_id>.selected.json` in the Owner-private directory.
-   Existing R5 metadata-only output cannot establish a release locator or rights;
-   a trusted producer still has to supply this selection. Do not synthesize
-   a locator from metadata or auto-grant authorization to model output.
-2. The Owner invokes `python owner_movie_handoff.py <private_root> <request_id>`.
-   This uses local TorrServer, publishes the private hash/file receipt into the
-   already enrolled ProgramData HostOps Receipts directory, and emits a status
-   only. A pending file selection never becomes a launch.
-3. The existing paired runner invokes
-   `pwsh -File owner_movie_play.ps1 -RequestId <request_id>` from the same
-   pinned source. It reads the exact receipt, rechecks the selected file,
-   reuses its own DPAPI token, and launches at most once. HTTP ACK is not
-   playback proof. No owner credential or selected link crosses accounts.
+1. A trusted Owner-local producer supplies the authorized and matched selection
+   as g2-<request_id>.selected.json. The model alone cannot grant rights.
+2. owner_movie_handoff.py consumes that selection, performs at most one add,
+   reads exact hash and file ID and publishes the ready receipt to the existing
+   HostOps Receipts directory. Never guess a file or repeat uncertain add.
+3. owner_movie_flow.ps1 waits for the same request's receipt then invokes
+   owner_movie_play.ps1 once using the existing paired runner. The launch
+   attempt is durable; HTTP ACK and PlayerActivity foreground are not rendering
+   proof. TrackTimecode=false can produce zero history; history is not a gate.
 
-The existing HostOps workflow must invoke these two steps for the same
-authorized request. That operational invocation, ACL readback in the actual
-account pair, AGY locator production, and session-bound Vietsub activation are
-not yet verified or deployed. No new ACL, workflow or service is installed by
-this source change. If an operation is uncertain, reconcile its saved evidence
-rather than replaying the add or launch.
+The production checkpoint for Cosmos Laundromat was selected by AGY in
+run 46094765906, independently read in 46095958040, recovered through the same
+handoff and play scripts in 46096210234, and actual picture was confirmed
+by Human on Redmi (Issue #191). AGY 55859 ms and Library recovery 5253 ms are
+separate phases, not uninterrupted E2E latency. No second AGY call or play.
+The actual Windows Owner G2.1 integration is still the stacked #195 candidate;
+this main-targeted slice does not include or merge its G1 ancestors. It is
+not standalone full production ingress. Exact-head CI and independent Brain
+review under #42 remain separate. No new native run or deployment in this PR.
