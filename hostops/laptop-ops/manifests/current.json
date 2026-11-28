@@ -1,9 +1,9 @@
 {
   "schema": "TTV-LAPTOP-HOSTOPS-OPERATION-V1",
-  "operation": "owner-flow3-post-human-verification",
-  "category": "owner-maintenance",
+  "operation": "owner-flow3-agy-trace-comparison",
+  "category": "diagnostics",
   "risk": "ROUTINE",
-  "script_path": "hostops/laptop-ops/operations/flow3-post-human-verification.ps1",
-  "script_sha256": "ca20876fa2e925f42a43fa4df612b286b0c09e46faae2bd5b79cb2ba14e8e482",
+  "script_path": "hostops/laptop-ops/operations/flow3-agy-trace-comparison.ps1",
+  "script_sha256": "20bb074295f6c732cb5f0be2f916e4d65b69d45249eebf4a4b0d2e232c3806dd",
   "arguments": []
 }
