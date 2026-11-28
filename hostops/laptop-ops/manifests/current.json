@@ -4,6 +4,6 @@
   "category": "owner-maintenance",
   "risk": "ROUTINE",
   "script_path": "hostops/laptop-ops/operations/g2-production-once.ps1",
-  "script_sha256": "5a1cd5eb7dd3289bb5e08d3cba1280b2b82e4da9208ebfab9050729c587e88eb",
+  "script_sha256": "7f5766103cf292986121efcec071f76ee6a6c949553b9b9d6afbe4bbe9eed938",
   "arguments": []
 }
