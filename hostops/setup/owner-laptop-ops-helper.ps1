@@ -98,8 +98,17 @@ try {
         'User-Agent' = 'torrent-tv-owner-laptop-ops'
         Accept = 'application/vnd.github+json'
     } -ErrorAction Stop
+    $movieIngress = $false
     if ($ref.object.type -cne 'commit' -or $ref.object.sha -cne $sourceCommit) {
-        throw 'OWNER_OPS_TRUSTED_SOURCE_BRANCH_DRIFT'
+        # The already merged typed movie workflow uses its own exact pin.
+        # Admit only that distribution pin, and independently check its branch.
+        if ($sourceCommit -cne '7ec2eccfba633625d845b37264d44083173fb576') { throw 'OWNER_OPS_TRUSTED_SOURCE_BRANCH_DRIFT' }
+        $movieRef = Invoke-RestMethod -Method Get -Uri 'https://api.github.com/repos/trung-via/torrent-tv-vietsub/git/ref/heads/hostops/production-movie-v2' -Headers @{
+            'User-Agent' = 'torrent-tv-owner-laptop-ops'
+            Accept = 'application/vnd.github+json'
+        } -ErrorAction Stop
+        if ($movieRef.object.type -cne 'commit' -or $movieRef.object.sha -cne $sourceCommit) { throw 'OWNER_OPS_TRUSTED_MOVIE_BRANCH_DRIFT' }
+        $movieIngress = $true
     }
 
     if (-not (Test-Path -LiteralPath $private -PathType Container)) {
@@ -130,6 +139,9 @@ try {
             $argument -cnotmatch '\A-[A-Za-z][A-Za-z0-9]{0,39}\z') {
             throw 'OWNER_OPS_ARGUMENT_NOT_FIXED_SWITCH'
         }
+    }
+    if ($movieIngress -and ($manifest.operation -cne 'owner-production-movie' -or $manifest.category -cne 'owner-maintenance' -or $manifest.script_path -cne 'hostops/laptop-ops/operations/production-movie.ps1' -or $manifest.arguments.Count -ne 0)) {
+        throw 'OWNER_OPS_MOVIE_MANIFEST_SCOPE'
     }
     $operation = [string]$manifest.operation
     $scriptFile = Join-Path $run 'operation.ps1'
