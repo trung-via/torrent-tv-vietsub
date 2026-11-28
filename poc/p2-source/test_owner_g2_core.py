@@ -235,7 +235,7 @@ class WarmTests(unittest.TestCase):
             root = Path(d)
             with patch("owner_g2_discovery.os", SimpleNamespace(name="nt", environ={})), \
                  patch("owner_g2_discovery.shutil.which", return_value="pwsh"), \
-                 patch.dict(sys.modules, {"agy_v13_native_producer": None}):
+                 patch.dict(sys.modules, {"owner_g2_support": None}):
                 with self.assertRaisesRegex(WarmSessionError, "G2_OWNER_RUNTIME_DEPENDENCY_MISSING"):
                     discover_movie_batch(root, [MovieQuery("Example", 2026)], root/"cache",
                                          source_url="https://example.org", authorized_source=True)
